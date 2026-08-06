@@ -1,0 +1,24 @@
+<?xml version="1.0"?>
+<!--
+  Trần bộ nhớ cho TỪNG query, khác với trần toàn server ở config.d/low-mem.xml.
+
+  Không có giới hạn này thì một câu GROUP BY viết ẩu trên bảng lớn có thể ăn hết
+  phần RAM mà server được phép dùng, rồi kéo theo mọi truy vấn khác cùng chết.
+  Giới hạn ở mức profile thì query lỗi sẽ trả về "Memory limit exceeded" — thông
+  báo rõ ràng, sửa được, thay vì cả container bị OOM-kill.
+-->
+<clickhouse>
+    <profiles>
+        <default>
+            <!-- 1 GB cho mỗi query -->
+            <max_memory_usage>1000000000</max_memory_usage>
+            <!-- 2 GB cho tất cả query của cùng một user -->
+            <max_memory_usage_for_user>2000000000</max_memory_usage_for_user>
+            <!-- Cho phép đổ ra đĩa khi GROUP BY vượt ngưỡng, thay vì fail ngay -->
+            <max_bytes_before_external_group_by>500000000</max_bytes_before_external_group_by>
+            <max_bytes_before_external_sort>500000000</max_bytes_before_external_sort>
+            <!-- Query chạy quá 60s là có gì đó sai, không phải là chậm -->
+            <max_execution_time>60</max_execution_time>
+        </default>
+    </profiles>
+</clickhouse>

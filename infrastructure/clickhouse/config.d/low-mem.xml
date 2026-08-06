@@ -1,0 +1,36 @@
+<?xml version="1.0"?>
+<!--
+  Ghì ClickHouse lại cho vừa máy dev.
+
+  MẶC ĐỊNH max_server_memory_usage_to_ram_ratio LÀ 0.9 — tức trên máy 16 GB,
+  ClickHouse tự cho phép mình dùng tới ~14 GB. Đủ để đóng băng cả máy khi còn
+  8 container khác đang chạy. 0.3 (~4.8 GB trên máy 16 GB) là quá đủ cho khối
+  lượng dữ liệu của đồ án (50k–1M dòng).
+
+  Lưu ý: thẻ gốc là <clickhouse>. Các bản trước 22.x dùng <yandex> — chép nhầm
+  từ tutorial cũ thì file này bị bỏ qua âm thầm, không báo lỗi.
+-->
+<clickhouse>
+    <!-- Trần bộ nhớ toàn server, tính theo tỉ lệ RAM máy -->
+    <max_server_memory_usage_to_ram_ratio>0.3</max_server_memory_usage_to_ram_ratio>
+
+    <!-- Cache mark: mặc định 5 GB, giảm còn 512 MB -->
+    <mark_cache_size>536870912</mark_cache_size>
+
+    <!-- Cache dữ liệu nén: mặc định 8 GB, giảm còn 512 MB -->
+    <uncompressed_cache_size>536870912</uncompressed_cache_size>
+
+    <!-- Giữ log gọn, tránh phình volume trong lúc dev -->
+    <logger>
+        <level>warning</level>
+        <size>100M</size>
+        <count>3</count>
+    </logger>
+
+    <!-- Bảng system.*_log ghi rất nhiều. Giữ query_log để đo hiệu năng ở F12,
+         tắt các log còn lại. -->
+    <metric_log remove="1"/>
+    <asynchronous_metric_log remove="1"/>
+    <trace_log remove="1"/>
+    <session_log remove="1"/>
+</clickhouse>

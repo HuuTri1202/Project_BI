@@ -69,6 +69,24 @@ npm run dev
 | http://localhost:4000/health | Backend |
 | http://localhost:8081/admin | Keycloak |
 
+### Profile — chỉ bật phần đang cần
+
+9 container không nên cùng chạy suốt ngày. `npm run infra:up` chỉ khởi động 3
+service lõi; phần còn lại chia theo profile:
+
+| Lệnh | Thêm gì | Khi nào cần |
+| --- | --- | --- |
+| `npm run infra:up` | MySQL, Redis, Keycloak | luôn luôn |
+| `npm run infra:up:data` | MinIO, ClickHouse | làm F5 (nạp dữ liệu) |
+| `npm run infra:up:bi` | Cube.js (+ ClickHouse) | làm F7 (tầng ngữ nghĩa) |
+| `npm run infra:up:all` | + Kafka, Connect, dbt | demo toàn hệ thống |
+
+Cả 9 container ở trạng thái nghỉ tốn khoảng **1,8 GB** RAM. Mỗi service đều có
+trần bộ nhớ riêng trong `docker-compose.yml`, xem bằng `npm run infra:stats`.
+
+Muốn khỏi gõ cờ profile mỗi lần: đặt `COMPOSE_PROFILES=data,bi` trong
+`infrastructure/.env`.
+
 > **Backend và frontend cố ý KHÔNG chạy trong Docker khi dev.** Mã nguồn nằm
 > trên ổ Windows, bind mount vào container phải đi qua lớp 9p/drvfs của WSL2 nên
 > sự kiện `inotify` không truyền qua được — `tsx watch` và Vite HMR sẽ mù. Chữa
@@ -96,10 +114,15 @@ bi-flatform/
 ├── frontend/                 # React 18 + TypeScript + Vite
 ├── infrastructure/
 │   ├── docker-compose.yml    # ⚠️ Dev A sở hữu độc quyền — xem quy ước bên dưới
-│   ├── start-dev.sh          # khởi động toàn bộ môi trường dev
+│   ├── start-dev.sh          # khởi động môi trường dev (3 service lõi)
 │   ├── reset-keycloak.sh     # import lại realm sau khi sửa file JSON
 │   ├── keycloak/realms/      # cấu hình realm (roles, clients, users)
-│   └── mysql/init/           # SQL chạy khi volume MySQL còn rỗng
+│   ├── mysql/init/           # SQL chạy khi volume MySQL còn rỗng
+│   ├── minio/                # script tạo bucket
+│   ├── clickhouse/           # config.d (trần RAM) + users.d (trần mỗi query)
+│   ├── cube/                 # cube.js + model/cubes/ (F7 sinh file vào đây)
+│   ├── dbt/                  # Dockerfile + profiles.yml + dbt_project.yml
+│   └── spike/                # chứng minh Cube ↔ ClickHouse chạy (F1.7)
 └── docs/
     └── ports.md              # bản đồ cổng — đọc trước khi thêm service
 ```
@@ -165,8 +188,12 @@ npm run build          # build production cả 2
 npm test               # Vitest (backend)
 npm run verify         # lint + typecheck + build — CHẠY TRƯỚC KHI MỞ PR
 
-npm run infra:up       # khởi động MySQL + Redis + Keycloak
+npm run infra:up       # 3 service lõi: MySQL + Redis + Keycloak
+npm run infra:up:data  # + MinIO, ClickHouse
+npm run infra:up:bi    # + Cube.js (kéo theo ClickHouse)
+npm run infra:up:all   # cả 9 container
 npm run infra:ps       # trạng thái container
+npm run infra:stats    # RAM/CPU từng container
 npm run infra:logs     # theo dõi log
 npm run infra:down     # dừng container, giữ dữ liệu
 npm run keycloak:reset # import lại realm Keycloak

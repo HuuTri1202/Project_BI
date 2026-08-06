@@ -1,4 +1,38 @@
+# =============================================================================
+# BI Platform — môi trường dev
+#
+# PROFILES: 9 container không thể cùng chạy thoải mái trên laptop, nên chỉ bật
+# phần nào đang cần.
+#
+#   (không profile)  mysql, redis, keycloak      -> LUÔN chạy
+#   data             minio, minio-init, clickhouse
+#   bi               cube  (+ clickhouse)
+#   stream           kafka, connect
+#   tools            dbt   (+ clickhouse)
+#
+#   docker compose up -d                          # chỉ 3 service lõi
+#   docker compose --profile data up -d           # + MinIO, ClickHouse
+#   docker compose --profile bi   up -d           # + Cube (kéo theo ClickHouse)
+#   docker compose --profile data --profile bi --profile stream --profile tools up -d
+#
+# Ba service lõi CỐ Ý không gán profile: service không có `profiles:` thì luôn
+# khởi động, kể cả khi bật profile khác. Nhờ vậy `docker compose up -d` và
+# start-dev.sh giữ nguyên hành vi cũ — nếu gán chúng vào profile "core" thì
+# lệnh up không kèm cờ sẽ lặng lẽ không khởi động gì cả.
+#
+# clickhouse gán BA profile vì cả cube lẫn dbt đều phụ thuộc nó. Service liệt kê
+# nhiều profile sẽ chạy khi BẤT KỲ profile nào trong đó được bật, tránh lỗi
+# "depends on service which is not enabled".
+#
+# TAG: mọi image đều pin phiên bản cụ thể, KHÔNG dùng :latest — hai máy pull ở
+# hai thời điểm khác nhau sẽ ra hai bản khác nhau, và lỗi kiểu đó rất khó tìm.
+# =============================================================================
+
 services:
+  # ===========================================================================
+  # LÕI — luôn chạy
+  # ===========================================================================
+
   mysql:
     image: mysql:8.0
     container_name: bi-mysql
@@ -21,6 +55,10 @@ services:
       timeout: 5s
       retries: 10
       start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 1g
     networks:
       - bi-network
 
@@ -40,6 +78,10 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
+    deploy:
+      resources:
+        limits:
+          memory: 512m
     networks:
       - bi-network
 
@@ -93,12 +135,309 @@ services:
       timeout: 5s
       retries: 20
       start_period: 60s
+    deploy:
+      resources:
+        limits:
+          memory: 768m
+    networks:
+      - bi-network
+
+  # ===========================================================================
+  # DATA — object storage + kho phân tích        (--profile data)
+  # ===========================================================================
+
+  minio:
+    image: minio/minio:RELEASE.2025-09-07T16-13-09Z
+    container_name: bi-minio
+    profiles: ["data"]
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin123}
+      TZ: Asia/Ho_Chi_Minh
+    ports:
+      - "${MINIO_API_PORT:-9000}:9000"       # API — @aws-sdk/client-s3 gọi vào đây
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"   # Giao diện web quản trị
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      # Image MinIO đã kèm sẵn mc, không cần curl/wget
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+    networks:
+      - bi-network
+
+  # Chạy một lần để tạo bucket rồi thoát. restart:"no" để không bị khởi động lại
+  # vô hạn sau khi hoàn thành.
+  minio-init:
+    image: minio/mc:RELEASE.2025-08-13T08-35-41Z
+    container_name: bi-minio-init
+    profiles: ["data"]
+    restart: "no"
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin123}
+      BI_BUCKET: ${S3_BUCKET:-bi-datasets}
+    entrypoint: ["/bin/sh", "/scripts/init-bucket.sh"]
+    volumes:
+      - ./minio:/scripts:ro
+    networks:
+      - bi-network
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:25.8
+    container_name: bi-clickhouse
+    # BA profile: cube (bi) và dbt (tools) đều phụ thuộc ClickHouse. Không khai
+    # đủ ở đây thì `--profile bi` một mình sẽ lỗi phụ thuộc.
+    profiles: ["data", "bi", "tools"]
+    restart: unless-stopped
+    environment:
+      CLICKHOUSE_DB: ${CLICKHOUSE_DB:-bi_analytics}
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER:-bi_user}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-clickhouse_password}
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+      TZ: Asia/Ho_Chi_Minh
+    ports:
+      - "${CLICKHOUSE_HTTP_PORT:-8123}:8123"     # HTTP — dbt và @clickhouse/client dùng cổng này
+      - "${CLICKHOUSE_NATIVE_PORT:-9002}:9000"   # Native — mặc định 9000 ĐỤNG MinIO, nên map ra 9002
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+      # Mount TỪNG FILE, tuyệt đối không mount cả thư mục config.d / users.d.
+      #
+      # Entrypoint của image cần tự ghi hai file vào chính hai thư mục đó:
+      #   config.d/docker_related_config.xml -> bật <listen_host> để ClickHouse
+      #     nghe trên mọi interface. Thiếu file này nó chỉ nghe 127.0.0.1 và
+      #     container khác (Cube, dbt) nhận ECONNREFUSED.
+      #   users.d/default-user.xml -> tạo user từ CLICKHOUSE_USER/PASSWORD.
+      #
+      # Mount cả thư mục dạng :ro sẽ chặn cả hai. Hỏng kiểu này rất khó đoán:
+      # container vẫn "healthy" (healthcheck chạy từ bên trong qua localhost)
+      # nhưng mọi service khác không kết nối được.
+      - ./clickhouse/config.d/low-mem.xml:/etc/clickhouse-server/config.d/low-mem.xml:ro
+      - ./clickhouse/users.d/limits.xml:/etc/clickhouse-server/users.d/limits.xml:ro
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "clickhouse-client --user $${CLICKHOUSE_USER} --password $${CLICKHOUSE_PASSWORD} --query 'SELECT 1' || exit 1",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 2g
+    networks:
+      - bi-network
+
+  # ===========================================================================
+  # BI — tầng ngữ nghĩa                          (--profile bi)
+  # ===========================================================================
+
+  cube:
+    image: cubejs/cube:v1.7.16
+    container_name: bi-cube
+    profiles: ["bi"]
+    restart: unless-stopped
+    environment:
+      CUBEJS_DEV_MODE: "true"
+      CUBEJS_DB_TYPE: clickhouse
+      CUBEJS_DB_HOST: clickhouse       # tên service, không phải localhost
+      CUBEJS_DB_PORT: 8123             # cổng HTTP của ClickHouse
+      CUBEJS_DB_NAME: ${CLICKHOUSE_DB:-bi_analytics}
+      CUBEJS_DB_USER: ${CLICKHOUSE_USER:-bi_user}
+      CUBEJS_DB_PASS: ${CLICKHOUSE_PASSWORD:-clickhouse_password}
+      # Secret này để Express ký JWT ngắn hạn mang securityContext ở F7.
+      # Cube TUYỆT ĐỐI không được expose thẳng ra trình duyệt.
+      CUBEJS_API_SECRET: ${CUBEJS_API_SECRET:-cube-api-secret-change-me}
+      CUBEJS_LOG_LEVEL: info
+      TZ: Asia/Ho_Chi_Minh
+    ports:
+      - "${CUBEJS_PORT:-4100}:4000"    # Cube mặc định 4000 — ĐỤNG Express, nên map ra 4100
+    volumes:
+      # F7 sẽ khiến Express sinh file schema vào ./cube/model/cubes/
+      - ./cube:/cube/conf
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+    healthcheck:
+      # Image Cube dựa trên Node, không có curl — dùng chính node để gọi HTTP
+      test:
+        [
+          "CMD-SHELL",
+          "node -e \"require('http').get('http://127.0.0.1:4000/readyz',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))\"",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 1g
+    networks:
+      - bi-network
+
+  # ===========================================================================
+  # STREAM — Event-Driven / CDC                  (--profile stream)
+  # ===========================================================================
+
+  kafka:
+    image: apache/kafka:3.8.1
+    container_name: bi-kafka
+    profiles: ["stream"]
+    restart: unless-stopped
+    environment:
+      # --- KRaft: 1 node vừa là broker vừa là controller, KHÔNG cần ZooKeeper ---
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+
+      # Hai listener khác nhau vì client trong network và client trên host nhìn
+      # thấy hai địa chỉ khác nhau:
+      #   PLAINTEXT      -> container khác gọi bằng "kafka:9092"
+      #   PLAINTEXT_HOST -> máy host gọi bằng "localhost:29092"
+      # Chỉ có một listener thì client trên host sẽ nhận advertised address
+      # "kafka:9092" và không phân giải được tên đó.
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093,PLAINTEXT_HOST://0.0.0.0:29092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+
+      # Cụm chỉ có 1 broker -> mọi replication factor phải là 1.
+      # Để mặc định 3 thì Connect sẽ treo vĩnh viễn lúc tạo topic nội bộ.
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_NUM_PARTITIONS: 1
+
+      # Không đặt thì JVM tự lấy 1/4 RAM máy — trên máy 16 GB là 4 GB cho một
+      # broker chỉ phục vụ đồ án.
+      KAFKA_HEAP_OPTS: -Xmx512m -Xms256m
+
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+      TZ: Asia/Ho_Chi_Minh
+    ports:
+      - "${KAFKA_HOST_PORT:-29092}:29092"
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 >/dev/null 2>&1",
+        ]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 1g
+    networks:
+      - bi-network
+
+  connect:
+    image: debezium/connect:2.7.3.Final
+    container_name: bi-connect
+    profiles: ["stream"]
+    restart: unless-stopped
+    environment:
+      BOOTSTRAP_SERVERS: kafka:9092
+      GROUP_ID: bi-connect
+      CONFIG_STORAGE_TOPIC: _connect_configs
+      OFFSET_STORAGE_TOPIC: _connect_offsets
+      STATUS_STORAGE_TOPIC: _connect_status
+      # Bắt buộc = 1 trên cụm 1 broker
+      CONFIG_STORAGE_REPLICATION_FACTOR: 1
+      OFFSET_STORAGE_REPLICATION_FACTOR: 1
+      STATUS_STORAGE_REPLICATION_FACTOR: 1
+      # JSON không kèm schema -> message gọn, consumer kafkajs ở F10 parse thẳng
+      KEY_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      CONNECT_KEY_CONVERTER_SCHEMAS_ENABLE: "false"
+      CONNECT_VALUE_CONVERTER_SCHEMAS_ENABLE: "false"
+      KAFKA_HEAP_OPTS: -Xmx512m -Xms256m
+      TZ: Asia/Ho_Chi_Minh
+    ports:
+      - "${CONNECT_PORT:-8083}:8083"
+    depends_on:
+      kafka:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8083/ >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 45s
+    deploy:
+      resources:
+        limits:
+          memory: 1g
+    networks:
+      - bi-network
+
+  # ===========================================================================
+  # TOOLS — chạy lệnh thủ công                   (--profile tools)
+  # ===========================================================================
+
+  # Container này không phục vụ request nào. Nó chỉ đứng đó để `docker exec` vào
+  # chạy `dbt run` / `dbt test` / `dbt docs generate`.
+  dbt:
+    build:
+      context: ./dbt
+      dockerfile: Dockerfile
+    image: bi-platform/dbt:1.8
+    container_name: bi-dbt
+    profiles: ["tools"]
+    restart: "no"
+    command: ["sleep", "infinity"]
+    environment:
+      CLICKHOUSE_HOST: clickhouse
+      CLICKHOUSE_PORT: 8123
+      CLICKHOUSE_DB: ${CLICKHOUSE_DB:-bi_analytics}
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER:-bi_user}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-clickhouse_password}
+      DBT_PROFILES_DIR: /usr/app
+      TZ: Asia/Ho_Chi_Minh
+    volumes:
+      - ./dbt:/usr/app
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 512m
     networks:
       - bi-network
 
 volumes:
   mysql_data:
   redis_data:
+  minio_data:
+  clickhouse_data:
+  kafka_data:
 
 networks:
   bi-network:

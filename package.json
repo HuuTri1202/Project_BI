@@ -22,9 +22,13 @@
     "verify": "npm run lint && npm run typecheck && npm run build",
 
     "infra:up": "bash infrastructure/start-dev.sh",
-    "infra:down": "docker compose -f infrastructure/docker-compose.yml stop",
-    "infra:ps": "docker compose -f infrastructure/docker-compose.yml ps",
+    "infra:up:data": "docker compose -f infrastructure/docker-compose.yml --profile data up -d",
+    "infra:up:bi": "docker compose -f infrastructure/docker-compose.yml --profile bi up -d",
+    "infra:up:all": "docker compose -f infrastructure/docker-compose.yml --profile data --profile bi --profile stream --profile tools up -d",
+    "infra:down": "docker compose -f infrastructure/docker-compose.yml --profile data --profile bi --profile stream --profile tools stop",
+    "infra:ps": "docker compose -f infrastructure/docker-compose.yml --profile data --profile bi --profile stream --profile tools ps",
     "infra:logs": "docker compose -f infrastructure/docker-compose.yml logs -f",
+    "infra:stats": "docker stats --no-stream --format \"table {{.Name}}\\t{{.MemUsage}}\\t{{.MemPerc}}\\t{{.CPUPerc}}\"",
     "keycloak:reset": "bash infrastructure/reset-keycloak.sh"
   },
   "devDependencies": {

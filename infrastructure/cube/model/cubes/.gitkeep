@@ -1,0 +1,8 @@
+# Thư mục này để TRỐNG trong git.
+#
+# F7 (Tầng ngữ nghĩa) sẽ khiến Express sinh file {dataModelId}.js vào đây lúc
+# chạy, mỗi khi người dùng lưu một DataModel. Cube tự hot-reload khi thấy file
+# thay đổi.
+#
+# Vì file ở đây là sản phẩm sinh tự động nên .gitignore đã loại trừ *.js —
+# chỉ giữ lại .gitkeep để git còn tạo được thư mục sau khi clone.

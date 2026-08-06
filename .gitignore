@@ -73,6 +73,18 @@ docker-compose.override.yml
 infrastructure/keycloak/realms/*-export.json
 infrastructure/keycloak/export/
 
+# Schema Cube.js do Express SINH RA lúc chạy (xem ADR-08), không phải mã nguồn.
+# Giữ .gitkeep để git còn tạo được thư mục sau khi clone.
+infrastructure/cube/model/cubes/*
+!infrastructure/cube/model/cubes/.gitkeep
+
+# Sản phẩm biên dịch của dbt
+infrastructure/dbt/target/
+infrastructure/dbt/dbt_packages/
+infrastructure/dbt/logs/
+# dbt tự sinh file này chứa id tracking ẩn danh, khác nhau trên mỗi máy
+infrastructure/dbt/.user.yml
+
 # Dump database
 *.sql.gz
 *.dump

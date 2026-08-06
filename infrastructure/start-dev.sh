@@ -277,6 +277,13 @@ echo "  ${BOLD}Chạy riêng nếu cần${NC}"
 echo "    npm run dev:api           # chỉ backend"
 echo "    npm run dev:web           # chỉ frontend"
 echo
+echo "  ${BOLD}Bật thêm hạ tầng theo nhu cầu (profile)${NC}"
+echo "    ${DC} --profile data up -d      # + MinIO, ClickHouse"
+echo "    ${DC} --profile bi   up -d      # + Cube.js (kéo theo ClickHouse)"
+echo "    ${DC} --profile stream up -d    # + Kafka, Debezium Connect"
+echo "    ${DC} --profile tools  up -d    # + dbt"
+echo "    (script này chỉ khởi động 3 service lõi - xem README)"
+echo
 echo "  ${BOLD}Lệnh Docker hữu ích${NC}"
 echo "    ${DC} ps                  # xem trạng thái"
 echo "    ${DC} logs -f mysql       # xem log MySQL"
