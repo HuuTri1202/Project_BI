@@ -4,18 +4,18 @@
 # PROFILES: 9 container không thể cùng chạy thoải mái trên laptop, nên chỉ bật
 # phần nào đang cần.
 #
-#   (không profile)  mysql, redis, keycloak      -> LUÔN chạy
+#   (không profile)  mysql, redis                -> LUÔN chạy
 #   data             minio, minio-init, clickhouse
 #   bi               cube  (+ clickhouse)
 #   stream           kafka, connect
 #   tools            dbt   (+ clickhouse)
 #
-#   docker compose up -d                          # chỉ 3 service lõi
+#   docker compose up -d                          # chỉ service lõi
 #   docker compose --profile data up -d           # + MinIO, ClickHouse
 #   docker compose --profile bi   up -d           # + Cube (kéo theo ClickHouse)
 #   docker compose --profile data --profile bi --profile stream --profile tools up -d
 #
-# Ba service lõi CỐ Ý không gán profile: service không có `profiles:` thì luôn
+# Service lõi CỐ Ý không gán profile: service không có `profiles:` thì luôn
 # khởi động, kể cả khi bật profile khác. Nhờ vậy `docker compose up -d` và
 # start-dev.sh giữ nguyên hành vi cũ — nếu gán chúng vào profile "core" thì
 # lệnh up không kèm cờ sẽ lặng lẽ không khởi động gì cả.
@@ -82,63 +82,6 @@ services:
       resources:
         limits:
           memory: 512m
-    networks:
-      - bi-network
-
-  keycloak:
-    image: quay.io/keycloak/keycloak:22.0.1
-    container_name: bi-keycloak
-    restart: unless-stopped
-    # start-dev: chế độ dev (HTTP, không cần TLS, không cache cluster).
-    # --import-realm: import mọi file .json trong /opt/keycloak/data/import lúc khởi động.
-    command: ["start-dev", "--import-realm"]
-    environment:
-      # --- Tài khoản quản trị Keycloak (master realm) ---
-      KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN:-admin}
-      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin123}
-
-      # --- Kết nối MySQL (dùng chung container mysql, database riêng) ---
-      KC_DB: mysql
-      KC_DB_URL_HOST: mysql          # tên service trong network, KHÔNG phải localhost
-      KC_DB_URL_PORT: 3306           # port nội bộ container, không phải port map ra host
-      KC_DB_URL_DATABASE: ${KEYCLOAK_DB_NAME:-keycloak}
-      KC_DB_USERNAME: ${KEYCLOAK_DB_USER:-keycloak}
-      KC_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD:-keycloak_password}
-      KC_DB_URL_PROPERTIES: "?characterEncoding=UTF-8&connectionTimeZone=UTC"
-      KC_TRANSACTION_XA_ENABLED: "false"
-
-      # --- HTTP / hostname (chỉ hợp lệ cho môi trường dev) ---
-      KC_HTTP_ENABLED: "true"
-      KC_HOSTNAME_STRICT: "false"
-      KC_HOSTNAME_STRICT_HTTPS: "false"
-
-      # --- Endpoint /health/* và /metrics ---
-      KC_HEALTH_ENABLED: "true"
-      KC_METRICS_ENABLED: "true"
-
-      TZ: Asia/Ho_Chi_Minh
-    ports:
-      - "${KEYCLOAK_PORT:-8081}:8080"
-    volumes:
-      - ./keycloak/realms:/opt/keycloak/data/import:ro
-    depends_on:
-      mysql:
-        condition: service_healthy   # chờ MySQL healthy rồi mới khởi động
-    healthcheck:
-      # Image Keycloak không có curl/wget, dùng /dev/tcp của bash để gọi HTTP
-      test:
-        [
-          "CMD-SHELL",
-          "exec 3<>/dev/tcp/127.0.0.1/8080; echo -e 'GET /health/ready HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3; cat <&3 | grep -q 'UP'",
-        ]
-      interval: 15s
-      timeout: 5s
-      retries: 20
-      start_period: 60s
-    deploy:
-      resources:
-        limits:
-          memory: 768m
     networks:
       - bi-network
 

@@ -28,8 +28,7 @@
     "infra:down": "docker compose -f infrastructure/docker-compose.yml --profile data --profile bi --profile stream --profile tools stop",
     "infra:ps": "docker compose -f infrastructure/docker-compose.yml --profile data --profile bi --profile stream --profile tools ps",
     "infra:logs": "docker compose -f infrastructure/docker-compose.yml logs -f",
-    "infra:stats": "docker stats --no-stream --format \"table {{.Name}}\\t{{.MemUsage}}\\t{{.MemPerc}}\\t{{.CPUPerc}}\"",
-    "keycloak:reset": "bash infrastructure/reset-keycloak.sh"
+    "infra:stats": "docker stats --no-stream --format \"table {{.Name}}\\t{{.MemUsage}}\\t{{.MemPerc}}\\t{{.CPUPerc}}\""
   },
   "devDependencies": {
     "concurrently": "^9.1.2"

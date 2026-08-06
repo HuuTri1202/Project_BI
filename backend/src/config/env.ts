@@ -34,16 +34,6 @@ const envSchema = z.object({
   REDIS_HOST: z.string().min(1),
   REDIS_PORT: portFromEnv,
   REDIS_PASSWORD: z.string().min(1),
-
-  // Keycloak: chỉ dùng để verify token bằng RS256 + JWKS.
-  // KHÔNG có JWT_SECRET ở đây — backend không tự ký token, chỉ xác thực token
-  // do Keycloak ký. Có secret đối xứng nằm sẵn là mời gọi ký sai thuật toán.
-  KEYCLOAK_URL: z.string().url(),
-  KEYCLOAK_REALM: z.string().min(1),
-  KEYCLOAK_ISSUER: z.string().url(),
-  KEYCLOAK_JWKS_URI: z.string().url(),
-  KEYCLOAK_CLIENT_ID: z.string().min(1),
-  KEYCLOAK_CLIENT_SECRET: z.string().min(1),
 });
 
 export type Env = Readonly<z.infer<typeof envSchema>>;

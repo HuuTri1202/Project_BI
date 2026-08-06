@@ -10,7 +10,6 @@ nếu để mặc định. Mọi thay đổi cổng phải cập nhật file nà
 | Backend (Express) | — | 4000 | — | ✅ | |
 | MySQL | *luôn chạy* | **3310** | 3306 | ✅ | Không dùng 3306 để tránh đụng MySQL cài sẵn |
 | Redis | *luôn chạy* | 6379 | 6379 | ✅ | ⚠️ xem cảnh báo bên dưới |
-| Keycloak | *luôn chạy* | **8081** | 8080 | ✅ | 8080 hay bị Tomcat/Jenkins/project khác chiếm |
 | MinIO API | `data` | 9000 | 9000 | ✅ | `@aws-sdk/client-s3` gọi vào đây |
 | MinIO Console | `data` | 9001 | 9001 | ✅ | Giao diện web |
 | ClickHouse HTTP | `data` `bi` `tools` | 8123 | 8123 | ✅ | dbt và `@clickhouse/client` dùng cổng này |
@@ -78,6 +77,6 @@ lsof -i :4000
 - **Cổng bên trong container giữ nguyên mặc định của image.** Chỉ đổi cổng map
   ra host. Nhờ vậy giao tiếp service-to-service qua `bi-network` không cần biết
   host đã map thế nào.
-- Ví dụ: Keycloak kết nối MySQL bằng `mysql:3306` (**không phải**
-  `localhost:3310`), Cube kết nối ClickHouse bằng `clickhouse:8123` (**không
-  phải** `localhost:8123`).
+- Ví dụ: Cube kết nối ClickHouse bằng `clickhouse:8123` (**không phải**
+  `localhost:8123`), Connect kết nối Kafka bằng `kafka:9092` (**không phải**
+  `localhost:29092`).

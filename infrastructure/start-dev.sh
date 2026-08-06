@@ -97,13 +97,6 @@ MYSQL_USER="${MYSQL_USER:-bi_user}"
 MYSQL_PASSWORD="${MYSQL_PASSWORD:-bi_password}"
 MYSQL_ROOT_PASSWORD="${MYSQL_ROOT_PASSWORD:-rootpassword}"
 REDIS_PASSWORD="${REDIS_PASSWORD:-redispassword}"
-KEYCLOAK_PORT="${KEYCLOAK_PORT:-8081}"
-KEYCLOAK_ADMIN="${KEYCLOAK_ADMIN:-admin}"
-KEYCLOAK_ADMIN_PASSWORD="${KEYCLOAK_ADMIN_PASSWORD:-admin123}"
-KEYCLOAK_DB_NAME="${KEYCLOAK_DB_NAME:-keycloak}"
-KEYCLOAK_DB_USER="${KEYCLOAK_DB_USER:-keycloak}"
-KEYCLOAK_DB_PASSWORD="${KEYCLOAK_DB_PASSWORD:-keycloak_password}"
-KEYCLOAK_REALM="bi-platform"
 
 if [ "$RECREATE" = true ]; then
   warn "--recreate: xoá container cũ (volume dữ liệu vẫn giữ)."
@@ -111,8 +104,8 @@ if [ "$RECREATE" = true ]; then
 fi
 
 # -d = detached: containers chạy nền, script tiếp tục chạy.
-# Khởi động MySQL/Redis trước; Keycloak chỉ start sau khi đã chắc chắn có database
-# của nó (nếu không Keycloak sẽ crash-loop).
+# Chỉ khởi động service lõi. Hạ tầng còn lại (MinIO, ClickHouse, Cube, Kafka,
+# dbt) nằm sau profile, bật riêng khi cần — xem cuối script.
 $DC up -d mysql redis
 
 ok "Đã gửi lệnh khởi động MySQL + Redis."
@@ -190,44 +183,6 @@ else
   warn "Redis đang chạy nhưng không phản hồi PING (kiểm tra REDIS_PASSWORD trong .env)."
 fi
 
-# --- Đảm bảo database của Keycloak tồn tại ---
-# File mysql/init/*.sql chỉ chạy khi volume mysql_data còn rỗng. Nếu MySQL đã được
-# tạo từ trước (volume cũ), database 'keycloak' sẽ không có -> tạo lại ở đây.
-# Các lệnh đều idempotent nên chạy lại nhiều lần không sao.
-info "Kiểm tra database cho Keycloak..."
-if docker exec bi-mysql mysql -uroot -p"$MYSQL_ROOT_PASSWORD" -e "
-      CREATE DATABASE IF NOT EXISTS \`${KEYCLOAK_DB_NAME}\`
-        CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-      CREATE USER IF NOT EXISTS '${KEYCLOAK_DB_USER}'@'%' IDENTIFIED BY '${KEYCLOAK_DB_PASSWORD}';
-      ALTER USER '${KEYCLOAK_DB_USER}'@'%' IDENTIFIED BY '${KEYCLOAK_DB_PASSWORD}';
-      GRANT ALL PRIVILEGES ON \`${KEYCLOAK_DB_NAME}\`.* TO '${KEYCLOAK_DB_USER}'@'%';
-      FLUSH PRIVILEGES;" >/dev/null 2>&1; then
-  ok "Database '${KEYCLOAK_DB_NAME}' và user '${KEYCLOAK_DB_USER}' đã sẵn sàng"
-else
-  error "Không tạo được database cho Keycloak (kiểm tra MYSQL_ROOT_PASSWORD trong .env)."
-  exit 1
-fi
-
-# --- Khởi động Keycloak ---
-info "Khởi động Keycloak..."
-$DC up -d keycloak
-wait_for_health "bi-keycloak" "Keycloak" 240 || {
-  echo
-  error "Keycloak chưa khởi động được. Xem log: ${DC} logs keycloak"
-  exit 1
-}
-
-# Xác nhận realm đã được import thành công
-if docker exec bi-keycloak bash -c \
-     "exec 3<>/dev/tcp/127.0.0.1/8080; \
-      echo -e 'GET /realms/${KEYCLOAK_REALM}/.well-known/openid-configuration HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3; \
-      cat <&3" 2>/dev/null | grep -q "\"issuer\""; then
-  ok "Realm '${KEYCLOAK_REALM}' đã được import"
-else
-  warn "Keycloak chạy nhưng chưa thấy realm '${KEYCLOAK_REALM}'."
-  warn "Realm chỉ được import lần đầu (khi DB Keycloak còn rỗng). Xem: ${DC} logs keycloak | grep -i import"
-fi
-
 # =============================================================================
 # BƯỚC 4: In thông tin kết nối
 # =============================================================================
@@ -244,15 +199,6 @@ echo "  ${BOLD}Redis${NC}"
 echo "    Host      : localhost:${REDIS_PORT}"
 echo "    Password  : ${REDIS_PASSWORD}"
 echo "    CLI       : docker exec -it bi-redis redis-cli -a ${REDIS_PASSWORD}"
-echo
-echo "  ${BOLD}Keycloak${NC}"
-echo "    Admin console : http://localhost:${KEYCLOAK_PORT}/admin"
-echo "    Admin login   : ${KEYCLOAK_ADMIN} / ${KEYCLOAK_ADMIN_PASSWORD}"
-echo "    Realm         : http://localhost:${KEYCLOAK_PORT}/realms/${KEYCLOAK_REALM}"
-echo "    OIDC config   : http://localhost:${KEYCLOAK_PORT}/realms/${KEYCLOAK_REALM}/.well-known/openid-configuration"
-echo "    User thử      : bi.admin   / Admin@123   (role bi-admin)"
-echo "                    bi.creator / Creator@123 (role bi-creator)"
-echo "                    bi.viewer  / Viewer@123  (role bi-viewer)"
 echo
 echo "  ${BOLD}Ứng dụng (sau khi chạy ở bước 5)${NC}"
 echo "    Backend   : http://localhost:4000"
@@ -282,7 +228,7 @@ echo "    ${DC} --profile data up -d      # + MinIO, ClickHouse"
 echo "    ${DC} --profile bi   up -d      # + Cube.js (kéo theo ClickHouse)"
 echo "    ${DC} --profile stream up -d    # + Kafka, Debezium Connect"
 echo "    ${DC} --profile tools  up -d    # + dbt"
-echo "    (script này chỉ khởi động 3 service lõi - xem README)"
+echo "    (script này chỉ khởi động service lõi - xem README)"
 echo
 echo "  ${BOLD}Lệnh Docker hữu ích${NC}"
 echo "    ${DC} ps                  # xem trạng thái"
@@ -290,7 +236,6 @@ echo "    ${DC} logs -f mysql       # xem log MySQL"
 echo "    ${DC} stop                # dừng (giữ dữ liệu)"
 echo "    ${DC} down                # xoá container (giữ dữ liệu)"
 echo "    ${DC} down -v             # xoá cả dữ liệu - cẩn thận!"
-echo "    ./reset-keycloak.sh       # import lại realm sau khi sửa file realm JSON"
 echo
 
 if [ "$MYSQL_PORT" != "3306" ]; then

@@ -3,7 +3,7 @@
 # =============================================================================
 
 # --- Secrets / biến môi trường ---
-# KHÔNG commit .env (chứa password MySQL, Redis, Keycloak, JWT secret).
+# KHÔNG commit .env (chứa password MySQL, Redis, MinIO, ClickHouse, secret ký JWT).
 # Chỉ commit .env.example làm mẫu.
 .env
 .env.*
@@ -67,11 +67,6 @@ logs/
 infrastructure/data/
 infrastructure/**/data/
 docker-compose.override.yml
-
-# Realm export từ Keycloak (có thể chứa secret/user thật).
-# File realm gốc bi-platform-realm.json vẫn được commit.
-infrastructure/keycloak/realms/*-export.json
-infrastructure/keycloak/export/
 
 # Schema Cube.js do Express SINH RA lúc chạy (xem ADR-08), không phải mã nguồn.
 # Giữ .gitkeep để git còn tạo được thư mục sau khi clone.

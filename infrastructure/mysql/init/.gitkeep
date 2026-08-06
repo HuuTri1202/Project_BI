@@ -1,0 +1,10 @@
+# File .sql đặt ở thư mục này sẽ được MySQL chạy MỘT LẦN DUY NHẤT, khi volume
+# mysql_data còn rỗng. Volume đã có dữ liệu thì chúng bị bỏ qua hoàn toàn.
+#
+# Sắp tới sẽ có:
+#   02-create-strapi-db.sql   (F4 — database riêng cho Strapi)
+#   03-create-cdc-user.sql    (F10 — source_db + user cho Debezium)
+#
+# Vì cơ chế "chỉ chạy khi rỗng" rất dễ gây hiểu nhầm, mọi thao tác tạo
+# database/user nên viết idempotent (CREATE ... IF NOT EXISTS) và gọi lại được
+# từ start-dev.sh cho máy đã có volume cũ.

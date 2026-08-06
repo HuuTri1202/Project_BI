@@ -12,10 +12,11 @@ mà **không cần viết SQL**.
 
 | Phần | Trạng thái |
 | --- | --- |
-| Hạ tầng dev (MySQL, Redis, Keycloak) | ✅ chạy được |
+| Hạ tầng dev — 8 container (MySQL, Redis, MinIO, ClickHouse, Cube.js, Kafka, Connect, dbt) | ✅ chạy được |
 | Backend skeleton (Express + health check thật) | ✅ chạy được |
 | Frontend skeleton (React + Vite) | ✅ chạy được |
-| Xác thực / phân quyền / ingest / Cube / chart | ⏳ chưa làm |
+| **Xác thực người dùng** | ❌ **chưa có** — xem mục *Xác thực* |
+| Phân quyền / ingest / Cube schema / chart | ⏳ chưa làm |
 
 Xem lộ trình đầy đủ và phân công theo tính năng trong tài liệu kế hoạch của nhóm.
 
@@ -58,8 +59,8 @@ npm run dev
 ```
 
 - `infra:up` kiểm tra Docker → khởi động MySQL + Redis → chờ tới khi **thật sự**
-  healthy → tạo database cho Keycloak → khởi động Keycloak → xác nhận realm đã
-  import → in thông tin kết nối. Lần đầu mất khoảng **2–4 phút**.
+  healthy (không chỉ "đã start") → in thông tin kết nối. Lần đầu mất khoảng
+  **1–2 phút** vì MySQL phải khởi tạo data directory.
 - `dev` chạy song song backend và frontend, log gắn nhãn `[api]` / `[web]` theo
   màu. **Ctrl+C tắt cả hai.**
 
@@ -67,22 +68,21 @@ npm run dev
 | --- | --- |
 | http://localhost:5173 | Frontend — hiển thị JSON health của backend nếu cả hai chạy đúng |
 | http://localhost:4000/health | Backend |
-| http://localhost:8081/admin | Keycloak |
 
 ### Profile — chỉ bật phần đang cần
 
-9 container không nên cùng chạy suốt ngày. `npm run infra:up` chỉ khởi động 3
+8 container không nên cùng chạy suốt ngày. `npm run infra:up` chỉ khởi động
 service lõi; phần còn lại chia theo profile:
 
 | Lệnh | Thêm gì | Khi nào cần |
 | --- | --- | --- |
-| `npm run infra:up` | MySQL, Redis, Keycloak | luôn luôn |
+| `npm run infra:up` | MySQL, Redis | luôn luôn |
 | `npm run infra:up:data` | MinIO, ClickHouse | làm F5 (nạp dữ liệu) |
 | `npm run infra:up:bi` | Cube.js (+ ClickHouse) | làm F7 (tầng ngữ nghĩa) |
 | `npm run infra:up:all` | + Kafka, Connect, dbt | demo toàn hệ thống |
 
-Cả 9 container ở trạng thái nghỉ tốn khoảng **1,8 GB** RAM. Mỗi service đều có
-trần bộ nhớ riêng trong `docker-compose.yml`, xem bằng `npm run infra:stats`.
+Toàn bộ container ở trạng thái nghỉ tốn khoảng **1,7 GB** RAM. Mỗi service đều
+có trần bộ nhớ riêng trong `docker-compose.yml`, xem bằng `npm run infra:stats`.
 
 Muốn khỏi gõ cờ profile mỗi lần: đặt `COMPOSE_PROFILES=data,bi` trong
 `infrastructure/.env`.
@@ -114,9 +114,7 @@ bi-flatform/
 ├── frontend/                 # React 18 + TypeScript + Vite
 ├── infrastructure/
 │   ├── docker-compose.yml    # ⚠️ Dev A sở hữu độc quyền — xem quy ước bên dưới
-│   ├── start-dev.sh          # khởi động môi trường dev (3 service lõi)
-│   ├── reset-keycloak.sh     # import lại realm sau khi sửa file JSON
-│   ├── keycloak/realms/      # cấu hình realm (roles, clients, users)
+│   ├── start-dev.sh          # khởi động môi trường dev (service lõi)
 │   ├── mysql/init/           # SQL chạy khi volume MySQL còn rỗng
 │   ├── minio/                # script tạo bucket
 │   ├── clickhouse/           # config.d (trần RAM) + users.d (trần mỗi query)
@@ -133,41 +131,35 @@ bi-flatform/
 
 Bảng đầy đủ ở [docs/ports.md](docs/ports.md). Những cổng đang dùng:
 
-| Service | URL |
-| --- | --- |
-| Frontend | http://localhost:5173 |
-| Backend | http://localhost:4000 |
-| Keycloak admin | http://localhost:8081/admin |
-| MySQL | `localhost:3310` |
-| Redis | `localhost:6379` |
+| Service | URL | Profile |
+| --- | --- | --- |
+| Frontend | http://localhost:5173 | — |
+| Backend | http://localhost:4000 | — |
+| MySQL | `localhost:3310` | *luôn chạy* |
+| Redis | `localhost:6379` | *luôn chạy* |
+| MinIO console | http://localhost:9001 | `data` |
+| ClickHouse | http://localhost:8123 | `data` |
+| Cube.js | http://localhost:4100 | `bi` |
+| Kafka Connect | http://localhost:8083 | `stream` |
 
-> MySQL dùng **3310** và Keycloak dùng **8081** để tránh đụng service cài sẵn
-> trên máy. Đây là chủ ý, không phải nhầm lẫn.
+> MySQL dùng **3310** thay vì 3306, ClickHouse native dùng **9002** thay vì 9000
+> (đụng MinIO), Cube dùng **4100** thay vì 4000 (đụng Express). Đều là chủ ý,
+> không phải nhầm lẫn — xem [docs/ports.md](docs/ports.md).
 
 ---
 
 ## Tài khoản dev
 
-Chỉ dùng ở local. Toàn bộ được định nghĩa trong
-`infrastructure/keycloak/realms/bi-platform-realm.json`.
+Chỉ dùng ở local.
 
-| Nơi đăng nhập | User | Mật khẩu | Vai trò |
-| --- | --- | --- | --- |
-| Keycloak admin console | `admin` | `admin123` | quản trị Keycloak |
-| Ứng dụng | `bi.admin` | `Admin@123` | `bi-admin` |
-| Ứng dụng | `bi.creator` | `Creator@123` | `bi-creator` |
-| Ứng dụng | `bi.viewer` | `Viewer@123` | `bi-viewer` |
+| Service | User | Mật khẩu |
+| --- | --- | --- |
+| MySQL | `bi_user` | `bi_password` |
+| Redis | — | `redispassword` |
+| MinIO | `minioadmin` | `minioadmin123` |
+| ClickHouse | `bi_user` | `clickhouse_password` |
 
-### ⚠️ Sửa file realm JSON thì phải reset Keycloak
-
-Cờ `--import-realm` **chỉ chạy khi realm chưa tồn tại**. Sau lần khởi động đầu
-tiên, mọi thay đổi trong file JSON đều bị bỏ qua **âm thầm** — không log, không
-lỗi, chỉ là không có tác dụng.
-
-```bash
-cd infrastructure
-./reset-keycloak.sh          # xoá DB keycloak rồi import lại
-```
+> **Hệ thống hiện chưa có xác thực người dùng.** Xem mục *Xác thực* bên dưới.
 
 ---
 
@@ -188,7 +180,7 @@ npm run build          # build production cả 2
 npm test               # Vitest (backend)
 npm run verify         # lint + typecheck + build — CHẠY TRƯỚC KHI MỞ PR
 
-npm run infra:up       # 3 service lõi: MySQL + Redis + Keycloak
+npm run infra:up       # service lõi: MySQL + Redis
 npm run infra:up:data  # + MinIO, ClickHouse
 npm run infra:up:bi    # + Cube.js (kéo theo ClickHouse)
 npm run infra:up:all   # cả 9 container
@@ -196,7 +188,6 @@ npm run infra:ps       # trạng thái container
 npm run infra:stats    # RAM/CPU từng container
 npm run infra:logs     # theo dõi log
 npm run infra:down     # dừng container, giữ dữ liệu
-npm run keycloak:reset # import lại realm Keycloak
 ```
 
 Vẫn chạy được trực tiếp trong từng thư mục nếu muốn (`cd backend && npm run dev`).
@@ -235,9 +226,9 @@ docker compose start redis
 ### Nhánh và Pull Request
 
 ```bash
-git switch -c feat/f2-keycloak-auth
+git switch -c feat/f5-ingest-clickhouse
 # ... code ...
-git push -u origin feat/f2-keycloak-auth
+git push -u origin feat/f5-ingest-clickhouse
 # mở PR -> người còn lại review -> squash merge vào main
 ```
 
@@ -278,10 +269,9 @@ git push -u origin feat/f2-keycloak-auth
 
 ```
 React + Vega-Lite  ──►  Express (BFF)  ──►  Cube.js  ──►  ClickHouse
-      │                      │                                 ▲
-      │                      ├── Keycloak (OIDC, RS256 + JWKS) │
-   Keycloak JS               ├── Casbin  (RBAC theo domain)    │
-   (PKCE S256)               ├── Strapi  (metadata BI)         │
+                             │                                 ▲
+                             ├── Casbin  (RBAC theo domain)    │
+                             ├── Strapi  (metadata BI)         │
                              ├── MySQL   (metadata vận hành)   │
                              ├── Redis   (cache phân quyền)    │
                              └── S3/MinIO ──► dbt ─────────────┤
@@ -292,13 +282,34 @@ React + Vega-Lite  ──►  Express (BFF)  ──►  Cube.js  ──►  Clic
 **Ranh giới cần nhớ:**
 
 - **Cube.js không bao giờ lộ ra trình duyệt.** Mọi truy vấn phân tích đi qua
-  `POST /api/v1/query`: Express kiểm quyền bằng Casbin, ký một JWT Cube ngắn hạn
-  mang `securityContext`, rồi mới forward.
+  `POST /api/v1/query`: Express kiểm quyền, ký một JWT Cube ngắn hạn mang
+  `securityContext`, rồi mới forward. Secret ký nằm ở `CUBEJS_API_SECRET`.
 - **Strapi là nơi ghi metadata BI duy nhất.** Express chỉ gọi REST và cache đọc
   vào Redis; database `bi_platform` của Express chỉ chứa dữ liệu vận hành
   (ingest job, `casbin_rule`, audit log).
-- **Backend không tự ký JWT.** Chỉ verify token do Keycloak ký bằng RS256 +
-  JWKS. Vì vậy không có `JWT_SECRET` ở bất kỳ đâu.
+
+---
+
+## Xác thực
+
+**Hiện tại hệ thống KHÔNG có xác thực người dùng.** Keycloak đã được gỡ bỏ hoàn
+toàn khỏi codebase; chưa có gì thay thế.
+
+Hệ quả cần biết trước khi làm tiếp:
+
+- Mọi endpoint `/api/v1/*` đang mở, ai gọi cũng được.
+- **Casbin chưa làm được.** Phân quyền cần một `sub` (định danh người dùng) để
+  quyết định; không có nguồn định danh thì không có gì để enforce.
+- **Query proxy `POST /api/v1/query` chưa an toàn được.** `securityContext` gửi
+  cho Cube phải mang `userId` + `projectIds` thì row-level security mới có ý
+  nghĩa.
+
+Vì vậy cần chốt phương án xác thực **trước** khi bắt đầu phân quyền và query
+proxy. Ứng viên: tự viết trong Express (`bcrypt` + `jsonwebtoken`, bảng `users`
+trong `bi_platform`), hoặc một IdP khác.
+
+`jsonwebtoken` vẫn nằm trong dependency vì Cube query proxy cần nó để ký token
+ngắn hạn — việc này độc lập với xác thực người dùng.
 
 ---
 
@@ -309,8 +320,8 @@ React + Vega-Lite  ──►  Express (BFF)  ──►  Cube.js  ──►  Clic
 | `$'\r': command not found` khi chạy `.sh` | File bị CRLF. `git rm --cached -r . && git reset --hard` |
 | Backend thoát ngay, in `[env] Cấu hình môi trường không hợp lệ` | Thiếu biến trong `.env`. Đối chiếu với `.env.example` |
 | `/health/ready` trả 503 | Container chưa chạy hoặc sai password. `docker compose ps` |
-| Keycloak crash-loop | Chưa có database `keycloak`. Chạy `./start-dev.sh` (script tự tạo) |
-| Sửa realm JSON nhưng không thấy đổi | `--import-realm` chỉ chạy một lần. Chạy `./reset-keycloak.sh` |
+| Cube báo `ECONNREFUSED` tới ClickHouse | Mount cả thư mục `config.d` dạng `:ro` chặn image ghi `docker_related_config.xml`, ClickHouse chỉ nghe `127.0.0.1`. Compose đã mount từng file — đừng đổi lại |
+| Kafka client trên host timeout | Phải dùng `localhost:29092` (listener `PLAINTEXT_HOST`), không phải 9092 |
 | `port is already allocated` khi `docker compose up` | Máy đã có service giữ cổng đó (hay gặp: Redis/Memurai giữ 6379). Xem [docs/ports.md](docs/ports.md) |
 | `EADDRINUSE :::4000` | Còn tiến trình backend cũ. Windows: `Get-NetTCPConnection -LocalPort 4000 -State Listen` rồi `Stop-Process` |
 | `docker: daemon is not running` | Mở Docker Desktop rồi chạy lại |
