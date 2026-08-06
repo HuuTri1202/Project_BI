@@ -1,0 +1,33 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "lib": ["ES2022"],
+    "outDir": "dist",
+    "rootDir": "src",
+    "sourceMap": true,
+
+    /* Strict tối đa — ràng buộc chất lượng của đề tài (arc42 §2.3) */
+    "strict": true,
+    "noImplicitOverride": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "skipLibCheck": true
+
+    /* KHÔNG dùng alias "@/*" ở backend.
+       tsx hiểu alias nhưng tsc KHÔNG viết lại đường dẫn khi build, nên
+       `node dist/index.js` sẽ ném "Cannot find module '@/config/env'".
+       Backend dùng import tương đối; alias "@" chỉ dùng ở frontend, nơi Vite
+       xử lý được lúc bundle. */
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["node_modules", "dist"]
+}

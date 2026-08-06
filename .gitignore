@@ -1,0 +1,118 @@
+# =============================================================================
+# BI Platform - .gitignore
+# =============================================================================
+
+# --- Secrets / biến môi trường ---
+# KHÔNG commit .env (chứa password MySQL, Redis, Keycloak, JWT secret).
+# Chỉ commit .env.example làm mẫu.
+.env
+.env.*
+!.env.example
+!.env.*.example
+*.local
+
+# Certificate / key
+*.pem
+*.key
+*.crt
+*.p12
+*.jks
+secrets/
+
+# --- Node.js ---
+node_modules/
+.npm/
+.pnpm-store/
+.yarn/*
+!.yarn/patches
+!.yarn/releases
+!.yarn/plugins
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# --- Build output ---
+dist/
+dist-ssr/
+build/
+out/
+*.tsbuildinfo
+.vite/
+
+# --- Test / coverage ---
+coverage/
+.nyc_output/
+*.lcov
+test-results/
+playwright-report/
+
+# --- Cache ---
+.cache/
+.parcel-cache/
+.eslintcache
+.stylelintcache
+.turbo/
+.temp/
+tmp/
+temp/
+
+# --- Logs ---
+logs/
+*.log
+
+# --- Docker / infrastructure ---
+# Dữ liệu container nếu dùng bind mount thay vì named volume
+infrastructure/data/
+infrastructure/**/data/
+docker-compose.override.yml
+
+# Realm export từ Keycloak (có thể chứa secret/user thật).
+# File realm gốc bi-platform-realm.json vẫn được commit.
+infrastructure/keycloak/realms/*-export.json
+infrastructure/keycloak/export/
+
+# Dump database
+*.sql.gz
+*.dump
+backup/
+dumps/
+
+# --- IDE / editor ---
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+!.vscode/launch.json
+.idea/
+*.swp
+*.swo
+*.sublime-workspace
+*~
+
+# --- OS ---
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+*.lnk
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+# Linux
+.fuse_hidden*
+.Trash-*
+
+# --- Công cụ AI / trợ lý code (cấu hình cục bộ từng máy) ---
+.claude/
+.cursor/
+.aider*
+
+# --- Khác ---
+.history/
+*.bak
+*.orig

@@ -1,0 +1,52 @@
+# =============================================================================
+# Chuẩn hoá line ending — BẮT BUỘC vì team dev trên Windows nhưng script là bash.
+#
+# Không có file này, Git trên Windows sẽ checkout *.sh với CRLF và bash sẽ chết
+# với lỗi khó hiểu: $'\r': command not found
+# =============================================================================
+
+# Mặc định: Git tự nhận diện file text và chuẩn hoá LF trong repo
+* text=auto
+
+# --- Bắt buộc LF (chạy trong container Linux / bash) ---
+*.sh        text eol=lf
+*.bash      text eol=lf
+*.sql       text eol=lf
+Dockerfile  text eol=lf
+*.dockerfile text eol=lf
+.env.example text eol=lf
+*.yml       text eol=lf
+*.yaml      text eol=lf
+
+# --- Bắt buộc CRLF (chỉ chạy trên Windows) ---
+*.bat       text eol=crlf
+*.cmd       text eol=crlf
+*.ps1       text eol=crlf
+
+# --- Source code: LF cho đồng nhất giữa 2 máy ---
+*.ts        text eol=lf
+*.tsx       text eol=lf
+*.js        text eol=lf
+*.jsx       text eol=lf
+*.mjs       text eol=lf
+*.cjs       text eol=lf
+*.json      text eol=lf
+*.md        text eol=lf
+*.css       text eol=lf
+*.html      text eol=lf
+*.xml       text eol=lf
+
+# --- Binary: không đụng vào ---
+*.png       binary
+*.jpg       binary
+*.jpeg      binary
+*.gif       binary
+*.ico       binary
+*.pdf       binary
+*.woff      binary
+*.woff2     binary
+*.zip       binary
+*.gz        binary
+
+# --- Không tính vào thống kê ngôn ngữ / không hiện diff trên GitHub ---
+package-lock.json  linguist-generated=true -diff
