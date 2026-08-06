@@ -39,44 +39,42 @@ RAM tối thiểu **8 GB**, khuyến nghị **16 GB** (giai đoạn sau sẽ có
 ```bash
 git clone https://github.com/HuuTri1202/Project_BI.git
 cd Project_BI
+
+npm install          # cài concurrently ở thư mục gốc
+npm run setup        # tạo 3 file .env + npm install cho backend & frontend
 ```
 
-### 1. Hạ tầng (Docker)
+`npm run setup` **không bao giờ ghi đè** file `.env` đã có, nên chạy lại lúc nào
+cũng an toàn.
+
+### Chạy hằng ngày — 2 lệnh, 2 terminal
 
 ```bash
-cd infrastructure
-cp .env.example .env      # script tự làm nếu quên
-./start-dev.sh
-```
+# Terminal 1 — hạ tầng (chỉ cần chạy khi mới bật máy)
+npm run infra:up
 
-Script sẽ: kiểm tra Docker → khởi động MySQL + Redis → chờ tới khi **thật sự**
-healthy → tạo database cho Keycloak → khởi động Keycloak → xác nhận realm đã
-import → in thông tin kết nối.
-
-Lần đầu mất khoảng **2–4 phút** (MySQL khởi tạo + Keycloak dựng schema).
-
-### 2. Backend
-
-```bash
-cd backend
-cp .env.example .env
-npm install
+# Terminal 2 — backend + frontend cùng lúc
 npm run dev
 ```
 
-→ http://localhost:4000/health
+- `infra:up` kiểm tra Docker → khởi động MySQL + Redis → chờ tới khi **thật sự**
+  healthy → tạo database cho Keycloak → khởi động Keycloak → xác nhận realm đã
+  import → in thông tin kết nối. Lần đầu mất khoảng **2–4 phút**.
+- `dev` chạy song song backend và frontend, log gắn nhãn `[api]` / `[web]` theo
+  màu. **Ctrl+C tắt cả hai.**
 
-### 3. Frontend
+| Địa chỉ | |
+| --- | --- |
+| http://localhost:5173 | Frontend — hiển thị JSON health của backend nếu cả hai chạy đúng |
+| http://localhost:4000/health | Backend |
+| http://localhost:8081/admin | Keycloak |
 
-```bash
-cd frontend
-cp .env.example .env
-npm install
-npm run dev
-```
-
-→ http://localhost:5173 — trang này sẽ hiển thị JSON health của backend nếu cả
-hai chạy đúng.
+> **Backend và frontend cố ý KHÔNG chạy trong Docker khi dev.** Mã nguồn nằm
+> trên ổ Windows, bind mount vào container phải đi qua lớp 9p/drvfs của WSL2 nên
+> sự kiện `inotify` không truyền qua được — `tsx watch` và Vite HMR sẽ mù. Chữa
+> bằng polling thì HMR trễ 2–5 giây và CPU chạy nền liên tục. Dockerfile cho
+> backend/frontend sẽ được thêm ở giai đoạn triển khai K8s, dùng cho **chạy**
+> chứ không dùng để **code**.
 
 ---
 
@@ -84,6 +82,8 @@ hai chạy đúng.
 
 ```
 bi-flatform/
+├── package.json              # script điều phối (npm run dev chạy cả 2 package)
+├── scripts/init-env.mjs      # tạo .env từ .env.example, đa nền tảng
 ├── backend/                  # Express + TypeScript (API Gateway / BFF)
 │   └── src/
 │       ├── api/              # Route handler
@@ -150,23 +150,36 @@ cd infrastructure
 
 ## Lệnh thường dùng
 
-```bash
-# --- backend / frontend (chạy trong thư mục tương ứng) ---
-npm run dev            # dev server, tự reload
-npm run lint           # ESLint
-npm run typecheck      # tsc --noEmit
-npm run format         # Prettier ghi đè
-npm run build          # build production
-npm test               # Vitest (chỉ backend)
+Chạy ở **thư mục gốc** — tất cả đều tác động lên cả backend lẫn frontend:
 
-# --- hạ tầng (chạy trong infrastructure/) ---
-./start-dev.sh              # khởi động tất cả
+```bash
+npm run setup          # tạo .env + cài dependency cho cả 2 package
+npm run dev            # chạy backend + frontend song song (Ctrl+C tắt cả hai)
+npm run dev:api        # chỉ backend
+npm run dev:web        # chỉ frontend
+
+npm run lint           # ESLint cả 2
+npm run typecheck      # tsc --noEmit cả 2
+npm run format         # Prettier ghi đè cả 2
+npm run build          # build production cả 2
+npm test               # Vitest (backend)
+npm run verify         # lint + typecheck + build — CHẠY TRƯỚC KHI MỞ PR
+
+npm run infra:up       # khởi động MySQL + Redis + Keycloak
+npm run infra:ps       # trạng thái container
+npm run infra:logs     # theo dõi log
+npm run infra:down     # dừng container, giữ dữ liệu
+npm run keycloak:reset # import lại realm Keycloak
+```
+
+Vẫn chạy được trực tiếp trong từng thư mục nếu muốn (`cd backend && npm run dev`).
+
+Các lệnh Docker ít dùng hơn:
+
+```bash
+cd infrastructure
 ./start-dev.sh --recreate   # tạo lại container, giữ dữ liệu
 ./start-dev.sh --logs       # khởi động xong thì theo dõi log
-./reset-keycloak.sh         # import lại realm Keycloak
-docker compose ps           # trạng thái container
-docker compose logs -f mysql
-docker compose stop         # dừng, giữ dữ liệu
 docker compose down -v      # xoá cả dữ liệu — cẩn thận
 ```
 

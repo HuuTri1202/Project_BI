@@ -263,19 +263,19 @@ echo "    Frontend  : http://localhost:5173"
 # BƯỚC 5: Hướng dẫn chạy backend và frontend
 # =============================================================================
 echo
-info "Bước 5/5: Chạy ứng dụng - mở 2 terminal riêng"
+info "Bước 5/5: Chạy ứng dụng"
 echo
-echo "  ${BOLD}Terminal 1 - Backend${NC}"
-echo "    cd ../backend"
-echo "    cp .env.example .env      # chỉ cần làm lần đầu"
-echo "    npm install               # chỉ cần làm lần đầu"
-echo "    npm run dev"
+echo "  ${BOLD}Lần đầu (ở thư mục gốc của repo)${NC}"
+echo "    cd .."
+echo "    npm install               # cài concurrently"
+echo "    npm run setup             # tạo .env + cài dependency cho backend & frontend"
 echo
-echo "  ${BOLD}Terminal 2 - Frontend${NC}"
-echo "    cd ../frontend"
-echo "    cp .env.example .env      # chỉ cần làm lần đầu"
-echo "    npm install               # chỉ cần làm lần đầu"
-echo "    npm run dev"
+echo "  ${BOLD}Hằng ngày - một lệnh chạy cả backend lẫn frontend${NC}"
+echo "    npm run dev               # log gắn nhãn [api]/[web], Ctrl+C tắt cả hai"
+echo
+echo "  ${BOLD}Chạy riêng nếu cần${NC}"
+echo "    npm run dev:api           # chỉ backend"
+echo "    npm run dev:web           # chỉ frontend"
 echo
 echo "  ${BOLD}Lệnh Docker hữu ích${NC}"
 echo "    ${DC} ps                  # xem trạng thái"
