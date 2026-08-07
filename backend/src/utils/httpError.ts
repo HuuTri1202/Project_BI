@@ -10,12 +10,7 @@ export class HttpError extends Error {
   /** Lỗi theo từng trường, dùng cho form: { email: 'Email không đúng định dạng' } */
   readonly fields: Readonly<Record<string, string>> | undefined;
 
-  constructor(
-    status: number,
-    code: string,
-    message: string,
-    fields?: Record<string, string>,
-  ) {
+  constructor(status: number, code: string, message: string, fields?: Record<string, string>) {
     super(message);
     this.name = 'HttpError';
     this.status = status;

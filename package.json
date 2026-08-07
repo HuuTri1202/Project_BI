@@ -6,11 +6,9 @@
   "scripts": {
     "setup": "node scripts/init-env.mjs && npm run install:all",
     "install:all": "npm --prefix backend install && npm --prefix frontend install",
-
     "dev": "concurrently -k -n api,web -c green,magenta \"npm:dev:api\" \"npm:dev:web\"",
     "dev:api": "npm --prefix backend run dev",
     "dev:web": "npm --prefix frontend run dev",
-
     "lint": "npm --prefix backend run lint && npm --prefix frontend run lint",
     "lint:fix": "npm --prefix backend run lint:fix && npm --prefix frontend run lint:fix",
     "typecheck": "npm --prefix backend run typecheck && npm --prefix frontend run typecheck",
@@ -18,9 +16,7 @@
     "format:check": "npm --prefix backend run format:check && npm --prefix frontend run format:check",
     "build": "npm --prefix backend run build && npm --prefix frontend run build",
     "test": "npm --prefix backend run test",
-
     "verify": "npm run lint && npm run typecheck && npm run build",
-
     "infra:up": "bash infrastructure/start-dev.sh",
     "infra:up:data": "docker compose -f infrastructure/docker-compose.yml --profile data up -d",
     "infra:up:bi": "docker compose -f infrastructure/docker-compose.yml --profile bi up -d",
@@ -32,7 +28,8 @@
     "infra:stats": "docker stats --no-stream --format \"table {{.Name}}\\t{{.MemUsage}}\\t{{.MemPerc}}\\t{{.CPUPerc}}\""
   },
   "devDependencies": {
-    "concurrently": "^9.1.2"
+    "concurrently": "^9.1.2",
+    "prettier-plugin-tailwindcss": "0.8.1"
   },
   "engines": {
     "node": ">=20"

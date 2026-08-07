@@ -5,7 +5,9 @@ import { HttpError } from '../utils/httpError';
 
 /** Route không khớp -> 404 JSON (không trả HTML mặc định của Express). */
 export function notFoundHandler(req: Request, res: Response): void {
-  res.status(404).json({ error: 'NotFound', message: 'Không tìm thấy đường dẫn này.', path: req.originalUrl });
+  res
+    .status(404)
+    .json({ error: 'NotFound', message: 'Không tìm thấy đường dẫn này.', path: req.originalUrl });
 }
 
 /**

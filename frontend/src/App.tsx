@@ -1,63 +1,51 @@
-import { useEffect, useState } from 'react';
+import { Route, Routes } from 'react-router-dom';
+import { AdminLayout } from './layouts/AdminLayout';
+import ChangePasswordPage from './pages/ChangePasswordPage';
+import ForbiddenPage from './pages/ForbiddenPage';
+import HealthPage from './pages/HealthPage';
+import HomePage from './pages/HomePage';
+import LoginPage from './pages/LoginPage';
+import NotFoundPage from './pages/NotFoundPage';
+import OverviewPage from './pages/admin/OverviewPage';
+import { AdminRoute } from './routes/AdminRoute';
+import { ProtectedRoute } from './routes/ProtectedRoute';
 
-type Health = {
-  status: string;
-  service: string;
-  env: string;
-  uptimeSeconds: number;
-  timestamp: string;
-};
-
-type State =
-  { kind: 'loading' } | { kind: 'ok'; data: Health } | { kind: 'error'; message: string };
-
-export default function App() {
-  const [state, setState] = useState<State>({ kind: 'loading' });
-
-  useEffect(() => {
-    const controller = new AbortController();
-
-    fetch('/health', { signal: controller.signal })
-      .then(async (res) => {
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        return (await res.json()) as Health;
-      })
-      .then((data) => setState({ kind: 'ok', data }))
-      .catch((err: unknown) => {
-        if (err instanceof DOMException && err.name === 'AbortError') return;
-        setState({ kind: 'error', message: err instanceof Error ? err.message : 'Unknown error' });
-      });
-
-    return () => controller.abort();
-  }, []);
-
+/**
+ * Bảng route.
+ *
+ * Ba tầng cổng, xếp từ ngoài vào trong — mỗi tầng chỉ lo đúng một việc:
+ *   ProtectedRoute  đã đăng nhập chưa? (+ cổng đổi mật khẩu bắt buộc)
+ *   AdminRoute      có phải Admin không?
+ *   AdminLayout     khung sidebar + topbar
+ *
+ * Trang kiểm tra kết nối nằm ở `/system-health`, KHÔNG phải `/health`:
+ * vite.config.ts proxy `/health` thẳng sang Express nên đường dẫn đó không bao
+ * giờ tới được SPA.
+ */
+export default function App(): React.ReactElement {
   return (
-    <main
-      style={{
-        fontFamily: 'system-ui, sans-serif',
-        maxWidth: 640,
-        margin: '4rem auto',
-        padding: '0 1rem',
-      }}
-    >
-      <h1>BI Platform</h1>
-      <p>Frontend đã chạy. Trạng thái kết nối tới backend:</p>
+    <Routes>
+      <Route path="/login" element={<LoginPage />} />
+      <Route path="/403" element={<ForbiddenPage />} />
 
-      {state.kind === 'loading' && <p>Đang kiểm tra…</p>}
+      {/* Đã đăng nhập, nhưng ĐƯỢC PHÉP ở lại khi còn cờ mustChangePassword */}
+      <Route element={<ProtectedRoute allowWhenMustChangePassword />}>
+        <Route path="/change-password" element={<ChangePasswordPage />} />
+      </Route>
 
-      {state.kind === 'error' && (
-        <p style={{ color: '#b00020' }}>
-          Không kết nối được backend: {state.message}
-          <br />
-          <small>Kiểm tra backend đang chạy ở http://localhost:4000</small>
-        </p>
-      )}
+      {/* Đã đăng nhập và mật khẩu tạm đã được thay */}
+      <Route element={<ProtectedRoute />}>
+        <Route path="/" element={<HomePage />} />
+        <Route path="/system-health" element={<HealthPage />} />
 
-      {state.kind === 'ok' && (
-        <pre style={{ background: '#f4f4f5', padding: '1rem', borderRadius: 8, overflowX: 'auto' }}>
-          {JSON.stringify(state.data, null, 2)}
-        </pre>
-      )}
-    </main>
+        <Route element={<AdminRoute />}>
+          <Route path="/admin" element={<AdminLayout />}>
+            <Route index element={<OverviewPage />} />
+          </Route>
+        </Route>
+      </Route>
+
+      <Route path="*" element={<NotFoundPage />} />
+    </Routes>
   );
 }

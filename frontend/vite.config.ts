@@ -1,3 +1,4 @@
+import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -15,7 +16,9 @@ export default defineConfig(({ mode }) => {
   const proxyToBackend = { target: apiTarget, changeOrigin: true };
 
   return {
-    plugins: [react()],
+    // Tailwind v4 chạy như plugin Vite: không cần tailwind.config.js, không cần
+    // PostCSS, không phải khai `content` globs — nó tự quét source lúc build.
+    plugins: [react(), tailwindcss()],
     resolve: {
       // Alias '@' chỉ dùng ở frontend vì Vite giải quyết được lúc bundle.
       // Backend cố ý KHÔNG dùng alias (xem backend/tsconfig.json).

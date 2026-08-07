@@ -18,17 +18,13 @@ export interface AccessTokenPayload {
  * thiệt hại nếu bị lộ.
  */
 export function signAccessToken(payload: AccessTokenPayload): string {
-  return jwt.sign(
-    { role: payload.role, tenantId: payload.tenantId },
-    env.JWT_SECRET,
-    {
-      algorithm: 'HS256',
-      subject: String(payload.userId),
-      issuer: env.JWT_ISSUER,
-      audience: env.JWT_AUDIENCE,
-      expiresIn: env.JWT_EXPIRES_IN,
-    } as jwt.SignOptions,
-  );
+  return jwt.sign({ role: payload.role, tenantId: payload.tenantId }, env.JWT_SECRET, {
+    algorithm: 'HS256',
+    subject: String(payload.userId),
+    issuer: env.JWT_ISSUER,
+    audience: env.JWT_AUDIENCE,
+    expiresIn: env.JWT_EXPIRES_IN,
+  } as jwt.SignOptions);
 }
 
 const ROLES: readonly UserRole[] = ['admin', 'creator', 'viewer'];
