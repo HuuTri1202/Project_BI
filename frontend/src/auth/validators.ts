@@ -1,53 +1,40 @@
-/**
- * Validate phía client — §2.2.
- *
- * Viết tay, không thêm thư viện form: chỉ có hai form và ba luật, kéo cả
- * react-hook-form + resolver về là thêm 3 gói cho một việc 40 dòng.
- *
- * Luật ở đây phải KHỚP với zod ở backend (backend/src/api/auth/schemas.ts).
- * Đây là lớp trải nghiệm để người dùng biết sai ngay, KHÔNG phải lớp bảo vệ —
- * backend vẫn validate lại toàn bộ vì trình duyệt sửa được.
- */
-
-/** bcrypt cắt cụt ở byte thứ 72; backend chặn ở đúng con số này. */
-export const MAX_PASSWORD_LENGTH = 72;
-export const MIN_PASSWORD_LENGTH = 8;
+import { emailRule, passwordRule } from '@bi/shared';
 
 /**
- * Biểu thức email cố tình dễ dãi: chặn lỗi gõ nhầm rõ ràng (thiếu @, thiếu tên
- * miền, có khoảng trắng) chứ không cố bám RFC 5322 — regex đúng chuẩn dài hàng
- * trăm ký tự và vẫn từ chối nhầm những địa chỉ hợp lệ.
+ * Bọc các rule zod của `@bi/shared` thành hàm trả `string | undefined`, đúng
+ * kiểu mà `LoginPage` và `ChangePasswordPage` đang dùng.
+ *
+ * Vì sao không viết lại luật ở đây: luật "mật khẩu ≥ 8 ký tự, có hoa và số, tối
+ * đa 72 BYTE" phải giống hệt backend. Bản viết tay trước đó của file này đếm
+ * KÝ TỰ chứ không đếm byte — tiếng Việt có dấu là 2–3 byte mỗi ký tự nên một
+ * mật khẩu ~24 ký tự đã chạm trần cắt cụt của bcrypt mà không bị chặn.
+ *
+ * `RegisterPage` không đi qua đây: nó dùng thẳng `registerSchema` qua
+ * `zodResolver`, cách gọn hơn khi form có nhiều trường.
  */
-const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function firstIssue(result: { success: boolean; error?: { issues: { message: string }[] } }) {
+  return result.success ? undefined : result.error?.issues[0]?.message;
+}
 
 export function validateEmail(value: string): string | undefined {
-  const email = value.trim();
-  if (!email) return 'Vui lòng nhập email';
-  if (email.length > 255) return 'Email quá dài';
-  if (!EMAIL_PATTERN.test(email)) return 'Email không đúng định dạng';
-  return undefined;
+  return firstIssue(emailRule.safeParse(value.trim()));
 }
 
 /**
  * Dùng lúc ĐĂNG NHẬP: chỉ kiểm tra có nhập hay chưa.
  *
- * Cố ý không áp luật độ dài tối thiểu ở đây — mật khẩu cũ có thể được tạo theo
- * quy tắc khác, và báo "phải đủ 8 ký tự" ngay trên form đăng nhập là tiết lộ
- * quy tắc mật khẩu của hệ thống cho người chưa xác thực.
+ * Cố ý không áp `passwordRule` — mật khẩu cũ có thể không thoả luật mới, và báo
+ * "mật khẩu phải có chữ hoa" ở màn đăng nhập là rò rỉ quy tắc mật khẩu của hệ
+ * thống cho người chưa xác thực.
  */
 export function validateLoginPassword(value: string): string | undefined {
   if (!value) return 'Vui lòng nhập mật khẩu';
   return undefined;
 }
 
-/** Dùng khi ĐẶT mật khẩu mới: áp đủ luật độ dài. */
+/** Dùng khi ĐẶT mật khẩu mới: áp đủ luật của `@bi/shared`. */
 export function validateNewPassword(value: string): string | undefined {
   if (!value) return 'Vui lòng nhập mật khẩu mới';
-  if (value.length < MIN_PASSWORD_LENGTH) {
-    return `Mật khẩu phải có ít nhất ${MIN_PASSWORD_LENGTH} ký tự`;
-  }
-  if (value.length > MAX_PASSWORD_LENGTH) {
-    return `Mật khẩu tối đa ${MAX_PASSWORD_LENGTH} ký tự`;
-  }
-  return undefined;
+  return firstIssue(passwordRule.safeParse(value));
 }

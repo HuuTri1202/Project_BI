@@ -1,19 +1,75 @@
 import { Router } from 'express';
+import { env } from '../../config/env';
 import { authenticate, requireAuth } from '../../middleware/authenticate';
+import { rateLimit } from '../../middleware/rateLimit';
 import * as membershipsRepo from '../../repositories/memberships';
 import * as usersRepo from '../../repositories/users';
-import {
-  assertNotThrottled,
-  clearFailures,
-  recordFailure,
-} from '../../services/auth/loginThrottle';
 import { hashPassword, verifyAgainstDummy, verifyPassword } from '../../services/auth/password';
+import { registerAccount } from '../../services/auth/registerAccount';
 import { expiresInSeconds, signAccessToken } from '../../services/auth/token';
 import { asyncHandler } from '../../utils/asyncHandler';
 import { HttpError, unauthorized } from '../../utils/httpError';
-import { changePasswordSchema, loginSchema } from './schemas';
+import { changePasswordSchema, loginSchema, registerSchema } from './schemas';
 
 export const authRouter = Router();
+
+/**
+ * Hạn mức cho hai endpoint công khai.
+ *
+ * `/register` trả 409 khi email trùng — đó là một kênh liệt kê email rất rõ
+ * ràng, và không bỏ được nếu vẫn muốn báo lỗi tử tế cho người dùng thật.
+ * `/login` thì mở cho credential stuffing. Không có lớp này thì cả hai đều
+ * không giới hạn.
+ *
+ * Đếm theo IP và theo từng bucket riêng, nên người dùng bị chặn ở màn đăng ký
+ * vẫn đăng nhập được bình thường.
+ */
+const authRateLimit = (bucket: string) =>
+  rateLimit({
+    bucket,
+    max: env.LOGIN_MAX_ATTEMPTS,
+    windowSeconds: env.LOGIN_LOCKOUT_MINUTES * 60,
+  });
+
+/**
+ * POST /api/auth/register — §1.4
+ *
+ * Tạo tổ chức + tài khoản + tư cách thành viên + workspace, và người đăng ký là
+ * quản trị viên của tổ chức mình vừa lập.
+ *
+ * CỐ Ý không trả token: đăng ký xong thì sang trang đăng nhập (§1.5). Tự đăng
+ * nhập luôn nghe tiện hơn, nhưng nó khiến bước "đăng nhập lần đầu" không bao
+ * giờ được thực hiện — mà đó là bước duy nhất chứng minh mật khẩu vừa đặt đúng
+ * như người dùng nghĩ. Sai một ký tự lúc gõ thì họ sẽ phát hiện ngay bây giờ,
+ * chứ không phải ở lần mở máy hôm sau.
+ */
+authRouter.post(
+  '/register',
+  authRateLimit('register'),
+  asyncHandler(async (req, res) => {
+    const input = registerSchema.parse(req.body);
+
+    // Kiểm tra sớm chỉ để trả thông báo gắn đúng ô email. Thứ THẬT SỰ chặn
+    // trùng là ràng buộc UNIQUE, xử lý trong registerAccount — giữa câu SELECT
+    // này và câu INSERT luôn có khe hở cho hai request đồng thời.
+    if (await usersRepo.emailExists(input.email)) {
+      throw new HttpError(409, 'EmailAlreadyRegistered', 'Email này đã được đăng ký.', {
+        email: 'Email này đã được đăng ký',
+      });
+    }
+
+    const created = await registerAccount({
+      fullName: input.fullName,
+      companyName: input.companyName,
+      email: input.email,
+      password: input.password,
+      phone: input.phone,
+      jobTitle: input.jobTitle,
+    });
+
+    res.status(201).json(created);
+  }),
+);
 
 /**
  * Một thông báo DUY NHẤT cho mọi trường hợp đăng nhập thất bại.
@@ -26,11 +82,9 @@ const INVALID_CREDENTIALS = 'Email hoặc mật khẩu không đúng.';
 /** POST /api/auth/login — §2.3, §2.4 */
 authRouter.post(
   '/login',
+  authRateLimit('login'),
   asyncHandler(async (req, res) => {
     const { email, password } = loginSchema.parse(req.body);
-    const ip = req.ip ?? 'unknown';
-
-    await assertNotThrottled(email, ip);
 
     const found = await usersRepo.findByEmailForLogin(email);
 
@@ -39,13 +93,11 @@ authRouter.post(
     // email-có-thật mất ~291 ms, và chênh lệch đó tự nó là một kênh dò.
     if (!found) {
       await verifyAgainstDummy(password);
-      await recordFailure(email, ip);
       throw new HttpError(401, 'InvalidCredentials', INVALID_CREDENTIALS);
     }
 
     const ok = await verifyPassword(password, found.passwordHash);
     if (!ok) {
-      await recordFailure(email, ip);
       throw new HttpError(401, 'InvalidCredentials', INVALID_CREDENTIALS);
     }
 
@@ -71,7 +123,6 @@ authRouter.post(
       );
     }
 
-    await clearFailures(email, ip);
     await usersRepo.touchLastLogin(found.user.id);
 
     res.json({

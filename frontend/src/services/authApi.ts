@@ -1,5 +1,6 @@
+import type { RegisterInput } from '@bi/shared';
 import { apiClient } from './apiClient';
-import type { LoginResponse, MeResponse } from '../types/auth';
+import type { LoginResponse, MeResponse, RegisterResponseDto } from '../types/auth';
 
 /**
  * Bọc các endpoint của `/api/auth`.
@@ -8,6 +9,18 @@ import type { LoginResponse, MeResponse } from '../types/auth';
  * thành `/api/auth/login`. Giữ đúng dạng này để danh sách SESSION_ENDPOINTS
  * trong apiClient khớp được.
  */
+
+/**
+ * §1.4 Đăng ký.
+ *
+ * KHÔNG trả token — backend cố ý không tự đăng nhập, người dùng được đưa sang
+ * trang đăng nhập (§1.5). Gửi cả `confirmPassword` để backend kiểm lại ràng
+ * buộc chéo bằng đúng schema mà form đã dùng, thay vì tin frontend đã đối chiếu.
+ */
+export async function register(input: RegisterInput): Promise<RegisterResponseDto> {
+  const { data } = await apiClient.post<RegisterResponseDto>('/auth/register', input);
+  return data;
+}
 
 export async function login(email: string, password: string): Promise<LoginResponse> {
   const { data } = await apiClient.post<LoginResponse>('/auth/login', { email, password });

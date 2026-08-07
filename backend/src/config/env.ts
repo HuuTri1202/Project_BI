@@ -20,6 +20,21 @@ import { z } from 'zod';
  */
 const portFromEnv = z.string().min(1).pipe(z.coerce.number().int().positive().max(65535));
 
+/**
+ * Thời hạn token, dạng chuỗi của gói `ms` ('900s', '15m', '1h', '7d').
+ *
+ * Phải là template literal union chứ không phải `z.string()`: từ v9.0.7,
+ * `@types/jsonwebtoken` khai `expiresIn` đúng bằng kiểu union đó, nên truyền
+ * một `string` thường vào `jwt.sign` sẽ fail `tsc`. Ràng buộc kiểu ngay tại đây
+ * thì không phải ép kiểu ở chỗ gọi.
+ */
+type Duration = `${number}${'s' | 'm' | 'h' | 'd'}`;
+
+const durationFromEnv = z
+  .string()
+  .regex(/^\d+[smhd]$/, "Phải có dạng số + đơn vị s/m/h/d, ví dụ '15m'")
+  .transform((v) => v as Duration);
+
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().int().positive().max(65535).default(4000),
@@ -39,17 +54,24 @@ const envSchema = z.object({
   // Backend TỰ KÝ token bằng HS256 nên cần secret đối xứng. (Ở giai đoạn dùng
   // Keycloak thì ngược lại: chỉ verify RS256 bằng khoá công khai, và khi đó có
   // một secret nằm sẵn mới là nguy hiểm.)
+  //
+  // KHÔNG có giá trị mặc định, và đó là chủ ý: một secret ký mặc định là đúng
+  // loại thứ sẽ theo chân code lên production. Thà chết lúc boot kèm tên biến.
   // 32 ký tự là mức tối thiểu để secret không bị dò bằng từ điển.
   JWT_SECRET: z.string().min(32, 'JWT_SECRET phải dài ít nhất 32 ký tự'),
-  JWT_EXPIRES_IN: z.string().min(1).default('7d'),
+  JWT_EXPIRES_IN: durationFromEnv.default('7d'),
   JWT_ISSUER: z.string().min(1).default('bi-platform'),
   JWT_AUDIENCE: z.string().min(1).default('bi-platform-api'),
 
   // Đã đo trên máy dev: cost 12 ≈ 291 ms. Đủ chậm để chống dò, đủ nhanh để
-  // đăng nhập không thấy đơ.
-  BCRYPT_COST: z.coerce.number().int().min(10).max(15).default(12),
+  // đăng nhập không thấy đơ. Mỗi đơn vị tăng là gấp đôi thời gian.
+  //
+  // Cận dưới là 4 chứ không phải 10: bộ test hạ về 4 để suite không mất vài
+  // giây cho mỗi tài khoản được tạo. Chặn ở 10 sẽ khiến file test không chạy
+  // được, và người ta sẽ đi vòng bằng cách khác tệ hơn.
+  BCRYPT_COST: z.coerce.number().int().min(4).max(15).default(12),
 
-  // Chống dò mật khẩu (đếm trên Redis)
+  // Hạn mức gọi các endpoint xác thực, đếm trên Redis theo IP.
   LOGIN_MAX_ATTEMPTS: z.coerce.number().int().positive().default(10),
   LOGIN_LOCKOUT_MINUTES: z.coerce.number().int().positive().default(15),
 

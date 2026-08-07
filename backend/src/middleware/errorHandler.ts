@@ -3,6 +3,14 @@ import { ZodError } from 'zod';
 import { isProduction } from '../config/env';
 import { HttpError } from '../utils/httpError';
 
+/**
+ * Mọi lỗi của API đều có đúng MỘT hình dạng:
+ *   { error: '<Code>', message: '<tiếng Việt>', fields?: { <trường>: '<lý do>' } }
+ *
+ * Một API có hai dạng lỗi còn tệ hơn là chọn nhầm một dạng — client phải viết
+ * hai nhánh parse và sẽ luôn quên một nhánh.
+ */
+
 /** Route không khớp -> 404 JSON (không trả HTML mặc định của Express). */
 export function notFoundHandler(req: Request, res: Response): void {
   res
@@ -25,6 +33,26 @@ function zodFields(error: ZodError): Record<string, string> {
 }
 
 /**
+ * Rút thông tin log AN TOÀN từ một lỗi.
+ *
+ * KHÔNG log nguyên object lỗi. Object lỗi của mysql2 mang theo cả `sql` lẫn
+ * `sqlMessage`, mà câu `INSERT INTO users ...` thì có bcrypt hash nằm ngay
+ * trong danh sách tham số. Log nguyên object là đưa hash mật khẩu của người
+ * dùng vào file log — nơi thường được thu thập, chuyển đi và giữ lâu hơn cả
+ * database.
+ */
+function describeForLog(err: unknown): string {
+  if (err instanceof HttpError) {
+    return `${err.name}(${err.code}): ${err.message}`;
+  }
+  if (err instanceof Error) {
+    const { code } = err as NodeJS.ErrnoException;
+    return code ? `${err.name}(${code}): ${err.message}` : `${err.name}: ${err.message}`;
+  }
+  return String(err);
+}
+
+/**
  * Error handler cuối chuỗi middleware.
  * Express nhận diện error handler bằng ĐỦ 4 tham số — không được bỏ `_next`
  * dù không dùng tới.
@@ -42,6 +70,11 @@ export function errorHandler(err: Error, _req: Request, res: Response, _next: Ne
 
   // Lỗi có chủ đích: dùng nguyên status/code/message do nơi ném quyết định.
   if (err instanceof HttpError) {
+    // Lỗi 4xx là chuyện bình thường (gõ sai mật khẩu, email trùng), không phải
+    // sự cố — log ở mức warn và không kèm stack. Đổ stack cho mỗi lần ai đó gõ
+    // sai mật khẩu sẽ nhấn chìm những lỗi thật sự đáng đọc.
+    console.warn('[error]', describeForLog(err));
+
     res.status(err.status).json({
       error: err.code,
       message: err.message,
@@ -50,8 +83,12 @@ export function errorHandler(err: Error, _req: Request, res: Response, _next: Ne
     return;
   }
 
-  // Còn lại là lỗi lập trình -> ghi log đầy đủ, trả ra ngoài thông báo chung.
-  console.error('[error]', err);
+  // Còn lại là lỗi lập trình -> log ĐÃ LỌC, trả ra ngoài thông báo chung.
+  console.error('[error]', describeForLog(err));
+  if (!isProduction && err.stack) {
+    console.error(err.stack);
+  }
+
   res.status(500).json({
     error: 'InternalServerError',
     message: 'Có lỗi xảy ra phía máy chủ.',

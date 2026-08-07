@@ -9,6 +9,7 @@ import { healthRouter } from './api/health';
 import { v1Router } from './api/v1';
 import { env, isProduction, isTest } from './config/env';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler';
+import { originGuard } from './middleware/originGuard';
 
 /**
  * Dựng Express app nhưng KHÔNG listen.
@@ -24,13 +25,24 @@ export function createApp(): Express {
   app.disable('x-powered-by');
 
   app.use(helmet());
+  // Origin cụ thể, không phải '*': phiên đăng nhập dùng header Authorization
+  // nên về mặt kỹ thuật wildcard vẫn chạy, nhưng khai đúng origin giữ cho API
+  // không bị trang lạ gọi bằng token mà người dùng vô tình để lộ.
   app.use(cors({ origin: env.CORS_ORIGIN, credentials: true }));
   app.use(compression());
   app.use(express.json({ limit: '1mb' }));
-  app.use(express.urlencoded({ extended: true }));
+  // CỐ Ý KHÔNG dùng `express.urlencoded`.
+  //
+  // Một form HTML cross-origin chỉ gửi được urlencoded/multipart/text-plain —
+  // nó KHÔNG gửi được `application/json`. Nên một API chỉ hiểu JSON là đã tự
+  // chống được CSRF dạng form, miễn phí. Bật urlencoded lên là cho không lớp
+  // phòng thủ đó. Nếu sau này cần nhận form thật (upload...), hãy mount parser
+  // riêng cho đúng route đó chứ đừng mount toàn cục.
   if (!isTest) {
     app.use(morgan(isProduction ? 'combined' : 'dev'));
   }
+  // Đứng sau parser, trước router: mọi mutation đều phải qua cửa này.
+  app.use(originGuard);
 
   // Chạy sau reverse proxy (Vite dev, nginx, Ingress) -> tin X-Forwarded-For
   // để req.ip là IP thật của client. Bộ đếm chống dò mật khẩu dựa vào giá trị

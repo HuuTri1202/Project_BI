@@ -1,4 +1,5 @@
 import { Route, Routes } from 'react-router-dom';
+import { RegisterPage } from './features/auth/RegisterPage';
 import { AdminLayout } from './layouts/AdminLayout';
 import ChangePasswordPage from './pages/ChangePasswordPage';
 import ForbiddenPage from './pages/ForbiddenPage';
@@ -26,6 +27,9 @@ export default function App(): React.ReactElement {
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
+      {/* Đăng ký cố ý KHÔNG tự đăng nhập: xong thì điều hướng sang /login kèm
+          state để trang đó chào đúng người và điền sẵn email (§1.5). */}
+      <Route path="/register" element={<RegisterPage />} />
       <Route path="/403" element={<ForbiddenPage />} />
 
       {/* Đã đăng nhập, nhưng ĐƯỢC PHÉP ở lại khi còn cờ mustChangePassword */}
