@@ -16,7 +16,7 @@ const EMPTY_TOUCHED: Record<FieldName, boolean> = {
 };
 
 export default function ChangePasswordPage(): React.ReactElement {
-  const { user, logout, markPasswordChanged } = useAuth();
+  const { user, role, logout, markPasswordChanged } = useAuth();
   const navigate = useNavigate();
 
   const [values, setValues] = useState({
@@ -90,7 +90,7 @@ export default function ChangePasswordPage(): React.ReactElement {
     try {
       await changePassword(values.currentPassword, values.newPassword);
       markPasswordChanged();
-      navigate(user?.role === 'admin' ? '/admin' : '/', { replace: true });
+      navigate(role === 'admin' ? '/admin' : '/', { replace: true });
     } catch (err) {
       const apiError = getApiError(err);
       if (apiError.fields) {

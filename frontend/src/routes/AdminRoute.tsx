@@ -16,9 +16,12 @@ import { useAuth } from '../auth/useAuth';
  * Đặt SAU `ProtectedRoute` trong cây route nên tới đây chắc chắn đã có `user`.
  */
 export function AdminRoute(): React.ReactElement {
-  const { user } = useAuth();
+  // `role` là vai trò TRONG TỔ CHỨC đang mở, không phải `user.platformRole`.
+  // Khu quản trị này quản lý một tổ chức nên nó hỏi đúng trục vai trò đó — một
+  // `superadmin` cấp hệ thống không tự động là quản trị viên của tổ chức nào.
+  const { role } = useAuth();
 
-  if (user?.role !== 'admin') return <Navigate to="/403" replace />;
+  if (role !== 'admin') return <Navigate to="/403" replace />;
 
   return <Outlet />;
 }

@@ -21,6 +21,11 @@ export const mysqlPool = mysql.createPool({
   // 'Z' = UTC. Mọi timestamp trong hệ thống đều là UTC, chỉ đổi múi giờ ở tầng
   // hiển thị. Trộn timezone ở tầng dữ liệu sinh bug lệch ngày rất khó tìm.
   timezone: 'Z',
+  // Cột DATE trả về nguyên chuỗi 'YYYY-MM-DD', KHÔNG đổi thành đối tượng Date.
+  // Ngày sinh không có múi giờ — biến nó thành Date là mời gọi đúng cái lỗi
+  // lệch một ngày mà dòng `timezone` ở trên đang cố tránh. DATETIME thì vẫn để
+  // mysql2 parse bình thường vì nó THẬT SỰ là một mốc thời gian.
+  dateStrings: ['DATE'],
 });
 
 /** Ping thật để dùng cho readiness probe. Ném lỗi nếu không kết nối được. */

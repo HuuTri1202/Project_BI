@@ -82,7 +82,7 @@ function SidebarContent(): React.ReactElement {
 }
 
 export function AdminLayout(): React.ReactElement {
-  const { user, tenant, logout } = useAuth();
+  const { user, tenant, role, logout } = useAuth();
   const location = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
 
@@ -154,9 +154,7 @@ export function AdminLayout(): React.ReactElement {
           <div className="ml-auto flex items-center gap-3">
             <div className="hidden text-right sm:block">
               <p className="truncate text-sm font-medium text-slate-900">{user?.fullName}</p>
-              <p className="truncate text-xs text-slate-500">
-                {user ? ROLE_LABELS[user.role] : ''}
-              </p>
+              <p className="truncate text-xs text-slate-500">{role ? ROLE_LABELS[role] : ''}</p>
             </div>
             <span
               aria-hidden="true"

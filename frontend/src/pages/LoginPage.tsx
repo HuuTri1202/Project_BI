@@ -12,7 +12,7 @@ type FieldName = 'email' | 'password';
 type Errors = Partial<Record<FieldName, string>>;
 
 export default function LoginPage(): React.ReactElement {
-  const { status, user, login } = useAuth();
+  const { status, user, role, login } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -31,9 +31,9 @@ export default function LoginPage(): React.ReactElement {
   if (status === 'loading') return <FullPageLoader label="Đang khôi phục phiên…" />;
 
   // Đã đăng nhập mà quay lại /login thì đưa đi luôn, đừng bắt đăng nhập lại.
-  if (status === 'authenticated' && user) {
+  if (status === 'authenticated' && user && role) {
     const from = (location.state as { from?: string } | null)?.from;
-    return <Navigate to={redirectTargetFor(user, from)} replace />;
+    return <Navigate to={redirectTargetFor(user, role, from)} replace />;
   }
 
   function validateField(name: FieldName, value: string): string | undefined {
@@ -68,9 +68,9 @@ export default function LoginPage(): React.ReactElement {
 
     setSubmitting(true);
     try {
-      const loggedIn = await login(values.email.trim(), values.password);
+      const outcome = await login(values.email.trim(), values.password);
       const from = (location.state as { from?: string } | null)?.from;
-      navigate(redirectTargetFor(loggedIn, from), { replace: true });
+      navigate(redirectTargetFor(outcome.user, outcome.role, from), { replace: true });
     } catch (err) {
       const apiError = getApiError(err);
       // Lỗi validate của backend về theo từng trường; còn 401/403/429 chỉ có

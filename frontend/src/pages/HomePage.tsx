@@ -9,13 +9,13 @@ import { ROLE_LABELS } from '../types/auth';
  * Giữ tối giản và nói thẳng điều đó, thay vì đắp giao diện giả.
  */
 export default function HomePage(): React.ReactElement {
-  const { user, tenant, logout } = useAuth();
+  const { user, tenant, role, logout } = useAuth();
 
   return (
     <main className="mx-auto max-w-3xl px-4 py-16">
       <h1 className="text-2xl font-bold text-slate-900">Xin chào, {user?.fullName ?? 'bạn'}</h1>
       <p className="mt-1.5 text-sm text-slate-500">
-        {tenant?.name ?? 'Không rõ tổ chức'} · {user ? ROLE_LABELS[user.role] : ''}
+        {tenant?.name ?? 'Không rõ tổ chức'} · {role ? ROLE_LABELS[role] : ''}
       </p>
 
       <div className="mt-8 rounded-xl border border-slate-200 bg-white p-6">
@@ -27,7 +27,7 @@ export default function HomePage(): React.ReactElement {
       </div>
 
       <div className="mt-8 flex items-center gap-5 text-sm">
-        {user?.role === 'admin' && (
+        {role === 'admin' && (
           <Link to="/admin" className="font-medium text-brand-600 hover:text-brand-700">
             Vào trang quản trị →
           </Link>

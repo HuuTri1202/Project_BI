@@ -339,17 +339,57 @@ React + Vega-Lite  ──►  Express (BFF)  ──►  Cube.js  ──►  Clic
 ## Xác thực
 
 Keycloak đã bị gỡ bỏ; thay bằng xác thực **tự viết trong Express**: `bcryptjs`
-băm mật khẩu, `jsonwebtoken` ký JWT HS256, dữ liệu nằm ở ba bảng `tenants` /
-`users` / `workspaces` trong `bi_platform`.
+băm mật khẩu, `jsonwebtoken` ký JWT HS256.
+
+### Bốn quyết định đã thống nhất giữa hai người
+
+Đây là nền mà cả hai nhánh phải dựng lên. Đổi bất kỳ mục nào cũng phải bàn lại,
+đừng tự sửa trên nhánh riêng.
+
+1. **Khoá chính `BIGINT UNSIGNED AUTO_INCREMENT`.**
+2. **Quan hệ user ↔ tổ chức nằm ở bảng nối `memberships`**, không phải cột
+   `users.tenant_id`. Một người làm được ở nhiều tổ chức.
+3. **Phiên lưu bằng `localStorage` + header `Authorization: Bearer`.**
+4. **Vai trò khai bằng `ENUM`**, không dùng bảng tra cứu `roles`.
+
+### Hai trục vai trò — đừng nhầm lẫn
+
+```
+users.role        ENUM('superadmin','user')          ← quyền trên HỆ THỐNG
+memberships.role  ENUM('admin','creator','viewer')   ← quyền trong TỔ CHỨC
+```
+
+`superadmin` là người vận hành nền tảng, đứng ngoài mọi tổ chức. Người dùng
+bình thường là `user`, và quyền thật của họ nằm ở `memberships.role` của từng
+tổ chức. Một người có thể là `admin` ở công ty A nhưng chỉ `viewer` ở công ty B.
+
+`requireRole('admin')` hỏi trục **tổ chức**. `superadmin` cố ý **không** được đi
+tắt qua nó: cho phép thế là biến mọi kiểm tra quyền thành "trừ khi là
+superadmin", và một tài khoản vận hành bị chiếm là mất sạch dữ liệu mọi tổ chức.
+Muốn superadmin làm việc trong một tổ chức thì cấp cho họ `membership` thật.
+
+### Năm bảng
+
+```
+tenants       tổ chức
+users         định danh TOÀN CỤC — không có tenant_id, không có vai trò tổ chức
+memberships   user_id + tenant_id + role  (UNIQUE user_id, tenant_id)
+workspaces    thuộc tenant; UNIQUE (tenant_id, id) làm đích cho khoá ngoại ghép
+projects      khoá ngoại GHÉP (tenant_id, workspace_id) → workspaces
+```
+
+Khoá ngoại ghép của `projects` khiến việc gắn project vào workspace của tổ chức
+khác là **bất khả thi ở tầng database**, bất kể code phía trên làm gì — loại ràng
+buộc mạnh hơn mọi lớp kiểm tra trong ứng dụng vì nó không quên được.
 
 ### Endpoint
 
-| Method | Đường dẫn                   | Việc                                                            |
-| ------ | --------------------------- | --------------------------------------------------------------- |
-| POST   | `/api/auth/login`           | Trả `{ token, expiresIn, mustChangePassword, user, tenant }`    |
-| GET    | `/api/auth/me`              | Khôi phục phiên khi F5 — đọc lại từ DB, không tin payload token |
-| POST   | `/api/auth/logout`          | 204 (JWT vô trạng thái, client tự bỏ token)                     |
-| POST   | `/api/auth/change-password` | 204                                                             |
+| Method | Đường dẫn                   | Việc                                                                            |
+| ------ | --------------------------- | ------------------------------------------------------------------------------- |
+| POST   | `/api/auth/login`           | Trả `{ token, expiresIn, mustChangePassword, user, tenant, role, memberships }` |
+| GET    | `/api/auth/me`              | Khôi phục phiên khi F5 — đọc lại từ DB, không tin payload token                 |
+| POST   | `/api/auth/logout`          | 204 (JWT vô trạng thái, client tự bỏ token)                                     |
+| POST   | `/api/auth/change-password` | 204                                                                             |
 
 Mọi lỗi có cùng hình dạng `{ error, message, fields? }`.
 
@@ -385,8 +425,12 @@ Mọi lỗi có cùng hình dạng `{ error, message, fields? }`.
   lộ vẫn dùng được tới lúc hết hạn. Muốn thu hồi thật cần danh sách chặn trên
   Redis (Redis đang chạy sẵn).
 - **Chưa có "quên mật khẩu"** vì chưa có SMTP.
-- **Một email chỉ thuộc một tổ chức** — hệ quả của việc form đăng nhập không có
-  ô chọn tổ chức, nên `users.email` phải duy nhất toàn cục.
+- **Chưa đổi được tổ chức trên giao diện.** Người thuộc nhiều tổ chức sẽ vào tổ
+  chức cũ nhất (`ORDER BY memberships.id ASC`) — quy tắc ổn định, không tự đổi
+  sau lưng người dùng. API đã trả sẵn mảng `memberships`, nên thêm menu đổi tổ
+  chức về sau chỉ là việc của frontend + một endpoint cấp token mới.
+- **`users.email` duy nhất toàn cục** vì form đăng nhập không có ô chọn tổ chức.
+  Không cản trở việc một người thuộc nhiều tổ chức — đó là việc của `memberships`.
 - **Token lưu `localStorage`** nên XSS đọc được. Đánh đổi có ý thức; muốn chắc
   hơn thì chuyển sang cookie `httpOnly`, chỉ phải sửa `apiClient.ts` +
   `tokenStorage.ts` + phần set cookie ở backend.

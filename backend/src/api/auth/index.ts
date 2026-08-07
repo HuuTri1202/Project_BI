@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { authenticate, requireAuth } from '../../middleware/authenticate';
-import { findTenantById } from '../../repositories/tenants';
+import * as membershipsRepo from '../../repositories/memberships';
 import * as usersRepo from '../../repositories/users';
 import {
   assertNotThrottled,
@@ -55,21 +55,41 @@ authRouter.post(
       throw new HttpError(403, 'AccountDisabled', 'Tài khoản đã bị khoá. Liên hệ quản trị viên.');
     }
 
+    // Từ đây là phần mới do mô hình `memberships`: xác thực xong mới biết người
+    // này thuộc những tổ chức nào.
+    const memberships = await membershipsRepo.listActiveByUser(found.user.id);
+
+    // Tài khoản có thật, mật khẩu đúng, nhưng không thuộc tổ chức nào — xảy ra
+    // khi vừa bị gỡ khỏi tổ chức cuối cùng. KHÔNG trả 401 ở đây: mật khẩu đúng
+    // rồi, báo sai mật khẩu là nói dối và người dùng sẽ thử lại tới khi bị khoá.
+    const active = memberships[0];
+    if (!active) {
+      throw new HttpError(
+        403,
+        'NoMembership',
+        'Tài khoản chưa thuộc tổ chức nào. Liên hệ quản trị viên để được thêm vào.',
+      );
+    }
+
     await clearFailures(email, ip);
     await usersRepo.touchLastLogin(found.user.id);
-
-    const tenant = await findTenantById(found.user.tenantId);
 
     res.json({
       token: signAccessToken({
         userId: found.user.id,
-        role: found.user.role,
-        tenantId: found.user.tenantId,
+        tenantId: active.tenantId,
+        role: active.role,
+        platformRole: found.user.platformRole,
       }),
       expiresIn: expiresInSeconds(),
       mustChangePassword: found.user.mustChangePassword,
       user: found.user,
-      tenant,
+      // Tổ chức đang mở và vai trò trong đó — hai thứ frontend dùng để điều hướng.
+      tenant: toTenantSummary(active),
+      role: active.role,
+      // Danh sách đầy đủ, kể cả khi mới có một phần tử. Trả sẵn từ bây giờ để
+      // lúc thêm chức năng đổi tổ chức không phải sửa hợp đồng API.
+      memberships: memberships.map(toTenantSummaryWithRole),
     });
   }),
 );
@@ -82,15 +102,29 @@ authRouter.get(
     const auth = requireAuth(req);
 
     // Đọc lại từ DB chứ không tin payload token: vai trò có thể vừa bị đổi,
-    // tài khoản có thể vừa bị khoá hoặc xoá mềm sau khi token được cấp.
-    const user = await usersRepo.findById(auth.tenantId, auth.userId);
+    // tài khoản có thể vừa bị khoá hoặc gỡ khỏi tổ chức sau khi token được cấp.
+    const user = await usersRepo.findById(auth.userId);
     if (!user) throw unauthorized('Tài khoản không còn tồn tại.');
     if (!user.isActive) {
       throw new HttpError(403, 'AccountDisabled', 'Tài khoản đã bị khoá.');
     }
 
-    const tenant = await findTenantById(user.tenantId);
-    res.json({ user, tenant });
+    // Token gắn với một tổ chức cụ thể. Tư cách thành viên trong đó mất hiệu
+    // lực thì token cũng vậy — 401 để frontend đẩy về trang đăng nhập, ở đó
+    // người dùng sẽ được đưa vào tổ chức còn lại (nếu có).
+    const membership = await membershipsRepo.findByUserAndTenant(auth.userId, auth.tenantId);
+    if (!membership) {
+      throw unauthorized('Bạn không còn quyền truy cập tổ chức này.');
+    }
+
+    const memberships = await membershipsRepo.listActiveByUser(auth.userId);
+
+    res.json({
+      user,
+      tenant: toTenantSummary(membership),
+      role: membership.role,
+      memberships: memberships.map(toTenantSummaryWithRole),
+    });
   }),
 );
 
@@ -113,7 +147,7 @@ authRouter.post(
     const auth = requireAuth(req);
     const { currentPassword, newPassword } = changePasswordSchema.parse(req.body);
 
-    const currentHash = await usersRepo.findPasswordHash(auth.tenantId, auth.userId);
+    const currentHash = await usersRepo.findPasswordHash(auth.userId);
     if (!currentHash) throw unauthorized('Tài khoản không còn tồn tại.');
 
     const ok = await verifyPassword(currentPassword, currentHash);
@@ -123,13 +157,25 @@ authRouter.post(
       });
     }
 
-    await usersRepo.updatePassword(
-      auth.tenantId,
-      auth.userId,
-      await hashPassword(newPassword),
-      false,
-    );
+    await usersRepo.updatePassword(auth.userId, await hashPassword(newPassword), false);
 
     res.status(204).end();
   }),
 );
+
+function toTenantSummary(m: membershipsRepo.Membership): {
+  id: number;
+  name: string;
+  slug: string;
+} {
+  return { id: m.tenantId, name: m.tenantName, slug: m.tenantSlug };
+}
+
+function toTenantSummaryWithRole(m: membershipsRepo.Membership): {
+  id: number;
+  name: string;
+  slug: string;
+  role: membershipsRepo.TenantRole;
+} {
+  return { ...toTenantSummary(m), role: m.role };
+}

@@ -1,16 +1,29 @@
 import jwt from 'jsonwebtoken';
 import { env } from '../../config/env';
-import type { UserRole } from '../../repositories/users';
+import { isTenantRole, type TenantRole } from '../../repositories/memberships';
 import { unauthorized } from '../../utils/httpError';
 
+/**
+ * Nội dung token.
+ *
+ * `role` ở đây là vai trò trong TỔ CHỨC đang mở (`tenantId`), lấy từ bảng
+ * `memberships`. `platformRole` là trục quyền độc lập ở cấp hệ thống — xem ghi
+ * chú hai trục vai trò trong db/migrations.ts.
+ *
+ * Vì một người có thể thuộc nhiều tổ chức, token luôn gắn với ĐÚNG MỘT tổ chức.
+ * Đổi tổ chức nghĩa là cấp token mới, không phải sửa token cũ.
+ */
 export interface AccessTokenPayload {
   userId: number;
-  role: UserRole;
   tenantId: number;
+  role: TenantRole;
+  platformRole: PlatformRoleClaim;
 }
 
+type PlatformRoleClaim = 'superadmin' | 'user';
+
 /**
- * Nội dung token cố ý giữ tối thiểu: userId, role, tenantId.
+ * Payload cố ý giữ tối thiểu: định danh + hai trục quyền.
  *
  * KHÔNG nhét email/họ tên/thông tin cá nhân vào đây. Payload JWT chỉ được ký
  * chứ không được mã hoá — ai cầm token cũng giải base64 ra đọc được. Token lại
@@ -18,16 +31,26 @@ export interface AccessTokenPayload {
  * thiệt hại nếu bị lộ.
  */
 export function signAccessToken(payload: AccessTokenPayload): string {
-  return jwt.sign({ role: payload.role, tenantId: payload.tenantId }, env.JWT_SECRET, {
-    algorithm: 'HS256',
-    subject: String(payload.userId),
-    issuer: env.JWT_ISSUER,
-    audience: env.JWT_AUDIENCE,
-    expiresIn: env.JWT_EXPIRES_IN,
-  } as jwt.SignOptions);
+  return jwt.sign(
+    {
+      tenantId: payload.tenantId,
+      role: payload.role,
+      platformRole: payload.platformRole,
+    },
+    env.JWT_SECRET,
+    {
+      algorithm: 'HS256',
+      subject: String(payload.userId),
+      issuer: env.JWT_ISSUER,
+      audience: env.JWT_AUDIENCE,
+      expiresIn: env.JWT_EXPIRES_IN,
+    } as jwt.SignOptions,
+  );
 }
 
-const ROLES: readonly UserRole[] = ['admin', 'creator', 'viewer'];
+function isPlatformRoleClaim(value: unknown): value is PlatformRoleClaim {
+  return value === 'superadmin' || value === 'user';
+}
 
 /**
  * Xác thực token và trả về payload đã kiểm kiểu.
@@ -51,21 +74,22 @@ export function verifyAccessToken(token: string): AccessTokenPayload {
   }
 
   const userId = Number(decoded.sub);
-  const role = decoded['role'] as unknown;
   const tenantId = Number(decoded['tenantId']);
+  const role: unknown = decoded['role'];
+  const platformRole: unknown = decoded['platformRole'];
 
   if (
     !Number.isInteger(userId) ||
     userId <= 0 ||
     !Number.isInteger(tenantId) ||
     tenantId <= 0 ||
-    typeof role !== 'string' ||
-    !ROLES.includes(role as UserRole)
+    !isTenantRole(role) ||
+    !isPlatformRoleClaim(platformRole)
   ) {
     throw unauthorized('Phiên đăng nhập không hợp lệ hoặc đã hết hạn.');
   }
 
-  return { userId, role: role as UserRole, tenantId };
+  return { userId, tenantId, role, platformRole };
 }
 
 /** Đổi '7d' / '15m' / '3600' thành số giây, để trả về cho client biết hạn dùng. */

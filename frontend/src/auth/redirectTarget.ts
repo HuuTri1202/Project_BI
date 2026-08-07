@@ -1,4 +1,4 @@
-import type { PublicUser } from '../types/auth';
+import type { PublicUser, TenantRole } from '../types/auth';
 
 /**
  * Nơi cần tới sau khi đăng nhập — §2.6.
@@ -9,13 +9,20 @@ import type { PublicUser } from '../types/auth';
  *     mật khẩu tạm mà đi thẳng vào trang cũ là lọt cổng. `ProtectedRoute` chặn
  *     thêm một lần nữa để không phụ thuộc vào mỗi chỗ điều hướng này.
  *  2. `from` — trang họ đang định vào lúc bị đẩy về `/login`.
- *  3. Admin về `/admin`.
+ *  3. Quản trị viên của tổ chức về `/admin`.
  *  4. Còn lại về trang chủ.
+ *
+ * `role` là vai trò TRONG TỔ CHỨC đang mở, không phải `user.platformRole`.
+ * Khu quản trị ở đây quản lý một tổ chức, nên nó hỏi đúng trục vai trò đó.
  */
-export function redirectTargetFor(user: PublicUser, from?: string | null): string {
+export function redirectTargetFor(
+  user: PublicUser,
+  role: TenantRole,
+  from?: string | null,
+): string {
   if (user.mustChangePassword) return '/change-password';
   if (from && isSafeInternalPath(from)) return from;
-  if (user.role === 'admin') return '/admin';
+  if (role === 'admin') return '/admin';
   return '/';
 }
 

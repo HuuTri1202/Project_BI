@@ -1,25 +1,38 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
-import * as authApi from '../services/authApi';
 import { setUnauthorizedHandler } from '../services/apiClient';
-import type { PublicUser, Tenant } from '../types/auth';
-import { AuthContext, type AuthContextValue, type AuthStatus } from './authContext';
+import * as authApi from '../services/authApi';
+import type { Membership, PublicUser, Tenant, TenantRole } from '../types/auth';
+import {
+  AuthContext,
+  type AuthContextValue,
+  type AuthStatus,
+  type LoginOutcome,
+} from './authContext';
 import { clearToken, readToken, writeToken } from './tokenStorage';
 
 interface Session {
   status: AuthStatus;
   user: PublicUser | null;
   tenant: Tenant | null;
+  role: TenantRole | null;
+  memberships: Membership[];
 }
 
-const ANONYMOUS: Session = { status: 'anonymous', user: null, tenant: null };
+const ANONYMOUS: Session = {
+  status: 'anonymous',
+  user: null,
+  tenant: null,
+  role: null,
+  memberships: [],
+};
 
 export function AuthProvider({ children }: { children: ReactNode }): React.ReactElement {
   // Khởi tạo là 'loading' khi CÓ token sẵn trong máy, 'anonymous' khi không.
   // Tính ngay lúc dựng state chứ không để mặc định 'loading' rồi sửa trong
   // effect: người chưa từng đăng nhập sẽ không phải nhìn màn hình chờ vô nghĩa.
   const [session, setSession] = useState<Session>(() =>
-    readToken() ? { status: 'loading', user: null, tenant: null } : ANONYMOUS,
+    readToken() ? { ...ANONYMOUS, status: 'loading' } : ANONYMOUS,
   );
 
   const navigate = useNavigate();
@@ -41,13 +54,21 @@ export function AuthProvider({ children }: { children: ReactNode }): React.React
 
     authApi
       .fetchMe()
-      .then(({ user, tenant }) => {
-        if (!ignore) setSession({ status: 'authenticated', user, tenant });
+      .then((me) => {
+        if (!ignore) {
+          setSession({
+            status: 'authenticated',
+            user: me.user,
+            tenant: me.tenant,
+            role: me.role,
+            memberships: me.memberships,
+          });
+        }
       })
       .catch(() => {
-        // Token hỏng, hết hạn, tài khoản bị khoá hoặc đã xoá -> coi như chưa
-        // đăng nhập. Không điều hướng ở đây: ProtectedRoute sẽ tự đẩy đi và
-        // giữ được `location.state.from`.
+        // Token hỏng, hết hạn, tài khoản bị khoá, hoặc đã bị gỡ khỏi tổ chức
+        // trong token -> coi như chưa đăng nhập. Không điều hướng ở đây:
+        // ProtectedRoute sẽ tự đẩy đi và giữ được `location.state.from`.
         if (!ignore) {
           clearToken();
           setSession(ANONYMOUS);
@@ -72,13 +93,19 @@ export function AuthProvider({ children }: { children: ReactNode }): React.React
     return () => setUnauthorizedHandler(null);
   }, [clearSession, navigate]);
 
-  const login = useCallback(async (email: string, password: string): Promise<PublicUser> => {
+  const login = useCallback(async (email: string, password: string): Promise<LoginOutcome> => {
     const res = await authApi.login(email, password);
     // Ghi token TRƯỚC khi đổi state: request đầu tiên phát ra ngay sau khi
     // render lại đã có sẵn header Authorization.
     writeToken(res.token);
-    setSession({ status: 'authenticated', user: res.user, tenant: res.tenant });
-    return res.user;
+    setSession({
+      status: 'authenticated',
+      user: res.user,
+      tenant: res.tenant,
+      role: res.role,
+      memberships: res.memberships,
+    });
+    return { user: res.user, role: res.role };
   }, []);
 
   const logout = useCallback(async () => {

@@ -1,31 +1,55 @@
 import type { ResultSetHeader, RowDataPacket } from 'mysql2';
 import { mysqlPool } from '../config/mysql';
 
-export type UserRole = 'admin' | 'creator' | 'viewer';
-export const USER_ROLES: readonly UserRole[] = ['admin', 'creator', 'viewer'];
+/**
+ * Vai trò cấp NỀN TẢNG — người vận hành hệ thống, đứng ngoài mọi tổ chức.
+ *
+ * Đừng nhầm với `TenantRole` ('admin' | 'creator' | 'viewer') trong
+ * repositories/memberships.ts. Hai trục hoàn toàn độc lập:
+ *
+ *   users.role        quyền trên HỆ THỐNG   ('superadmin' | 'user')
+ *   memberships.role  quyền trong TỔ CHỨC   ('admin' | 'creator' | 'viewer')
+ *
+ * Một người có thể là `user` bình thường ở cấp nền tảng nhưng `admin` của công
+ * ty mình. Trộn hai trục vào một cột là thứ không gỡ ra được về sau.
+ */
+export type PlatformRole = 'superadmin' | 'user';
 
-/** Dữ liệu user trả ra ngoài — KHÔNG bao giờ chứa `password_hash`. */
+/**
+ * Dữ liệu user trả ra ngoài — KHÔNG bao giờ chứa `password_hash`.
+ *
+ * Cố ý KHÔNG có `tenantId` và không có vai trò tổ chức: bảng `users` giờ là
+ * định danh toàn cục. Việc người này thuộc tổ chức nào với vai trò gì nằm ở
+ * `Membership`, và API trả hai thứ đó cạnh nhau.
+ */
 export interface PublicUser {
   id: number;
-  tenantId: number;
-  fullName: string;
   email: string;
-  role: UserRole;
+  fullName: string;
+  phone: string | null;
+  jobTitle: string | null;
+  /** Dạng 'YYYY-MM-DD'. Xem `dateStrings` trong config/mysql.ts. */
+  dateOfBirth: string | null;
+  platformRole: PlatformRole;
   isActive: boolean;
   mustChangePassword: boolean;
+  emailVerifiedAt: string | null;
   lastLoginAt: string | null;
   createdAt: string;
 }
 
 interface UserRow extends RowDataPacket {
   id: number;
-  tenant_id: number;
-  full_name: string;
   email: string;
   password_hash: string;
-  role: UserRole;
+  full_name: string;
+  phone: string | null;
+  job_title: string | null;
+  date_of_birth: string | null;
+  role: PlatformRole;
   is_active: number;
   must_change_password: number;
+  email_verified_at: Date | null;
   last_login_at: Date | null;
   created_at: Date;
 }
@@ -33,28 +57,42 @@ interface UserRow extends RowDataPacket {
 function toPublicUser(row: UserRow): PublicUser {
   return {
     id: Number(row.id),
-    tenantId: Number(row.tenant_id),
-    fullName: row.full_name,
     email: row.email,
-    role: row.role,
+    fullName: row.full_name,
+    phone: row.phone,
+    jobTitle: row.job_title,
+    dateOfBirth: row.date_of_birth,
+    platformRole: row.role,
     isActive: row.is_active === 1,
     mustChangePassword: row.must_change_password === 1,
+    emailVerifiedAt: row.email_verified_at ? row.email_verified_at.toISOString() : null,
     lastLoginAt: row.last_login_at ? row.last_login_at.toISOString() : null,
     createdAt: row.created_at.toISOString(),
   };
 }
 
-const SELECT_COLUMNS = `id, tenant_id, full_name, email, password_hash, role,
-                        is_active, must_change_password, last_login_at, created_at`;
+const SELECT_COLUMNS = `id, email, password_hash, full_name, phone, job_title, date_of_birth,
+                        role, is_active, must_change_password, email_verified_at,
+                        last_login_at, created_at`;
+
+/*
+ * ─── Về quy tắc "mọi hàm nhận tenantId đầu tiên" ─────────────────────────────
+ *
+ * Quy tắc đó vẫn còn hiệu lực, nhưng CHỖ ÁP DỤNG đã đổi cùng với mô hình dữ
+ * liệu. Bảng `users` bây giờ là định danh toàn cục, không thuộc tổ chức nào,
+ * nên các hàm dưới đây thao tác trên một danh tính và chỉ cần `userId`.
+ *
+ * Ranh giới tổ chức giờ nằm ở `memberships`. Mọi truy vấn kiểu "những người
+ * dùng CỦA tổ chức này" (§3.3, §3.4) BẮT BUỘC phải JOIN qua memberships và lọc
+ * `m.tenant_id = ?` — quên một lần là dữ liệu công ty này lọt sang công ty
+ * khác. Những hàm đó thuộc về một repository riêng cho khu quản trị, không
+ * trộn vào file này, để ranh giới nhìn thấy được ngay ở tên file.
+ */
 
 /**
- * ĐÂY LÀ HÀM DUY NHẤT TRONG FILE NÀY KHÔNG LỌC THEO TENANT.
- *
- * Lý do: lúc đăng nhập chưa biết tenant nào — form chỉ có email + mật khẩu.
- * Chính vì vậy `email` phải duy nhất toàn cục (xem migration 1).
- *
- * Mọi hàm còn lại BẮT BUỘC nhận `tenantId` làm tham số đầu tiên, để không có
- * đường nào gọi mà quên lọc.
+ * Tra cứu lúc đăng nhập. Không nhận tenantId vì tại thời điểm này CHƯA BIẾT tổ
+ * chức — form chỉ có email + mật khẩu. Chính vì vậy `email` phải duy nhất toàn
+ * cục (xem migration 1).
  */
 export async function findByEmailForLogin(
   email: string,
@@ -68,25 +106,29 @@ export async function findByEmailForLogin(
   return { user: toPublicUser(row), passwordHash: row.password_hash };
 }
 
-export async function findById(tenantId: number, userId: number): Promise<PublicUser | null> {
+export async function findById(userId: number): Promise<PublicUser | null> {
   const [rows] = await mysqlPool.query<UserRow[]>(
-    `SELECT ${SELECT_COLUMNS} FROM users
-      WHERE id = ? AND tenant_id = ? AND deleted_at IS NULL LIMIT 1`,
-    [userId, tenantId],
+    `SELECT ${SELECT_COLUMNS} FROM users WHERE id = ? AND deleted_at IS NULL LIMIT 1`,
+    [userId],
   );
   const row = rows[0];
   return row ? toPublicUser(row) : null;
 }
 
-export async function findPasswordHash(tenantId: number, userId: number): Promise<string | null> {
+export async function findPasswordHash(userId: number): Promise<string | null> {
   const [rows] = await mysqlPool.query<UserRow[]>(
-    `SELECT ${SELECT_COLUMNS} FROM users
-      WHERE id = ? AND tenant_id = ? AND deleted_at IS NULL LIMIT 1`,
-    [userId, tenantId],
+    'SELECT password_hash FROM users WHERE id = ? AND deleted_at IS NULL LIMIT 1',
+    [userId],
   );
   return rows[0]?.password_hash ?? null;
 }
 
+/**
+ * Kiểm tra email đã dùng chưa — chỉ để trả thông báo tử tế cho form đăng ký.
+ *
+ * Thứ THẬT SỰ chặn trùng là ràng buộc UNIQUE trên cột: giữa câu SELECT này và
+ * câu INSERT sau đó luôn có khe hở cho hai request đồng thời cùng lọt qua.
+ */
 export async function emailExists(email: string): Promise<boolean> {
   const [rows] = await mysqlPool.query<RowDataPacket[]>(
     'SELECT 1 AS x FROM users WHERE email = ? AND deleted_at IS NULL LIMIT 1',
@@ -96,23 +138,29 @@ export async function emailExists(email: string): Promise<boolean> {
 }
 
 export interface CreateUserInput {
-  fullName: string;
   email: string;
   passwordHash: string;
-  role: UserRole;
-  mustChangePassword: boolean;
+  fullName: string;
+  phone?: string | null;
+  jobTitle?: string | null;
+  dateOfBirth?: string | null;
+  platformRole?: PlatformRole;
+  mustChangePassword?: boolean;
 }
 
-export async function createUser(tenantId: number, input: CreateUserInput): Promise<number> {
+export async function createUser(input: CreateUserInput): Promise<number> {
   const [result] = await mysqlPool.query<ResultSetHeader>(
-    `INSERT INTO users (tenant_id, full_name, email, password_hash, role, must_change_password)
-     VALUES (?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO users
+       (email, password_hash, full_name, phone, job_title, date_of_birth, role, must_change_password)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     [
-      tenantId,
-      input.fullName,
       input.email,
       input.passwordHash,
-      input.role,
+      input.fullName,
+      input.phone ?? null,
+      input.jobTitle ?? null,
+      input.dateOfBirth ?? null,
+      input.platformRole ?? 'user',
       input.mustChangePassword ? 1 : 0,
     ],
   );
@@ -126,26 +174,15 @@ export async function touchLastLogin(userId: number): Promise<void> {
 }
 
 export async function updatePassword(
-  tenantId: number,
   userId: number,
   passwordHash: string,
   mustChangePassword: boolean,
 ): Promise<void> {
   await mysqlPool.query(
     `UPDATE users SET password_hash = ?, must_change_password = ?
-      WHERE id = ? AND tenant_id = ? AND deleted_at IS NULL`,
-    [passwordHash, mustChangePassword ? 1 : 0, userId, tenantId],
+      WHERE id = ? AND deleted_at IS NULL`,
+    [passwordHash, mustChangePassword ? 1 : 0, userId],
   );
-}
-
-/** Đếm admin còn hoạt động trong tenant — dùng để chặn xoá admin cuối cùng. */
-export async function countActiveAdmins(tenantId: number): Promise<number> {
-  const [rows] = await mysqlPool.query<RowDataPacket[]>(
-    `SELECT COUNT(*) AS total FROM users
-      WHERE tenant_id = ? AND role = 'admin' AND is_active = 1 AND deleted_at IS NULL`,
-    [tenantId],
-  );
-  return Number(rows[0]?.['total'] ?? 0);
 }
 
 export { toPublicUser };

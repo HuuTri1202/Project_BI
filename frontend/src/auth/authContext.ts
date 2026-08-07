@@ -1,5 +1,5 @@
 import { createContext } from 'react';
-import type { PublicUser, Tenant } from '../types/auth';
+import type { Membership, PublicUser, Tenant, TenantRole } from '../types/auth';
 
 /**
  * File này CỐ Ý không chứa component nào.
@@ -20,12 +20,23 @@ import type { PublicUser, Tenant } from '../types/auth';
  */
 export type AuthStatus = 'loading' | 'authenticated' | 'anonymous';
 
+/** Kết quả đăng nhập mà trang gọi cần để quyết định điều hướng. */
+export interface LoginOutcome {
+  user: PublicUser;
+  role: TenantRole;
+}
+
 export interface AuthContextValue {
   status: AuthStatus;
   user: PublicUser | null;
+  /** Tổ chức đang mở. */
   tenant: Tenant | null;
+  /** Vai trò TRONG tổ chức đang mở — đây là thứ mọi kiểm tra quyền dùng tới. */
+  role: TenantRole | null;
+  /** Mọi tổ chức người này thuộc về. Dùng cho chức năng đổi tổ chức sau này. */
+  memberships: Membership[];
   /** Đăng nhập; ném lỗi để trang gọi tự hiển thị thông báo từ API. */
-  login: (email: string, password: string) => Promise<PublicUser>;
+  login: (email: string, password: string) => Promise<LoginOutcome>;
   logout: () => Promise<void>;
   /** Gọi sau khi đổi mật khẩu thành công để hạ cờ `mustChangePassword`. */
   markPasswordChanged: () => void;
