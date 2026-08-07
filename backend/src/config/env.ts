@@ -51,15 +51,38 @@ const envSchema = z.object({
   REDIS_PASSWORD: z.string().min(1),
 
   // --- Xác thực ---
+  // Backend TỰ KÝ token bằng HS256 nên cần secret đối xứng. (Ở giai đoạn dùng
+  // Keycloak thì ngược lại: chỉ verify RS256 bằng khoá công khai, và khi đó có
+  // một secret nằm sẵn mới là nguy hiểm.)
+  //
   // KHÔNG có giá trị mặc định, và đó là chủ ý: một secret ký mặc định là đúng
   // loại thứ sẽ theo chân code lên production. Thà chết lúc boot kèm tên biến.
-  JWT_SECRET: z.string().min(32, 'JWT_SECRET phải dài tối thiểu 32 ký tự'),
-  JWT_ACCESS_TTL: durationFromEnv.default('1h'),
-  AUTH_COOKIE_NAME: z.string().min(1).default('bi_session'),
-  // 12 ≈ 250–400ms mỗi lần hash trên laptop hiện nay — mức "chậm nhất mà UX còn
-  // chịu được". Mỗi đơn vị tăng là gấp đôi thời gian. Test hạ về 4 để suite
-  // không mất vài giây cho mỗi user được tạo.
+  // 32 ký tự là mức tối thiểu để secret không bị dò bằng từ điển.
+  JWT_SECRET: z.string().min(32, 'JWT_SECRET phải dài ít nhất 32 ký tự'),
+  JWT_EXPIRES_IN: durationFromEnv.default('7d'),
+  JWT_ISSUER: z.string().min(1).default('bi-platform'),
+  JWT_AUDIENCE: z.string().min(1).default('bi-platform-api'),
+
+  // Đã đo trên máy dev: cost 12 ≈ 291 ms. Đủ chậm để chống dò, đủ nhanh để
+  // đăng nhập không thấy đơ. Mỗi đơn vị tăng là gấp đôi thời gian.
+  //
+  // Cận dưới là 4 chứ không phải 10: bộ test hạ về 4 để suite không mất vài
+  // giây cho mỗi tài khoản được tạo. Chặn ở 10 sẽ khiến file test không chạy
+  // được, và người ta sẽ đi vòng bằng cách khác tệ hơn.
   BCRYPT_COST: z.coerce.number().int().min(4).max(15).default(12),
+
+  // Hạn mức gọi các endpoint xác thực, đếm trên Redis theo IP.
+  LOGIN_MAX_ATTEMPTS: z.coerce.number().int().positive().default(10),
+  LOGIN_LOCKOUT_MINUTES: z.coerce.number().int().positive().default(15),
+
+  // --- Seed tài khoản quản trị đầu tiên (§2.7) ---
+  // Đều có giá trị mặc định nên KHÔNG bắt buộc khai trong .env; chỉ script
+  // seed đọc tới.
+  SEED_TENANT_NAME: z.string().min(1).default('BI Platform'),
+  SEED_TENANT_SLUG: z.string().min(1).default('bi-platform'),
+  SEED_ADMIN_EMAIL: z.string().email().default('admin@bi-platform.local'),
+  SEED_ADMIN_PASSWORD: z.string().min(8).max(72).default('Admin@12345'),
+  SEED_ADMIN_FULL_NAME: z.string().min(1).default('Quản trị viên'),
 });
 
 export type Env = Readonly<z.infer<typeof envSchema>>;

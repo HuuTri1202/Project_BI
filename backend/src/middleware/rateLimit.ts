@@ -2,7 +2,7 @@ import { ERROR_CODES } from '@bi/shared';
 import type { NextFunction, Request, Response } from 'express';
 
 import { redis } from '../config/redis';
-import { AppError } from '../errors/AppError';
+import { HttpError } from '../utils/httpError';
 
 /**
  * Giới hạn tần suất bằng Redis (đã có sẵn trong hạ tầng, không thêm thư viện).
@@ -58,7 +58,7 @@ export function rateLimit(options: RateLimitOptions) {
       (count) => {
         if (count !== null && count > options.max) {
           next(
-            new AppError(
+            new HttpError(
               429,
               ERROR_CODES.RATE_LIMITED,
               'Bạn thao tác quá nhanh. Vui lòng thử lại sau ít phút.',

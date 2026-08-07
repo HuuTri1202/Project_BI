@@ -4,7 +4,8 @@ import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { Link, useNavigate } from 'react-router-dom';
 
-import { ApiError, authApi } from './authApi';
+import { getApiError } from '../../services/apiClient';
+import { register as registerAccount } from '../../services/authApi';
 import { AuthLayout, FormError, SubmitButton } from './AuthLayout';
 import { Field, SelectField } from './Field';
 
@@ -55,10 +56,25 @@ export function RegisterPage() {
   const onSubmit = handleSubmit(async (values) => {
     setFormError(null);
     try {
-      await authApi.register(values);
-      navigate('/', { replace: true });
+      await registerAccount(values);
+
+      // §1.5 — đăng ký xong thì sang trang đăng nhập, KHÔNG tự đăng nhập.
+      //
+      // `replace: true` để nút Quay lại của trình duyệt không đưa họ về form
+      // đăng ký đã gửi. `state` mang thông báo và email sang, nên trang đăng
+      // nhập chào đúng người và điền sẵn ô email — họ chỉ còn phải gõ mật khẩu
+      // vừa đặt, và đó chính là bước chứng minh mật khẩu đúng như họ nghĩ.
+      navigate('/login', {
+        replace: true,
+        state: {
+          registered: true,
+          email: values.email,
+        },
+      });
     } catch (err) {
-      if (err instanceof ApiError && err.code === 'EMAIL_ALREADY_REGISTERED') {
+      const apiError = getApiError(err);
+
+      if (apiError.error === 'EmailAlreadyRegistered') {
         // Gắn lỗi vào đúng ô thay vì hiện một banner chung.
         //
         // `setError` làm `isValid` thành false, nên nút submit bị disable ngay
@@ -66,19 +82,18 @@ export function RegisterPage() {
         // 'onChange', chỉ cần sửa ô email một ký tự là resolver chạy lại, lỗi
         // biến mất và nút bật lên. Đó chính là hành vi mong muốn: chặn việc gửi
         // lại đúng dữ liệu vừa bị từ chối, nhưng không cản người dùng sửa.
-        setError('email', { type: 'server', message: err.message }, { shouldFocus: true });
+        setError('email', { type: 'server', message: apiError.message }, { shouldFocus: true });
         return;
       }
-      if (err instanceof ApiError && err.fields) {
-        for (const [name, messages] of Object.entries(err.fields)) {
-          const first = messages[0];
-          if (first) {
-            setError(name as keyof RegisterInput, { type: 'server', message: first });
-          }
+
+      if (apiError.fields) {
+        for (const [name, message] of Object.entries(apiError.fields)) {
+          setError(name as keyof RegisterInput, { type: 'server', message });
         }
         return;
       }
-      setFormError(err instanceof ApiError ? err.message : 'Đã có lỗi xảy ra. Vui lòng thử lại.');
+
+      setFormError(apiError.message);
     }
   });
 

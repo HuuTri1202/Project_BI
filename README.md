@@ -10,15 +10,15 @@ mà **không cần viết SQL**.
 
 ## Trạng thái hiện tại
 
-| Phần | Trạng thái |
-| --- | --- |
-| Hạ tầng dev — 8 container (MySQL, Redis, MinIO, ClickHouse, Cube.js, Kafka, Connect, dbt) | ✅ chạy được |
-| Backend skeleton (Express + health check thật) | ✅ chạy được |
-| Frontend skeleton (React + Vite) | ✅ chạy được |
-| **Xác thực người dùng** (đăng ký, đăng nhập, JWT trong cookie httpOnly) | ✅ chạy được — xem mục *Xác thực* |
-| Đa tổ chức: Tenant → Workspace → Project | ✅ schema + tự tạo khi đăng ký |
-| Xác thực email / quên mật khẩu | ❌ **chưa có** — chưa có kênh gửi mail |
-| Phân quyền (Casbin) / ingest / Cube schema / chart | ⏳ chưa làm |
+| Phần                                                                                      | Trạng thái                        |
+| ----------------------------------------------------------------------------------------- | --------------------------------- |
+| Hạ tầng dev — 8 container (MySQL, Redis, MinIO, ClickHouse, Cube.js, Kafka, Connect, dbt) | ✅ chạy được                      |
+| Backend skeleton (Express + health check thật)                                            | ✅ chạy được                      |
+| Frontend (React + Vite + Tailwind v4)                                                     | ✅ chạy được                      |
+| **Xác thực người dùng** — đăng nhập, JWT, đổi mật khẩu                                    | ✅ chạy được — xem mục _Xác thực_ |
+| **Trang quản trị** — khung sidebar/topbar, chặn quyền Admin                               | ✅ khung xong, số liệu chưa nối   |
+| Quản lý người dùng & workspace                                                            | ⏳ chưa làm                       |
+| Phân quyền Casbin / ingest / Cube schema / chart                                          | ⏳ chưa làm                       |
 
 Xem lộ trình đầy đủ và phân công theo tính năng trong tài liệu kế hoạch của nhóm.
 
@@ -26,12 +26,12 @@ Xem lộ trình đầy đủ và phân công theo tính năng trong tài liệu 
 
 ## Yêu cầu máy
 
-| Công cụ | Phiên bản | Ghi chú |
-| --- | --- | --- |
-| Node.js | ≥ 20 | Khuyến nghị 20 LTS hoặc 22 LTS |
-| Docker Desktop | mới nhất | Phải đang **chạy**, không chỉ cài |
-| Git | ≥ 2.40 | |
-| Git Bash | (Windows) | Các script `.sh` là bash, không chạy được bằng CMD/PowerShell |
+| Công cụ        | Phiên bản | Ghi chú                                                       |
+| -------------- | --------- | ------------------------------------------------------------- |
+| Node.js        | ≥ 20      | Khuyến nghị 20 LTS hoặc 22 LTS                                |
+| Docker Desktop | mới nhất  | Phải đang **chạy**, không chỉ cài                             |
+| Git            | ≥ 2.40    |                                                               |
+| Git Bash       | (Windows) | Các script `.sh` là bash, không chạy được bằng CMD/PowerShell |
 
 RAM tối thiểu **8 GB**, khuyến nghị **16 GB** (bật đủ profile là 8 container).
 
@@ -43,26 +43,12 @@ RAM tối thiểu **8 GB**, khuyến nghị **16 GB** (bật đủ profile là 8
 git clone https://github.com/HuuTri1202/Project_BI.git
 cd Project_BI
 
-npm run setup        # tạo 3 file .env + npm install + build gói shared
-npm run infra:up     # bật MySQL + Redis, chờ tới khi healthy
-npm run db:migrate   # tạo bảng users/tenants/workspaces/projects/memberships
+npm install          # cài concurrently ở thư mục gốc
+npm run setup        # tạo 3 file .env + npm install cho backend & frontend
 ```
 
 `npm run setup` **không bao giờ ghi đè** file `.env` đã có, nên chạy lại lúc nào
-cũng an toàn. Repo dùng **npm workspaces** (`shared`, `backend`, `frontend`) nên
-chỉ có **một** `package-lock.json` ở thư mục gốc và chỉ cần `npm install` một
-lần ở đó.
-
-> ⚠️ **Nếu bạn đã có `backend/.env` từ trước:** bản này thêm 4 biến bắt buộc và
-> `init-env.mjs` cố ý không ghi đè file cũ, nên backend sẽ **thoát ngay lúc
-> khởi động** cho tới khi bạn thêm chúng vào:
->
-> ```dotenv
-> JWT_SECRET=doi-gia-tri-nay-bang-mot-chuoi-ngau-nhien-toi-thieu-32-ky-tu
-> JWT_ACCESS_TTL=1h
-> AUTH_COOKIE_NAME=bi_session
-> BCRYPT_COST=12
-> ```
+cũng an toàn.
 
 ### Chạy hằng ngày — 2 lệnh, 2 terminal
 
@@ -70,13 +56,9 @@ lần ở đó.
 # Terminal 1 — hạ tầng (chỉ cần chạy khi mới bật máy)
 npm run infra:up
 
-# Terminal 2 — shared + backend + frontend cùng lúc
+# Terminal 2 — backend + frontend cùng lúc
 npm run dev
 ```
-
-`npm run db:migrate` chỉ cần chạy lại khi có file mới trong
-`backend/migrations/`. Nó theo dõi bằng bảng `schema_migrations` nên chạy thừa
-không gây hại — lần thứ hai chỉ in "Không có migration mới".
 
 - `infra:up` kiểm tra Docker → khởi động MySQL + Redis → chờ tới khi **thật sự**
   healthy (không chỉ "đã start") → in thông tin kết nối. Lần đầu mất khoảng
@@ -84,22 +66,22 @@ không gây hại — lần thứ hai chỉ in "Không có migration mới".
 - `dev` chạy song song backend và frontend, log gắn nhãn `[api]` / `[web]` theo
   màu. **Ctrl+C tắt cả hai.**
 
-| Địa chỉ | |
-| --- | --- |
-| http://localhost:5173 | Frontend — hiển thị JSON health của backend nếu cả hai chạy đúng |
-| http://localhost:4000/health | Backend |
+| Địa chỉ                      |                                  |
+| ---------------------------- | -------------------------------- |
+| http://localhost:5173        | Frontend — mở ra trang đăng nhập |
+| http://localhost:4000/health | Backend                          |
 
 ### Profile — chỉ bật phần đang cần
 
 8 container không nên cùng chạy suốt ngày. `npm run infra:up` chỉ khởi động
 service lõi; phần còn lại chia theo profile:
 
-| Lệnh | Thêm gì | Bật khi bắt đầu làm |
-| --- | --- | --- |
-| `npm run infra:up` | MySQL, Redis | **luôn luôn** — đăng ký, đăng nhập, quản trị user, mọi metadata |
-| `npm run infra:up:data` | MinIO, ClickHouse | **nạp dữ liệu**: upload CSV, presigned URL, bảng `raw_*` |
-| `npm run infra:up:bi` | Cube.js (+ ClickHouse) | **tầng ngữ nghĩa**: DataModel, Explore kéo-thả, chart |
-| `npm run infra:up:all` | + Kafka, Connect, dbt | **dbt / CDC realtime**, hoặc demo toàn hệ thống |
+| Lệnh                    | Thêm gì                | Bật khi bắt đầu làm                                             |
+| ----------------------- | ---------------------- | --------------------------------------------------------------- |
+| `npm run infra:up`      | MySQL, Redis           | **luôn luôn** — đăng ký, đăng nhập, quản trị user, mọi metadata |
+| `npm run infra:up:data` | MinIO, ClickHouse      | **nạp dữ liệu**: upload CSV, presigned URL, bảng `raw_*`        |
+| `npm run infra:up:bi`   | Cube.js (+ ClickHouse) | **tầng ngữ nghĩa**: DataModel, Explore kéo-thả, chart           |
+| `npm run infra:up:all`  | + Kafka, Connect, dbt  | **dbt / CDC realtime**, hoặc demo toàn hệ thống                 |
 
 Tắt lại phần không dùng để trả RAM:
 
@@ -109,7 +91,7 @@ npm run infra:down         # tắt tất cả
 ```
 
 > **Container đã tạo sẽ tự chạy lại mỗi lần bật Docker Desktop** (`restart:
-> unless-stopped`). Muốn chúng thôi hẳn thì phải xoá container chứ không chỉ
+unless-stopped`). Muốn chúng thôi hẳn thì phải xoá container chứ không chỉ
 > stop — `npm run infra:down:extra` làm đúng việc đó. Volume dữ liệu vẫn giữ
 > nguyên, bật lại là có đủ dữ liệu cũ.
 
@@ -132,27 +114,31 @@ Muốn khỏi gõ cờ profile mỗi lần: đặt `COMPOSE_PROFILES=data,bi` tr
 
 ```
 bi-flatform/
-├── package.json              # npm workspaces + script điều phối
+├── package.json              # script điều phối (npm run dev chạy cả 2 package)
 ├── scripts/init-env.mjs      # tạo .env từ .env.example, đa nền tảng
-├── shared/                   # @bi/shared — code dùng chung backend ↔ frontend
-│   └── src/
-│       ├── auth.ts           #   rule validate zod (viết MỘT lần, dùng hai phía)
-│       └── dto.ts            #   kiểu dữ liệu đi qua dây + mã lỗi
 ├── backend/                  # Express + TypeScript (API Gateway / BFF)
-│   ├── migrations/           # *.sql — schema ứng dụng, chạy bằng npm run db:migrate
-│   ├── tests/                # NGOÀI src/ để tsc không gói test vào dist/
 │   └── src/
-│       ├── api/              # Route handler — chỉ tầng HTTP
+│       ├── api/              # Route handler
+│       │   ├── auth/         #   login / me / logout / change-password
 │       │   ├── health.ts     #   liveness + readiness
-│       │   └── v1/auth/      #   register / login / me / logout
-│       ├── modules/auth/     # nghiệp vụ: service, repository, bcrypt, JWT
-│       ├── db/               # migrate.ts, tx.ts (transaction), id.ts (UUIDv7)
+│       │   └── v1/           #   API nghiệp vụ
 │       ├── config/           # env, mysql, redis (singleton dùng chung)
-│       ├── errors/           # AppError — lỗi có chủ đích, phân biệt với bug
-│       ├── middleware/       # errorHandler, asyncHandler, requireAuth, rateLimit
+│       ├── db/               # migration: schema + runner (KHÔNG dùng mysql/init)
+│       ├── middleware/       # errorHandler, authenticate, requireRole
+│       ├── repositories/     # truy vấn SQL — mọi hàm nhận tenantId đầu tiên
+│       ├── services/auth/    # băm mật khẩu, ký/verify JWT, chống dò mật khẩu
+│       ├── scripts/          # migrate, seed-admin
 │       ├── app.ts            # dựng Express app (không listen) — để test dùng lại
-│       └── index.ts          # bootstrap: listen + graceful shutdown
-├── frontend/                 # React 18 + TypeScript + Vite + react-router
+│       └── index.ts          # bootstrap: migrate + listen + graceful shutdown
+├── frontend/                 # React 18 + TypeScript + Vite + Tailwind v4
+│   └── src/
+│       ├── auth/             # AuthProvider, useAuth, tokenStorage, validators
+│       ├── services/         # apiClient (axios + interceptor), authApi
+│       ├── routes/           # ProtectedRoute, AdminRoute
+│       ├── layouts/          # AdminLayout (sidebar + topbar)
+│       ├── components/       # FormField, PasswordInput, FullPageLoader
+│       ├── pages/            # Login, ChangePassword, Home, Health, 403, 404
+│       └── index.css         # @import 'tailwindcss' + @theme (màu thương hiệu)
 ├── infrastructure/
 │   ├── docker-compose.yml    # ⚠️ Dev A sở hữu độc quyền — xem quy ước bên dưới
 │   ├── start-dev.sh          # khởi động môi trường dev (service lõi)
@@ -172,16 +158,16 @@ bi-flatform/
 
 Bảng đầy đủ ở [docs/ports.md](docs/ports.md). Những cổng đang dùng:
 
-| Service | URL | Profile |
-| --- | --- | --- |
-| Frontend | http://localhost:5173 | — |
-| Backend | http://localhost:4000 | — |
-| MySQL | `localhost:3310` | *luôn chạy* |
-| Redis | `localhost:6379` | *luôn chạy* |
-| MinIO console | http://localhost:9001 | `data` |
-| ClickHouse | http://localhost:8123 | `data` |
-| Cube.js | http://localhost:4100 | `bi` |
-| Kafka Connect | http://localhost:8083 | `stream` |
+| Service       | URL                   | Profile     |
+| ------------- | --------------------- | ----------- |
+| Frontend      | http://localhost:5173 | —           |
+| Backend       | http://localhost:4000 | —           |
+| MySQL         | `localhost:3310`      | _luôn chạy_ |
+| Redis         | `localhost:6379`      | _luôn chạy_ |
+| MinIO console | http://localhost:9001 | `data`      |
+| ClickHouse    | http://localhost:8123 | `data`      |
+| Cube.js       | http://localhost:4100 | `bi`        |
+| Kafka Connect | http://localhost:8083 | `stream`    |
 
 > MySQL dùng **3310** thay vì 3306, ClickHouse native dùng **9002** thay vì 9000
 > (đụng MinIO), Cube dùng **4100** thay vì 4000 (đụng Express). Đều là chủ ý,
@@ -193,15 +179,18 @@ Bảng đầy đủ ở [docs/ports.md](docs/ports.md). Những cổng đang dù
 
 Chỉ dùng ở local.
 
-| Service | User | Mật khẩu |
-| --- | --- | --- |
-| MySQL | `bi_user` | `bi_password` |
-| Redis | — | `redispassword` |
-| MinIO | `minioadmin` | `minioadmin123` |
-| ClickHouse | `bi_user` | `clickhouse_password` |
+| Service    | User         | Mật khẩu              |
+| ---------- | ------------ | --------------------- |
+| MySQL      | `bi_user`    | `bi_password`         |
+| Redis      | —            | `redispassword`       |
+| MinIO      | `minioadmin` | `minioadmin123`       |
+| ClickHouse | `bi_user`    | `clickhouse_password` |
 
-> Đây là **tài khoản hạ tầng**, không phải tài khoản người dùng ứng dụng. Tài
-> khoản người dùng tạo qua `POST /api/v1/auth/register` — xem mục *Xác thực*.
+Tài khoản đăng nhập vào ứng dụng (tạo bằng `npm --prefix backend run seed:admin`):
+
+| Vai trò | Email                     | Mật khẩu      |
+| ------- | ------------------------- | ------------- |
+| Admin   | `admin@bi-platform.local` | `Admin@12345` |
 
 ---
 
@@ -210,19 +199,16 @@ Chỉ dùng ở local.
 Chạy ở **thư mục gốc** — tất cả đều tác động lên cả backend lẫn frontend:
 
 ```bash
-npm run setup          # tạo .env + cài dependency + build gói shared
-npm run dev            # chạy shared + backend + frontend song song (Ctrl+C tắt hết)
+npm run setup          # tạo .env + cài dependency cho cả 2 package
+npm run dev            # chạy backend + frontend song song (Ctrl+C tắt cả hai)
 npm run dev:api        # chỉ backend
 npm run dev:web        # chỉ frontend
 
-npm run db:migrate     # áp dụng backend/migrations/*.sql (idempotent)
-
-npm run lint           # ESLint cả 3 workspace
-npm run typecheck      # tsc --noEmit cả 3
-npm run format         # Prettier ghi đè cả 3
-npm run build          # build production cả 3
-npm test               # Vitest — test đơn vị backend + frontend, không cần container
-npm run test:integration  # test cần MySQL + Redis, chạy trên bi_platform_test
+npm run lint           # ESLint cả 2
+npm run typecheck      # tsc --noEmit cả 2
+npm run format         # Prettier ghi đè cả 2
+npm run build          # build production cả 2
+npm test               # Vitest (backend)
 npm run verify         # lint + typecheck + build — CHẠY TRƯỚC KHI MỞ PR
 
 npm run infra:up       # service lõi: MySQL + Redis
@@ -235,15 +221,7 @@ npm run infra:logs     # theo dõi log
 npm run infra:down     # dừng container, giữ dữ liệu
 ```
 
-Vẫn chạy được trực tiếp trong từng thư mục nếu muốn (`cd backend && npm run dev`),
-hoặc nhắm vào một workspace từ gốc: `npm --workspace backend run dev`.
-
-> **`shared` phải được build trước `backend` và `frontend`.** Cả hai import
-> `@bi/shared` như một package thật (đọc `dist/`), không phải import file `.ts`
-> chéo thư mục — nếu import chéo, `tsc` của backend sẽ báo TS6059 vì
-> `rootDir: "src"`. `npm run build`, `typecheck`, `test` và `verify` đều đã tự
-> chạy `build:shared` trước, còn `npm run dev` thì mở kèm một tiến trình
-> `tsc --watch` cho nó.
+Vẫn chạy được trực tiếp trong từng thư mục nếu muốn (`cd backend && npm run dev`).
 
 Các lệnh Docker ít dùng hơn:
 
@@ -258,9 +236,9 @@ docker compose down -v      # xoá cả dữ liệu — cẩn thận
 
 ## Kiểm tra sức khoẻ hệ thống
 
-| Endpoint | Ý nghĩa | Dùng để |
-| --- | --- | --- |
-| `GET /health` | **Liveness** — process còn sống. Không đụng dependency | `livenessProbe` của K8s |
+| Endpoint            | Ý nghĩa                                                       | Dùng để                  |
+| ------------------- | ------------------------------------------------------------- | ------------------------ |
+| `GET /health`       | **Liveness** — process còn sống. Không đụng dependency        | `livenessProbe` của K8s  |
 | `GET /health/ready` | **Readiness** — ping thật MySQL + Redis, trả **503** nếu hỏng | `readinessProbe` của K8s |
 
 Cách kiểm chứng `/health/ready` hoạt động thật:
@@ -292,9 +270,9 @@ git push -u origin feat/f5-ingest-clickhouse
 
 ### Phân chia sở hữu file
 
-| Vai trò | Sở hữu |
-| --- | --- |
-| **Dev A** — Data & Platform | `infrastructure/`, `cube/`, `dbt/`, `backend/src/services/` |
+| Vai trò                              | Sở hữu                                                                        |
+| ------------------------------------ | ----------------------------------------------------------------------------- |
+| **Dev A** — Data & Platform          | `infrastructure/`, `cube/`, `dbt/`, `backend/src/services/`                   |
 | **Dev B** — Application & Experience | `backend/src/api/`, `backend/src/middleware/`, `strapi/`, toàn bộ `frontend/` |
 
 > **`infrastructure/docker-compose.yml` do Dev A sở hữu ĐỘC QUYỀN.** Đây là file
@@ -308,20 +286,21 @@ git push -u origin feat/f5-ingest-clickhouse
   Frontend **được** dùng `@/` vì Vite xử lý lúc bundle.
 - **Không đọc `process.env` trực tiếp.** Import `env` từ `src/config/env.ts` —
   nó validate bằng zod lúc boot và có kiểu đầy đủ.
-- **Dependency được thêm trong chính PR dùng nó**, không cài trước để đó. Repo
-  chỉ có đúng những gói đang được import. Cài từ thư mục gốc, nhắm workspace:
+- **CSS viết bằng Tailwind v4**, không viết file `.css` riêng cho từng
+  component. Tailwind v4 **không có** `tailwind.config.js` — theme khai bằng
+  khối `@theme` trong [frontend/src/index.css](frontend/src/index.css). Muốn
+  đổi tông màu toàn hệ thống thì sửa các biến `--color-brand-*` ở đó, đừng rải
+  mã màu vào từng file.
+- **Mọi hàm repository nhận `tenantId` làm tham số đầu tiên.** Quên một
+  `WHERE tenant_id` là dữ liệu tổ chức này lọt sang tổ chức khác. Chữ ký hàm là
+  thứ duy nhất bắt được lỗi đó lúc biên dịch. Ngoại lệ duy nhất hiện nay là
+  `findByEmailForLogin` — có ghi rõ lý do ngay tại chỗ.
+- **Dependency được thêm trong chính PR dùng nó**, không cài trước để đó. Khi
+  làm tới, cài lại:
   ```bash
-  npm --workspace frontend install @tanstack/react-query   # khi thật sự cần cache/retry
+  # gọi API có cache/retry (khi thật sự cần)
+  npm --prefix frontend install @tanstack/react-query
   ```
-- **Luật validate viết một lần trong `shared/src/auth.ts`.** Backend `.extend()`
-  thêm phần chuẩn hoá (hạ chữ thường, đổi SĐT về `+84`), frontend dùng nguyên
-  bản. Đừng chép luật sang phía kia — frontend chặt hơn backend nghĩa là người
-  dùng bị chặn bởi một luật server không hề có.
-- **Repository nhận `conn` làm tham số đầu tiên.** Hàm nào tự gọi `mysqlPool` sẽ
-  lấy một connection khác, chạy ngoài transaction của caller, và `ROLLBACK` sẽ âm
-  thầm để lại dữ liệu mồ côi. Xem `src/db/tx.ts`.
-- **Mọi route `async` phải bọc `asyncHandler`.** Express 4 không chuyển promise
-  reject sang error handler — thiếu nó thì request treo im lặng.
 - **Không commit file `.env`.** Đổi biến môi trường thì phải cập nhật
   `.env.example` trong cùng PR, nếu không máy người kia sẽ hỏng.
 - Line ending do `.gitattributes` quản lý. Nếu script bash báo
@@ -359,101 +338,130 @@ React + Vega-Lite  ──►  Express (BFF)  ──►  Cube.js  ──►  Clic
 
 ## Xác thực
 
-Keycloak đã bị gỡ ở `0f9e89d`. Thay thế nó là phần xác thực tự viết trong
-Express: `bcrypt` + JWT đặt trong **cookie httpOnly**.
+Keycloak đã bị gỡ bỏ; thay bằng xác thực **tự viết trong Express**: `bcryptjs`
+băm mật khẩu, `jsonwebtoken` ký JWT HS256.
+
+### Bốn quyết định đã thống nhất giữa hai người
+
+Đây là nền mà cả hai nhánh phải dựng lên. Đổi bất kỳ mục nào cũng phải bàn lại,
+đừng tự sửa trên nhánh riêng.
+
+1. **Khoá chính `BIGINT UNSIGNED AUTO_INCREMENT`.**
+2. **Quan hệ user ↔ tổ chức nằm ở bảng nối `memberships`**, không phải cột
+   `users.tenant_id`. Một người làm được ở nhiều tổ chức.
+3. **Phiên lưu bằng `localStorage` + header `Authorization: Bearer`.**
+4. **Vai trò khai bằng `ENUM`**, không dùng bảng tra cứu `roles`.
+
+### Hai trục vai trò — đừng nhầm lẫn
+
+```
+users.role        ENUM('superadmin','user')          ← quyền trên HỆ THỐNG
+memberships.role  ENUM('admin','creator','viewer')   ← quyền trong TỔ CHỨC
+```
+
+`superadmin` là người vận hành nền tảng, đứng ngoài mọi tổ chức. Người dùng
+bình thường là `user`, và quyền thật của họ nằm ở `memberships.role` của từng
+tổ chức. Một người có thể là `admin` ở công ty A nhưng chỉ `viewer` ở công ty B.
+
+`requireRole('admin')` hỏi trục **tổ chức**. `superadmin` cố ý **không** được đi
+tắt qua nó: cho phép thế là biến mọi kiểm tra quyền thành "trừ khi là
+superadmin", và một tài khoản vận hành bị chiếm là mất sạch dữ liệu mọi tổ chức.
+Muốn superadmin làm việc trong một tổ chức thì cấp cho họ `membership` thật.
+
+### Năm bảng
+
+```
+tenants       tổ chức
+users         định danh TOÀN CỤC — không có tenant_id, không có vai trò tổ chức
+memberships   user_id + tenant_id + role  (UNIQUE user_id, tenant_id)
+workspaces    thuộc tenant; UNIQUE (tenant_id, id) làm đích cho khoá ngoại ghép
+projects      khoá ngoại GHÉP (tenant_id, workspace_id) → workspaces
+```
+
+Khoá ngoại ghép của `projects` khiến việc gắn project vào workspace của tổ chức
+khác là **bất khả thi ở tầng database**, bất kể code phía trên làm gì — loại ràng
+buộc mạnh hơn mọi lớp kiểm tra trong ứng dụng vì nó không quên được.
 
 ### Endpoint
 
-| Method | Đường dẫn | Mô tả |
-| --- | --- | --- |
-| POST | `/api/v1/auth/register` | Tạo user + tenant + workspace + membership trong **một transaction**, rồi đăng nhập luôn. `201` |
-| POST | `/api/v1/auth/login` | `200` kèm tenant + workspace đang hoạt động |
-| GET | `/api/v1/auth/me` | Khôi phục phiên sau khi F5 — trả user, role, tenant, workspaces |
-| POST | `/api/v1/auth/logout` | Xoá cookie. `204` |
+| Method | Đường dẫn                   | Việc                                                                            |
+| ------ | --------------------------- | ------------------------------------------------------------------------------- |
+| POST   | `/api/auth/login`           | Trả `{ token, expiresIn, mustChangePassword, user, tenant, role, memberships }` |
+| GET    | `/api/auth/me`              | Khôi phục phiên khi F5 — đọc lại từ DB, không tin payload token                 |
+| POST   | `/api/auth/logout`          | 204 (JWT vô trạng thái, client tự bỏ token)                                     |
+| POST   | `/api/auth/change-password` | 204                                                                             |
 
-### Mô hình dữ liệu
+Mọi lỗi có cùng hình dạng `{ error, message, fields? }`.
+
+### Route phía giao diện
+
+| Đường dẫn          | Ai vào được                                   |
+| ------------------ | --------------------------------------------- |
+| `/login`           | Công khai; đã đăng nhập thì tự chuyển đi      |
+| `/change-password` | Đã đăng nhập (miễn cổng mật khẩu tạm)         |
+| `/`                | Đã đăng nhập                                  |
+| `/system-health`   | Đã đăng nhập — trang kiểm tra kết nối backend |
+| `/admin`           | Chỉ Admin, sai vai trò thì sang `/403`        |
+
+> Trang kiểm tra kết nối đặt ở **`/system-health`**, không phải `/health`:
+> Vite proxy `/health` thẳng sang Express nên đường dẫn đó không bao giờ tới
+> được SPA.
+
+### Điều hướng sau khi đăng nhập
 
 ```
-tenants ──< workspaces ──< projects
-   │
-   └──< memberships >── users        memberships cũng CHÍNH LÀ bảng gán vai trò
-              │
-              └── roles: tenant_admin | creator | viewer
+1. mustChangePassword  → /change-password    (cổng cứng, chặn mọi route khác)
+2. location.state.from → quay lại trang đang định vào
+3. role === 'admin'    → /admin
+4. còn lại             → /
 ```
 
-Một lần đăng ký tạo ra:
+### Những gì CHƯA có
 
-| Bảng | Nội dung | Nguồn |
-| --- | --- | --- |
-| `users` | thông tin người dùng | form đăng ký |
-| `tenants` | **công ty** | ô *Tên công ty* trên form |
-| `workspaces` | `Không gian làm việc mặc định` | cố định, người dùng đổi sau |
-| `memberships` | gắn user vào tenant với vai trò `tenant_admin` | suy ra |
+- **Chưa có form/API đăng ký.** Tài khoản đầu tiên từ `seed:admin`; các tài
+  khoản sau sẽ do Admin tạo. Cột `users.role` đã `DEFAULT 'viewer'`.
+- **Chưa có refresh token** — hết hạn thì đăng nhập lại.
+- **Đăng xuất chưa thu hồi token phía server.** JWT vô trạng thái nên token bị
+  lộ vẫn dùng được tới lúc hết hạn. Muốn thu hồi thật cần danh sách chặn trên
+  Redis (Redis đang chạy sẵn).
+- **Chưa có "quên mật khẩu"** vì chưa có SMTP.
+- **Chưa đổi được tổ chức trên giao diện.** Người thuộc nhiều tổ chức sẽ vào tổ
+  chức cũ nhất (`ORDER BY memberships.id ASC`) — quy tắc ổn định, không tự đổi
+  sau lưng người dùng. API đã trả sẵn mảng `memberships`, nên thêm menu đổi tổ
+  chức về sau chỉ là việc của frontend + một endpoint cấp token mới.
+- **`users.email` duy nhất toàn cục** vì form đăng nhập không có ô chọn tổ chức.
+  Không cản trở việc một người thuộc nhiều tổ chức — đó là việc của `memberships`.
+- **Token lưu `localStorage`** nên XSS đọc được. Đánh đổi có ý thức; muốn chắc
+  hơn thì chuyển sang cookie `httpOnly`, chỉ phải sửa `apiClient.ts` +
+  `tokenStorage.ts` + phần set cookie ở backend.
 
-`tenants.name` **không unique**: hai người khai trùng tên công ty vẫn ra hai tổ
-chức riêng biệt. Đây là chủ ý — "FPT Software" ở hai nơi hoàn toàn có thể là hai
-tổ chức khác nhau, còn gộp nhầm hai công ty thành một là để lộ dữ liệu giữa các
-khách hàng. Muốn vào chung một công ty thì phải qua **lời mời** (chưa làm), không
-phải qua việc gõ trùng tên.
+### Lưu ý về phân quyền
 
-`users` **không có `tenant_id`** và email là unique **toàn cục** — một người là
-một định danh, một mật khẩu. Việc thuộc tổ chức nào nằm ở `memberships`. Kiểu
-unique-theo-tenant (một người ở hai tổ chức = hai dòng, hai mật khẩu) làm việc
-đăng nhập bằng email trở nên nhập nhằng và là kiểu khó đảo ngược nhất khi đã có
-dữ liệu thật.
+`AdminRoute` ở frontend **không phải là bảo mật** — nó chỉ giúp người dùng khỏi
+lạc vào trang không dùng được. Thực thi thật là `authenticate` →
+`requireRole('admin')` gắn cho router `/api/admin`; hai middleware đó đã có
+nhưng chưa có endpoint `/api/admin` nào để gắn vào.
 
-Người đăng ký là người tạo ra tenant nên nhận vai trò `tenant_admin`. Người được
-mời về sau sẽ mặc định `viewer` (đặc quyền tối thiểu) — phần mời chưa làm.
-
-Một dòng `memberships(user_id, tenant_id, role_code)` ánh xạ đúng 1:1 sang dòng
-`g, <user>, <role>, <domain>` của Casbin với domain = tenant. Khi Casbin về,
-bảng `casbin_rule` chỉ chứa các dòng `p`; schema này không phải đổi gì.
-
-### Hai token, đừng nhầm
-
-- **Cookie phiên** (`bi_session`, HS256, mặc định 1 giờ) chỉ mang `sub`, `tid`,
-  `role`. Cố ý **không** mang `projectIds`: chúng đổi ngay khi tạo project mới,
-  không giới hạn số lượng, và là dữ liệu phân quyền chứ không phải xác thực.
-- **Token Cube** do `POST /api/v1/query` tự ký, sống ~2 phút, dùng
-  `CUBEJS_API_SECRET`, và `securityContext` của nó mới là chỗ mang `projectIds`
-  tra từ database. Phần này chưa làm.
-
-### Chưa có, và biết là chưa có
-
-- **Xác thực email và quên mật khẩu.** Chưa có kênh gửi mail nào trong hạ tầng.
-  Hệ quả trực tiếp: **quên mật khẩu là mất tài khoản**, chỉ reset được bằng SQL
-  tay. Cột `users.email_verified_at` và giá trị `status='pending_verification'`
-  đã có sẵn để bật lên sau mà không cần migration phá vỡ.
-- **CSRF chỉ được chặn ở mức tối thiểu:** `SameSite=Lax`, API chỉ nhận JSON (cố
-  ý không mount `express.urlencoded`), mọi mutation là POST, cộng một lớp kiểm
-  `Origin`. Chưa có double-submit token — sẽ cần khi có subdomain anh em.
-- **Chưa có refresh token.** Hết 1 giờ là phải đăng nhập lại.
-
-### Chạy test tích hợp
-
-Cần MySQL + Redis đang chạy. Dùng database riêng để không đụng dữ liệu dev:
-
-```powershell
-docker exec bi-mysql mysql -uroot -prootpassword -e "CREATE DATABASE IF NOT EXISTS bi_platform_test CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci; GRANT ALL ON bi_platform_test.* TO 'bi_user'@'%'; FLUSH PRIVILEGES;"
-$env:MYSQL_DATABASE='bi_platform_test'; npm --workspace backend run migrate; Remove-Item Env:\MYSQL_DATABASE
-npm run test:integration
-```
+Casbin và query proxy giờ đã có `sub` để làm việc: `req.auth` mang
+`{ userId, role, tenantId }`.
 
 ---
 
 ## Sự cố thường gặp
 
-| Triệu chứng | Nguyên nhân & cách xử lý |
-| --- | --- |
-| `$'\r': command not found` khi chạy `.sh` | File bị CRLF. `git rm --cached -r . && git reset --hard` |
-| Backend thoát ngay, in `[env] Cấu hình môi trường không hợp lệ` | Thiếu biến trong `.env`. Đối chiếu với `.env.example` — bản này thêm `JWT_SECRET`, `JWT_ACCESS_TTL`, `AUTH_COOKIE_NAME`, `BCRYPT_COST` |
-| API trả 500, log `Table 'bi_platform.users' doesn't exist` | Chưa chạy `npm run db:migrate` |
-| `/auth/me` luôn trả 401 dù login trả 200 | Trình duyệt từ chối cookie. Kiểm `NODE_ENV` — `secure: true` không dùng được trên `http://` |
-| Frontend build báo `"loginSchema" is not exported by shared/dist/...` | Gói `shared` chưa build lại sau khi sửa. `npm run build:shared` |
-| `npm install` ở `backend/` báo lạ | Repo dùng workspaces — chạy `npm install` ở **thư mục gốc** |
-| `/health/ready` trả 503 | Container chưa chạy hoặc sai password. `docker compose ps` |
-| Cube báo `ECONNREFUSED` tới ClickHouse | Mount cả thư mục `config.d` dạng `:ro` chặn image ghi `docker_related_config.xml`, ClickHouse chỉ nghe `127.0.0.1`. Compose đã mount từng file — đừng đổi lại |
-| Kafka client trên host timeout | Phải dùng `localhost:29092` (listener `PLAINTEXT_HOST`), không phải 9092 |
-| `port is already allocated` khi `docker compose up` | Máy đã có service giữ cổng đó (hay gặp: Redis/Memurai giữ 6379). Xem [docs/ports.md](docs/ports.md) |
-| `EADDRINUSE :::4000` | Còn tiến trình backend cũ. Windows: `Get-NetTCPConnection -LocalPort 4000 -State Listen` rồi `Stop-Process` |
-| `docker: daemon is not running` | Mở Docker Desktop rồi chạy lại |
+| Triệu chứng                                                      | Nguyên nhân & cách xử lý                                                                                                                                                               |
+| ---------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `$'\r': command not found` khi chạy `.sh`                        | File bị CRLF. `git rm --cached -r . && git reset --hard`                                                                                                                               |
+| Backend thoát ngay, in `[env] Cấu hình môi trường không hợp lệ`  | Thiếu biến trong `.env`. Đối chiếu với `.env.example`                                                                                                                                  |
+| `/health/ready` trả 503                                          | Container chưa chạy hoặc sai password. `docker compose ps`                                                                                                                             |
+| Cube báo `ECONNREFUSED` tới ClickHouse                           | Mount cả thư mục `config.d` dạng `:ro` chặn image ghi `docker_related_config.xml`, ClickHouse chỉ nghe `127.0.0.1`. Compose đã mount từng file — đừng đổi lại                          |
+| Kafka client trên host timeout                                   | Phải dùng `localhost:29092` (listener `PLAINTEXT_HOST`), không phải 9092                                                                                                               |
+| `port is already allocated` khi `docker compose up`              | Máy đã có service giữ cổng đó (hay gặp: Redis/Memurai giữ 6379). Xem [docs/ports.md](docs/ports.md)                                                                                    |
+| `EADDRINUSE :::4000`                                             | Còn tiến trình backend cũ. Windows: `Get-NetTCPConnection -LocalPort 4000 -State Listen` rồi `Stop-Process`                                                                            |
+| `docker: daemon is not running`                                  | Mở Docker Desktop rồi chạy lại                                                                                                                                                         |
+| Đăng nhập trên web trả 404                                       | `VITE_API_BASE_URL` trong `frontend/.env` phải là `/api`, không phải `/api/v1` — router xác thực mount ở `/api/auth`. Sửa xong phải khởi động lại Vite, biến `VITE_*` chỉ đọc lúc boot |
+| Mở `localhost:5173/health` ra JSON chứ không ra giao diện        | Đúng như thiết kế: Vite proxy `/health` sang Express. Trang kiểm tra kết nối nằm ở `/system-health`                                                                                    |
+| Nhập sai mật khẩu mà bị đá về `/login`, không thấy thông báo lỗi | Interceptor 401 đang xử lý cả `/auth/login`. Endpoint đó phải nằm trong `SESSION_ENDPOINTS` của `apiClient.ts`                                                                         |
+| Mỗi lần F5 thấy trang login nháy lên rồi biến mất                | Thiếu trạng thái `loading` — `ProtectedRoute` phải chờ `GET /me` trả lời rồi mới kết luận                                                                                              |
+| Tab Network hiện **hai** request `GET /me`                       | `StrictMode` cố tình chạy effect hai lần ở dev. Vô hại, bản build không có                                                                                                             |
+| Đăng nhập sai 10 lần rồi bị 429                                  | Bộ đếm chống dò mật khẩu. Xoá bằng `docker exec bi-redis redis-cli -a redispassword --scan --pattern 'login:fail:*'` rồi `DEL`, hoặc chờ 15 phút                                       |

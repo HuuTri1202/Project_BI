@@ -25,6 +25,11 @@ export const mysqlPool = mysql.createPool({
   // giải chuỗi DATETIME trả về và serialize object Date như thế nào. Nó KHÔNG
   // gửi `SET time_zone` xuống server. Xem hook bên dưới.
   timezone: 'Z',
+  // Cột DATE trả về nguyên chuỗi 'YYYY-MM-DD', KHÔNG đổi thành đối tượng Date.
+  // Ngày sinh không có múi giờ — biến nó thành Date là mời gọi đúng cái lỗi
+  // lệch một ngày mà dòng `timezone` ở trên đang cố tránh. DATETIME thì vẫn để
+  // mysql2 parse bình thường vì nó THẬT SỰ là một mốc thời gian.
+  dateStrings: ['DATE'],
 });
 
 /**

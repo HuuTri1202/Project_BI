@@ -1,7 +1,7 @@
 import type { NextFunction, Request, Response } from 'express';
 
 import { env } from '../config/env';
-import { AppError } from '../errors/AppError';
+import { HttpError } from '../utils/httpError';
 
 const MUTATING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
@@ -32,7 +32,7 @@ export function originGuard(req: Request, _res: Response, next: NextFunction): v
 
   const origin = req.get('origin');
   if (origin !== undefined && origin !== env.CORS_ORIGIN) {
-    next(new AppError(403, 'FORBIDDEN_ORIGIN', 'Origin không được phép'));
+    next(new HttpError(403, 'ForbiddenOrigin', 'Origin không được phép'));
     return;
   }
 

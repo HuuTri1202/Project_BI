@@ -25,6 +25,7 @@
     "test:integration": "npm run build:shared && npm --workspace backend run test:integration",
 
     "db:migrate": "npm --workspace backend run migrate",
+    "db:seed": "npm --workspace backend run seed:admin",
 
     "verify": "npm run lint && npm run typecheck && npm run build",
 

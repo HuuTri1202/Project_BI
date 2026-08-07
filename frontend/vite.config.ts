@@ -16,9 +16,8 @@ export default defineConfig(({ mode }) => {
   const proxyToBackend = { target: apiTarget, changeOrigin: true };
 
   return {
-    // Tailwind v4 chạy như một plugin Vite, KHÔNG cần tailwind.config.js hay
-    // postcss.config.js — cấu hình (màu, font, breakpoint) khai bằng @theme
-    // ngay trong src/index.css.
+    // Tailwind v4 chạy như plugin Vite: không cần tailwind.config.js, không cần
+    // PostCSS, không phải khai `content` globs — nó tự quét source lúc build.
     plugins: [react(), tailwindcss()],
     resolve: {
       // Alias '@' chỉ dùng ở frontend vì Vite giải quyết được lúc bundle.

@@ -1,10 +1,10 @@
 import compression from 'compression';
-import cookieParser from 'cookie-parser';
 import cors from 'cors';
 import express, { type Express } from 'express';
 import helmet from 'helmet';
 import morgan from 'morgan';
 
+import { authRouter } from './api/auth';
 import { healthRouter } from './api/health';
 import { v1Router } from './api/v1';
 import { env, isProduction, isTest } from './config/env';
@@ -25,9 +25,9 @@ export function createApp(): Express {
   app.disable('x-powered-by');
 
   app.use(helmet());
-  // `credentials: true` + origin cụ thể (không phải '*') là điều kiện bắt buộc
-  // để trình duyệt gửi kèm cookie phiên. Wildcard origin thì trình duyệt cấm
-  // gửi credential.
+  // Origin cụ thể, không phải '*': phiên đăng nhập dùng header Authorization
+  // nên về mặt kỹ thuật wildcard vẫn chạy, nhưng khai đúng origin giữ cho API
+  // không bị trang lạ gọi bằng token mà người dùng vô tình để lộ.
   app.use(cors({ origin: env.CORS_ORIGIN, credentials: true }));
   app.use(compression());
   app.use(express.json({ limit: '1mb' }));
@@ -38,14 +38,19 @@ export function createApp(): Express {
   // chống được CSRF dạng form, miễn phí. Bật urlencoded lên là cho không lớp
   // phòng thủ đó. Nếu sau này cần nhận form thật (upload...), hãy mount parser
   // riêng cho đúng route đó chứ đừng mount toàn cục.
-  app.use(cookieParser());
   if (!isTest) {
     app.use(morgan(isProduction ? 'combined' : 'dev'));
   }
   // Đứng sau parser, trước router: mọi mutation đều phải qua cửa này.
   app.use(originGuard);
 
+  // Chạy sau reverse proxy (Vite dev, nginx, Ingress) -> tin X-Forwarded-For
+  // để req.ip là IP thật của client. Bộ đếm chống dò mật khẩu dựa vào giá trị
+  // này; không bật thì mọi request đều mang IP của proxy và chung một bộ đếm.
+  app.set('trust proxy', 1);
+
   app.use('/health', healthRouter);
+  app.use('/api/auth', authRouter);
   app.use('/api/v1', v1Router);
 
   // Hai handler này phải đứng CUỐI, đúng thứ tự này.

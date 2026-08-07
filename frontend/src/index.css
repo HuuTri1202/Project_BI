@@ -1,32 +1,40 @@
 @import 'tailwindcss';
 
-/**
- * Tailwind v4 dùng cấu hình CSS-first: không có tailwind.config.js. Mọi token
- * khai trong @theme sẽ tự sinh ra utility class tương ứng — ví dụ `--color-brand-600`
- * cho ra `bg-brand-600`, `text-brand-600`, `border-brand-600`...
+/*
+ * Tailwind v4 khai báo theme bằng CSS chứ không bằng tailwind.config.js.
+ * Mỗi biến ở đây sinh ra một lớp tiện ích tương ứng: --color-brand-500 dùng
+ * được ngay dưới dạng bg-brand-500 / text-brand-500 / ring-brand-500...
  *
- * Khai bảng màu ở MỘT chỗ như thế này để sau đổi màu thương hiệu chỉ sửa vài
- * dòng, thay vì tìm-thay `indigo-600` khắp các component.
+ * Đổi tông màu cho cả đề tài chỉ cần sửa khối này.
  */
 @theme {
-  --color-brand-50: oklch(0.97 0.014 275);
-  --color-brand-100: oklch(0.94 0.03 275);
-  --color-brand-200: oklch(0.89 0.055 275);
-  --color-brand-500: oklch(0.6 0.19 275);
-  --color-brand-600: oklch(0.53 0.21 275);
-  --color-brand-700: oklch(0.46 0.19 275);
+  --color-brand-50: oklch(0.97 0.02 250);
+  --color-brand-100: oklch(0.93 0.04 250);
+  --color-brand-200: oklch(0.87 0.07 250);
+  --color-brand-400: oklch(0.65 0.15 250);
+  --color-brand-500: oklch(0.55 0.18 250);
+  --color-brand-600: oklch(0.48 0.18 250);
+  --color-brand-700: oklch(0.41 0.17 250);
+  --color-brand-900: oklch(0.28 0.11 250);
 
   --font-sans:
-    'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+    'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
 }
 
-/* Tiếng Việt có nhiều dấu chồng lên nhau; leading mặc định hơi chật làm dấu bị
-   cắt ở một số font. Nới nhẹ line-height toàn cục. */
-html {
-  line-height: 1.6;
-  -webkit-text-size-adjust: 100%;
-}
+@layer base {
+  html {
+    /* Cuộn mượt khi bấm link neo; không ảnh hưởng người bật "giảm chuyển động"
+       vì Tailwind đã có sẵn media query xử lý ở preflight. */
+    scroll-behavior: smooth;
+  }
 
-body {
-  @apply bg-slate-50 text-slate-900 antialiased;
+  body {
+    @apply bg-slate-50 font-sans text-slate-800 antialiased;
+  }
+
+  /* Viền focus thống nhất toàn hệ thống. Tuyệt đối KHÔNG dùng outline:none mà
+     không thay bằng thứ khác — người dùng bàn phím sẽ mất dấu con trỏ. */
+  :focus-visible {
+    @apply outline-2 outline-offset-2 outline-brand-500;
+  }
 }
