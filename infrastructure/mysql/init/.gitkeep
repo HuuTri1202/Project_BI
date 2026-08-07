@@ -8,3 +8,16 @@
 # Vì cơ chế "chỉ chạy khi rỗng" rất dễ gây hiểu nhầm, mọi thao tác tạo
 # database/user nên viết idempotent (CREATE ... IF NOT EXISTS) và gọi lại được
 # từ start-dev.sh cho máy đã có volume cũ.
+#
+# ─────────────────────────────────────────────────────────────────────────────
+# KHÔNG BAO GIỜ đặt DDL của ứng dụng (CREATE TABLE users, ALTER TABLE...) vào
+# đây. Chính vì cơ chế "chỉ chạy khi volume rỗng" mà thư mục này không dùng được
+# cho schema còn tiến hoá: người đã có volume cũ sẽ không bao giờ nhận được bảng
+# mới, và lỗi chỉ lộ ra khi ứng dụng truy vấn một bảng không tồn tại.
+#
+# Schema của ứng dụng nằm ở  backend/migrations/*.sql  và được áp dụng bằng:
+#   npm run db:migrate
+# Runner ở backend/src/db/migrate.ts theo dõi bằng bảng `schema_migrations` nên
+# chạy đúng trên cả volume mới lẫn volume đã có dữ liệu.
+#
+# Thư mục này giữ đúng phạm vi hẹp: tạo DATABASE và USER.

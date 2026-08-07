@@ -1,63 +1,21 @@
-import { useEffect, useState } from 'react';
+import { Route, Routes } from 'react-router-dom';
 
-type Health = {
-  status: string;
-  service: string;
-  env: string;
-  uptimeSeconds: number;
-  timestamp: string;
-};
+import { LoginPage } from './features/auth/LoginPage';
+import { RegisterPage } from './features/auth/RegisterPage';
+import { HomePage } from './pages/HomePage';
 
-type State =
-  { kind: 'loading' } | { kind: 'ok'; data: Health } | { kind: 'error'; message: string };
-
+/**
+ * Bảng route. Chưa có route cần bảo vệ vì chưa có trang nào chỉ dành cho người
+ * đã đăng nhập — khi có, thêm một component `<RequireAuth>` bọc quanh nhóm route
+ * đó thay vì kiểm tra rải rác trong từng trang.
+ */
 export default function App() {
-  const [state, setState] = useState<State>({ kind: 'loading' });
-
-  useEffect(() => {
-    const controller = new AbortController();
-
-    fetch('/health', { signal: controller.signal })
-      .then(async (res) => {
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        return (await res.json()) as Health;
-      })
-      .then((data) => setState({ kind: 'ok', data }))
-      .catch((err: unknown) => {
-        if (err instanceof DOMException && err.name === 'AbortError') return;
-        setState({ kind: 'error', message: err instanceof Error ? err.message : 'Unknown error' });
-      });
-
-    return () => controller.abort();
-  }, []);
-
   return (
-    <main
-      style={{
-        fontFamily: 'system-ui, sans-serif',
-        maxWidth: 640,
-        margin: '4rem auto',
-        padding: '0 1rem',
-      }}
-    >
-      <h1>BI Platform</h1>
-      <p>Frontend đã chạy. Trạng thái kết nối tới backend:</p>
-
-      {state.kind === 'loading' && <p>Đang kiểm tra…</p>}
-
-      {state.kind === 'error' && (
-        <p style={{ color: '#b00020' }}>
-          Không kết nối được backend: {state.message}
-          <br />
-          <small>Kiểm tra backend đang chạy ở http://localhost:4000</small>
-        </p>
-      )}
-
-      {state.kind === 'ok' && (
-        <pre style={{ background: '#f4f4f5', padding: '1rem', borderRadius: 8, overflowX: 'auto' }}>
-          {JSON.stringify(state.data, null, 2)}
-        </pre>
-      )}
-    </main>
+    <Routes>
+      <Route path="/" element={<HomePage />} />
+      <Route path="/register" element={<RegisterPage />} />
+      <Route path="/login" element={<LoginPage />} />
+      <Route path="*" element={<HomePage />} />
+    </Routes>
   );
 }

@@ -1,0 +1,24 @@
+{
+  /**
+   * Bản build thứ hai, định dạng ESM, CHỈ dành cho bundler của frontend.
+   *
+   * Vì sao cần cả hai: backend là CommonJS nên phải `require` được; còn Rollup
+   * (bên trong Vite) không phân tích được named export xuyên qua `export *` của
+   * một gói CJS — `npm run build` ở frontend sẽ báo "loginSchema is not exported"
+   * dù dev server chạy bình thường. Trường `exports` trong package.json chỉ
+   * đường: `import` -> bản này, `require` -> bản CJS.
+   *
+   * Bản này không bao giờ được Node nạp trực tiếp (package.json không có
+   * "type": "module"), nên chuyện thiếu đuôi .mjs không thành vấn đề — chỉ
+   * bundler đọc nó, và bundler không quan tâm.
+   */
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "module": "ES2020",
+    "moduleResolution": "Bundler",
+    "outDir": "dist/esm",
+    "declaration": false,
+    "declarationMap": false,
+    "composite": false
+  }
+}

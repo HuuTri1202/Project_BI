@@ -1,0 +1,33 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    /* KHÔNG đặt "type": "module" trong package.json, nên NodeNext emit ra
+       CommonJS — đúng thứ backend cần (backend cũng là CJS). Vite ở frontend
+       tự interop được CJS lúc pre-bundle, nên một bản build phục vụ cả hai. */
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    /* DOM cần cho TextEncoder trong rule độ dài mật khẩu — nó có ở cả Node 20
+       lẫn trình duyệt, nhưng lib "ES2022" thuần thì không khai báo. */
+    "lib": ["ES2022", "DOM"],
+    "outDir": "dist/cjs",
+    "rootDir": "src",
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+
+    /* Giữ đúng mức strict của backend — code này chạy ở cả hai phía. */
+    "strict": true,
+    "noImplicitOverride": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["node_modules", "dist"]
+}
