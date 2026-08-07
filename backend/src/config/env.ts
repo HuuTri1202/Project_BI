@@ -34,6 +34,33 @@ const envSchema = z.object({
   REDIS_HOST: z.string().min(1),
   REDIS_PORT: portFromEnv,
   REDIS_PASSWORD: z.string().min(1),
+
+  // --- Xác thực ---
+  // Backend TỰ KÝ token bằng HS256 nên cần secret đối xứng. (Ở giai đoạn dùng
+  // Keycloak thì ngược lại: chỉ verify RS256 bằng khoá công khai, và khi đó có
+  // một secret nằm sẵn mới là nguy hiểm.)
+  // 32 ký tự là mức tối thiểu để secret không bị dò bằng từ điển.
+  JWT_SECRET: z.string().min(32, 'JWT_SECRET phải dài ít nhất 32 ký tự'),
+  JWT_EXPIRES_IN: z.string().min(1).default('7d'),
+  JWT_ISSUER: z.string().min(1).default('bi-platform'),
+  JWT_AUDIENCE: z.string().min(1).default('bi-platform-api'),
+
+  // Đã đo trên máy dev: cost 12 ≈ 291 ms. Đủ chậm để chống dò, đủ nhanh để
+  // đăng nhập không thấy đơ.
+  BCRYPT_COST: z.coerce.number().int().min(10).max(15).default(12),
+
+  // Chống dò mật khẩu (đếm trên Redis)
+  LOGIN_MAX_ATTEMPTS: z.coerce.number().int().positive().default(10),
+  LOGIN_LOCKOUT_MINUTES: z.coerce.number().int().positive().default(15),
+
+  // --- Seed tài khoản quản trị đầu tiên (§2.7) ---
+  // Đều có giá trị mặc định nên KHÔNG bắt buộc khai trong .env; chỉ script
+  // seed đọc tới.
+  SEED_TENANT_NAME: z.string().min(1).default('BI Platform'),
+  SEED_TENANT_SLUG: z.string().min(1).default('bi-platform'),
+  SEED_ADMIN_EMAIL: z.string().email().default('admin@bi-platform.local'),
+  SEED_ADMIN_PASSWORD: z.string().min(8).max(72).default('Admin@12345'),
+  SEED_ADMIN_FULL_NAME: z.string().min(1).default('Quản trị viên'),
 });
 
 export type Env = Readonly<z.infer<typeof envSchema>>;
