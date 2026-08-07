@@ -31,7 +31,7 @@ Xem lộ trình đầy đủ và phân công theo tính năng trong tài liệu 
 | Git | ≥ 2.40 | |
 | Git Bash | (Windows) | Các script `.sh` là bash, không chạy được bằng CMD/PowerShell |
 
-RAM tối thiểu **8 GB**, khuyến nghị **16 GB** (giai đoạn sau sẽ có tới 9 container).
+RAM tối thiểu **8 GB**, khuyến nghị **16 GB** (bật đủ profile là 8 container).
 
 ---
 
@@ -74,12 +74,24 @@ npm run dev
 8 container không nên cùng chạy suốt ngày. `npm run infra:up` chỉ khởi động
 service lõi; phần còn lại chia theo profile:
 
-| Lệnh | Thêm gì | Khi nào cần |
+| Lệnh | Thêm gì | Bật khi bắt đầu làm |
 | --- | --- | --- |
-| `npm run infra:up` | MySQL, Redis | luôn luôn |
-| `npm run infra:up:data` | MinIO, ClickHouse | làm F5 (nạp dữ liệu) |
-| `npm run infra:up:bi` | Cube.js (+ ClickHouse) | làm F7 (tầng ngữ nghĩa) |
-| `npm run infra:up:all` | + Kafka, Connect, dbt | demo toàn hệ thống |
+| `npm run infra:up` | MySQL, Redis | **luôn luôn** — đăng ký, đăng nhập, quản trị user, mọi metadata |
+| `npm run infra:up:data` | MinIO, ClickHouse | **nạp dữ liệu**: upload CSV, presigned URL, bảng `raw_*` |
+| `npm run infra:up:bi` | Cube.js (+ ClickHouse) | **tầng ngữ nghĩa**: DataModel, Explore kéo-thả, chart |
+| `npm run infra:up:all` | + Kafka, Connect, dbt | **dbt / CDC realtime**, hoặc demo toàn hệ thống |
+
+Tắt lại phần không dùng để trả RAM:
+
+```bash
+npm run infra:down:extra   # tắt MinIO/ClickHouse/Cube/Kafka/Connect/dbt, giữ MySQL + Redis
+npm run infra:down         # tắt tất cả
+```
+
+> **Container đã tạo sẽ tự chạy lại mỗi lần bật Docker Desktop** (`restart:
+> unless-stopped`). Muốn chúng thôi hẳn thì phải xoá container chứ không chỉ
+> stop — `npm run infra:down:extra` làm đúng việc đó. Volume dữ liệu vẫn giữ
+> nguyên, bật lại là có đủ dữ liệu cũ.
 
 Toàn bộ container ở trạng thái nghỉ tốn khoảng **1,7 GB** RAM. Mỗi service đều
 có trần bộ nhớ riêng trong `docker-compose.yml`, xem bằng `npm run infra:stats`.
@@ -183,7 +195,7 @@ npm run verify         # lint + typecheck + build — CHẠY TRƯỚC KHI MỞ P
 npm run infra:up       # service lõi: MySQL + Redis
 npm run infra:up:data  # + MinIO, ClickHouse
 npm run infra:up:bi    # + Cube.js (kéo theo ClickHouse)
-npm run infra:up:all   # cả 9 container
+npm run infra:up:all   # cả 8 container
 npm run infra:ps       # trạng thái container
 npm run infra:stats    # RAM/CPU từng container
 npm run infra:logs     # theo dõi log
@@ -255,6 +267,16 @@ git push -u origin feat/f5-ingest-clickhouse
   Frontend **được** dùng `@/` vì Vite xử lý lúc bundle.
 - **Không đọc `process.env` trực tiếp.** Import `env` từ `src/config/env.ts` —
   nó validate bằng zod lúc boot và có kiểu đầy đủ.
+- **Dependency được thêm trong chính PR dùng nó**, không cài trước để đó. Repo
+  hiện chỉ có đúng những gói đang được import. Khi làm tới, cài lại:
+  ```bash
+  # đăng ký / đăng nhập
+  npm --prefix backend  install bcryptjs jsonwebtoken
+  npm --prefix backend  install -D @types/jsonwebtoken
+  npm --prefix frontend install react-router-dom axios
+  # gọi API có cache/retry (khi thật sự cần)
+  npm --prefix frontend install @tanstack/react-query
+  ```
 - **Không commit file `.env`.** Đổi biến môi trường thì phải cập nhật
   `.env.example` trong cùng PR, nếu không máy người kia sẽ hỏng.
 - Line ending do `.gitattributes` quản lý. Nếu script bash báo

@@ -1,7 +1,7 @@
 # =============================================================================
 # BI Platform — môi trường dev
 #
-# PROFILES: 9 container không thể cùng chạy thoải mái trên laptop, nên chỉ bật
+# PROFILES: 8 container không thể cùng chạy thoải mái trên laptop, nên chỉ bật
 # phần nào đang cần.
 #
 #   (không profile)  mysql, redis                -> LUÔN chạy
