@@ -22,7 +22,11 @@ export default defineConfig({
     setupFiles: ['./tests/setup.ts'],
     include: ['tests/**/*.test.tsx', 'tests/**/*.test.ts'],
     env: {
-      VITE_API_BASE_URL: '/api/v1',
+      // Phải khớp `frontend/.env`. Giá trị cũ '/api/v1' là từ thời auth còn nằm
+      // dưới /api/v1; để nguyên thì mọi test mock URL sẽ lệch một cách im lặng —
+      // mock không khớp, request thật không xảy ra, và test vẫn xanh vì nó chỉ
+      // kiểm cái nó tự dựng ra.
+      VITE_API_BASE_URL: '/api',
     },
   },
 });

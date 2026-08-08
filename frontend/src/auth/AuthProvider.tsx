@@ -1,3 +1,4 @@
+import { useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { setUnauthorizedHandler } from '../services/apiClient';
@@ -37,11 +38,23 @@ export function AuthProvider({ children }: { children: ReactNode }): React.React
 
   const navigate = useNavigate();
 
-  /** Dọn sạch phiên phía client. Dùng chung cho đăng xuất và hết hạn token. */
+  const queryClient = useQueryClient();
+
+  /**
+   * Dọn sạch phiên phía client. Dùng chung cho đăng xuất và hết hạn token.
+   *
+   * `queryClient.clear()` KHÔNG phải dọn dẹp cho gọn. Cache của react-query nằm
+   * trong bộ nhớ của tab, không gắn với tài khoản nào cả — đăng xuất rồi đăng
+   * nhập bằng tài khoản khác trên cùng tab mà không xoá thì danh sách nhân sự,
+   * email và số liệu của tổ chức trước sẽ hiện ra cho người sau, ít nhất cho tới
+   * lần refetch kế tiếp. Trên máy dùng chung đó là rò rỉ dữ liệu giữa hai tổ
+   * chức, không phải lỗi hiển thị.
+   */
   const clearSession = useCallback(() => {
     clearToken();
+    queryClient.clear();
     setSession(ANONYMOUS);
-  }, []);
+  }, [queryClient]);
 
   // --- §2.5 Khôi phục phiên khi F5 --------------------------------------------
   useEffect(() => {

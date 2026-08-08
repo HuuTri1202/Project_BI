@@ -116,14 +116,35 @@ export function Field({
   );
 }
 
+export interface SelectOption {
+  value: string;
+  label: string;
+}
+
 interface SelectFieldProps {
   label: string;
   registration: UseFormRegisterReturn;
-  options: readonly string[];
+  /**
+   * Nhận cả mảng chuỗi lẫn mảng {value,label}.
+   *
+   * Dạng chuỗi đủ cho danh sách chức danh (giá trị lưu vào DB chính là chữ hiển
+   * thị). Nhưng vai trò thì lưu `admin` mà phải hiện "Quản trị viên", nên cần
+   * dạng object — và viết một component select thứ hai chỉ vì khác chỗ đó thì
+   * hai cái sẽ lệch nhau về giao diện ngay lần sửa đầu tiên.
+   */
+  options: readonly string[] | readonly SelectOption[];
   /** Dòng hiển thị khi chưa chọn gì. Nó có value rỗng nên form vẫn ở trạng thái chưa hợp lệ. */
   placeholder: string;
   error?: string | undefined;
   hint?: string;
+}
+
+function normalizeOptions(
+  options: readonly string[] | readonly SelectOption[],
+): readonly SelectOption[] {
+  return options.map((option) =>
+    typeof option === 'string' ? { value: option, label: option } : option,
+  );
 }
 
 export function SelectField({
@@ -155,9 +176,9 @@ export function SelectField({
             <option value="" disabled>
               {placeholder}
             </option>
-            {options.map((option) => (
-              <option key={option} value={option}>
-                {option}
+            {normalizeOptions(options).map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
               </option>
             ))}
           </select>

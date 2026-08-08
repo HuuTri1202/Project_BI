@@ -8,6 +8,8 @@ import HomePage from './pages/HomePage';
 import LoginPage from './pages/LoginPage';
 import NotFoundPage from './pages/NotFoundPage';
 import OverviewPage from './pages/admin/OverviewPage';
+import UsersPage from './pages/admin/UsersPage';
+import WorkspacesPage from './pages/admin/WorkspacesPage';
 import { AdminRoute } from './routes/AdminRoute';
 import { ProtectedRoute } from './routes/ProtectedRoute';
 
@@ -45,6 +47,8 @@ export default function App(): React.ReactElement {
         <Route element={<AdminRoute />}>
           <Route path="/admin" element={<AdminLayout />}>
             <Route index element={<OverviewPage />} />
+            <Route path="users" element={<UsersPage />} />
+            <Route path="workspaces" element={<WorkspacesPage />} />
           </Route>
         </Route>
       </Route>

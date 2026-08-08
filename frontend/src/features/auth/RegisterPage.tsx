@@ -7,7 +7,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { getApiError } from '../../services/apiClient';
 import { register as registerAccount } from '../../services/authApi';
 import { AuthLayout, FormError, SubmitButton } from './AuthLayout';
-import { Field, SelectField } from './Field';
+import { Field, SelectField } from '../../components/ui/Field';
 
 /**
  * Form đăng ký.

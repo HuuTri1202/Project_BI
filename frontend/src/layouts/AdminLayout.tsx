@@ -6,18 +6,28 @@ import { ROLE_LABELS } from '../types/auth';
 /**
  * Khung trang quản trị — §3.1: sidebar + topbar.
  *
- * `to: null` nghĩa là trang chưa tồn tại (làm ở Giai đoạn 4). Hiện dạng vô hiệu
- * kèm nhãn "sắp có" thay vì link chết dẫn tới 404 — người dùng thấy được lộ
- * trình mà không bị lừa bấm vào chỗ trống.
+ * `to: null` nghĩa là trang chưa tồn tại. Hiện dạng vô hiệu kèm nhãn "sắp có"
+ * thay vì link chết dẫn tới 404 — người dùng thấy được lộ trình mà không bị lừa
+ * bấm vào chỗ trống. Nhánh đó vẫn giữ lại cho những mục sắp thêm.
+ *
+ * `end` chỉ đặt cho mục "Tổng quan": đường dẫn của nó (`/admin`) là tiền tố của
+ * mọi mục khác, nên thiếu `end` thì nó sáng lên ở cả trang Người dùng lẫn
+ * Workspace. Ngược lại, các mục con KHÔNG được `end`, để sau này có
+ * `/admin/users/:id` thì mục cha vẫn sáng.
  */
-const NAV_ITEMS: { label: string; to: string | null; icon: string }[] = [
-  { label: 'Tổng quan', to: '/admin', icon: 'M3 12h7V3H3v9Zm11 9h7V3h-7v18ZM3 21h7v-6H3v6Z' },
+const NAV_ITEMS: { label: string; to: string | null; exact?: boolean; icon: string }[] = [
+  {
+    label: 'Tổng quan',
+    to: '/admin',
+    exact: true,
+    icon: 'M3 12h7V3H3v9Zm11 9h7V3h-7v18ZM3 21h7v-6H3v6Z',
+  },
   {
     label: 'Người dùng',
-    to: null,
+    to: '/admin/users',
     icon: 'M16 20v-2a4 4 0 0 0-8 0v2M12 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z',
   },
-  { label: 'Workspace', to: null, icon: 'M3 7h18v12H3V7Zm0 0 3-3h5l2 3' },
+  { label: 'Workspace', to: '/admin/workspaces', icon: 'M3 7h18v12H3V7Zm0 0 3-3h5l2 3' },
 ];
 
 function NavIcon({ path }: { path: string }): React.ReactElement {
@@ -50,7 +60,7 @@ function SidebarContent(): React.ReactElement {
             <NavLink
               key={item.label}
               to={item.to}
-              end
+              end={item.exact === true}
               className={({ isActive }) =>
                 `flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
                   isActive

@@ -8,10 +8,11 @@ import { useAuth } from '../auth/useAuth';
  * người dùng khỏi lạc vào trang không dùng được; ai cũng sửa được biến trong
  * bộ nhớ trình duyệt hoặc gọi thẳng API bằng curl.
  *
- * Thực thi thật nằm ở backend: `authenticate` -> `requireRole('admin')` gắn cho
- * toàn bộ router `/api/admin`. Hai middleware đó đã viết xong ở Giai đoạn 1
- * nhưng chưa có endpoint `/api/admin` nào để gắn vào — sẽ nối ở Giai đoạn 3,
- * kèm bài kiểm tra "token Viewer curl vào /api/admin/... phải nhận 403".
+ * Thực thi thật nằm ở backend, và ĐÃ được nối: router `/api/admin` gắn ba lớp
+ * `authenticate` -> `requireRole('admin')` -> `requireFreshAdmin`. Lớp cuối đọc
+ * lại vai trò từ database mỗi request, vì claim trong token có thể đã cũ tới 7
+ * ngày (JWT_EXPIRES_IN). Bộ test tích hợp chạy theo bảng route, nên endpoint
+ * thêm mới mà quên guard sẽ tự động làm đỏ CI.
  *
  * Đặt SAU `ProtectedRoute` trong cây route nên tới đây chắc chắn đã có `user`.
  */

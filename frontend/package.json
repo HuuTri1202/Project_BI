@@ -17,11 +17,15 @@
   "dependencies": {
     "@bi/shared": "*",
     "@hookform/resolvers": "^3.10.0",
+    "@tanstack/react-query": "^5.101.4",
     "axios": "1.19.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-hook-form": "^7.54.2",
     "react-router-dom": "7.18.2",
+    "vega": "^6.3.1",
+    "vega-embed": "^7.1.0",
+    "vega-lite": "^6.4.3",
     "zod": "^3.24.1"
   },
   "devDependencies": {

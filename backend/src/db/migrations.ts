@@ -214,4 +214,43 @@ export const migrations: readonly Migration[] = [
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
     ],
   },
+
+  {
+    id: 2,
+    name: 'admin_area_membership_lifecycle',
+    statements: [
+      // ─── memberships.removed_at ──────────────────────────────────────────
+      //
+      // §3.4 có HAI thao tác khác nhau: "khoá" và "xoá mềm". Với mỗi cột
+      // `is_active` thì hai thao tác cho ra CÙNG một trạng thái dữ liệu — danh
+      // sách không phân biệt được ai bị khoá tạm với ai đã rời tổ chức, và thẻ
+      // KPI "Tài khoản bị khoá" đếm luôn cả người đã bị gỡ. Chính yêu cầu ép
+      // phải có cột này, không phải chuyện thêm cho đẹp.
+      //
+      // Dùng DATETIME thay vì boolean thứ hai vì nó trả lời được câu hỏi đầu
+      // tiên người ta hỏi khi một người quay lại: "gỡ từ bao giờ?". Và nó khớp
+      // idiom `deleted_at` mà mọi bảng khác đang dùng.
+      //
+      //   is_active=1, removed_at=NULL      -> thành viên bình thường
+      //   is_active=0, removed_at=NULL      -> BỊ KHOÁ, vẫn trong danh sách
+      //   is_active=0, removed_at=<lúc gỡ>  -> ĐÃ GỠ khỏi tổ chức
+      //
+      // Mời lại người đã gỡ = ON DUPLICATE KEY UPDATE trên uq_memberships_user_tenant
+      // sẵn có, đặt removed_at=NULL. Không cần bảng lời mời riêng.
+      //
+      // An toàn khi triển khai: cả ba truy vấn membership hiện tại đều lọc
+      // `is_active = 1`, mà thao tác gỡ luôn đặt `is_active = 0`, nên nếu chỗ
+      // nào quên thêm `removed_at IS NULL` thì hậu quả là SỐ LIỆU SAI, không
+      // phải lỗ hổng phân quyền. Vẫn thêm vào cả ba.
+      `ALTER TABLE memberships
+         ADD COLUMN removed_at DATETIME(3) NULL AFTER is_active`,
+
+      // Index cho truy vấn chủ đạo của §3.3: "thành viên còn trong tổ chức này".
+      // Thứ tự cột theo độ chọn lọc giảm dần và theo cách WHERE được viết:
+      // tenant_id luôn có, removed_at luôn có, is_active chỉ khi lọc theo trạng
+      // thái. idx_memberships_tenant_role vẫn giữ nguyên cho nhánh lọc theo vai trò.
+      `ALTER TABLE memberships
+         ADD KEY idx_memberships_tenant_live (tenant_id, removed_at, is_active)`,
+    ],
+  },
 ];

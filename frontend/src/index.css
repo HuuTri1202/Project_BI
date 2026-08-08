@@ -38,3 +38,27 @@
     @apply outline-2 outline-offset-2 outline-brand-500;
   }
 }
+
+/*
+ * Sửa lỗi biểu đồ Vega rộng 0px.
+ *
+ * `vega-embed` tự chèn stylesheet của nó, trong đó có
+ * `.vega-embed { display: inline-block }`. Một khối inline-block co lại vừa nội
+ * dung — mà nội dung ở đây là SVG khai `width: "container"`, tức chiều rộng của
+ * nó lại phụ thuộc vào chính khối bọc. Vòng phụ thuộc đó trình duyệt giải ra 0.
+ *
+ * Hậu quả rất khó lần: Vega vẫn dựng đủ mark (đếm được cả trăm thẻ <path>),
+ * console không một dòng lỗi, DOM có đủ <svg> — nhưng `width="0"` nên nhìn như
+ * biểu đồ trống. Không có gì báo cho ta biết cả.
+ *
+ * Đặt ngoài @layer base để chắc chắn thắng stylesheet do vega-embed chèn vào
+ * lúc chạy (mọi thứ trong @layer đều thua CSS không phân lớp).
+ */
+.vega-embed {
+  display: block;
+  width: 100%;
+}
+
+.vega-embed svg {
+  display: block;
+}

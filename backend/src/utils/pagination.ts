@@ -1,14 +1,14 @@
+import type { PageResult } from '@bi/shared';
 import { z } from 'zod';
 
 export const MAX_PAGE_SIZE = 100;
 
-export interface PageResult<T> {
-  items: T[];
-  page: number;
-  pageSize: number;
-  total: number;
-  totalPages: number;
-}
+/**
+ * `PageResult` đã chuyển sang `@bi/shared` để frontend dùng đúng một kiểu với
+ * backend. Re-export ở đây để những chỗ đang import từ file này không phải sửa,
+ * và để người đọc thấy ngay nó nằm ở đâu.
+ */
+export type { PageResult };
 
 /** Schema phân trang dùng chung cho danh sách user (§3.3) và workspace (§3.5). */
 export const paginationSchema = z.object({

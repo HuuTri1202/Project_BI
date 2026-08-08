@@ -1,5 +1,6 @@
 import type { ResultSetHeader, RowDataPacket } from 'mysql2';
 import { mysqlPool } from '../config/mysql';
+import type { Db } from './db';
 
 /**
  * Vai trò cấp NỀN TẢNG — người vận hành hệ thống, đứng ngoài mọi tổ chức.
@@ -148,8 +149,15 @@ export interface CreateUserInput {
   mustChangePassword?: boolean;
 }
 
-export async function createUser(input: CreateUserInput): Promise<number> {
-  const [result] = await mysqlPool.query<ResultSetHeader>(
+/**
+ * `db` bắt buộc truyền vào (xem repositories/db.ts): tạo user hầu như luôn đi
+ * kèm tạo membership trong cùng một transaction — đăng ký (§1.3) và Admin tạo
+ * tài khoản (§3.4) đều vậy. Nếu hàm này lén dùng pool riêng thì rollback sẽ để
+ * lại một user mồ côi không thuộc tổ chức nào, đăng nhập được nhưng không vào
+ * được đâu cả.
+ */
+export async function createUser(db: Db, input: CreateUserInput): Promise<number> {
+  const [result] = await db.query<ResultSetHeader>(
     `INSERT INTO users
        (email, password_hash, full_name, phone, job_title, date_of_birth, role, must_change_password)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,

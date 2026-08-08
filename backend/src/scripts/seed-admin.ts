@@ -11,7 +11,7 @@
  * ký, và mọi tài khoản sau đều do Admin tạo (§3.4).
  */
 import { env } from '../config/env';
-import { closeMysql } from '../config/mysql';
+import { closeMysql, mysqlPool } from '../config/mysql';
 import { closeRedis } from '../config/redis';
 import { runMigrations } from '../db/migrate';
 import * as membershipsRepo from '../repositories/memberships';
@@ -45,7 +45,9 @@ async function main(): Promise<void> {
     userId = existing.user.id;
     console.log(`[seed] tài khoản '${email}' đã có — không đụng tới mật khẩu hiện tại`);
   } else {
-    userId = await usersRepo.createUser({
+    // Truyền `mysqlPool` làm executor: script seed chạy tuần tự, không cần
+    // transaction. Xem repositories/db.ts về việc vì sao tham số này bắt buộc.
+    userId = await usersRepo.createUser(mysqlPool, {
       email,
       passwordHash: await hashPassword(env.SEED_ADMIN_PASSWORD),
       fullName: env.SEED_ADMIN_FULL_NAME,
@@ -66,7 +68,7 @@ async function main(): Promise<void> {
   // không sinh dòng thứ hai. Đặt ngoài nhánh if để sửa được trường hợp tài khoản
   // đã có nhưng membership bị xoá tay lúc gỡ lỗi — nếu không, seed sẽ báo "đã
   // có" rồi bỏ mặc một tài khoản không đăng nhập được vào đâu.
-  await membershipsRepo.upsert(userId, tenant.id, 'admin');
+  await membershipsRepo.upsert(mysqlPool, tenant.id, userId, 'admin');
   console.log(`[seed] '${email}' là quản trị viên của '${tenant.slug}'`);
 
   // --- Workspace đầu tiên ---

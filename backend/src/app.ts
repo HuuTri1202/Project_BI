@@ -4,6 +4,7 @@ import express, { type Express } from 'express';
 import helmet from 'helmet';
 import morgan from 'morgan';
 
+import { adminRouter } from './api/admin';
 import { authRouter } from './api/auth';
 import { healthRouter } from './api/health';
 import { v1Router } from './api/v1';
@@ -51,6 +52,8 @@ export function createApp(): Express {
 
   app.use('/health', healthRouter);
   app.use('/api/auth', authRouter);
+  // Khu quản trị tổ chức — tự gắn đủ ba lớp guard bên trong router của nó.
+  app.use('/api/admin', adminRouter);
   app.use('/api/v1', v1Router);
 
   // Hai handler này phải đứng CUỐI, đúng thứ tự này.

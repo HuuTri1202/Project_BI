@@ -38,6 +38,8 @@ export async function verifyAgainstDummy(plain: string): Promise<false> {
 // Bỏ các ký tự dễ đọc nhầm khi chép tay: 0/O, 1/l/I.
 const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';
 const SYMBOLS = '!@#$%^&*';
+// Chữ số AN TOÀN, cũng bỏ 0 và 1 — xem lý do ở chỗ dùng bên dưới.
+const DIGITS = '23456789';
 
 /**
  * Sinh mật khẩu tạm cho tài khoản do Admin tạo (§3.4).
@@ -53,7 +55,13 @@ export function generateTempPassword(length = 14): string {
   }
   // Bảo đảm có ít nhất một chữ số và một ký tự đặc biệt để luôn qua mọi luật
   // độ mạnh mật khẩu về sau.
-  chars.push(String(randomInt(10)));
+  //
+  // Lấy từ DIGITS chứ KHÔNG phải `randomInt(10)`: bản cũ sinh được cả '0' và
+  // '1', đúng hai ký tự mà ALPHABET phía trên cố ý loại bỏ. Nghĩa là lời hứa
+  // "không có ký tự dễ đọc nhầm" bị phá bởi chính dòng bảo đảm có chữ số — và
+  // hỏng khoảng 1/5 số lần sinh. Admin đọc mật khẩu qua điện thoại, người kia
+  // gõ nhầm 0 thành O, rồi cả hai ngồi đoán vì sao không đăng nhập được.
+  chars.push(DIGITS[randomInt(DIGITS.length)] as string);
   chars.push(SYMBOLS[randomInt(SYMBOLS.length)] as string);
 
   // Trộn Fisher-Yates để hai ký tự vừa thêm không luôn nằm cuối.
