@@ -17,10 +17,10 @@ import { AdminRoute } from '../src/routes/AdminRoute';
  * hẳn so với nói thẳng ngay từ đầu.
  */
 
-function renderWithRole(role: TenantRole | null): void {
+function renderWithRole(role: TenantRole | null, platformRole: 'superadmin' | 'user' = 'user'): void {
   const value = {
     status: 'authenticated',
-    user: null,
+    user: { id: 1, email: 'a@b.com', fullName: 'A', platformRole },
     tenant: null,
     role,
     memberships: [],
@@ -44,21 +44,33 @@ function renderWithRole(role: TenantRole | null): void {
 }
 
 describe('AdminRoute', () => {
-  it('cho admin vào', () => {
-    renderWithRole('admin');
+  it('cho quản trị viên HỆ THỐNG vào', () => {
+    renderWithRole('admin', 'superadmin');
     expect(screen.getByText('KHU QUAN TRI')).toBeInTheDocument();
   });
 
-  it.each(['creator', 'viewer'] as TenantRole[])('đẩy %s sang /403', (role) => {
-    renderWithRole(role);
+  it('CHẶN admin của tổ chức — đây là lỗ hổng đã từng có', () => {
+    // Luồng đăng ký cấp `admin` cho người tự lập tổ chức của mình, nên gác bằng
+    // trục tổ chức nghĩa là ai đăng ký cũng vào được khu vận hành hệ thống.
+    renderWithRole('admin', 'user');
     expect(screen.getByText('KHONG CO QUYEN')).toBeInTheDocument();
     expect(screen.queryByText('KHU QUAN TRI')).not.toBeInTheDocument();
   });
 
-  it('chưa có vai trò cũng bị chặn', () => {
-    // Chỉ `=== 'admin'` mới được qua. Viết ngược lại thành `!== 'viewer'` là lỗi
-    // rất dễ mắc khi thêm vai trò mới, và nó mở cửa cho mọi vai trò chưa biết.
-    renderWithRole(null);
+  it.each(['creator', 'viewer'] as TenantRole[])('đẩy %s sang /403', (role) => {
+    renderWithRole(role, 'user');
+    expect(screen.getByText('KHONG CO QUYEN')).toBeInTheDocument();
+  });
+
+  it('superadmin vẫn vào được dù vai trò tổ chức thấp', () => {
+    // Hai trục độc lập: quyền vận hành hệ thống không phụ thuộc vai trò trong
+    // một tổ chức cụ thể.
+    renderWithRole('viewer', 'superadmin');
+    expect(screen.getByText('KHU QUAN TRI')).toBeInTheDocument();
+  });
+
+  it('chưa có thông tin người dùng thì bị chặn', () => {
+    renderWithRole(null, 'user');
     expect(screen.getByText('KHONG CO QUYEN')).toBeInTheDocument();
   });
 });

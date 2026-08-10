@@ -173,11 +173,18 @@ export default function LoginPage(): React.ReactElement {
           </form>
         </div>
 
+        {/* Nói rõ đăng ký là để LẬP tổ chức, không phải để xin vào tổ chức đã
+            có — người bị lạc sẽ quay về đúng trang này, nên chỉ dẫn phải nằm ở
+            đây chứ không chỉ ở trang đăng ký. */}
         <p className="mt-6 text-center text-sm text-slate-500">
-          Chưa có tài khoản?{' '}
+          Muốn lập tổ chức mới?{' '}
           <Link to="/register" className="font-medium text-brand-600 hover:text-brand-700">
             Đăng ký
           </Link>
+          <br />
+          <span className="text-xs text-slate-400">
+            Được mời vào tổ chức có sẵn? Quản trị viên sẽ tạo tài khoản và gửi bạn mật khẩu tạm.
+          </span>
         </p>
       </div>
     </main>

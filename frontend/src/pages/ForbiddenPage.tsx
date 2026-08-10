@@ -7,8 +7,8 @@ export default function ForbiddenPage(): React.ReactElement {
       <p className="text-6xl font-bold text-slate-200">403</p>
       <h1 className="mt-4 text-xl font-semibold text-slate-900">Không có quyền truy cập</h1>
       <p className="mt-2 max-w-sm text-sm text-slate-500">
-        Trang này chỉ dành cho quản trị viên của tổ chức. Nếu bạn cho rằng đây là nhầm lẫn, hãy liên
-        hệ quản trị viên.
+        Trang này chỉ dành cho quản trị viên hệ thống. Tài khoản đăng ký thông thường không truy
+        cập được, kể cả khi bạn là quản trị viên của một tổ chức.
       </p>
       <Link
         to="/"

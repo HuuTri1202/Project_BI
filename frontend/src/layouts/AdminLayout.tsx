@@ -23,6 +23,11 @@ const NAV_ITEMS: { label: string; to: string | null; exact?: boolean; icon: stri
     icon: 'M3 12h7V3H3v9Zm11 9h7V3h-7v18ZM3 21h7v-6H3v6Z',
   },
   {
+    label: 'Tổ chức',
+    to: '/admin/tenants',
+    icon: 'M4 21V7l6-3 6 3v14M4 21h16M10 21v-4h4v4M8 11h.01M12 11h.01M8 15h.01M12 15h.01',
+  },
+  {
     label: 'Người dùng',
     to: '/admin/users',
     icon: 'M16 20v-2a4 4 0 0 0-8 0v2M12 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z',

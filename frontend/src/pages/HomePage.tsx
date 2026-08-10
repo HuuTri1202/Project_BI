@@ -1,4 +1,4 @@
-import { Link } from 'react-router-dom';
+import { Link, Navigate } from 'react-router-dom';
 import { useAuth } from '../auth/useAuth';
 import { ROLE_LABELS } from '../types/auth';
 
@@ -10,6 +10,17 @@ import { ROLE_LABELS } from '../types/auth';
  */
 export default function HomePage(): React.ReactElement {
   const { user, tenant, role, logout } = useAuth();
+
+  // Quản trị viên HỆ THỐNG đi thẳng vào khu quản trị.
+  //
+  // Hỏi `user.platformRole`, không phải `role` — `role` là vai trò trong tổ
+  // chức, mà ai đăng ký cũng là `admin` của tổ chức mình vừa lập.
+  //
+  // Trang này hiện KHÔNG có gì cho họ, chỉ một link phải bấm thêm lần nữa.
+  //
+  // TẠM THỜI: khi khu vực làm việc của người dùng được xây (chưa lên kế hoạch),
+  // PHẢI xem lại đoạn này — lúc đó trang chủ mới có nội dung thật.
+  if (user?.platformRole === 'superadmin') return <Navigate to="/admin" replace />;
 
   return (
     <main className="mx-auto max-w-3xl px-4 py-16">

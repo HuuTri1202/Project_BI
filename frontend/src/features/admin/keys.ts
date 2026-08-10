@@ -1,21 +1,25 @@
 /**
- * Query key của khu quản trị.
+ * Query key của console hệ thống.
  *
- * MỌI key đều bắt đầu bằng `tenantId`, kể cả khi hiện tại một phiên chỉ mở được
- * đúng một tổ chức. Lý do: `memberships[]` đã được backend trả về sẵn cho tính
- * năng đổi tổ chức, và ngày thêm tính năng đó, cache không gắn tenant sẽ phục vụ
- * dữ liệu của tổ chức cũ cho tổ chức mới. Sửa key sau khi bug xảy ra thì tốn
- * đúng chừng này công, chỉ khác là đã lộ dữ liệu rồi.
+ * KHÔNG gắn `tenantId` như bản trước: console này nhìn xuyên mọi tổ chức, dữ
+ * liệu của nó không thuộc về tổ chức nào cả. Việc dọn cache khi đổi tài khoản
+ * đã do `queryClient.clear()` trong `AuthProvider.clearSession` lo.
  *
- * Cấu trúc lồng nhau (`all` ⊃ `users` ⊃ `usersList`) để `invalidateQueries` gọi
- * ở mức nào cũng cuốn theo mức dưới — đổi vai trò một người thì huỷ toàn bộ các
- * trang danh sách đang cache, không cần biết đang ở trang mấy với bộ lọc gì.
+ * Cấu trúc lồng nhau để `invalidateQueries` gọi ở mức nào cũng cuốn theo mức
+ * dưới — khoá một tenant thì huỷ toàn bộ các trang danh sách đang cache, không
+ * cần biết đang ở trang mấy với bộ lọc gì.
  */
 export const adminKeys = {
-  all: (tenantId: number) => ['admin', tenantId] as const,
-  overview: (tenantId: number) => [...adminKeys.all(tenantId), 'overview'] as const,
-  users: (tenantId: number) => [...adminKeys.all(tenantId), 'users'] as const,
-  usersList: (tenantId: number, query: unknown) =>
-    [...adminKeys.users(tenantId), query] as const,
-  workspaces: (tenantId: number) => [...adminKeys.all(tenantId), 'workspaces'] as const,
+  all: ['admin'] as const,
+  overview: () => [...adminKeys.all, 'overview'] as const,
+
+  tenants: () => [...adminKeys.all, 'tenants'] as const,
+  tenantList: (query: unknown) => [...adminKeys.tenants(), 'list', query] as const,
+  tenantDetail: (id: number) => [...adminKeys.tenants(), 'detail', id] as const,
+
+  users: () => [...adminKeys.all, 'users'] as const,
+  userList: (query: unknown) => [...adminKeys.users(), 'list', query] as const,
+
+  workspaces: () => [...adminKeys.all, 'workspaces'] as const,
+  workspaceList: (query: unknown) => [...adminKeys.workspaces(), 'list', query] as const,
 };

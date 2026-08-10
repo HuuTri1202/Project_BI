@@ -8,21 +8,31 @@ import type { PublicUser, TenantRole } from '../types/auth';
  *  1. `mustChangePassword` — cổng CỨNG, đứng trên tất cả. Người vừa được cấp
  *     mật khẩu tạm mà đi thẳng vào trang cũ là lọt cổng. `ProtectedRoute` chặn
  *     thêm một lần nữa để không phụ thuộc vào mỗi chỗ điều hướng này.
- *  2. `from` — trang họ đang định vào lúc bị đẩy về `/login`.
- *  3. Quản trị viên của tổ chức về `/admin`.
+ *  2. `from` — trang họ đang định vào lúc bị đẩy về `/login`, TRỪ `/`.
+ *  3. Quản trị viên HỆ THỐNG về `/admin`.
  *  4. Còn lại về trang chủ.
  *
- * `role` là vai trò TRONG TỔ CHỨC đang mở, không phải `user.platformRole`.
- * Khu quản trị ở đây quản lý một tổ chức, nên nó hỏi đúng trục vai trò đó.
+ * Bước 3 hỏi `user.platformRole` (`users.role`), KHÔNG phải `role`
+ * (`memberships.role`). Khu quản trị là công cụ vận hành hệ thống; vai trò
+ * `admin` trong một tổ chức không mở được nó. Tham số `role` giữ lại vì nơi gọi
+ * đã truyền sẵn và các bước sau sẽ cần khi có khu vực riêng cho người dùng.
  */
 export function redirectTargetFor(
   user: PublicUser,
   role: TenantRole,
   from?: string | null,
 ): string {
+  void role;
   if (user.mustChangePassword) return '/change-password';
-  if (from && isSafeInternalPath(from)) return from;
-  if (role === 'admin') return '/admin';
+  // `from === '/'` KHÔNG được tính là "trang đang dở".
+  //
+  // `/` là điểm rơi mặc định của mọi phiên hết hạn, không phải nơi người dùng
+  // chủ động muốn tới. Coi nó là một đích cụ thể sẽ khiến quy tắc "nhớ trang
+  // đang dở" đè lên quy tắc "quản trị viên về /admin", và admin bị trả về một
+  // trang trống dù vừa đăng nhập xong. Lỗi này chỉ xuất hiện khi phiên hết hạn
+  // đúng lúc đang ở trang chủ, nên rất dễ lọt qua khâu thử tay.
+  if (from && from !== '/' && isSafeInternalPath(from)) return from;
+  if (user.platformRole === 'superadmin') return '/admin';
   return '/';
 }
 

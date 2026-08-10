@@ -24,17 +24,23 @@ export async function makeTenant(name: string, slug: string): Promise<number> {
 export async function makeUser(
   email: string,
   fullName: string,
-  options: { password?: string; isActive?: boolean } = {},
+  options: {
+    password?: string;
+    isActive?: boolean;
+    /** Trục NỀN TẢNG. Mặc định 'user' — chỉ tài khoản seed mới là superadmin. */
+    platformRole?: 'superadmin' | 'user';
+  } = {},
 ): Promise<number> {
   const [result] = await mysqlPool.query<ResultSetHeader>(
     `INSERT INTO users (email, password_hash, full_name, role, is_active)
-     VALUES (?, ?, ?, 'user', ?)`,
+     VALUES (?, ?, ?, ?, ?)`,
     [
       email,
       // Cost thấp do vitest.config.ts đặt BCRYPT_COST=4 — cost 12 nhân với vài
       // chục tài khoản trong suite là hàng chục giây chờ vô ích.
       await hashPassword(options.password ?? 'Matkhau123'),
       fullName,
+      options.platformRole ?? 'user',
       options.isActive === false ? 0 : 1,
     ],
   );

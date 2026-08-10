@@ -253,4 +253,28 @@ export const migrations: readonly Migration[] = [
          ADD KEY idx_memberships_tenant_live (tenant_id, removed_at, is_active)`,
     ],
   },
+
+  {
+    id: 3,
+    name: 'workspace_lock_flag',
+    statements: [
+      // ─── workspaces.is_active ────────────────────────────────────────────
+      //
+      // Console hệ thống cần "khoá / mở workspace" — tạm ngừng một không gian
+      // làm việc mà KHÔNG xoá nó. `deleted_at` không diễn tả được việc đó:
+      // xoá là hành động một chiều mang nghĩa "biến mất khỏi danh sách", còn
+      // khoá là trạng thái tạm và đảo ngược được.
+      //
+      // Cùng cặp cột với `tenants` và `users` (`is_active` + `deleted_at`), nên
+      // ba bảng cùng một ngữ nghĩa: is_active=0 là tạm ngừng, deleted_at khác
+      // NULL là đã xoá mềm.
+      `ALTER TABLE workspaces
+         ADD COLUMN is_active TINYINT(1) NOT NULL DEFAULT 1 AFTER description`,
+
+      // Truy vấn chủ đạo của console: workspace còn sống của một tổ chức.
+      // idx_workspaces_tenant_deleted có sẵn vẫn giữ cho nhánh chỉ lọc deleted_at.
+      `ALTER TABLE workspaces
+         ADD KEY idx_workspaces_tenant_live (tenant_id, deleted_at, is_active)`,
+    ],
+  },
 ];

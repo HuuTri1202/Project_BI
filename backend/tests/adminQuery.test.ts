@@ -1,6 +1,7 @@
-import { describe, expect, it } from 'vitest';
+﻿import { describe, expect, it } from 'vitest';
 
-import { escapeLikeTerm, MEMBER_SORT_KEYS } from '../src/repositories/adminMembers';
+import { TENANT_SORT_KEYS, USER_SORT_KEYS } from '../src/repositories/platform';
+import { escapeLikeTerm } from '../src/utils/sql';
 import { generateTempPassword } from '../src/services/auth/password';
 import { buildPageResult, resolveSortColumn } from '../src/utils/pagination';
 
@@ -16,23 +17,33 @@ describe('resolveSortColumn — chốt chặn SQL injection', () => {
   it('từ chối chuỗi ngoài whitelist', () => {
     // `ORDER BY` không tham số hoá được bằng dấu `?`, nên đây là hàm duy nhất
     // đứng giữa query string và câu SQL.
-    expect(resolveSortColumn('u.id; DROP TABLE users', MEMBER_SORT_KEYS, 'fullName')).toBeNull();
-    expect(resolveSortColumn('password_hash', MEMBER_SORT_KEYS, 'fullName')).toBeNull();
-    expect(resolveSortColumn('(SELECT 1)', MEMBER_SORT_KEYS, 'fullName')).toBeNull();
+    expect(resolveSortColumn('u.id; DROP TABLE users', USER_SORT_KEYS, 'fullName')).toBeNull();
+    expect(resolveSortColumn('password_hash', USER_SORT_KEYS, 'fullName')).toBeNull();
+    expect(resolveSortColumn('(SELECT 1)', USER_SORT_KEYS, 'fullName')).toBeNull();
   });
 
   it('chấp nhận đúng những khoá đã khai', () => {
-    for (const key of MEMBER_SORT_KEYS) {
-      expect(resolveSortColumn(key, MEMBER_SORT_KEYS, 'fullName')).toBe(key);
+    for (const key of USER_SORT_KEYS) {
+      expect(resolveSortColumn(key, USER_SORT_KEYS, 'fullName')).toBe(key);
+    }
+    for (const key of TENANT_SORT_KEYS) {
+      expect(resolveSortColumn(key, TENANT_SORT_KEYS, 'name')).toBe(key);
     }
   });
 
+  it('khoá của bảng này KHÔNG lọt sang whitelist của bảng kia', () => {
+    // Hai danh sách khác nhau và phải giữ khác nhau: `userCount` là cột của
+    // truy vấn tenant, đưa vào ORDER BY của truy vấn user là lỗi SQL.
+    expect(resolveSortColumn('userCount', USER_SORT_KEYS, 'email')).toBeNull();
+    expect(resolveSortColumn('lastLoginAt', TENANT_SORT_KEYS, 'name')).toBeNull();
+  });
+
   it('thiếu giá trị thì về mặc định, kiểu sai thì từ chối', () => {
-    expect(resolveSortColumn(undefined, MEMBER_SORT_KEYS, 'email')).toBe('email');
-    expect(resolveSortColumn('', MEMBER_SORT_KEYS, 'email')).toBe('email');
+    expect(resolveSortColumn(undefined, USER_SORT_KEYS, 'email')).toBe('email');
+    expect(resolveSortColumn('', USER_SORT_KEYS, 'email')).toBe('email');
     // Query string có thể cho ra mảng khi tham số lặp lại: `?sort=a&sort=b`.
-    expect(resolveSortColumn(['fullName'], MEMBER_SORT_KEYS, 'email')).toBeNull();
-    expect(resolveSortColumn(42, MEMBER_SORT_KEYS, 'email')).toBeNull();
+    expect(resolveSortColumn(['fullName'], USER_SORT_KEYS, 'email')).toBeNull();
+    expect(resolveSortColumn(42, USER_SORT_KEYS, 'email')).toBeNull();
   });
 });
 

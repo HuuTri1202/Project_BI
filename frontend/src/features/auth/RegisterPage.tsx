@@ -121,8 +121,8 @@ export function RegisterPage() {
 
   return (
     <AuthLayout
-      title="Tạo tài khoản"
-      subtitle="Bắt đầu dùng BI Platform trong vài chục giây."
+      title="Tạo tổ chức mới"
+      subtitle="Bạn sẽ là quản trị viên của tổ chức vừa lập."
       footer={
         <>
           Đã có tài khoản?{' '}
@@ -133,6 +133,22 @@ export function RegisterPage() {
       }
     >
       {formError && <FormError message={formError} />}
+
+      {/*
+       * Nói THẲNG rằng đăng ký nghĩa là lập một tổ chức mới, ngay ở đầu form.
+       *
+       * Không có dòng này, người được đồng nghiệp bảo "vào trang này đăng ký đi"
+       * sẽ tự lập ra một tổ chức rỗng của riêng mình, rồi cả hai cùng bối rối vì
+       * không thấy nhau trong danh sách thành viên. Đó là tình huống đã xảy ra
+       * thật, nhiều lần — chữ nhỏ dưới ô "Tên công ty" không đủ để ai đọc.
+       */}
+      <div className="mb-5 rounded-lg border border-brand-200 bg-brand-50 px-4 py-3 text-sm text-brand-900">
+        <p className="font-medium">Đăng ký ở đây là lập một tổ chức MỚI.</p>
+        <p className="mt-1 text-brand-700">
+          Nếu bạn được mời vào một tổ chức đã có, đừng dùng form này — hãy hỏi quản trị viên
+          của tổ chức đó để họ tạo tài khoản và gửi bạn mật khẩu tạm.
+        </p>
+      </div>
 
       <form onSubmit={onSubmit} noValidate className="space-y-4">
         <Field
@@ -187,9 +203,9 @@ export function RegisterPage() {
           registration={register('phone')}
         />
         <Field
-          label="Tên công ty"
+          label="Tên công ty (tổ chức sẽ được tạo)"
           autoComplete="organization"
-          hint="Chúng tôi sẽ tạo tổ chức này cho bạn, và bạn là quản trị viên của nó."
+          hint="Đây là tên tổ chức mới mà bạn làm quản trị viên."
           error={errorOf('companyName')}
           registration={register('companyName')}
         />

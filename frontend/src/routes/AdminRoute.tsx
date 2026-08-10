@@ -17,12 +17,17 @@ import { useAuth } from '../auth/useAuth';
  * Đặt SAU `ProtectedRoute` trong cây route nên tới đây chắc chắn đã có `user`.
  */
 export function AdminRoute(): React.ReactElement {
-  // `role` là vai trò TRONG TỔ CHỨC đang mở, không phải `user.platformRole`.
-  // Khu quản trị này quản lý một tổ chức nên nó hỏi đúng trục vai trò đó — một
-  // `superadmin` cấp hệ thống không tự động là quản trị viên của tổ chức nào.
-  const { role } = useAuth();
+  // Hỏi trục NỀN TẢNG (`users.role`), KHÔNG phải `memberships.role`.
+  //
+  // Khu này là công cụ vận hành hệ thống, chỉ dành cho tài khoản `superadmin`
+  // sinh bằng `npm run seed:admin`. Bản trước hỏi `role === 'admin'` — vai trò
+  // trong tổ chức — nên ai đăng ký cũng lọt vào, vì luồng đăng ký cấp `admin`
+  // cho người tự lập tổ chức của mình.
+  //
+  // Người dùng đăng ký bình thường sẽ có khu vực riêng — chưa xây.
+  const { user } = useAuth();
 
-  if (role !== 'admin') return <Navigate to="/403" replace />;
+  if (user?.platformRole !== 'superadmin') return <Navigate to="/403" replace />;
 
   return <Outlet />;
 }
