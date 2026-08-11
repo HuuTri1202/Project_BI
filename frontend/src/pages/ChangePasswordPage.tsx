@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { redirectTargetFor } from '../auth/redirectTarget';
 import { useAuth } from '../auth/useAuth';
 import { validateNewPassword } from '../auth/validators';
 import { PasswordInput } from '../components/PasswordInput';
@@ -90,7 +91,23 @@ export default function ChangePasswordPage(): React.ReactElement {
     try {
       await changePassword(values.currentPassword, values.newPassword);
       markPasswordChanged();
-      navigate(role === 'admin' ? '/admin' : '/', { replace: true });
+      // Dùng `redirectTargetFor` chứ KHÔNG tự quyết định đích đến.
+      //
+      // Dòng cũ ở đây là `role === 'admin' ? '/admin' : '/'` — hỏi trục TỔ CHỨC
+      // rồi điều hướng vào khu vực của trục NỀN TẢNG. Luồng đăng ký cấp `admin`
+      // trong tổ chức cho mọi người tự lập công ty, nên ai được cấp mật khẩu tạm
+      // rồi đổi xong cũng bị `AdminRoute` đá sang trang 403.
+      //
+      // `mustChangePassword` vừa được hạ nên hàm sẽ không quay lại đây; truyền
+      // bản đã cập nhật thay vì bản trong state cũ.
+      //
+      // `user`/`role` chắc chắn có vì trang này nằm sau `ProtectedRoute`, nhưng
+      // rơi về `/` khi thiếu vẫn tốt hơn là để một dấu `!` — trang chủ luôn là
+      // đích hợp lệ, còn `!` sai chỗ là màn hình trắng.
+      navigate(
+        user && role ? redirectTargetFor({ ...user, mustChangePassword: false }, role, null) : '/',
+        { replace: true },
+      );
     } catch (err) {
       const apiError = getApiError(err);
       if (apiError.fields) {

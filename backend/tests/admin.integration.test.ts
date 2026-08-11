@@ -259,6 +259,66 @@ describe('quản lý tổ chức', () => {
     expect(res.body.items[0].slug).toBe('cong-ty-alpha');
   });
 
+  describe('không gian cá nhân bị ẩn khỏi danh sách', () => {
+    /**
+     * Mỗi tài khoản được cấp kèm một tổ chức riêng (migration 5). Có bao nhiêu
+     * người dùng thì có bấy nhiêu dòng như vậy, nên danh sách công ty phải mặc
+     * định lọc chúng ra — nếu không, console vận hành mất khả năng trả lời câu
+     * hỏi duy nhất nó sinh ra để trả lời: nền tảng đang phục vụ bao nhiêu doanh
+     * nghiệp.
+     */
+    beforeEach(async () => {
+      await makeTenant('Không gian của Trần Văn Bình', 'khong-gian-cua-tran-van-binh', f.bob);
+    });
+
+    it('mặc định chỉ hiện công ty thật', async () => {
+      const res = await request(app).get('/api/admin/tenants').set(bearer(f.tokenRoot));
+
+      expect(res.body.total).toBe(3);
+      const names: string[] = res.body.items.map((t: { name: string }) => t.name);
+      expect(names).not.toContain('Không gian của Trần Văn Bình');
+      expect(res.body.items.every((t: { isPersonal: boolean }) => !t.isPersonal)).toBe(true);
+    });
+
+    it('kind=personal thì hiện đúng chúng, có cờ isPersonal', async () => {
+      const res = await request(app)
+        .get('/api/admin/tenants')
+        .query({ kind: 'personal' })
+        .set(bearer(f.tokenRoot));
+
+      expect(res.body.total).toBe(1);
+      expect(res.body.items[0].name).toBe('Không gian của Trần Văn Bình');
+      expect(res.body.items[0].isPersonal).toBe(true);
+    });
+
+    it('kind=all thì hiện cả hai loại', async () => {
+      const res = await request(app)
+        .get('/api/admin/tenants')
+        .query({ kind: 'all' })
+        .set(bearer(f.tokenRoot));
+
+      expect(res.body.total).toBe(4);
+    });
+
+    it('kind ngoài danh sách -> 400, không lặng lẽ về mặc định', async () => {
+      const res = await request(app)
+        .get('/api/admin/tenants')
+        .query({ kind: 'moi-thu' })
+        .set(bearer(f.tokenRoot));
+
+      expect(res.status).toBe(400);
+    });
+
+    it('thẻ KPI và biểu đồ tăng trưởng cũng chỉ đếm công ty thật', async () => {
+      const res = await request(app).get('/api/admin/overview').set(bearer(f.tokenRoot));
+
+      // Không lọc thì đường "Tổ chức" bám sát đường "Người dùng" và biểu đồ
+      // không còn nói được điều gì.
+      expect(res.body.activeTenants).toBe(3);
+      expect(res.body.growth.at(-1).tenants).toBe(3);
+    });
+  });
+
   it('ký tự đại diện của LIKE không lọt qua nguyên vẹn', async () => {
     // '%' không escape sẽ khớp MỌI dòng — kết quả 3 thay vì 0.
     const res = await request(app)

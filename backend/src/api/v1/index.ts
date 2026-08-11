@@ -1,13 +1,636 @@
+import {
+  ADMIN_ERROR_CODES,
+  WORKSPACE_ERROR_CODES,
+  type HomeDataDto,
+  type PermissionMatrixDto,
+  type TenantRole,
+  type WorkspaceOptionDto,
+} from '@bi/shared';
 import { Router, type Request, type Response } from 'express';
+import type { PoolConnection } from 'mysql2/promise';
+
+import { permissionMatrixFor } from '../../authz/enforcer';
+import { mysqlPool } from '../../config/mysql';
+import { withTransaction } from '../../db/tx';
+import { authenticate, requireAuth } from '../../middleware/authenticate';
+import { rateLimit } from '../../middleware/rateLimit';
+import { authorize } from '../../middleware/authorize';
+import { requireFreshMembership } from '../../middleware/requireFreshMembership';
+import * as adminMembersRepo from '../../repositories/adminMembers';
+import * as adminWorkspacesRepo from '../../repositories/adminWorkspaces';
+import type { Db } from '../../repositories/db';
+import * as membershipsRepo from '../../repositories/memberships';
+import * as projectsRepo from '../../repositories/projects';
+import * as tenantsRepo from '../../repositories/tenants';
+import { createMember } from '../../services/admin/createMember';
+import { createWorkspace } from '../../services/admin/createWorkspace';
+import { resetMemberPassword } from '../../services/admin/resetMemberPassword';
+import { asyncHandler } from '../../utils/asyncHandler';
+import { badRequest, HttpError, notFound } from '../../utils/httpError';
+import { buildPageResult, resolveSortColumn } from '../../utils/pagination';
+import {
+  createMemberBodySchema,
+  createProjectBodySchema,
+  createWorkspaceBodySchema,
+  homeQuerySchema,
+  idParamSchema,
+  listMembersQuerySchema,
+  listProjectsQuerySchema,
+  setActiveBodySchema,
+  updateProjectBodySchema,
+  updateRoleBodySchema,
+  updateTenantBodySchema,
+  updateWorkspaceBodySchema,
+  userIdParamSchema,
+} from './schemas';
 
 /**
- * Router gốc của API v1. Các nhóm route sau này gắn vào đây:
- *   v1Router.use('/projects', projectsRouter)
- *   v1Router.use('/datasets', datasetsRouter)
- *   v1Router.use('/query',    queryRouter)
+ * KHU NGƯỜI DÙNG — mọi thứ nằm trong PHẠM VI TỔ CHỨC đang mở.
+ *
+ * Khác hẳn `/api/admin`: console đó nhìn xuyên mọi tổ chức và chỉ `superadmin`
+ * vào được. Ở đây, `superadmin` không có đặc quyền gì cả — muốn làm việc trong
+ * một tổ chức thì phải có `membership` thật, đúng như ghi chú trong
+ * `middleware/requireRole.ts`.
+ *
+ * ─── Ba lớp bảo vệ, đúng thứ tự này ──────────────────────────────────────────
+ *
+ *   authenticate            có token hợp lệ không              (401 nếu không)
+ *   requireFreshMembership  DB có đồng ý phiên này còn sống    (401) — 1 truy vấn
+ *   authorize(res, act)     vai trò được làm việc này không    (403) — 0 truy vấn
+ *
+ * Hai lớp đầu mount MỘT LẦN cho cả router, nên thêm route mới không thể quên.
+ * Lớp thứ ba gắn cho từng route ghi, vì mỗi route hỏi một câu khác nhau.
+ *
+ * Thứ tự này bắt buộc: `authorize` đọc `req.auth.role`, mà giá trị đáng tin của
+ * trường đó do `requireFreshMembership` ghi đè từ database. Đảo lại là chấm điểm
+ * một vai trò có thể đã cũ tới 7 ngày (`JWT_EXPIRES_IN`).
+ *
+ * Đây mới là thực thi thật của §4.8 và §6.8. Việc ẩn menu ở frontend chỉ là
+ * trải nghiệm — nó đọc cùng ma trận này qua `GET /v1/permissions`.
  */
 export const v1Router = Router();
 
 v1Router.get('/', (_req: Request, res: Response) => {
   res.json({ name: 'BI Platform API', version: 'v1' });
 });
+
+v1Router.use(authenticate, requireFreshMembership);
+
+/*
+ * ─── §6.4 Phân quyền bằng Casbin ─────────────────────────────────────────────
+ *
+ * Từ §6, các route ghi gác bằng `authorize(<tài nguyên>, <hành động>)` thay cho
+ * `requireRole(<vai trò>)`. Khác biệt thật sự nằm ở chỗ câu trả lời ở đâu:
+ *
+ *   requireRole('admin')              luật nằm trong MÃ NGUỒN, đổi phải deploy
+ *   authorize('member', 'invite')     luật nằm trong bảng `casbin_rule`
+ *
+ * `authorize` đọc `req.auth.role` — giá trị đã được `requireFreshMembership`
+ * ghi đè từ database ở ngay trên, nên nó chấm điểm vai trò THẬT chứ không phải
+ * claim trong token vốn có thể cũ tới 7 ngày.
+ *
+ * `authorize` KHÔNG kiểm `:id` thuộc tổ chức nào. Việc đó vẫn do
+ * `WHERE tenant_id = ?` trong repository lo, và đó mới là thứ chặn đọc chéo tổ
+ * chức. Xem ghi chú đầy đủ trong `middleware/authorize.ts`.
+ */
+
+// ─── §6.8 Ma trận quyền cho frontend ─────────────────────────────────────────
+
+/**
+ * Quyền hiệu lực của chính người gọi, trong tổ chức đang mở.
+ *
+ * Frontend dùng cái này để ẩn/hiện menu và nút. Trước §6 nó có một bảng chép tay
+ * trong `shared/src/permissions.ts` — và bảng chép tay thì sớm muộn cũng lệch
+ * khỏi policy thật. Lệch kiểu nào cũng tệ: hiện nút dẫn thẳng tới 403, hoặc
+ * giấu mất chức năng người dùng có quyền dùng.
+ *
+ * KHÔNG nhận tham số nào. Vai trò và tổ chức lấy từ `req.auth` — cho client hỏi
+ * "quyền của vai trò X là gì" thì endpoint này thành bản đồ đường đi cho người
+ * dò quyền, và chẳng phục vụ nhu cầu thật nào cả.
+ */
+v1Router.get(
+  '/permissions',
+  asyncHandler(async (req, res) => {
+    const { role, tenantId } = requireAuth(req);
+    const body: PermissionMatrixDto = await permissionMatrixFor(role, tenantId);
+    res.json(body);
+  }),
+);
+
+// ─── Chọn workspace ──────────────────────────────────────────────────────────
+
+/**
+ * Xác định workspace đang thao tác, có kiểm tra quyền.
+ *
+ * MỌI endpoint nhận `workspaceId` từ client đều phải đi qua đây. Nhận thẳng id
+ * rồi truy vấn là lỗ hổng IDOR: đổi số trên URL là đọc được dữ liệu của tổ chức
+ * khác. `findOne` đã lọc `tenant_id` nên id lạ cho ra `null`, và ta trả 404 —
+ * 403 sẽ xác nhận rằng id đó có tồn tại.
+ *
+ * `id` không truyền: chọn workspace ĐANG HOẠT ĐỘNG đầu tiên. Đó là trường hợp
+ * người dùng mới đăng nhập trên máy lạ, trình duyệt chưa nhớ gì.
+ *
+ * `id` truyền nhưng workspace đang bị khoá: từ chối thay vì lặng lẽ chuyển sang
+ * cái khác. Người dùng đang chủ động chọn nó; đổi ngầm sẽ khiến họ tưởng mình
+ * đang xem workspace này trong khi thật ra là workspace kia.
+ */
+async function resolveWorkspace(
+  db: Db,
+  tenantId: number,
+  id: number | undefined,
+): Promise<WorkspaceOptionDto> {
+  if (id !== undefined) {
+    const found = await adminWorkspacesRepo.findOne(db, tenantId, id);
+    if (!found) throw notFound('Không tìm thấy workspace này.');
+    if (!found.isActive) {
+      throw new HttpError(
+        403,
+        WORKSPACE_ERROR_CODES.WORKSPACE_LOCKED,
+        'Workspace này đang bị quản trị hệ thống tạm khoá.',
+      );
+    }
+    return { id: found.id, name: found.name, slug: found.slug, isActive: found.isActive };
+  }
+
+  const all = await adminWorkspacesRepo.listWithProjectCount(db, tenantId);
+  const first = all.find((w) => w.isActive);
+  if (!first) {
+    // Tổ chức nào cũng được tạo kèm một workspace lúc đăng ký, nên tới đây nghĩa
+    // là chúng đã bị xoá hoặc bị khoá hết. Báo bằng mã riêng để giao diện hướng
+    // dẫn "tạo workspace mới" chứ không hiện màn hình lỗi chung chung.
+    throw new HttpError(
+      409,
+      WORKSPACE_ERROR_CODES.NO_WORKSPACE,
+      'Tổ chức chưa có workspace nào dùng được. Quản trị viên cần tạo một workspace.',
+    );
+  }
+  return { id: first.id, name: first.name, slug: first.slug, isActive: first.isActive };
+}
+
+// ─── §4.3 Dữ liệu trang Home ─────────────────────────────────────────────────
+
+const HOME_PROJECT_LIMIT = 12;
+
+v1Router.get(
+  '/home',
+  asyncHandler(async (req, res) => {
+    const { tenantId } = requireAuth(req);
+    const { workspaceId } = homeQuerySchema.parse(req.query);
+
+    const workspace = await resolveWorkspace(mysqlPool, tenantId, workspaceId);
+
+    // Tuần tự chứ không `Promise.all`: pool chỉ có 10 connection, và chiếm gấp
+    // đôi connection để tiết kiệm vài mili-giây trên trang mà MỌI người dùng mở
+    // đầu tiên là đổi chác sai chiều.
+    const projects = await projectsRepo.listRecent(
+      mysqlPool,
+      tenantId,
+      workspace.id,
+      HOME_PROJECT_LIMIT,
+    );
+    const members = await adminMembersRepo.countMembers(mysqlPool, tenantId, {
+      status: 'active',
+      sort: 'joinedAt',
+      order: 'desc',
+      page: 1,
+      pageSize: 1,
+    });
+
+    const body: HomeDataDto = {
+      workspace,
+      projects,
+      stats: { projects: projects.length, members },
+    };
+    res.json(body);
+  }),
+);
+
+// ─── Project ─────────────────────────────────────────────────────────────────
+
+v1Router.get(
+  '/projects',
+  asyncHandler(async (req, res) => {
+    const { tenantId } = requireAuth(req);
+    const query = listProjectsQuerySchema.parse(req.query);
+
+    const sort = resolveSortColumn(query.sort, projectsRepo.PROJECT_SORT_KEYS, 'updatedAt');
+    if (sort === null) {
+      throw badRequest('Cột sắp xếp không hợp lệ.', {
+        sort: `Chỉ nhận: ${projectsRepo.PROJECT_SORT_KEYS.join(', ')}`,
+      });
+    }
+
+    // Kiểm quyền trên workspace TRƯỚC khi liệt kê project của nó.
+    const workspace = await resolveWorkspace(mysqlPool, tenantId, query.workspaceId);
+
+    res.json(
+      await projectsRepo.listByWorkspace(mysqlPool, tenantId, {
+        workspaceId: workspace.id,
+        search: query.q,
+        sort,
+        order: query.order,
+      }),
+    );
+  }),
+);
+
+v1Router.post(
+  '/projects',
+  authorize('project', 'modify'),
+  asyncHandler(async (req, res) => {
+    const auth = requireAuth(req);
+    const body = createProjectBodySchema.parse(req.body);
+
+    const workspace = await resolveWorkspace(mysqlPool, auth.tenantId, body.workspaceId);
+
+    const id = await projectsRepo.createProject(mysqlPool, auth.tenantId, {
+      workspaceId: workspace.id,
+      name: body.name,
+      description: body.description ?? null,
+      createdBy: auth.userId,
+    });
+
+    res.status(201).json(await projectsRepo.findById(mysqlPool, auth.tenantId, id));
+  }),
+);
+
+v1Router.patch(
+  '/projects/:id',
+  authorize('project', 'modify'),
+  asyncHandler(async (req, res) => {
+    const { tenantId } = requireAuth(req);
+    const { id } = idParamSchema.parse(req.params);
+    const body = updateProjectBodySchema.parse(req.body);
+
+    const affected = await projectsRepo.updateProject(mysqlPool, tenantId, id, {
+      name: body.name,
+      description: body.description ?? null,
+    });
+    if (affected === 0) throw notFound('Không tìm thấy project này.');
+
+    res.json(await projectsRepo.findById(mysqlPool, tenantId, id));
+  }),
+);
+
+v1Router.delete(
+  '/projects/:id',
+  authorize('project', 'delete'),
+  asyncHandler(async (req, res) => {
+    const { tenantId } = requireAuth(req);
+    const { id } = idParamSchema.parse(req.params);
+
+    const affected = await projectsRepo.softDeleteProject(mysqlPool, tenantId, id);
+    if (affected === 0) throw notFound('Không tìm thấy project này.');
+
+    res.status(204).end();
+  }),
+);
+
+// ─── §6.2 Tổ chức ────────────────────────────────────────────────────────────
+
+/**
+ * Thông tin tổ chức đang mở — MỌI vai trò đọc được.
+ *
+ * Tên tổ chức đã có sẵn trong phản hồi đăng nhập, nhưng bản đó là ẢNH CHỤP lúc
+ * cấp token. Trang quản lý cần con số hiện tại, và cần nó tự làm mới sau khi đổi
+ * tên — nên phải có một endpoint đọc riêng.
+ */
+v1Router.get(
+  '/tenant',
+  asyncHandler(async (req, res) => {
+    const { tenantId } = requireAuth(req);
+    const tenant = await tenantsRepo.findTenantById(tenantId);
+    // Về lý thuyết không xảy ra: `requireFreshMembership` đã xác nhận tổ chức
+    // còn sống ngay trước đó. Vẫn xử lý, vì "không thể xảy ra" mà gặp thì `null`
+    // sẽ đi tiếp vào JSON và frontend hỏng ở một chỗ khác hẳn.
+    if (!tenant) throw notFound('Không tìm thấy tổ chức này.');
+    res.json(tenant);
+  }),
+);
+
+/**
+ * PATCH /api/v1/tenant — đổi tên tổ chức.
+ *
+ * KHÔNG có `:id` trên đường dẫn, và đó là chủ ý: tổ chức được sửa luôn là tổ
+ * chức trong token. Nhận id từ client nghĩa là thêm một nơi phải nhớ kiểm tra
+ * "id này có phải của bạn không", trong khi cách này thì câu hỏi đó không tồn
+ * tại.
+ *
+ * `authorize('tenant', 'modify')` — Admin qua được nhờ dòng `(*, *)` trong
+ * `casbin_rule`, Creator và Viewer nhận 403. Không cần thêm dòng policy nào.
+ */
+v1Router.patch(
+  '/tenant',
+  authorize('tenant', 'modify'),
+  asyncHandler(async (req, res) => {
+    const { tenantId } = requireAuth(req);
+    const body = updateTenantBodySchema.parse(req.body);
+
+    const affected = await tenantsRepo.renameTenant(tenantId, body.name);
+    if (affected === 0) throw notFound('Không tìm thấy tổ chức này.');
+
+    // Đọc lại rồi trả bản ghi đầy đủ thay vì 204: frontend phải cập nhật tên
+    // trên topbar và trong bộ chuyển tổ chức ngay, và đọc lại từ DB là cách duy
+    // nhất chắc chắn nó khớp thứ vừa được ghi (tên đã qua chuẩn hoá khoảng
+    // trắng ở tầng schema).
+    res.json(await tenantsRepo.findTenantById(tenantId));
+  }),
+);
+
+// ─── §4.5 §4.6 Workspace ─────────────────────────────────────────────────────
+
+/**
+ * Danh sách workspace — MỌI vai trò đọc được.
+ *
+ * Bộ chuyển workspace (§4.6) nằm ở topbar của cả khu người dùng, nên viewer cũng
+ * phải gọi được. Chỉ các thao tác GHI bên dưới mới đòi `admin`.
+ */
+v1Router.get(
+  '/workspaces',
+  asyncHandler(async (req, res) => {
+    const { tenantId } = requireAuth(req);
+    res.json(await adminWorkspacesRepo.listWithProjectCount(mysqlPool, tenantId));
+  }),
+);
+
+v1Router.post(
+  '/workspaces',
+  authorize('workspace', 'modify'),
+  asyncHandler(async (req, res) => {
+    const auth = requireAuth(req);
+    const body = createWorkspaceBodySchema.parse(req.body);
+
+    const created = await createWorkspace({
+      tenantId: auth.tenantId,
+      name: body.name,
+      description: body.description,
+      createdBy: auth.userId,
+    });
+    res.status(201).json(created);
+  }),
+);
+
+v1Router.patch(
+  '/workspaces/:id',
+  authorize('workspace', 'modify'),
+  asyncHandler(async (req, res) => {
+    const { tenantId } = requireAuth(req);
+    const { id } = idParamSchema.parse(req.params);
+    const body = updateWorkspaceBodySchema.parse(req.body);
+
+    const affected = await adminWorkspacesRepo.renameWorkspace(mysqlPool, tenantId, id, {
+      name: body.name,
+      description: body.description ?? null,
+    });
+    if (affected === 0) throw notFound('Không tìm thấy workspace này.');
+
+    res.json(await adminWorkspacesRepo.findOne(mysqlPool, tenantId, id));
+  }),
+);
+
+v1Router.delete(
+  '/workspaces/:id',
+  authorize('workspace', 'delete'),
+  asyncHandler(async (req, res) => {
+    const { tenantId } = requireAuth(req);
+    const { id } = idParamSchema.parse(req.params);
+
+    await withTransaction(async (conn) => {
+      const live = await adminWorkspacesRepo.countLiveProjects(conn, tenantId, id);
+      if (live > 0) {
+        // CHẶN thay vì xoá lan sang project. Xoá mềm dây chuyền, không có nút
+        // hoàn tác, là cách nhanh nhất làm mất dashboard của người khác. Báo số
+        // lượng để Admin biết mình đang định xoá cái gì.
+        throw new HttpError(
+          409,
+          ADMIN_ERROR_CODES.WORKSPACE_NOT_EMPTY,
+          `Workspace còn ${live} project đang hoạt động. Hãy chuyển hoặc xoá chúng trước.`,
+        );
+      }
+
+      // Xoá cái cuối cùng là tự khoá cả tổ chức ra khỏi trang Home: `/home` sẽ
+      // trả 409 NO_WORKSPACE cho mọi người, kể cả admin. Thoát ra được (màn §4.5
+      // vẫn tạo mới được) nhưng đó là một hố mà không ai cố ý rơi vào.
+      const total = await adminWorkspacesRepo.countLiveWorkspaces(conn, tenantId);
+      if (total <= 1) {
+        throw new HttpError(
+          409,
+          WORKSPACE_ERROR_CODES.LAST_WORKSPACE,
+          'Đây là workspace cuối cùng của tổ chức. Hãy tạo một workspace khác trước.',
+        );
+      }
+
+      const affected = await adminWorkspacesRepo.softDeleteWorkspace(conn, tenantId, id);
+      if (affected === 0) throw notFound('Không tìm thấy workspace này.');
+    });
+
+    res.status(204).end();
+  }),
+);
+
+// ─── §4.7 Thành viên ─────────────────────────────────────────────────────────
+
+v1Router.get(
+  '/members',
+  asyncHandler(async (req, res) => {
+    const { tenantId } = requireAuth(req);
+    const query = listMembersQuerySchema.parse(req.query);
+
+    const sort = resolveSortColumn(query.sort, adminMembersRepo.MEMBER_SORT_KEYS, 'joinedAt');
+    if (sort === null) {
+      throw badRequest('Cột sắp xếp không hợp lệ.', {
+        sort: `Chỉ nhận: ${adminMembersRepo.MEMBER_SORT_KEYS.join(', ')}`,
+      });
+    }
+
+    const filter: adminMembersRepo.ListMembersFilter = {
+      search: query.q,
+      role: query.role,
+      status: query.status,
+      sort,
+      order: query.order,
+      page: query.page,
+      pageSize: query.pageSize,
+    };
+
+    const total = await adminMembersRepo.countMembers(mysqlPool, tenantId, filter);
+    const items = total === 0 ? [] : await adminMembersRepo.listMembers(mysqlPool, tenantId, filter);
+    res.json(buildPageResult(items, total, query.page, query.pageSize));
+  }),
+);
+
+/**
+ * Chặn tự sửa chính mình.
+ *
+ * Áp dụng đồng nhất cho đổi vai trò, khoá và gỡ. Không thao tác nào trong ba
+ * cái đó từng là chủ ý, và luật "admin cuối cùng" không đỡ được trường hợp tổ
+ * chức có hai admin mà một người bấm nhầm vào dòng của chính mình.
+ */
+function refuseSelf(actorId: number, targetId: number): void {
+  if (actorId === targetId) {
+    throw new HttpError(
+      403,
+      ADMIN_ERROR_CODES.CANNOT_MODIFY_SELF,
+      'Không thể tự thay đổi vai trò hoặc trạng thái của chính mình.',
+    );
+  }
+}
+
+/**
+ * Chặn thao tác làm tổ chức mất sạch quản trị viên.
+ *
+ * PHẢI gọi bên trong transaction: `countActiveAdminsForUpdate` khoá các dòng
+ * admin bằng `FOR UPDATE`, buộc request thứ hai xếp hàng. Đọc trên pool thì hai
+ * admin hạ quyền nhau cùng lúc đều thấy "còn 2" và đều thành công.
+ */
+async function refuseLastAdmin(
+  conn: PoolConnection,
+  tenantId: number,
+  currentRole: TenantRole,
+): Promise<void> {
+  if (currentRole !== 'admin') return;
+
+  const remaining = await membershipsRepo.countActiveAdminsForUpdate(conn, tenantId);
+  if (remaining < 2) {
+    throw new HttpError(
+      409,
+      ADMIN_ERROR_CODES.LAST_ADMIN,
+      'Đây là quản trị viên cuối cùng của tổ chức. Hãy chỉ định người khác trước.',
+    );
+  }
+}
+
+v1Router.post(
+  '/members',
+  authorize('member', 'invite'),
+  rateLimit({ bucket: 'tenant-invite', max: 20, windowSeconds: 600 }),
+  asyncHandler(async (req, res) => {
+    const { tenantId } = requireAuth(req);
+    const body = createMemberBodySchema.parse(req.body);
+
+    const result = await createMember({ tenantId, ...body });
+    res.status(201).json(result);
+  }),
+);
+
+/**
+ * Cấp lại mật khẩu tạm — lối thoát cho "lỡ quên chép mật khẩu".
+ *
+ * ─── Vì sao gác bằng `invite` chứ không phải `modify` ───────────────────────
+ *
+ * `member:invite` là quyền đã cho phép TẠO tài khoản và ĐỌC mật khẩu tạm của nó.
+ * Cấp lại chỉ là làm lại đúng việc đó, nên nó không mở thêm khả năng nào cho
+ * người đã có `invite`.
+ *
+ * `member:modify` thì khác hẳn: nó là quyền đổi vai trò và khoá thành viên —
+ * toàn những thao tác chỉ có tác dụng TRONG tổ chức này. Đặt lại mật khẩu thì
+ * không: nó cho phép đăng nhập BẰNG tài khoản người khác. Gán nó vào `modify`
+ * nghĩa là một policy kiểu "trưởng nhóm được sắp xếp vai trò" lặng lẽ kèm luôn
+ * quyền chiếm tài khoản, mà người viết policy không hề định cho.
+ *
+ * ⚠️ Hạn chế đã biết: mật khẩu mới KHÔNG huỷ phiên đang mở của người đó. Token
+ * ký rồi thì có giá trị tới hết `JWT_EXPIRES_IN` (7 ngày), và hệ thống chưa có
+ * bảng thu hồi token. Nếu cần đá họ ra ngay thì khoá thành viên
+ * (`PATCH /members/:userId/status`) — `requireFreshMembership` đọc lại database
+ * mỗi request nên nó có hiệu lực tức thì.
+ *
+ * Rate limit riêng, chặt hơn `POST /members`: đây là thao tác hiếm (một lần cho
+ * một lần lỡ tay), và một vòng lặp gọi nó sẽ đổi mật khẩu của cả tổ chức.
+ */
+v1Router.post(
+  '/members/:userId/reset-password',
+  authorize('member', 'invite'),
+  rateLimit({ bucket: 'tenant-reset-password', max: 10, windowSeconds: 600 }),
+  asyncHandler(async (req, res) => {
+    const auth = requireAuth(req);
+    const { userId } = userIdParamSchema.parse(req.params);
+
+    const result = await resetMemberPassword({
+      tenantId: auth.tenantId,
+      actorUserId: auth.userId,
+      targetUserId: userId,
+    });
+    res.json(result);
+  }),
+);
+
+v1Router.patch(
+  '/members/:userId/role',
+  authorize('member', 'modify'),
+  asyncHandler(async (req, res) => {
+    const auth = requireAuth(req);
+    const { userId } = userIdParamSchema.parse(req.params);
+    const { role } = updateRoleBodySchema.parse(req.body);
+
+    refuseSelf(auth.userId, userId);
+
+    const updated = await withTransaction(async (conn) => {
+      const member = await adminMembersRepo.lockMemberForUpdate(conn, auth.tenantId, userId);
+      // Không có dòng nào -> 404 chứ KHÔNG phải 403. Id của tổ chức khác cho ra
+      // đúng kết quả này, và 404 không xác nhận rằng id đó có tồn tại.
+      if (!member || member.removed) throw notFound('Không tìm thấy thành viên này.');
+      if (member.role === role) return false;
+
+      await refuseLastAdmin(conn, auth.tenantId, member.role);
+      await adminMembersRepo.updateMemberRole(conn, auth.tenantId, userId, role);
+      return true;
+    });
+
+    if (!updated) {
+      res.status(204).end();
+      return;
+    }
+    res.json(await adminMembersRepo.findMember(mysqlPool, auth.tenantId, userId));
+  }),
+);
+
+v1Router.patch(
+  '/members/:userId/status',
+  authorize('member', 'modify'),
+  asyncHandler(async (req, res) => {
+    const auth = requireAuth(req);
+    const { userId } = userIdParamSchema.parse(req.params);
+    const { isActive } = setActiveBodySchema.parse(req.body);
+
+    refuseSelf(auth.userId, userId);
+
+    await withTransaction(async (conn) => {
+      const member = await adminMembersRepo.lockMemberForUpdate(conn, auth.tenantId, userId);
+      if (!member || member.removed) throw notFound('Không tìm thấy thành viên này.');
+      if (member.isActive === isActive) return;
+
+      // Khoá một admin cũng làm tổ chức mất người quản trị, y như hạ quyền.
+      if (!isActive) await refuseLastAdmin(conn, auth.tenantId, member.role);
+
+      // Đổi `memberships.is_active`, TUYỆT ĐỐI không đụng `users.is_active`:
+      // cột đó là toàn cục, sửa nó là khoá người ta khỏi MỌI tổ chức khác và
+      // khỏi cả việc đăng nhập — quyền mà Admin của một tổ chức không được có.
+      await adminMembersRepo.updateMemberActive(conn, auth.tenantId, userId, isActive);
+    });
+
+    res.json(await adminMembersRepo.findMember(mysqlPool, auth.tenantId, userId));
+  }),
+);
+
+v1Router.delete(
+  '/members/:userId',
+  authorize('member', 'delete'),
+  asyncHandler(async (req, res) => {
+    const auth = requireAuth(req);
+    const { userId } = userIdParamSchema.parse(req.params);
+
+    refuseSelf(auth.userId, userId);
+
+    await withTransaction(async (conn) => {
+      const member = await adminMembersRepo.lockMemberForUpdate(conn, auth.tenantId, userId);
+      if (!member || member.removed) throw notFound('Không tìm thấy thành viên này.');
+
+      await refuseLastAdmin(conn, auth.tenantId, member.role);
+      // Chỉ gỡ khỏi TỔ CHỨC. Bản ghi `users` giữ nguyên: email là định danh toàn
+      // cục, người này có thể đang làm ở tổ chức khác.
+      await adminMembersRepo.removeMember(conn, auth.tenantId, userId);
+    });
+
+    res.status(204).end();
+  }),
+);

@@ -193,5 +193,38 @@ export async function updatePassword(
   );
 }
 
+/**
+ * Sửa hồ sơ cá nhân (§4.4).
+ *
+ * Cố ý KHÔNG nhận `tenantId`: `users` là bảng định danh TOÀN CỤC, một người có
+ * đúng một hồ sơ dù làm ở bao nhiêu tổ chức. Đây là ngoại lệ duy nhất của luật
+ * "hàm repository nhận tenantId trước", và nó hợp lệ vì bảng này không có cột
+ * `tenant_id` nào để lọc.
+ *
+ * Đổi lại, `userId` PHẢI là `req.auth.userId` — không bao giờ là id lấy từ URL
+ * hay body. Nhận id từ client ở đây nghĩa là ai cũng sửa được hồ sơ của người
+ * khác trên toàn nền tảng.
+ *
+ * Danh sách cột viết cứng, không dựng động từ khoá của object: một `UPDATE users
+ * SET ${key} = ?` sẽ cho phép client tự chọn cột và ghi thẳng vào `role` hay
+ * `password_hash`.
+ */
+export async function updateProfile(
+  userId: number,
+  input: {
+    fullName: string;
+    phone: string | null;
+    jobTitle: string | null;
+    dateOfBirth: string | null;
+  },
+): Promise<number> {
+  const [result] = await mysqlPool.query<ResultSetHeader>(
+    `UPDATE users SET full_name = ?, phone = ?, job_title = ?, date_of_birth = ?
+      WHERE id = ? AND deleted_at IS NULL`,
+    [input.fullName, input.phone, input.jobTitle, input.dateOfBirth, userId],
+  );
+  return result.affectedRows;
+}
+
 export { toPublicUser };
 export type { UserRow };

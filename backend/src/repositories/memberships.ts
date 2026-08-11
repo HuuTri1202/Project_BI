@@ -19,6 +19,15 @@ export interface Membership {
   tenantName: string;
   tenantSlug: string;
   role: TenantRole;
+  /**
+   * Tổ chức này có phải KHÔNG GIAN RIÊNG CỦA CHÍNH NGƯỜI ĐANG HỎI hay không.
+   *
+   * Cố ý so `tenants.owner_user_id` với userId của truy vấn chứ không chỉ kiểm
+   * `IS NOT NULL`: tổ chức cá nhân của người khác — mà mình được họ mời vào —
+   * với mình là một tổ chức bình thường, và gắn nhãn "Cá nhân" lên nó trên bộ
+   * chuyển sẽ nói dối người dùng về nơi họ đang đứng.
+   */
+  isPersonal: boolean;
 }
 
 interface MembershipRow extends RowDataPacket {
@@ -26,6 +35,7 @@ interface MembershipRow extends RowDataPacket {
   tenant_name: string;
   tenant_slug: string;
   role: TenantRole;
+  is_personal: number;
 }
 
 /**
@@ -41,7 +51,8 @@ interface MembershipRow extends RowDataPacket {
  */
 export async function listActiveByUser(userId: number): Promise<Membership[]> {
   const [rows] = await mysqlPool.query<MembershipRow[]>(
-    `SELECT m.tenant_id, t.name AS tenant_name, t.slug AS tenant_slug, m.role
+    `SELECT m.tenant_id, t.name AS tenant_name, t.slug AS tenant_slug, m.role,
+            (t.owner_user_id <=> m.user_id) AS is_personal
        FROM memberships m
        JOIN tenants t ON t.id = m.tenant_id
       WHERE m.user_id = ?
@@ -67,7 +78,8 @@ export async function findByUserAndTenant(
   tenantId: number,
 ): Promise<Membership | null> {
   const [rows] = await mysqlPool.query<MembershipRow[]>(
-    `SELECT m.tenant_id, t.name AS tenant_name, t.slug AS tenant_slug, m.role
+    `SELECT m.tenant_id, t.name AS tenant_name, t.slug AS tenant_slug, m.role,
+            (t.owner_user_id <=> m.user_id) AS is_personal
        FROM memberships m
        JOIN tenants t ON t.id = m.tenant_id
       WHERE m.user_id = ?
@@ -146,11 +158,71 @@ export async function countActiveAdminsForUpdate(db: Db, tenantId: number): Prom
   return rows.length;
 }
 
+/**
+ * Đếm những tổ chức KHÁC mà người này còn tư cách thành viên.
+ *
+ * Dùng để trả lời đúng một câu: tài khoản này có phải danh tính DÙNG CHUNG hay
+ * không. Nếu có, admin của tổ chức hiện tại không được đặt lại mật khẩu của nó —
+ * làm vậy là chiếm được quyền truy cập vào dữ liệu của những tổ chức kia, một
+ * đường leo thang xuyên tổ chức mà không lớp phân quyền nào bắt được, vì xét
+ * riêng từng request thì mọi thứ đều hợp lệ.
+ *
+ * ─── Ba điều kiện CỐ Ý không lọc ────────────────────────────────────────────
+ *
+ * `m.is_active`, `t.is_active`: một membership đang bị KHOÁ vẫn mở lại được bất
+ * cứ lúc nào, và tổ chức bị tạm khoá cũng vậy. Lọc chúng ra nghĩa là chỉ cần chờ
+ * đúng lúc bên kia khoá tạm là chiếm được tài khoản. "Còn khoá" không phải là
+ * "không còn nữa".
+ *
+ * Ngược lại, `m.removed_at` và `t.deleted_at` THÌ CÓ lọc: gỡ khỏi tổ chức và xoá
+ * tổ chức là hành động một chiều có chủ đích, không phải trạng thái tạm.
+ *
+ * ─── Ngoại lệ: không gian riêng CỦA CHÍNH NGƯỜI ĐÓ ──────────────────────────
+ *
+ * Từ migration 5, mọi tài khoản do Admin tạo đều được cấp kèm một tổ chức cá
+ * nhân. Đếm trơn "tổ chức khác" thì người vừa được tạo tài khoản LÚC NÀO CŨNG có
+ * một tổ chức khác, và `resetMemberPassword` sẽ trả 409 ở 100% số lần — giết
+ * đúng tính năng sinh ra để cứu tình huống Admin quên chép mật khẩu tạm.
+ *
+ * Nên loại nó ra. Đánh đổi, nói thẳng: Admin cấp lại mật khẩu thì vào được cả
+ * không gian riêng của người đó. Chấp nhận được, vì đấy là tài khoản chính Admin
+ * vừa tạo và vừa đọc mật khẩu đầu tiên — không có đặc quyền nào mới bị trao. Thứ
+ * KHÔNG chấp nhận được là chạm tới dữ liệu của một CÔNG TY THỨ BA, và điều kiện
+ * dưới đây vẫn chặn nguyên vẹn ca đó.
+ *
+ * `t.owner_user_id <> ?` chứ không phải `t.owner_user_id IS NULL`: tổ chức cá
+ * nhân của NGƯỜI KHÁC mà người này được mời vào vẫn là dữ liệu của người khác,
+ * và vẫn phải tính là danh tính dùng chung.
+ */
+export async function countOtherActiveMemberships(
+  db: Db,
+  tenantId: number,
+  userId: number,
+): Promise<number> {
+  const [rows] = await db.query<RowDataPacket[]>(
+    `SELECT COUNT(*) AS total
+       FROM memberships m
+       JOIN tenants t ON t.id = m.tenant_id
+      WHERE m.user_id = ?
+        AND m.tenant_id <> ?
+        AND m.removed_at IS NULL
+        AND t.deleted_at IS NULL
+        AND (t.owner_user_id IS NULL OR t.owner_user_id <> ?)`,
+    [userId, tenantId, userId],
+  );
+  return Number(rows[0]?.['total'] ?? 0);
+}
+
 function toMembership(row: MembershipRow): Membership {
   return {
     tenantId: Number(row.tenant_id),
     tenantName: row.tenant_name,
     tenantSlug: row.tenant_slug,
     role: row.role,
+    // `<=>` là phép so sánh AN TOÀN VỚI NULL của MySQL: nó trả 0/1 chứ không bao
+    // giờ trả NULL. Dùng `=` thường thì tổ chức có `owner_user_id IS NULL` cho ra
+    // NULL, và mọi so sánh phía JS với NULL đều lặng lẽ ra `false` — đúng kết quả
+    // nhưng nhờ một tầng logic ba giá trị mà không ai đọc ra được từ code.
+    isPersonal: Number(row.is_personal) === 1,
   };
 }

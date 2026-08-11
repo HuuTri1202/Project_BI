@@ -121,6 +121,35 @@ export function AuthProvider({ children }: { children: ReactNode }): React.React
     return { user: res.user, role: res.role };
   }, []);
 
+  /**
+   * Đổi tổ chức đang mở — §5.1.
+   *
+   * `queryClient.clear()` KHÔNG phải dọn dẹp cho gọn, nó là bắt buộc và vì một
+   * lý do khác với lúc đăng xuất: query key của khu người dùng CỐ Ý không chứa
+   * `tenantId` (xem `features/tenant/keys.ts`), vì token chỉ mở đúng một tổ chức
+   * nên chuyện đó không cần thiết. Đổi tổ chức phá vỡ đúng giả định ấy — không
+   * xoá thì danh sách thành viên, workspace và project của công ty CŨ hiện
+   * nguyên xi dưới tên công ty MỚI cho tới lần refetch kế tiếp.
+   *
+   * Ghi token TRƯỚC khi dọn cache và đổi state: react-query có thể bắn refetch
+   * ngay trong lần render kế tiếp, và nó phải đi kèm token của tổ chức mới.
+   */
+  const switchTenant = useCallback(
+    async (tenantId: number): Promise<void> => {
+      const res = await authApi.switchTenant(tenantId);
+      writeToken(res.token);
+      queryClient.clear();
+      setSession({
+        status: 'authenticated',
+        user: res.user,
+        tenant: res.tenant,
+        role: res.role,
+        memberships: res.memberships,
+      });
+    },
+    [queryClient],
+  );
+
   const logout = useCallback(async () => {
     await authApi.logout();
     clearSession();
@@ -133,9 +162,48 @@ export function AuthProvider({ children }: { children: ReactNode }): React.React
     );
   }, []);
 
+  /**
+   * Thay bản ghi user bằng bản vừa lưu (§4.4).
+   *
+   * Ghi đè cả đối tượng thay vì trộn từng trường: server đã trả về bản ghi đầy
+   * đủ và mới nhất, còn trộn tay thì mỗi lần thêm một cột vào `users` lại phải
+   * nhớ sửa cả chỗ này — kiểu nợ mà không ai phát hiện cho tới khi một trường
+   * lặng lẽ không bao giờ cập nhật.
+   */
+  const applyProfile = useCallback((user: PublicUser) => {
+    setSession((prev) => (prev.user ? { ...prev, user } : prev));
+  }, []);
+
+  /**
+   * Thay bản ghi tổ chức sau khi đổi tên.
+   *
+   * Phải cập nhật CẢ HAI chỗ: `tenant` (topbar, dòng ngữ cảnh trên màn hẹp) và
+   * đúng phần tử trong `memberships` (bộ chuyển tổ chức). Sửa một chỗ thì màn
+   * hình tự mâu thuẫn — topbar ghi tên mới còn dropdown ngay cạnh vẫn tên cũ, và
+   * người dùng sẽ tưởng thao tác đổi tên chỉ thành công một nửa.
+   *
+   * So khớp theo `id` chứ không giả định tổ chức đang mở nằm ở đầu danh sách:
+   * thứ tự do `m.id ASC` quyết định, không liên quan gì tới tổ chức nào đang mở.
+   */
+  const applyTenant = useCallback((tenant: Tenant) => {
+    setSession((prev) => ({
+      ...prev,
+      tenant: prev.tenant?.id === tenant.id ? { ...prev.tenant, ...tenant } : prev.tenant,
+      memberships: prev.memberships.map((m) => (m.id === tenant.id ? { ...m, ...tenant } : m)),
+    }));
+  }, []);
+
   const value = useMemo<AuthContextValue>(
-    () => ({ ...session, login, logout, markPasswordChanged }),
-    [session, login, logout, markPasswordChanged],
+    () => ({
+      ...session,
+      login,
+      logout,
+      switchTenant,
+      markPasswordChanged,
+      applyProfile,
+      applyTenant,
+    }),
+    [session, login, logout, switchTenant, markPasswordChanged, applyProfile, applyTenant],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

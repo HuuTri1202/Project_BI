@@ -277,4 +277,122 @@ export const migrations: readonly Migration[] = [
          ADD KEY idx_workspaces_tenant_live (tenant_id, deleted_at, is_active)`,
     ],
   },
+
+  {
+    id: 4,
+    name: 'casbin_rule',
+    statements: [
+      // ─── casbin_rule: ma trận quyền của §6.3 ─────────────────────────────
+      //
+      // Tên bảng và tên cột (`ptype`, `v0`…`v5`) là QUY ƯỚC CỦA CASBIN, không
+      // phải lựa chọn của ta — mọi adapter chính thức đọc đúng hình dạng này.
+      // Đổi tên cột cho "dễ hiểu hơn" là tự khoá mình khỏi việc thay adapter.
+      //
+      // Ánh xạ sang model (xem `authz/model.ts`):
+      //   ptype='p' -> v0=vai trò  v1=tenantId  v2=tài nguyên  v3=hành động
+      //   ptype='g' -> v0=người    v1=vai trò    v2=tenantId
+      //
+      // `v1 = '*'` ở mọi dòng gieo bên dưới: ma trận vai trò giống nhau ở MỌI
+      // tổ chức. Cột domain vẫn giữ để sau này một công ty muốn nới/siết riêng
+      // thì thêm dòng với `v1 = '<tenantId>'`, không phải đổi schema.
+      //
+      // Cột dài 100 và cho NULL vì Casbin dùng chung bảng này cho cả `p` lẫn
+      // `g`, mà hai loại dùng số cột khác nhau.
+      //
+      // `uq_casbin_rule` chặn dòng trùng ở tầng DATABASE. Nếu không, chạy lại
+      // phần gieo hoặc gọi `addPolicy` hai lần sẽ nhân đôi luật: Casbin vẫn cho
+      // kết quả đúng (`some(allow)` nên trùng không đổi kết quả), nhưng bảng
+      // phình dần và người đọc không biết dòng nào mới là thật.
+      //
+      // LƯU Ý cho người sửa file này: KHÔNG đặt dấu backtick vào bên trong chuỗi
+      // template — kể cả trong một câu chú thích SQL `--`. Nó đóng chuỗi ngay tại
+      // đó và lỗi hiện ra dưới dạng một thông báo cú pháp TypeScript ở dòng khác
+      // hẳn. Mọi chú thích để ở đây, ngoài chuỗi.
+      `CREATE TABLE IF NOT EXISTS casbin_rule (
+        id    BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+        ptype VARCHAR(10)  NOT NULL,
+        v0    VARCHAR(100) NULL,
+        v1    VARCHAR(100) NULL,
+        v2    VARCHAR(100) NULL,
+        v3    VARCHAR(100) NULL,
+        v4    VARCHAR(100) NULL,
+        v5    VARCHAR(100) NULL,
+        PRIMARY KEY (id),
+        UNIQUE KEY uq_casbin_rule (ptype, v0, v1, v2, v3, v4, v5),
+        KEY idx_casbin_ptype (ptype)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+
+      // ─── Gieo ma trận mặc định ───────────────────────────────────────────
+      //
+      // Viết thẳng ra đây thay vì `for` trên `DEFAULT_POLICY` của @bi/shared,
+      // vì migration ĐÃ CHẠY là bất biến: nội dung nó ghi vào database phải đọc
+      // được từ chính file này mãi mãi, không phụ thuộc phiên bản hiện tại của
+      // một hằng số ở package khác. `DEFAULT_POLICY` sau này đổi thì thêm
+      // migration mới, và bài test `rbac` sẽ bắt được lúc hai bên lệch nhau.
+      //
+      // INSERT IGNORE để chạy lại trên database đã có dữ liệu là vô hại.
+      `INSERT IGNORE INTO casbin_rule (ptype, v0, v1, v2, v3) VALUES
+         ('p', 'admin',   '*', '*',         '*'),
+
+         ('p', 'creator', '*', 'dataset',   'read'),
+         ('p', 'creator', '*', 'dataset',   'modify'),
+         ('p', 'creator', '*', 'datamodel', 'read'),
+         ('p', 'creator', '*', 'datamodel', 'modify'),
+         ('p', 'creator', '*', 'report',    'read'),
+         ('p', 'creator', '*', 'report',    'modify'),
+         ('p', 'creator', '*', 'chart',     'read'),
+         ('p', 'creator', '*', 'chart',     'modify'),
+         ('p', 'creator', '*', 'project',   'read'),
+         ('p', 'creator', '*', 'project',   'modify'),
+         ('p', 'creator', '*', 'project',   'delete'),
+         ('p', 'creator', '*', 'workspace', 'read'),
+         ('p', 'creator', '*', 'member',    'read'),
+
+         ('p', 'viewer',  '*', 'dataset',   'read'),
+         ('p', 'viewer',  '*', 'datamodel', 'read'),
+         ('p', 'viewer',  '*', 'report',    'read'),
+         ('p', 'viewer',  '*', 'chart',     'read'),
+         ('p', 'viewer',  '*', 'project',   'read'),
+         ('p', 'viewer',  '*', 'workspace', 'read'),
+         ('p', 'viewer',  '*', 'member',    'read')`,
+    ],
+  },
+
+  {
+    id: 5,
+    name: 'personal_tenant',
+    statements: [
+      // ─── tenants.owner_user_id: tổ chức RIÊNG của một người ──────────────
+      //
+      // Người tự đăng ký lập ra công ty của mình và làm admin ở đó. Người được
+      // Admin tổ chức khác tạo tài khoản thì trước đây KHÔNG có gì của riêng
+      // mình — chỉ là thành viên trong tổ chức của người mời. Cột này cho họ một
+      // không gian riêng ngang hàng: cùng bảng `tenants`, cùng workspace mặc
+      // định, cùng vai trò `admin`.
+      //
+      // MỘT cột duy nhất, cố ý KHÔNG thêm `kind ENUM('org','personal')` song
+      // song: hai cột cùng trả lời một câu hỏi là hai nguồn sự thật, và chúng
+      // sẽ lệch nhau ở đúng chỗ không ai nhìn. `owner_user_id IS NOT NULL` đã
+      // là định nghĩa đầy đủ của "tổ chức cá nhân", và nó còn nói thêm được
+      // CỦA AI — thứ mà một cột ENUM không nói được.
+      //
+      // `ON DELETE SET NULL` chứ không CASCADE, theo đúng khuôn
+      // fk_workspaces_creator. CASCADE sẽ xoá cả tenant, mà fk_workspaces_tenant
+      // là RESTRICT nên thao tác đó chỉ nổ lỗi. Hệ thống dùng xoá mềm nên nhánh
+      // này gần như không bao giờ chạy; khi nó chạy, tổ chức chỉ mất dấu chủ
+      // sở hữu chứ không kéo theo dữ liệu nào biến mất.
+      `ALTER TABLE tenants
+         ADD COLUMN owner_user_id BIGINT UNSIGNED NULL AFTER slug,
+         ADD CONSTRAINT fk_tenants_owner FOREIGN KEY (owner_user_id)
+           REFERENCES users (id) ON DELETE SET NULL`,
+
+      // UNIQUE trên cột cho phép NULL: MySQL coi mỗi NULL là một giá trị khác
+      // nhau, nên MỌI tổ chức thật (owner_user_id = NULL) vẫn sống chung thoải
+      // mái, còn "mỗi người tối đa MỘT tổ chức cá nhân" thì được database bảo
+      // đảm. Đặt ràng buộc ở đây thay vì kiểm bằng một câu SELECT trước khi
+      // INSERT: giữa SELECT và INSERT luôn có khe hở cho hai request đồng thời,
+      // và hậu quả là một người có hai không gian riêng mà không ai gỡ được.
+      `ALTER TABLE tenants ADD UNIQUE KEY uq_tenants_owner (owner_user_id)`,
+    ],
+  },
 ];

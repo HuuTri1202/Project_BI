@@ -1,7 +1,7 @@
 import { act, render, screen } from '@testing-library/react';
 import { MemoryRouter, useLocation } from 'react-router-dom';
 import { describe, expect, it } from 'vitest';
-import { useListQueryState } from '../src/features/admin/useListQueryState';
+import { useListQueryState } from '../src/hooks/useListQueryState';
 
 /**
  * Trạng thái danh sách nằm trong URL. Ba thứ được kiểm ở đây đều là loại lỗi

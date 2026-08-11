@@ -5,12 +5,12 @@ import { Button } from '../../components/ui/Button';
 import { Pagination } from '../../components/ui/Pagination';
 import { SortableTh, TBody, Td, Th, THead, TableWrap, Tr } from '../../components/ui/Table';
 import { EmptyState, ErrorState, TableSkeleton } from '../../components/ui/states';
-import { ConfirmDialog } from '../../features/admin/ConfirmDialog';
-import { STATUS_OPTIONS } from '../../features/admin/filterOptions';
-import { FilterSelect, ListToolbar } from '../../features/admin/ListToolbar';
+import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
+import { STATUS_OPTIONS } from '../../components/ui/filterOptions';
+import { FilterSelect, ListToolbar } from '../../components/ui/ListToolbar';
 import { TenantDetailModal } from '../../features/admin/tenants/TenantDetailModal';
 import { useDeleteTenant, useSetTenantActive, useTenants } from '../../features/admin/hooks';
-import { useListQueryState } from '../../features/admin/useListQueryState';
+import { useListQueryState } from '../../hooks/useListQueryState';
 import type { TenantListQuery } from '../../features/admin/api';
 import { getApiError } from '../../services/apiClient';
 
@@ -25,13 +25,30 @@ const DEFAULTS: TenantListQuery = {
   order: 'desc',
   q: '',
   status: '',
+  // Rỗng = backend áp mặc định `org`. Cố ý KHÔNG đặt sẵn `'org'`: để rỗng thì
+  // `hasFilter` bên dưới không coi trạng thái mặc định là "đang lọc", và nút
+  // "Xoá lọc" không hiện lên đòi xoá một thứ người dùng chưa chọn.
+  kind: '',
 };
 
 const ALLOWED = {
   sort: ['name', 'userCount', 'workspaceCount', 'createdAt'],
   order: ['asc', 'desc'],
   status: ['active', 'locked'],
+  kind: ['org', 'personal', 'all'],
 } as const;
+
+/**
+ * Ba lựa chọn của bộ lọc loại tổ chức.
+ *
+ * `allLabel` của `FilterSelect` là lựa chọn ứng với giá trị rỗng, mà ở đây rỗng
+ * KHÔNG có nghĩa "tất cả" — nó là "công ty thật". Nên nhãn phải nói đúng điều
+ * đó, và "Tất cả" là một mục riêng có giá trị `all`.
+ */
+const KIND_OPTIONS = [
+  { value: 'personal', label: 'Không gian cá nhân' },
+  { value: 'all', label: 'Tất cả' },
+];
 
 /** Quản lý Tenant — danh sách tất cả công ty trên nền tảng. */
 export default function TenantsPage(): React.ReactElement {
@@ -53,14 +70,15 @@ export default function TenantsPage(): React.ReactElement {
     );
   };
 
-  const hasFilter = query.q !== '' || query.status !== '';
+  const hasFilter = query.q !== '' || query.status !== '' || query.kind !== '';
 
   return (
     <div className="mx-auto max-w-6xl">
       <header>
         <h1 className="text-xl font-bold text-slate-900">Quản lý tổ chức</h1>
         <p className="mt-1 text-sm text-slate-500">
-          Tất cả công ty trên nền tảng. Mỗi tài khoản đăng ký mới sẽ lập ra một tổ chức.
+          Các công ty trên nền tảng. Danh sách mặc định <strong>không</strong> hiện không gian cá
+          nhân — mỗi tài khoản được cấp một cái khi tạo, nên chúng sẽ lấn át công ty thật.
         </p>
       </header>
 
@@ -79,6 +97,14 @@ export default function TenantsPage(): React.ReactElement {
             onChange={(status) => update({ status })}
             allLabel="Tất cả trạng thái"
             options={STATUS_OPTIONS}
+          />
+          <FilterSelect
+            id="filter-kind"
+            label="Loại"
+            value={query.kind}
+            onChange={(kind) => update({ kind: kind as TenantListQuery['kind'] })}
+            allLabel="Công ty thật"
+            options={KIND_OPTIONS}
           />
         </ListToolbar>
       </div>
@@ -131,6 +157,15 @@ export default function TenantsPage(): React.ReactElement {
                       >
                         {tenant.name}
                       </button>
+                      {/* Nhãn nằm cạnh TÊN chứ không ở cột trạng thái: khi bật
+                          bộ lọc "Tất cả", hai loại tổ chức trộn lẫn nhau và
+                          người vận hành cần biết dòng nào là gì ngay ở chỗ mắt
+                          đọc đầu tiên. */}
+                      {tenant.isPersonal && (
+                        <span className="ml-2 align-middle">
+                          <Badge tone="neutral">Cá nhân</Badge>
+                        </span>
+                      )}
                       <div className="text-xs text-slate-400">{tenant.slug}</div>
                     </Td>
                     <Td>

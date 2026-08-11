@@ -9,13 +9,21 @@ import type { PublicUser, TenantRole } from '../types/auth';
  *     mật khẩu tạm mà đi thẳng vào trang cũ là lọt cổng. `ProtectedRoute` chặn
  *     thêm một lần nữa để không phụ thuộc vào mỗi chỗ điều hướng này.
  *  2. `from` — trang họ đang định vào lúc bị đẩy về `/login`, TRỪ `/`.
- *  3. Quản trị viên HỆ THỐNG về `/admin`.
- *  4. Còn lại về trang chủ.
+ *  3. Còn lại về trang chủ, và `/` tự rẽ sang `/home`.
  *
- * Bước 3 hỏi `user.platformRole` (`users.role`), KHÔNG phải `role`
- * (`memberships.role`). Khu quản trị là công cụ vận hành hệ thống; vai trò
- * `admin` trong một tổ chức không mở được nó. Tham số `role` giữ lại vì nơi gọi
- * đã truyền sẵn và các bước sau sẽ cần khi có khu vực riêng cho người dùng.
+ * ─── Vì sao quản trị viên HỆ THỐNG cũng về trang chủ ────────────────────────
+ *
+ * Bản trước đưa thẳng `platformRole === 'superadmin'` vào `/admin`. Bỏ đi vì hai
+ * lý do:
+ *
+ *   - Superadmin cũng là một người dùng bình thường của tổ chức mình. Ném họ vào
+ *     console vận hành ngay khi đăng nhập nghĩa là muốn xem workspace hay project
+ *     của chính mình thì phải tự gõ địa chỉ.
+ *   - Console là nơi thao tác trên dữ liệu của MỌI tổ chức. Rơi thẳng vào đó mỗi
+ *     lần đăng nhập biến nó thành mặc định, trong khi nó nên là một nơi người ta
+ *     chủ động đi tới.
+ *
+ * Đường vào giờ là nút "Admin Console" hiện trên trang chủ, chỉ với superadmin.
  */
 export function redirectTargetFor(
   user: PublicUser,
@@ -27,12 +35,11 @@ export function redirectTargetFor(
   // `from === '/'` KHÔNG được tính là "trang đang dở".
   //
   // `/` là điểm rơi mặc định của mọi phiên hết hạn, không phải nơi người dùng
-  // chủ động muốn tới. Coi nó là một đích cụ thể sẽ khiến quy tắc "nhớ trang
-  // đang dở" đè lên quy tắc "quản trị viên về /admin", và admin bị trả về một
-  // trang trống dù vừa đăng nhập xong. Lỗi này chỉ xuất hiện khi phiên hết hạn
-  // đúng lúc đang ở trang chủ, nên rất dễ lọt qua khâu thử tay.
+  // chủ động muốn tới. Hiện tại cả hai nhánh đều ra `/` nên phép kiểm này không
+  // đổi kết quả — giữ lại vì nó là thứ giữ cho quy tắc "nhớ trang đang dở" không
+  // âm thầm đè lên bất kỳ nhánh theo vai trò nào được thêm sau này. Đó đúng là
+  // cách lỗi cũ đã lọt ra sản phẩm.
   if (from && from !== '/' && isSafeInternalPath(from)) return from;
-  if (user.platformRole === 'superadmin') return '/admin';
   return '/';
 }
 

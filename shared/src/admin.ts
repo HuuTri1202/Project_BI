@@ -88,9 +88,33 @@ export interface CreateAdminUserResultDto {
   user: AdminUserDto;
   /**
    * CHỈ có khi `mode === 'created'`. Hiện đúng MỘT LẦN — backend không lưu lại,
-   * không ghi log, và không có cách nào lấy lại. Mất thì phải đặt lại mật khẩu.
+   * không ghi log, và không có cách nào lấy lại. Mất thì phải CẤP LẠI, bằng
+   * `POST /v1/members/:userId/reset-password` (xem DTO ngay dưới).
    */
   tempPassword?: string;
+}
+
+/**
+ * Kết quả cấp lại mật khẩu tạm.
+ *
+ * ─── Vì sao "cấp lại" chứ không phải "xem lại" ───────────────────────────────
+ *
+ * Database chỉ giữ hash bcrypt của mật khẩu, và bcrypt là hàm một chiều. Không
+ * có endpoint nào đọc lại được mật khẩu tạm đã cấp — không phải vì chưa viết, mà
+ * vì thông tin đó KHÔNG CÒN TỒN TẠI. Một API "xem lại mật khẩu" chỉ dựng được
+ * nếu ta lưu mật khẩu ở dạng đọc được, và khi đó một lần lộ database là lộ mật
+ * khẩu của tất cả mọi người.
+ *
+ * Nên đường phục hồi duy nhất đúng là sinh một mật khẩu MỚI, ghi đè cái cũ, và
+ * bật lại `must_change_password`. Mật khẩu tạm cũ chết ngay tại đó — kể cả khi
+ * admin có lỡ chép nó vào đâu đó.
+ *
+ * Không có `mode` như `CreateAdminUserResultDto`: tới được đây thì chắc chắn đã
+ * có tài khoản, và `tempPassword` luôn có. Nhánh 'attached' không tồn tại.
+ */
+export interface ResetMemberPasswordResultDto {
+  user: AdminUserDto;
+  tempPassword: string;
 }
 
 export interface AdminWorkspaceDto {
@@ -98,6 +122,15 @@ export interface AdminWorkspaceDto {
   name: string;
   slug: string;
   description: string | null;
+  /**
+   * `workspaces.is_active` — bị KHOÁ bởi quản trị HỆ THỐNG, không phải bởi admin
+   * tổ chức. Admin tổ chức chỉ ĐỌC cờ này; console vận hành mới bật/tắt được.
+   *
+   * Giao diện phải hiện nó, nếu không workspace bị khoá trông y hệt workspace
+   * bình thường mà lại không chọn được ở bộ chuyển (§4.6) — người dùng sẽ đi tìm
+   * lỗi ở chỗ không có lỗi.
+   */
+  isActive: boolean;
   /** Số project còn sống trong workspace. Dùng để cảnh báo trước khi xoá. */
   projectCount: number;
   createdAt: string;
@@ -156,6 +189,13 @@ export const ADMIN_ERROR_CODES = {
   CANNOT_MODIFY_SELF: 'CannotModifySelf',
   /** Tài khoản tồn tại nhưng đã bị khoá hoặc xoá ở cấp hệ thống. */
   ACCOUNT_UNAVAILABLE: 'AccountUnavailable',
+  /**
+   * Người này còn là thành viên của tổ chức khác, nên tài khoản của họ là danh
+   * tính DÙNG CHUNG. Admin của một tổ chức không được đặt lại mật khẩu của nó.
+   */
+  SHARED_IDENTITY: 'SharedIdentity',
+  /** Mục tiêu là quản trị viên HỆ THỐNG — nằm ngoài thẩm quyền của admin tổ chức. */
+  PLATFORM_ADMIN_PROTECTED: 'PlatformAdminProtected',
   /** Workspace còn project đang hoạt động. */
   WORKSPACE_NOT_EMPTY: 'WorkspaceNotEmpty',
   /** Đã thử hết hậu tố mà vẫn trùng slug. */

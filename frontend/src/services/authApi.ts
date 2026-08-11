@@ -27,6 +27,18 @@ export async function login(email: string, password: string): Promise<LoginRespo
   return data;
 }
 
+/**
+ * §5.1 Đổi tổ chức đang mở.
+ *
+ * Trả về ĐÚNG hình dạng của `/auth/login` — kể cả `token` — vì `tenantId` được
+ * ký trong JWT nên đổi tổ chức bắt buộc phải cấp token mới. Nhờ dùng chung kiểu,
+ * `AuthProvider` xử lý hai luồng bằng một đoạn code.
+ */
+export async function switchTenant(tenantId: number): Promise<LoginResponse> {
+  const { data } = await apiClient.post<LoginResponse>('/auth/switch-tenant', { tenantId });
+  return data;
+}
+
 export async function fetchMe(): Promise<MeResponse> {
   const { data } = await apiClient.get<MeResponse>('/auth/me');
   return data;
