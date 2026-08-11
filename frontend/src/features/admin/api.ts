@@ -43,6 +43,12 @@ export interface TenantListQuery {
   order: 'asc' | 'desc';
   q: string;
   status: 'active' | 'locked' | '';
+  /**
+   * Loại tổ chức. Chuỗi rỗng bị `clean()` loại khỏi query string, và backend
+   * hiểu "không truyền" là `org` — nên mặc định của màn hình là **công ty thật**,
+   * không phải "tất cả". Xem `tenantWhere` ở backend.
+   */
+  kind: 'org' | 'personal' | 'all' | '';
 }
 
 export async function fetchTenants(
@@ -103,6 +109,8 @@ export interface WorkspaceListQuery {
   q: string;
   tenantId: number | '';
   status: 'active' | 'locked' | '';
+  /** Giống `TenantListQuery.kind`. Backend bỏ qua khi đã lọc theo `tenantId`. */
+  kind: 'org' | 'personal' | 'all' | '';
 }
 
 export async function fetchWorkspaces(

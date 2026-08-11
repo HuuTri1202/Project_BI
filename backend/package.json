@@ -11,6 +11,7 @@
     "typecheck": "tsc -p tsconfig.test.json",
     "migrate": "tsx src/scripts/migrate.ts",
     "seed:admin": "tsx src/scripts/seed-admin.ts",
+    "backfill:personal": "tsx src/scripts/backfill-personal-tenants.ts",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
@@ -21,6 +22,7 @@
   "dependencies": {
     "@bi/shared": "*",
     "bcryptjs": "3.0.3",
+    "casbin": "^5.51.1",
     "compression": "^1.7.5",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",

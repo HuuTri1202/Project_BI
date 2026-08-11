@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { NavLink, Outlet, useLocation } from 'react-router-dom';
+import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../auth/useAuth';
 import { ROLE_LABELS } from '../types/auth';
 
@@ -167,6 +167,28 @@ export function AdminLayout(): React.ReactElement {
           </div>
 
           <div className="ml-auto flex items-center gap-3">
+            {/* Đường về khu làm việc. Không có nó thì vào đây xong là kẹt: khu
+                quản trị không có link nào dẫn ngược ra, và người dùng chỉ còn
+                cách gõ tay địa chỉ hoặc đăng xuất rồi đăng nhập lại. */}
+            <Link
+              to="/home"
+              className="hidden items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900 sm:flex"
+            >
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="h-4 w-4"
+                aria-hidden="true"
+              >
+                <path d="M19 12H5m0 0 6-6m-6 6 6 6" />
+              </svg>
+              Khu làm việc
+            </Link>
+
             <div className="hidden text-right sm:block">
               <p className="truncate text-sm font-medium text-slate-900">{user?.fullName}</p>
               <p className="truncate text-xs text-slate-500">{role ? ROLE_LABELS[role] : ''}</p>

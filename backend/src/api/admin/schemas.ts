@@ -20,9 +20,18 @@ import { paginationSchema } from '../../utils/pagination';
 
 const statusFilter = z.enum(['active', 'locked']).optional();
 
+/**
+ * Loại tổ chức: công ty thật / không gian cá nhân / cả hai.
+ *
+ * `.optional()` và bỏ trống KHÔNG có nghĩa là "tất cả" — repository hiểu là
+ * `org`. Xem `tenantWhere` để biết vì sao mặc định phải là loại hẹp nhất.
+ */
+const kindFilter = z.enum(['org', 'personal', 'all']).optional();
+
 export const listTenantsQuerySchema = paginationSchema.extend({
   q: z.string().trim().max(100).optional(),
   status: statusFilter,
+  kind: kindFilter,
   sort: z.string().optional(),
 });
 
@@ -38,6 +47,7 @@ export const listWorkspacesQuerySchema = paginationSchema.extend({
   q: z.string().trim().max(100).optional(),
   tenantId: z.coerce.number().int().positive().optional(),
   status: statusFilter,
+  kind: kindFilter,
 });
 
 export const setActiveBodySchema = z.object({

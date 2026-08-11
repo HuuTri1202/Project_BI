@@ -5,23 +5,38 @@ import { Button } from '../../components/ui/Button';
 import { Pagination } from '../../components/ui/Pagination';
 import { TBody, Td, Th, THead, TableWrap, Tr } from '../../components/ui/Table';
 import { EmptyState, ErrorState, TableSkeleton } from '../../components/ui/states';
-import { ConfirmDialog } from '../../features/admin/ConfirmDialog';
-import { STATUS_OPTIONS } from '../../features/admin/filterOptions';
-import { FilterSelect, ListToolbar } from '../../features/admin/ListToolbar';
+import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
+import { STATUS_OPTIONS } from '../../components/ui/filterOptions';
+import { FilterSelect, ListToolbar } from '../../components/ui/ListToolbar';
 import {
   useDeleteWorkspace,
   useSetWorkspaceActive,
   useTenants,
   useWorkspaces,
 } from '../../features/admin/hooks';
-import { useListQueryState } from '../../features/admin/useListQueryState';
+import { useListQueryState } from '../../hooks/useListQueryState';
 import type { WorkspaceListQuery } from '../../features/admin/api';
 import { getApiError } from '../../services/apiClient';
 
 // Khai kiểu tường minh chứ KHÔNG dùng `as const`: nó thu hẹp mỗi trường xuống
 // đúng một literal, khiến đổi giá trị thành lỗi biên dịch và phải ép kiểu khắp nơi.
-const DEFAULTS: WorkspaceListQuery = { page: 1, pageSize: 20, q: '', tenantId: '', status: '' };
-const ALLOWED = { status: ['active', 'locked'] } as const;
+// `kind: ''` = backend áp mặc định `org`, tức là danh sách KHÔNG hiện workspace
+// mặc định trong không gian cá nhân của từng người dùng — mỗi tài khoản kéo theo
+// đúng một cái, và chúng sẽ đông hơn workspace thật rất nhanh.
+const DEFAULTS: WorkspaceListQuery = {
+  page: 1,
+  pageSize: 20,
+  q: '',
+  tenantId: '',
+  status: '',
+  kind: '',
+};
+const ALLOWED = { status: ['active', 'locked'], kind: ['org', 'personal', 'all'] } as const;
+
+const KIND_OPTIONS = [
+  { value: 'personal', label: 'Không gian cá nhân' },
+  { value: 'all', label: 'Tất cả' },
+];
 
 /** Quản lý Workspace — tất cả không gian làm việc, nhóm theo tổ chức. */
 export default function WorkspacesPage(): React.ReactElement {
@@ -30,9 +45,11 @@ export default function WorkspacesPage(): React.ReactElement {
   const { data, isPending, isError, error, isPlaceholderData } = useWorkspaces({
     ...query,
     status: query.status as '' | 'active' | 'locked',
+    kind: query.kind as WorkspaceListQuery['kind'],
     tenantId: query.tenantId === '' ? '' : Number(query.tenantId),
   });
 
+  // Chỉ công ty thật — xem ghi chú cùng chỗ này ở UsersPage.
   const { data: tenantPage } = useTenants({
     page: 1,
     pageSize: 100,
@@ -40,6 +57,7 @@ export default function WorkspacesPage(): React.ReactElement {
     order: 'asc',
     q: '',
     status: '',
+    kind: '',
   });
 
   const [lockTarget, setLockTarget] = useState<PlatformWorkspaceDto | null>(null);
@@ -48,7 +66,8 @@ export default function WorkspacesPage(): React.ReactElement {
   const setActive = useSetWorkspaceActive();
   const remove = useDeleteWorkspace();
 
-  const hasFilter = query.q !== '' || query.status !== '' || query.tenantId !== '';
+  const hasFilter =
+    query.q !== '' || query.status !== '' || query.tenantId !== '' || query.kind !== '';
 
   return (
     <div className="mx-auto max-w-6xl">
@@ -56,7 +75,8 @@ export default function WorkspacesPage(): React.ReactElement {
         <h1 className="text-xl font-bold text-slate-900">Quản lý workspace</h1>
         <p className="mt-1 text-sm text-slate-500">
           Không gian làm việc của tất cả tổ chức. Mỗi công ty có thể có nhiều workspace để chia
-          theo bộ phận.
+          theo bộ phận. Danh sách mặc định <strong>không</strong> hiện workspace nằm trong không
+          gian cá nhân của người dùng.
         </p>
       </header>
 
@@ -86,6 +106,14 @@ export default function WorkspacesPage(): React.ReactElement {
             onChange={(status) => update({ status })}
             allLabel="Tất cả trạng thái"
             options={STATUS_OPTIONS}
+          />
+          <FilterSelect
+            id="filter-kind"
+            label="Loại tổ chức"
+            value={String(query.kind)}
+            onChange={(kind) => update({ kind })}
+            allLabel="Công ty thật"
+            options={KIND_OPTIONS}
           />
         </ListToolbar>
       </div>

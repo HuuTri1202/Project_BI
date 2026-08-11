@@ -6,9 +6,12 @@ import type { PublicUser, TenantRole } from '../src/types/auth';
  * Điều hướng sau đăng nhập.
  *
  * Đáng viết test vì thứ tự ưu tiên ở đây là loại logic mà đọc code thấy đúng
- * nhưng chạy lại sai với đúng một tổ hợp đầu vào — và tổ hợp đó (`from === '/'`
- * với người dùng là admin) đã thật sự lọt ra sản phẩm: admin đăng nhập xong bị
- * trả về trang chủ trống và tưởng khu quản trị hỏng.
+ * nhưng chạy lại sai với đúng một tổ hợp đầu vào.
+ *
+ * MỌI người — kể cả quản trị hệ thống — đều về trang chủ. Đường vào console vận
+ * hành là nút "Admin Console" trên chính trang chủ đó, chỉ hiện với
+ * `platformRole === 'superadmin'`. Bản trước đưa thẳng superadmin vào `/admin`,
+ * nghĩa là muốn xem workspace của chính mình thì phải tự gõ địa chỉ.
  */
 
 /** Người dùng thường: `platformRole = 'user'`. */
@@ -33,19 +36,17 @@ describe('redirectTargetFor', () => {
     ).toBe('/change-password');
   });
 
-  it('quản trị hệ thống về /admin khi không có from', () => {
-    expect(redirectTargetFor(superadmin(), 'admin', null)).toBe('/admin');
+  it('quản trị hệ thống cũng về trang chủ, KHÔNG nhảy thẳng vào /admin', () => {
+    // Console vận hành là nơi người ta chủ động đi tới, không phải điểm rơi mặc
+    // định của mỗi lần đăng nhập. Nút "Admin Console" trên trang chủ mới là cửa.
+    expect(redirectTargetFor(superadmin(), 'admin', null)).toBe('/');
+    expect(redirectTargetFor(superadmin(), 'admin', '/')).toBe('/');
   });
 
-  it('quản trị hệ thống về /admin khi from là "/" — ca đã từng lọt', () => {
-    // `/` là điểm rơi mặc định của phiên hết hạn, không phải trang người dùng
-    // chủ động muốn tới.
-    expect(redirectTargetFor(superadmin(), 'admin', '/')).toBe('/admin');
-  });
-
-  it('ADMIN CỦA TỔ CHỨC nhưng không phải quản trị hệ thống thì KHÔNG vào /admin', () => {
-    // Đây là lỗ hổng đã từng có: luồng đăng ký cấp `admin` cho người tự lập tổ
-    // chức, nên ai đăng ký cũng vào được khu vận hành hệ thống.
+  it('ADMIN CỦA TỔ CHỨC cũng về trang chủ', () => {
+    // Luồng đăng ký cấp `admin` trong tổ chức cho mọi người tự lập công ty. Vai
+    // trò đó KHÔNG mở được khu vận hành hệ thống — đó là lỗ hổng đã từng có, và
+    // `AdminRoute` cùng ba lớp guard ở backend là chỗ chặn thật.
     expect(redirectTargetFor(user(), 'admin', null)).toBe('/');
   });
 

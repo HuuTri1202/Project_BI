@@ -135,6 +135,17 @@ interface SelectFieldProps {
   options: readonly string[] | readonly SelectOption[];
   /** Dòng hiển thị khi chưa chọn gì. Nó có value rỗng nên form vẫn ở trạng thái chưa hợp lệ. */
   placeholder: string;
+  /**
+   * Cho phép quay lại "chưa chọn gì".
+   *
+   * Mặc định `false` vì form đăng ký BẮT BUỘC chọn chức danh — để người dùng bỏ
+   * chọn lại chỉ tạo thêm một cách làm form không hợp lệ.
+   *
+   * Form hồ sơ (§4.4) thì ngược lại: chức danh không bắt buộc, và tài khoản do
+   * Admin tạo có thể đang để trống. Không có cờ này thì một ô lỡ chọn sai sẽ
+   * VĨNH VIỄN không xoá được — người dùng chỉ có thể đổi sang giá trị sai khác.
+   */
+  allowEmpty?: boolean;
   error?: string | undefined;
   hint?: string;
 }
@@ -152,6 +163,7 @@ export function SelectField({
   registration,
   options,
   placeholder,
+  allowEmpty = false,
   error,
   hint,
 }: SelectFieldProps) {
@@ -172,8 +184,9 @@ export function SelectField({
           >
             {/* disabled + value rỗng: người dùng không quay lại chọn "trống"
                 được sau khi đã chọn, và giá trị rỗng khiến zod báo chưa hợp lệ
-                nên nút Submit vẫn khoá đúng như yêu cầu. */}
-            <option value="" disabled>
+                nên nút Submit vẫn khoá đúng như yêu cầu.
+                `allowEmpty` bỏ `disabled` cho những form mà trống là hợp lệ. */}
+            <option value="" disabled={!allowEmpty}>
               {placeholder}
             </option>
             {normalizeOptions(options).map((option) => (

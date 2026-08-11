@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { Button } from '../../components/ui/Button';
-import { Modal } from '../../components/ui/Modal';
 import { getApiError } from '../../services/apiClient';
+import { Button } from './Button';
+import { Modal } from './Modal';
 
 interface ConfirmDialogProps {
   open: boolean;

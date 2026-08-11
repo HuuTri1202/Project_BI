@@ -68,6 +68,17 @@ export interface WorkspaceDto {
 /** Một tổ chức người dùng thuộc về, kèm vai trò trong đó. */
 export interface MembershipDto extends TenantDto {
   role: TenantRole;
+  /**
+   * Đây có phải KHÔNG GIAN RIÊNG của chính người đang đăng nhập không.
+   *
+   * Mọi tài khoản do Admin tạo đều được cấp kèm một tổ chức cá nhân, nên bộ
+   * chuyển tổ chức phải phân biệt được nó với công ty thật — hai dòng cùng hình
+   * dạng mà một cái là chỗ làm việc chung, một cái là chỗ riêng.
+   *
+   * Được tính THEO NGƯỜI ĐANG HỎI: tổ chức cá nhân của người khác mà mình được
+   * mời vào thì với mình nó là `false`.
+   */
+  isPersonal: boolean;
 }
 
 /**

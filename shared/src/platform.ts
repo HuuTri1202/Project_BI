@@ -20,6 +20,14 @@ export interface PlatformTenantDto {
   slug: string;
   /** `tenants.is_active`. Khoá tenant là chặn mọi thành viên đăng nhập vào đó. */
   isActive: boolean;
+  /**
+   * `tenants.owner_user_id IS NOT NULL` — không gian riêng của một người dùng,
+   * cấp tự động khi tài khoản được tạo, không phải một công ty thật.
+   *
+   * Danh sách của console MẶC ĐỊNH ẩn loại này: có bao nhiêu người dùng thì có
+   * bấy nhiêu dòng, và chúng sẽ chôn vùi các công ty thật.
+   */
+  isPersonal: boolean;
   userCount: number;
   workspaceCount: number;
   createdAt: string;

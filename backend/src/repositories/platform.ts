@@ -43,6 +43,11 @@ interface OverviewRow extends RowDataPacket {
  * Ba bảng độc lập nên không JOIN được — dùng ba truy vấn con vô hướng, mỗi cái
  * là một lần quét index. Vẫn tốt hơn `Promise.all` ba câu riêng: pool chỉ có 10
  * connection và đây là trang mọi superadmin mở đầu tiên.
+ *
+ * `owner_user_id IS NULL` ở hai con số tenant: chỉ đếm CÔNG TY THẬT. Không lọc
+ * thì "Tổ chức" bám sát "Người dùng" — mỗi tài khoản được cấp kèm một không gian
+ * riêng — và thẻ KPI mất hết ý nghĩa: nó không còn trả lời được "nền tảng đang
+ * phục vụ bao nhiêu doanh nghiệp".
  */
 export async function fetchOverviewCounts(db: Db): Promise<{
   activeTenants: number;
@@ -53,8 +58,10 @@ export async function fetchOverviewCounts(db: Db): Promise<{
 }> {
   const [rows] = await db.query<OverviewRow[]>(
     `SELECT
-       (SELECT COUNT(*) FROM tenants    WHERE deleted_at IS NULL AND is_active = 1) AS active_tenants,
-       (SELECT COUNT(*) FROM tenants    WHERE deleted_at IS NULL AND is_active = 0) AS locked_tenants,
+       (SELECT COUNT(*) FROM tenants
+         WHERE deleted_at IS NULL AND is_active = 1 AND owner_user_id IS NULL)      AS active_tenants,
+       (SELECT COUNT(*) FROM tenants
+         WHERE deleted_at IS NULL AND is_active = 0 AND owner_user_id IS NULL)      AS locked_tenants,
        (SELECT COUNT(*) FROM users      WHERE deleted_at IS NULL)                   AS total_users,
        (SELECT COUNT(*) FROM users      WHERE deleted_at IS NULL AND is_active = 0) AS locked_users,
        (SELECT COUNT(*) FROM workspaces WHERE deleted_at IS NULL)                   AS total_workspaces`,
@@ -81,13 +88,18 @@ interface GrowthRow extends RowDataPacket {
  * Ba `SELECT ... GROUP BY DATE(created_at)` gộp lại rồi phân loại bằng cột
  * `kind`, thay vì ba vòng đi về database. `DATE()` chạy theo session time_zone
  * mà `config/mysql.ts` ghim `+00:00`, nên đây là ngày UTC.
+ *
+ * Đường "Tổ chức" chỉ đếm công ty thật (`owner_user_id IS NULL`), cùng lý do với
+ * thẻ KPI ở trên: không lọc thì nó chồng lên đường "Người dùng" và biểu đồ không
+ * còn nói được điều gì.
  */
 export async function fetchGrowth(db: Db, rangeDays: number): Promise<GrowthPoint[]> {
   const since = new Date(Date.now() - rangeDays * 86_400_000);
 
   const [rows] = await db.query<GrowthRow[]>(
     `SELECT DATE(created_at) AS d, 'tenant' AS kind, COUNT(*) AS c
-       FROM tenants    WHERE created_at >= ? AND deleted_at IS NULL GROUP BY d
+       FROM tenants    WHERE created_at >= ? AND deleted_at IS NULL
+                         AND owner_user_id IS NULL GROUP BY d
      UNION ALL
      SELECT DATE(created_at) AS d, 'user' AS kind, COUNT(*) AS c
        FROM users      WHERE created_at >= ? AND deleted_at IS NULL GROUP BY d
@@ -135,9 +147,19 @@ const TENANT_SORT_SQL: Record<TenantSortKey, string> = {
   createdAt: 't.created_at',
 };
 
+/**
+ * Loại tổ chức muốn xem.
+ *
+ * `org` — công ty thật. `personal` — không gian riêng cấp tự động cho từng tài
+ * khoản. `all` — cả hai.
+ */
+export type TenantKindFilter = 'org' | 'personal' | 'all';
+
 export interface TenantFilter {
   search?: string | undefined;
   status?: 'active' | 'locked' | undefined;
+  /** Bỏ trống = `org`. Xem ghi chú trong `tenantWhere`. */
+  kind?: TenantKindFilter | undefined;
   sort: TenantSortKey;
   order: 'asc' | 'desc';
   page: number;
@@ -147,6 +169,13 @@ export interface TenantFilter {
 function tenantWhere(filter: TenantFilter): { sql: string; params: (string | number)[] } {
   const conditions = ['t.deleted_at IS NULL'];
   const params: (string | number)[] = [];
+
+  // MẶC ĐỊNH là `org`, không phải `all`. Mỗi tài khoản được cấp kèm một tổ chức
+  // cá nhân, nên `all` nghĩa là danh sách công ty bị chôn dưới một dòng cho mỗi
+  // người dùng ngay khi nền tảng có vài chục người. Muốn thấy chúng thì phải hỏi
+  // đúng — bộ lọc trên giao diện có sẵn lựa chọn đó.
+  if (filter.kind === 'personal') conditions.push('t.owner_user_id IS NOT NULL');
+  else if (filter.kind !== 'all') conditions.push('t.owner_user_id IS NULL');
 
   if (filter.status === 'active') conditions.push('t.is_active = 1');
   if (filter.status === 'locked') conditions.push('t.is_active = 0');
@@ -164,13 +193,14 @@ interface TenantRow extends RowDataPacket {
   name: string;
   slug: string;
   is_active: number;
+  owner_user_id: number | null;
   user_count: number;
   workspace_count: number;
   created_at: Date;
 }
 
 const TENANT_SELECT = `
-  SELECT t.id, t.name, t.slug, t.is_active, t.created_at,
+  SELECT t.id, t.name, t.slug, t.is_active, t.owner_user_id, t.created_at,
          -- JOIN sang users, không chỉ đếm memberships: xoá mềm một tài khoản
          -- đặt users.deleted_at chứ KHÔNG đụng vào các dòng membership của
          -- họ. Đếm thiếu vế này thì cột "Người dùng" ở bảng tổ chức vẫn tính cả
@@ -189,6 +219,7 @@ function toTenant(row: TenantRow): PlatformTenantDto {
     name: row.name,
     slug: row.slug,
     isActive: row.is_active === 1,
+    isPersonal: row.owner_user_id !== null,
     userCount: Number(row.user_count),
     workspaceCount: Number(row.workspace_count),
     createdAt: row.created_at.toISOString(),
@@ -509,6 +540,8 @@ export interface WorkspaceFilter {
   search?: string | undefined;
   tenantId?: number | undefined;
   status?: 'active' | 'locked' | undefined;
+  /** Bỏ trống = `org`, giống `TenantFilter`. Bị BỎ QUA khi đã lọc theo `tenantId`. */
+  kind?: TenantKindFilter | undefined;
   page: number;
   pageSize: number;
 }
@@ -520,8 +553,18 @@ function workspaceWhere(filter: WorkspaceFilter): { sql: string; params: (string
   if (filter.status === 'active') conditions.push('w.is_active = 1');
   if (filter.status === 'locked') conditions.push('w.is_active = 0');
   if (filter.tenantId !== undefined) {
+    // Đã hỏi đích danh một tổ chức thì KHÔNG áp bộ lọc loại nữa. Áp vào thì mở
+    // trang chi tiết của một tổ chức cá nhân sẽ ra danh sách workspace rỗng,
+    // trong khi ngay bên cạnh cột "Workspace" ghi số 1 — hai con số cãi nhau
+    // trên cùng một màn hình.
     conditions.push('w.tenant_id = ?');
     params.push(filter.tenantId);
+  } else if (filter.kind === 'personal') {
+    conditions.push('t.owner_user_id IS NOT NULL');
+  } else if (filter.kind !== 'all') {
+    // Cùng lý do với `tenantWhere`: mỗi tài khoản kéo theo một workspace mặc
+    // định trong không gian riêng của họ, và chúng sẽ lấn át workspace thật.
+    conditions.push('t.owner_user_id IS NULL');
   }
   if (filter.search) {
     const like = `%${escapeLikeTerm(filter.search)}%`;

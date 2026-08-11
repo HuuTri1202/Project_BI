@@ -6,11 +6,11 @@ import { Button } from '../../components/ui/Button';
 import { Pagination } from '../../components/ui/Pagination';
 import { SortableTh, TBody, Td, Th, THead, TableWrap, Tr } from '../../components/ui/Table';
 import { EmptyState, ErrorState, TableSkeleton } from '../../components/ui/states';
-import { ConfirmDialog } from '../../features/admin/ConfirmDialog';
-import { STATUS_OPTIONS } from '../../features/admin/filterOptions';
-import { FilterSelect, ListToolbar } from '../../features/admin/ListToolbar';
+import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
+import { STATUS_OPTIONS } from '../../components/ui/filterOptions';
+import { FilterSelect, ListToolbar } from '../../components/ui/ListToolbar';
 import { useDeleteUser, useSetUserActive, useTenants, useUsers } from '../../features/admin/hooks';
-import { useListQueryState } from '../../features/admin/useListQueryState';
+import { useListQueryState } from '../../hooks/useListQueryState';
 import type { UserListQuery } from '../../features/admin/api';
 import { getApiError } from '../../services/apiClient';
 
@@ -49,6 +49,10 @@ export default function UsersPage(): React.ReactElement {
 
   // Danh sách tổ chức để đổ vào ô lọc. Lấy trang đầu 100 tổ chức là đủ cho quy
   // mô hiện tại; khi nào vượt thì đổi ô select này thành ô tìm kiếm có gợi ý.
+  //
+  // `kind: ''` = chỉ công ty thật. Không gian cá nhân đúng ra không nên có mặt
+  // trong một ô select: có bao nhiêu người dùng thì có bấy nhiêu mục, và 100 mục
+  // đầu tiên sẽ toàn là chúng.
   const { data: tenantPage } = useTenants({
     page: 1,
     pageSize: 100,
@@ -56,6 +60,7 @@ export default function UsersPage(): React.ReactElement {
     order: 'asc',
     q: '',
     status: '',
+    kind: '',
   });
 
   const [lockTarget, setLockTarget] = useState<PlatformUserDto | null>(null);

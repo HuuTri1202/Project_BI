@@ -6,6 +6,7 @@ import {
 } from '@bi/shared';
 import { Router } from 'express';
 
+import { getEnforcer, resetEnforcer } from '../../authz/enforcer';
 import { mysqlPool } from '../../config/mysql';
 import { withTransaction } from '../../db/tx';
 import { authenticate, requireAuth } from '../../middleware/authenticate';
@@ -66,6 +67,40 @@ adminRouter.get(
   }),
 );
 
+// ─── Phân quyền (§6.3) ───────────────────────────────────────────────────────
+
+/**
+ * Nạp lại ma trận quyền từ bảng `casbin_rule`.
+ *
+ * ─── Vì sao endpoint này cần tồn tại ────────────────────────────────────────
+ *
+ * Enforcer giữ policy trong BỘ NHỚ, nạp một lần lúc khởi động (xem
+ * `authz/enforcer.ts` để biết vì sao thế là đúng). Hệ quả: sửa `casbin_rule`
+ * bằng SQL xong thì tiến trình đang chạy vẫn dùng bản cũ.
+ *
+ * Không có nút này thì lời hứa "policy nằm trong database nên đổi không cần
+ * deploy" chỉ đúng một nửa — vẫn phải restart tiến trình, mà restart production
+ * chính là thứ ta muốn tránh.
+ *
+ * Đặt ở console hệ thống chứ không phải `/api/v1`: policy áp cho MỌI tổ chức,
+ * nên chỉ `superadmin` được chạm. Một admin tổ chức nạp lại policy toàn nền
+ * tảng là chuyện không có lý do gì để cho phép.
+ *
+ * ⚠️ Nhiều tiến trình (pm2 cluster, nhiều pod) thì mỗi tiến trình giữ một bản
+ * sao riêng, và một lần gọi chỉ nạp lại ĐÚNG tiến trình nhận request. Triển khai
+ * nhiều bản phải phát tín hiệu qua Redis pub/sub. Ghi vào nợ kỹ thuật.
+ */
+adminRouter.post(
+  '/authz/reload',
+  asyncHandler(async (_req, res) => {
+    resetEnforcer();
+    // Dựng lại NGAY thay vì để request kế tiếp gánh: nếu bảng đang hỏng, ta muốn
+    // biết ở đây, trong phản hồi của chính thao tác vừa gọi.
+    const enforcer = await getEnforcer();
+    res.json({ rules: (await enforcer.getPolicy()).length });
+  }),
+);
+
 // ─── Quản lý Tenant ──────────────────────────────────────────────────────────
 
 adminRouter.get(
@@ -83,6 +118,7 @@ adminRouter.get(
     const filter: platformRepo.TenantFilter = {
       search: query.q,
       status: query.status,
+      kind: query.kind,
       sort,
       order: query.order,
       page: query.page,
@@ -304,6 +340,7 @@ adminRouter.get(
       search: query.q,
       tenantId: query.tenantId,
       status: query.status,
+      kind: query.kind,
       page: query.page,
       pageSize: query.pageSize,
     };

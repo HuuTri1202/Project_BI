@@ -1,3 +1,4 @@
+import type { MembershipDto, TenantDto } from '@bi/shared';
 import { Router } from 'express';
 import { env } from '../../config/env';
 import { authenticate, requireAuth } from '../../middleware/authenticate';
@@ -9,7 +10,13 @@ import { registerAccount } from '../../services/auth/registerAccount';
 import { expiresInSeconds, signAccessToken } from '../../services/auth/token';
 import { asyncHandler } from '../../utils/asyncHandler';
 import { HttpError, unauthorized } from '../../utils/httpError';
-import { changePasswordSchema, loginSchema, registerSchema } from './schemas';
+import {
+  changePasswordSchema,
+  loginSchema,
+  registerSchema,
+  switchTenantSchema,
+  updateProfileSchema,
+} from './schemas';
 
 export const authRouter = Router();
 
@@ -180,6 +187,126 @@ authRouter.get(
 );
 
 /**
+ * POST /api/auth/switch-tenant — §5.1 đổi tổ chức đang mở
+ *
+ * ─── Vì sao phải CẤP LẠI TOKEN, không đổi được bằng một header ───────────────
+ *
+ * `tenantId` nằm TRONG payload JWT và được ký. Mọi thứ phía sau — `authenticate`,
+ * `requireFreshMembership`, và toàn bộ repository nhận `tenantId` làm tham số đầu
+ * — đọc nó từ đó. Nếu cho client gửi tổ chức đang mở qua header hay query thì
+ * chính con số quyết định phạm vi dữ liệu lại trở thành thứ client tự khai, và
+ * mọi lớp cách ly tổ chức trong hệ thống sụp cùng lúc.
+ *
+ * Nên đổi tổ chức = ký một token mới. Trả về đúng hình dạng của `POST /login` để
+ * frontend dùng lại một đường xử lý duy nhất.
+ *
+ * ─── Ba điều đáng nói ───────────────────────────────────────────────────────
+ *
+ * 1. `tenantId` gửi lên KHÔNG được tin. `findByUserAndTenant` đọc lại từ database
+ *    và đã lọc đủ: membership còn `is_active`, chưa `removed_at`, tổ chức chưa
+ *    khoá và chưa xoá. Không có dòng nào -> 403, và người dùng không thể "đổi"
+ *    sang một tổ chức họ chưa từng thuộc về.
+ *
+ * 2. Vai trò lấy TỪ MEMBERSHIP MỚI, không mang theo vai trò cũ. Admin ở công ty A
+ *    mà chỉ là viewer ở công ty B thì sau khi đổi phải là viewer — mang vai trò
+ *    cũ sang là leo thang đặc quyền ngang hàng.
+ *
+ * 3. Token CŨ vẫn hợp lệ tới lúc hết hạn (JWT vô trạng thái). Ở đây điều đó vô
+ *    hại: nó chỉ mở đúng tổ chức mà người này vẫn đang là thành viên, nên không
+ *    có quyền nào bị lộ thêm. Muốn thu hồi thật thì cần danh sách chặn trên Redis
+ *    — đã ghi trong phần nợ kỹ thuật.
+ */
+authRouter.post(
+  '/switch-tenant',
+  authenticate,
+  asyncHandler(async (req, res) => {
+    const auth = requireAuth(req);
+    const { tenantId } = switchTenantSchema.parse(req.body);
+
+    // Đọc lại user chứ không tin token: tài khoản có thể vừa bị khoá toàn hệ
+    // thống sau khi token được cấp.
+    const user = await usersRepo.findById(auth.userId);
+    if (!user) throw unauthorized('Tài khoản không còn tồn tại.');
+    if (!user.isActive) {
+      throw new HttpError(403, 'AccountDisabled', 'Tài khoản đã bị khoá.');
+    }
+
+    const target = await membershipsRepo.findByUserAndTenant(auth.userId, tenantId);
+    if (!target) {
+      throw new HttpError(
+        403,
+        'NoMembership',
+        'Bạn không còn quyền truy cập tổ chức này.',
+      );
+    }
+
+    const memberships = await membershipsRepo.listActiveByUser(auth.userId);
+
+    res.json({
+      token: signAccessToken({
+        userId: user.id,
+        tenantId: target.tenantId,
+        // Vai trò của TỔ CHỨC MỚI. Xem ghi chú (2) ở trên.
+        role: target.role,
+        platformRole: user.platformRole,
+      }),
+      expiresIn: expiresInSeconds(),
+      mustChangePassword: user.mustChangePassword,
+      user,
+      tenant: toTenantSummary(target),
+      role: target.role,
+      memberships: memberships.map(toTenantSummaryWithRole),
+    });
+  }),
+);
+
+/**
+ * PATCH /api/auth/me — §4.4 sửa hồ sơ cá nhân
+ *
+ * Đặt ở router auth chứ không phải `/api/v1`, dù cả Section 04 nằm ở đó: hồ sơ
+ * là danh tính TOÀN CỤC (`users`), không thuộc tổ chức nào. Gắn nó sau
+ * `requireFreshMembership` của `/api/v1` nghĩa là người vừa bị gỡ khỏi tổ chức
+ * cũng không sửa được tên mình — sai phạm vi. Nó thuộc về đây, cạnh `GET /me`.
+ *
+ * Chỉ `authenticate`: mọi người dùng đã đăng nhập đều sửa được hồ sơ CỦA MÌNH,
+ * và `auth.userId` từ token là thứ duy nhất quyết định "của mình" là ai.
+ */
+authRouter.patch(
+  '/me',
+  authenticate,
+  asyncHandler(async (req, res) => {
+    const auth = requireAuth(req);
+    const patch = updateProfileSchema.parse(req.body);
+
+    const current = await usersRepo.findById(auth.userId);
+    if (!current) throw unauthorized('Tài khoản không còn tồn tại.');
+
+    // Trộn trong JS rồi ghi CẢ BỐN cột, thay vì dựng câu UPDATE động theo những
+    // khoá client gửi lên. Câu lệnh động là chỗ `SET ${key} = ?` lọt vào, và khi
+    // đó client tự chọn được cột — kể cả `role` hay `password_hash`. Ở đây danh
+    // sách cột là hằng số viết tay trong repository.
+    //
+    // `=== undefined` chứ không phải `??`: `null` là XOÁ TRỐNG, một giá trị hợp
+    // lệ do người dùng chủ động gửi. `??` sẽ nuốt mất nó và biến thao tác xoá
+    // thành thao tác không làm gì.
+    await usersRepo.updateProfile(auth.userId, {
+      fullName: patch.fullName === undefined ? current.fullName : patch.fullName,
+      phone: patch.phone === undefined ? current.phone : patch.phone,
+      jobTitle: patch.jobTitle === undefined ? current.jobTitle : patch.jobTitle,
+      dateOfBirth: patch.dateOfBirth === undefined ? current.dateOfBirth : patch.dateOfBirth,
+    });
+
+    // Đọc lại rồi trả về bản ghi đầy đủ thay vì `204`: frontend cần cập nhật tên
+    // trên topbar ngay, và đọc lại từ DB là cách duy nhất chắc chắn nó khớp với
+    // thứ vừa được ghi.
+    const updated = await usersRepo.findById(auth.userId);
+    if (!updated) throw unauthorized('Tài khoản không còn tồn tại.');
+
+    res.json(updated);
+  }),
+);
+
+/**
  * POST /api/auth/logout
  *
  * JWT vô trạng thái nên server không có gì để xoá — client tự bỏ token.
@@ -214,19 +341,16 @@ authRouter.post(
   }),
 );
 
-function toTenantSummary(m: membershipsRepo.Membership): {
-  id: number;
-  name: string;
-  slug: string;
-} {
+function toTenantSummary(m: membershipsRepo.Membership): TenantDto {
   return { id: m.tenantId, name: m.tenantName, slug: m.tenantSlug };
 }
 
-function toTenantSummaryWithRole(m: membershipsRepo.Membership): {
-  id: number;
-  name: string;
-  slug: string;
-  role: membershipsRepo.TenantRole;
-} {
-  return { ...toTenantSummary(m), role: m.role };
+/**
+ * Phần tử của dropdown đổi tổ chức.
+ *
+ * `isPersonal` đi kèm để bộ chuyển gắn được nhãn phân biệt không gian riêng của
+ * người dùng với công ty thật — hai thứ trông giống hệt nhau nếu chỉ có tên.
+ */
+function toTenantSummaryWithRole(m: membershipsRepo.Membership): MembershipDto {
+  return { ...toTenantSummary(m), role: m.role, isPersonal: m.isPersonal };
 }

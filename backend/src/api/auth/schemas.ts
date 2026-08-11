@@ -89,6 +89,62 @@ export const changePasswordSchema = z
     message: 'Mật khẩu mới phải khác mật khẩu hiện tại',
   });
 
+/**
+ * Sửa hồ sơ cá nhân — §4.4.
+ *
+ * Dùng lại đúng `registerFields` để luật họ tên, điện thoại, chức danh chỉ có
+ * MỘT định nghĩa. Ba trường ở đây `.nullable()` vì tài khoản do Admin tạo (§4.7)
+ * không đi qua form đăng ký nên chúng đang NULL; người dùng phải xoá trống lại
+ * được, không thì một ô lỡ điền sai sẽ vĩnh viễn không gỡ ra được.
+ *
+ * `''` đổi thành `null` TRƯỚC khi validate: ô input rỗng gửi lên là chuỗi rỗng,
+ * mà `phoneRule` sẽ từ chối chuỗi rỗng. Không xử lý ở đây thì người dùng bấm lưu
+ * một form không điện thoại sẽ nhận lỗi "Số điện thoại không hợp lệ" cho một ô
+ * họ còn chưa chạm vào.
+ *
+ * Cố ý KHÔNG có `email` (định danh đăng nhập toàn cục, đổi cần xác thực email),
+ * `role` hay `isActive` (tự nâng quyền là leo thang đặc quyền).
+ */
+/**
+ * Ba trạng thái khác nhau, và cả ba đều phải phân biệt được:
+ *
+ *   trường vắng mặt  -> GIỮ NGUYÊN giá trị đang có   (đúng nghĩa PATCH)
+ *   `null` hoặc `''` -> XOÁ TRỐNG
+ *   có giá trị       -> ghi giá trị đó
+ *
+ * `''` phải đổi thành `null` TRƯỚC khi validate: ô input rỗng gửi lên là chuỗi
+ * rỗng, mà `phoneRule` sẽ từ chối chuỗi rỗng. Không xử lý ở đây thì người dùng
+ * bấm lưu một form không điện thoại sẽ nhận lỗi "Số điện thoại không hợp lệ" cho
+ * một ô họ còn chưa chạm vào.
+ */
+const clearable = <T extends z.ZodTypeAny>(rule: T) =>
+  z.preprocess((v) => (typeof v === 'string' && v.trim() === '' ? null : v), rule.nullable());
+
+export const updateProfileSchema = z.object({
+  fullName: trimmed(registerFields.shape.fullName).optional(),
+  phone: clearable(normalized((v) => normalizePhone(v) ?? v, registerFields.shape.phone)).optional(),
+  jobTitle: clearable(registerFields.shape.jobTitle).optional(),
+  // Ngày sinh không có trong form đăng ký nên không có luật dùng chung. 'YYYY-MM-DD'
+  // khớp cột DATE, và pool đã khai `dateStrings: ['DATE']` nên nó đi thẳng vào
+  // database không qua đối tượng Date — ngày sinh không có múi giờ, để mysql2 tự
+  // dựng Date là mời lỗi lệch một ngày.
+  dateOfBirth: clearable(
+    z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Ngày sinh phải có dạng YYYY-MM-DD'),
+  ).optional(),
+});
+
+/**
+ * Đổi tổ chức đang mở — §5.1.
+ *
+ * `z.coerce` cố ý KHÔNG dùng: đây là body JSON, không phải query string, nên số
+ * phải tới dưới dạng số. Ép kiểu ở đây sẽ nhận cả `"3"` lẫn `true` (thành 1) và
+ * biến một lỗi lập trình phía client thành một request trông hợp lệ.
+ */
+export const switchTenantSchema = z.object({
+  tenantId: z.number().int().positive(),
+});
+
 export type RegisterInput = z.infer<typeof registerSchema>;
 export type LoginInput = z.infer<typeof loginSchema>;
 export type ChangePasswordInput = z.infer<typeof changePasswordSchema>;
+export type UpdateProfileInput = z.infer<typeof updateProfileSchema>;

@@ -1,6 +1,6 @@
 ﻿import { useEffect, useState, type ReactNode } from 'react';
 import { Button } from '../../components/ui/Button';
-import { useDebouncedValue } from './useDebouncedValue';
+import { useDebouncedValue } from '../../hooks/useDebouncedValue';
 
 interface ListToolbarProps {
   /** Giá trị tìm kiếm hiện tại, đọc từ URL. */

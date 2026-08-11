@@ -188,9 +188,14 @@ Chỉ dùng ở local.
 
 Tài khoản đăng nhập vào ứng dụng (tạo bằng `npm --prefix backend run seed:admin`):
 
-| Vai trò | Email                     | Mật khẩu      |
-| ------- | ------------------------- | ------------- |
-| Admin   | `admin@bi-platform.local` | `Admin@12345` |
+| Vai trò              | Email                     | Mật khẩu      |
+| -------------------- | ------------------------- | ------------- |
+| Quản trị **hệ thống** | `admin@bi-platform.local` | `Admin@12345` |
+
+Đây là tài khoản DUY NHẤT được tạo tự động. Các tài khoản thử nghiệm còn lại —
+gồm cả một tài khoản thuộc hai tổ chức để thử bộ chuyển tổ chức, và một tài
+khoản chỉ có quyền xem — được ghi trong
+[docs/tai-khoan-thu-nghiem.md](docs/tai-khoan-thu-nghiem.md).
 
 ---
 

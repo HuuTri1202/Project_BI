@@ -38,8 +38,30 @@ export interface AuthContextValue {
   /** Đăng nhập; ném lỗi để trang gọi tự hiển thị thông báo từ API. */
   login: (email: string, password: string) => Promise<LoginOutcome>;
   logout: () => Promise<void>;
+  /**
+   * Đổi tổ chức đang mở (§5.1) — cấp lại token vì `tenantId` nằm trong JWT.
+   *
+   * Ném lỗi để nơi gọi hiển thị thông báo: người dùng có thể vừa bị gỡ khỏi tổ
+   * chức đó trong lúc dropdown còn hiện tên nó.
+   */
+  switchTenant: (tenantId: number) => Promise<void>;
   /** Gọi sau khi đổi mật khẩu thành công để hạ cờ `mustChangePassword`. */
   markPasswordChanged: () => void;
+  /**
+   * Gọi sau khi sửa hồ sơ (§4.4) với bản ghi `users` mới nhất từ server.
+   *
+   * Cần thiết vì tên hiển thị trên topbar đọc từ context này, không phải từ
+   * cache react-query. Thiếu nó, người dùng lưu xong sẽ thấy tên mới trong form
+   * và tên cũ ở góc màn hình — hai sự thật cùng lúc trên một trang.
+   */
+  applyProfile: (user: PublicUser) => void;
+  /**
+   * Gọi sau khi đổi tên tổ chức với bản ghi `tenants` mới nhất từ server.
+   *
+   * Cùng lý do với `applyProfile`: tên tổ chức hiện trên topbar và trong bộ
+   * chuyển tổ chức đọc từ context này chứ không phải từ cache react-query.
+   */
+  applyTenant: (tenant: Tenant) => void;
 }
 
 export const AuthContext = createContext<AuthContextValue | null>(null);

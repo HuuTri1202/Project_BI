@@ -13,10 +13,21 @@ import { signAccessToken } from '../../src/services/auth/token';
  * đường đi.
  */
 
-export async function makeTenant(name: string, slug: string): Promise<number> {
+/**
+ * Tạo một tổ chức.
+ *
+ * `ownerUserId` khác `null` -> đây là KHÔNG GIAN CÁ NHÂN của người đó, loại tổ
+ * chức mà `createMember` cấp kèm mỗi tài khoản mới (migration 5). Console hệ
+ * thống mặc định ẩn loại này, nên test nào kiểm bộ lọc đó đều cần dựng một cái.
+ */
+export async function makeTenant(
+  name: string,
+  slug: string,
+  ownerUserId: number | null = null,
+): Promise<number> {
   const [result] = await mysqlPool.query<ResultSetHeader>(
-    'INSERT INTO tenants (name, slug) VALUES (?, ?)',
-    [name, slug],
+    'INSERT INTO tenants (name, slug, owner_user_id) VALUES (?, ?, ?)',
+    [name, slug, ownerUserId],
   );
   return result.insertId;
 }
