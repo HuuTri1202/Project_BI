@@ -28,6 +28,19 @@ export default defineConfig({
       JWT_ACCESS_TTL: '1h',
       AUTH_COOKIE_NAME: 'bi_session',
       BCRYPT_COST: '4',
+
+      // Object storage: `NODE_ENV=test` khiến `src/storage/` chọn bản dựng trong
+      // bộ nhớ, nên bốn biến này KHÔNG được dùng để gọi mạng. Vẫn phải có mặt vì
+      // `env.ts` khai chúng là bắt buộc và validate ngay lúc import — thiếu thì
+      // process chết lúc boot trước khi test nào kịp chạy.
+      S3_ENDPOINT: 'http://localhost:9000',
+      S3_BUCKET: 'bi-datasets-test',
+      S3_ACCESS_KEY: 'test',
+      S3_SECRET_KEY: 'test',
+
+      // Hạ trần xuống 100 để ca kiểm "file bị cắt" không phải dựng một file nửa
+      // triệu dòng. Chính con số này là thứ ca đó khẳng định.
+      DATASET_MAX_ROWS: '100',
     },
   },
 });

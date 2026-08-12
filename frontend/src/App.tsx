@@ -3,12 +3,14 @@ import { RegisterPage } from './features/auth/RegisterPage';
 import { AdminLayout } from './layouts/AdminLayout';
 import { UserLayout } from './layouts/UserLayout';
 import ChangePasswordPage from './pages/ChangePasswordPage';
+import DatasetsPage from './pages/DatasetsPage';
 import ForbiddenPage from './pages/ForbiddenPage';
 import HealthPage from './pages/HealthPage';
 import HomePage from './pages/HomePage';
 import LoginPage from './pages/LoginPage';
 import NotFoundPage from './pages/NotFoundPage';
 import ProfilePage from './pages/ProfilePage';
+import ReportPage from './pages/ReportPage';
 import OverviewPage from './pages/admin/OverviewPage';
 import TenantsPage from './pages/admin/TenantsPage';
 import UsersPage from './pages/admin/UsersPage';
@@ -79,6 +81,14 @@ export default function App(): React.ReactElement {
           <Route path="/" element={<Navigate to="/home" replace />} />
           <Route path="/home" element={<HomePage />} />
           <Route path="/profile" element={<ProfilePage />} />
+
+          {/* §7 — bộ dữ liệu và báo cáo.
+              KHÔNG bọc `TenantAdminRoute`: mọi vai trò, kể cả viewer, đều có
+              `dataset:read` và `report:read` trong ma trận mặc định. Chặn ở
+              route sẽ giấu mất thứ họ có quyền xem. Các thao tác GHI vẫn bị
+              `authorize()` chặn ở backend, và giao diện ẩn nút tương ứng. */}
+          <Route path="/datasets" element={<DatasetsPage />} />
+          <Route path="/reports/:id" element={<ReportPage />} />
 
           {/* ─── Quản lý tổ chức: một trang, ba tab ─────────────────────────
               Tab là ROUTE THẬT chứ không phải state — xem `OrganizationPage`.

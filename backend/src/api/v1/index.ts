@@ -1,8 +1,15 @@
 import {
   ADMIN_ERROR_CODES,
+  DATASET_ERROR_CODES,
   WORKSPACE_ERROR_CODES,
+  type CreateUploadResultDto,
+  type DatasetColumnDto,
+  type DatasetDetailDto,
+  type FileExt,
   type HomeDataDto,
   type PermissionMatrixDto,
+  type ReportConfigDto,
+  type ReportDataDto,
   type TenantRole,
   type WorkspaceOptionDto,
 } from '@bi/shared';
@@ -10,6 +17,7 @@ import { Router, type Request, type Response } from 'express';
 import type { PoolConnection } from 'mysql2/promise';
 
 import { permissionMatrixFor } from '../../authz/enforcer';
+import { env } from '../../config/env';
 import { mysqlPool } from '../../config/mysql';
 import { withTransaction } from '../../db/tx';
 import { authenticate, requireAuth } from '../../middleware/authenticate';
@@ -18,26 +26,44 @@ import { authorize } from '../../middleware/authorize';
 import { requireFreshMembership } from '../../middleware/requireFreshMembership';
 import * as adminMembersRepo from '../../repositories/adminMembers';
 import * as adminWorkspacesRepo from '../../repositories/adminWorkspaces';
+import * as datasetsRepo from '../../repositories/datasets';
 import type { Db } from '../../repositories/db';
 import * as membershipsRepo from '../../repositories/memberships';
 import * as projectsRepo from '../../repositories/projects';
+import * as reportsRepo from '../../repositories/reports';
 import * as tenantsRepo from '../../repositories/tenants';
 import { createMember } from '../../services/admin/createMember';
 import { createWorkspace } from '../../services/admin/createWorkspace';
 import { resetMemberPassword } from '../../services/admin/resetMemberPassword';
+import { aggregate } from '../../services/dataset/aggregate';
+import { analyzeDataset, clearAnalyzeCache } from '../../services/dataset/analyze';
+import { commitDatasets } from '../../services/dataset/commit';
+import {
+  buildStorageKey,
+  contentTypeOf,
+  defaultDatasetName,
+  extensionOf,
+} from '../../services/dataset/storageKey';
+import { storage } from '../../storage';
 import { asyncHandler } from '../../utils/asyncHandler';
 import { badRequest, HttpError, notFound } from '../../utils/httpError';
 import { buildPageResult, resolveSortColumn } from '../../utils/pagination';
 import {
+  commitDatasetsBodySchema,
   createMemberBodySchema,
   createProjectBodySchema,
+  createReportBodySchema,
+  createUploadBodySchema,
   createWorkspaceBodySchema,
   homeQuerySchema,
   idParamSchema,
+  listDatasetsQuerySchema,
   listMembersQuerySchema,
   listProjectsQuerySchema,
+  listReportsQuerySchema,
   setActiveBodySchema,
   updateProjectBodySchema,
+  updateReportBodySchema,
   updateRoleBodySchema,
   updateTenantBodySchema,
   updateWorkspaceBodySchema,
@@ -281,6 +307,420 @@ v1Router.delete(
 
     const affected = await projectsRepo.softDeleteProject(mysqlPool, tenantId, id);
     if (affected === 0) throw notFound('Không tìm thấy project này.');
+
+    res.status(204).end();
+  }),
+);
+
+// ─── §7 Bộ dữ liệu ───────────────────────────────────────────────────────────
+
+/**
+ * Lấy dataset và khoá lưu trữ của nó, đã kiểm thuộc về tổ chức người gọi.
+ *
+ * Mọi endpoint nhận `:id` đều phải đi qua đây. `findStorageKey` lọc
+ * `tenant_id`, nên id của tổ chức khác cho ra `null` và ta trả 404 — 403 sẽ xác
+ * nhận rằng id đó có tồn tại.
+ */
+async function requireDataset(
+  tenantId: number,
+  id: number,
+): Promise<{ key: string; ext: FileExt }> {
+  const found = await datasetsRepo.findStorageKey(mysqlPool, tenantId, id);
+  if (!found) throw notFound('Không tìm thấy bộ dữ liệu này.');
+  return found;
+}
+
+/**
+ * §7.4 bước 1–2: cấp presigned URL để trình duyệt PUT thẳng lên S3.
+ *
+ * Bản ghi `datasets` được tạo NGAY ở đây với `status = 'pending'`, trước khi file
+ * lên tới nơi. Lý do: `s3_key` phải tồn tại ở một nơi có thẩm quyền trước khi ta
+ * đưa nó cho client, nếu không thì bước `analyze` chỉ còn cách tin vào khoá do
+ * client gửi lại — đúng cái lỗ hổng mà việc server tự sinh khoá đang bịt.
+ *
+ * Cái giá: người dùng đóng wizard giữa chừng để lại một dòng `pending`. Danh sách
+ * §7.8 lọc `status = 'ready'` nên họ không thấy rác. Dọn định kỳ những dòng
+ * pending quá 24 giờ là việc còn NỢ.
+ *
+ * Rate limit chặt: mỗi lần gọi sinh ra một bản ghi và một tấm vé ghi vào bucket.
+ */
+v1Router.post(
+  '/datasets/uploads',
+  authorize('dataset', 'modify'),
+  rateLimit({ bucket: 'dataset-upload', max: 60, windowSeconds: 600 }),
+  asyncHandler(async (req, res) => {
+    const auth = requireAuth(req);
+    const body = createUploadBodySchema.parse(req.body);
+
+    const ext = extensionOf(body.filename);
+    if (ext === null) {
+      throw new HttpError(
+        400,
+        DATASET_ERROR_CODES.UNSUPPORTED_FORMAT,
+        'Chỉ nhận file .csv hoặc .xlsx.',
+      );
+    }
+
+    // Từ chối sớm dựa trên số client khai, để người dùng không phải chờ tải xong
+    // 200MB rồi mới biết bị từ chối. Con số ĐÁNG TIN là `headObject` ở bước
+    // `analyze`; đây chỉ là phép lịch sự.
+    if (body.fileSize !== undefined && body.fileSize > env.UPLOAD_MAX_BYTES) {
+      throw new HttpError(
+        413,
+        DATASET_ERROR_CODES.FILE_TOO_LARGE,
+        `File vượt quá ${Math.round(env.UPLOAD_MAX_BYTES / 1_048_576)}MB.`,
+      );
+    }
+
+    const workspace = await resolveWorkspace(mysqlPool, auth.tenantId, body.workspaceId);
+    const s3Key = buildStorageKey(auth.tenantId, workspace.id, ext);
+
+    const datasetId = await datasetsRepo.createDataset(mysqlPool, auth.tenantId, {
+      workspaceId: workspace.id,
+      name: defaultDatasetName(body.filename),
+      originalFilename: body.filename,
+      fileExt: ext,
+      s3Key,
+      createdBy: auth.userId,
+    });
+
+    const presigned = await storage.presignPut(
+      s3Key,
+      contentTypeOf(ext),
+      env.UPLOAD_MAX_BYTES,
+    );
+
+    const result: CreateUploadResultDto = {
+      datasetId,
+      uploadUrl: presigned.url,
+      expiresAt: presigned.expiresAt,
+    };
+    res.status(201).json(result);
+  }),
+);
+
+/**
+ * §7.5: đọc schema của file vừa tải lên. KHÔNG ghi gì.
+ *
+ * Là POST chứ không phải GET dù chỉ đọc: nó tải một file 50MB từ S3 và parse —
+ * một thao tác đắt và có tác dụng phụ (ghi cache Redis). Để GET là mời trình
+ * duyệt, proxy và thanh địa chỉ gọi lại nó bất cứ lúc nào.
+ */
+v1Router.post(
+  '/datasets/:id/analyze',
+  authorize('dataset', 'modify'),
+  asyncHandler(async (req, res) => {
+    const { tenantId } = requireAuth(req);
+    const { id } = idParamSchema.parse(req.params);
+
+    const { key, ext } = await requireDataset(tenantId, id);
+
+    try {
+      const analyzed = await analyzeDataset(id, key, ext);
+      res.json(analyzed.result);
+    } catch (err) {
+      // Ghi lý do vào bản ghi thay vì để nó biến mất. Người dùng bấm F5 xong sẽ
+      // thấy dataset ở trạng thái `failed` kèm lời giải thích, thay vì một dòng
+      // `pending` im lặng mà không ai biết đã có chuyện gì.
+      if (err instanceof HttpError && err.status < 500) {
+        await datasetsRepo.markFailed(mysqlPool, id, err.message);
+      }
+      throw err;
+    }
+  }),
+);
+
+/**
+ * §7.5 → §7.6: chốt sheet và cột đã chọn, nạp dữ liệu vào database.
+ */
+/**
+ * §7.5 → §7.6: chốt các sheet đã tích và nạp dữ liệu.
+ *
+ * MỖI SHEET thành một bộ dữ liệu riêng, nên phản hồi là một MẢNG. Bản ghi
+ * `pending` sinh ra lúc xin presigned URL được dùng lại cho sheet đầu tiên.
+ */
+v1Router.post(
+  '/datasets/:id/commit',
+  authorize('dataset', 'modify'),
+  asyncHandler(async (req, res) => {
+    const auth = requireAuth(req);
+    const { id } = idParamSchema.parse(req.params);
+    const body = commitDatasetsBodySchema.parse(req.body);
+
+    const staged = await datasetsRepo.findById(mysqlPool, auth.tenantId, id);
+    if (!staged) throw notFound('Không tìm thấy bộ dữ liệu này.');
+    const { key, ext } = await requireDataset(auth.tenantId, id);
+
+    const committed = await commitDatasets({
+      datasetId: id,
+      tenantId: auth.tenantId,
+      workspaceId: staged.workspaceId,
+      s3Key: key,
+      ext,
+      originalFilename: staged.originalFilename,
+      createdBy: auth.userId,
+      name: body.name,
+      sheetNames: body.sheets,
+    });
+
+    const details: DatasetDetailDto[] = [];
+    for (const item of committed) {
+      details.push(await readDatasetDetail(auth.tenantId, item.id));
+    }
+    res.json(details);
+  }),
+);
+
+async function readDatasetDetail(tenantId: number, id: number): Promise<DatasetDetailDto> {
+  const dataset = await datasetsRepo.findById(mysqlPool, tenantId, id);
+  if (!dataset) throw notFound('Không tìm thấy bộ dữ liệu này.');
+  return { dataset, columns: await datasetsRepo.listColumns(mysqlPool, id) };
+}
+
+/** §7.8 — danh sách bộ dữ liệu trong workspace. Mọi vai trò đọc được. */
+v1Router.get(
+  '/datasets',
+  asyncHandler(async (req, res) => {
+    const { tenantId } = requireAuth(req);
+    const query = listDatasetsQuerySchema.parse(req.query);
+
+    const sort = resolveSortColumn(query.sort, datasetsRepo.DATASET_SORT_KEYS, 'updatedAt');
+    if (sort === null) {
+      throw badRequest('Cột sắp xếp không hợp lệ.', {
+        sort: `Chỉ nhận: ${datasetsRepo.DATASET_SORT_KEYS.join(', ')}`,
+      });
+    }
+
+    const workspace = await resolveWorkspace(mysqlPool, tenantId, query.workspaceId);
+
+    const filter: datasetsRepo.ListDatasetsFilter = {
+      workspaceId: workspace.id,
+      search: query.q,
+      status: query.status,
+      sort,
+      order: query.order,
+      page: query.page,
+      pageSize: query.pageSize,
+    };
+
+    const total = await datasetsRepo.countDatasets(mysqlPool, tenantId, filter);
+    const items = total === 0 ? [] : await datasetsRepo.listDatasets(mysqlPool, tenantId, filter);
+    res.json(buildPageResult(items, total, query.page, query.pageSize));
+  }),
+);
+
+v1Router.get(
+  '/datasets/:id',
+  asyncHandler(async (req, res) => {
+    const { tenantId } = requireAuth(req);
+    const { id } = idParamSchema.parse(req.params);
+    res.json(await readDatasetDetail(tenantId, id));
+  }),
+);
+
+v1Router.delete(
+  '/datasets/:id',
+  authorize('dataset', 'delete'),
+  asyncHandler(async (req, res) => {
+    const { tenantId } = requireAuth(req);
+    const { id } = idParamSchema.parse(req.params);
+
+    // Chặn khi còn báo cáo dựng trên nó, thay vì xoá lan sang. Xoá mềm dây
+    // chuyền không có nút hoàn tác là cách nhanh nhất làm mất báo cáo của người
+    // khác — cùng lý do với `DELETE /workspaces/:id` ở trên.
+    const live = await datasetsRepo.countLiveReports(mysqlPool, id);
+    if (live > 0) {
+      throw new HttpError(
+        409,
+        ADMIN_ERROR_CODES.WORKSPACE_NOT_EMPTY,
+        `Còn ${live} báo cáo đang dùng bộ dữ liệu này. Hãy xoá chúng trước.`,
+      );
+    }
+
+    const affected = await datasetsRepo.softDeleteDataset(mysqlPool, tenantId, id);
+    if (affected === 0) throw notFound('Không tìm thấy bộ dữ liệu này.');
+
+    // File trên S3 GIỮ NGUYÊN: đây là xoá mềm, và xoá object thật thì thao tác
+    // này không hoàn tác được nữa dù bản ghi vẫn còn. Dọn file của những dataset
+    // đã xoá quá hạn là việc của job dọn dẹp, cùng chỗ với việc dọn `pending`.
+    await clearAnalyzeCache(id);
+    res.status(204).end();
+  }),
+);
+
+// ─── §7.6 Báo cáo ────────────────────────────────────────────────────────────
+
+/**
+ * Kiểm cấu hình biểu đồ có trỏ vào cột CÓ THẬT không.
+ *
+ * zod chỉ kiểm được hình dạng — `dimension` là một chuỗi. Nhưng một chuỗi không
+ * khớp cột nào sẽ cho ra biểu đồ toàn nhãn "(trống)", tức là một báo cáo trông
+ * chạy được mà không có dữ liệu. Bắt ở đây, lúc tạo, thay vì để người dùng tự
+ * đoán khi nhìn kết quả.
+ */
+function validateConfig(columns: readonly DatasetColumnDto[], config: ReportConfigDto): void {
+  const names = new Set(columns.map((c) => c.fieldName));
+
+  if (!names.has(config.dimension)) {
+    throw badRequest('Cột dùng để nhóm không có trong bộ dữ liệu.', {
+      'config.dimension': `Chỉ nhận: ${[...names].join(', ')}`,
+    });
+  }
+
+  if (config.aggregate !== 'count') {
+    if (config.measure === null) {
+      throw badRequest('Hãy chọn cột để đo.', {
+        'config.measure': 'Bắt buộc khi phép tổng hợp không phải là đếm dòng.',
+      });
+    }
+    if (!names.has(config.measure)) {
+      throw badRequest('Cột để đo không có trong bộ dữ liệu.', {
+        'config.measure': `Chỉ nhận: ${[...names].join(', ')}`,
+      });
+    }
+  }
+}
+
+/**
+ * Tạo bản ghi báo cáo RỖNG, gắn với một bộ dữ liệu (§7.6).
+ *
+ * CỐ Ý không nhận loại biểu đồ hay cấu hình trục, và cố ý không tự suy chúng.
+ * Wizard chỉ dựng cái vỏ; biểu đồ là việc người dùng làm trên trang Report.
+ *
+ * Bản trước của endpoint này tự đoán trục rồi tạo luôn một biểu đồ cột. Nó chạy
+ * được, nhưng nó trả lời hộ một câu hỏi chưa ai đặt ra — và một cấu hình đoán
+ * bừa trông y hệt một cấu hình người dùng đã chọn, nên không ai biết cái nào là
+ * cái nào.
+ */
+v1Router.post(
+  '/reports',
+  authorize('report', 'modify'),
+  asyncHandler(async (req, res) => {
+    const auth = requireAuth(req);
+    const body = createReportBodySchema.parse(req.body);
+
+    const detail = await readDatasetDetail(auth.tenantId, body.datasetId);
+    if (detail.dataset.status !== 'ready') {
+      throw new HttpError(
+        409,
+        DATASET_ERROR_CODES.DATASET_NOT_READY,
+        'Bộ dữ liệu chưa nhập xong nên chưa dựng báo cáo được.',
+      );
+    }
+
+    const id = await reportsRepo.createReport(mysqlPool, auth.tenantId, {
+      workspaceId: detail.dataset.workspaceId,
+      datasetId: body.datasetId,
+      name: body.name,
+      createdBy: auth.userId,
+    });
+
+    res.status(201).json(await reportsRepo.findById(mysqlPool, auth.tenantId, id));
+  }),
+);
+
+v1Router.get(
+  '/reports',
+  asyncHandler(async (req, res) => {
+    const { tenantId } = requireAuth(req);
+    const query = listReportsQuerySchema.parse(req.query);
+
+    const workspace = await resolveWorkspace(mysqlPool, tenantId, query.workspaceId);
+
+    const filter: reportsRepo.ListReportsFilter = {
+      workspaceId: workspace.id,
+      search: query.q,
+      page: query.page,
+      pageSize: query.pageSize,
+    };
+
+    const total = await reportsRepo.countReports(mysqlPool, tenantId, filter);
+    const items = total === 0 ? [] : await reportsRepo.listReports(mysqlPool, tenantId, filter);
+    res.json(buildPageResult(items, total, query.page, query.pageSize));
+  }),
+);
+
+v1Router.get(
+  '/reports/:id',
+  asyncHandler(async (req, res) => {
+    const { tenantId } = requireAuth(req);
+    const { id } = idParamSchema.parse(req.params);
+
+    const report = await reportsRepo.findById(mysqlPool, tenantId, id);
+    if (!report) throw notFound('Không tìm thấy báo cáo này.');
+    res.json(report);
+  }),
+);
+
+/**
+ * Dữ liệu ĐÃ TỔNG HỢP cho biểu đồ.
+ *
+ * Tách khỏi `GET /reports/:id` vì hai thứ có nhịp đổi khác nhau: metadata đọc
+ * một lần khi mở trang, còn dữ liệu sẽ cần làm mới khi bộ dữ liệu được nạp lại.
+ * Gộp làm một nghĩa là mỗi lần đổi tên báo cáo cũng kéo theo việc tổng hợp lại
+ * 50.000 dòng.
+ */
+v1Router.get(
+  '/reports/:id/data',
+  asyncHandler(async (req, res) => {
+    const { tenantId } = requireAuth(req);
+    const { id } = idParamSchema.parse(req.params);
+
+    const report = await reportsRepo.findById(mysqlPool, tenantId, id);
+    if (!report) throw notFound('Không tìm thấy báo cáo này.');
+
+    // Báo cáo vừa được wizard tạo thì chưa có cấu hình — đó là trạng thái BÌNH
+    // THƯỜNG, không phải hỏng. 409 kèm mã riêng để giao diện hiện lời mời dựng
+    // biểu đồ thay vì màn hình lỗi.
+    if (report.config === null) {
+      throw new HttpError(
+        409,
+        DATASET_ERROR_CODES.REPORT_NOT_CONFIGURED,
+        'Báo cáo chưa được dựng biểu đồ.',
+      );
+    }
+
+    const columns = await datasetsRepo.listColumns(mysqlPool, report.datasetId);
+    const rows = await datasetsRepo.readRows(mysqlPool, report.datasetId);
+
+    const body: ReportDataDto = aggregate(rows, columns, report.config);
+    res.json(body);
+  }),
+);
+
+v1Router.patch(
+  '/reports/:id',
+  authorize('report', 'modify'),
+  asyncHandler(async (req, res) => {
+    const { tenantId } = requireAuth(req);
+    const { id } = idParamSchema.parse(req.params);
+    const body = updateReportBodySchema.parse(req.body);
+
+    const existing = await reportsRepo.findById(mysqlPool, tenantId, id);
+    if (!existing) throw notFound('Không tìm thấy báo cáo này.');
+
+    const columns = await datasetsRepo.listColumns(mysqlPool, existing.datasetId);
+    validateConfig(columns, body.config);
+
+    await reportsRepo.updateReport(mysqlPool, tenantId, id, {
+      name: body.name,
+      chartType: body.chartType,
+      config: body.config,
+    });
+
+    res.json(await reportsRepo.findById(mysqlPool, tenantId, id));
+  }),
+);
+
+v1Router.delete(
+  '/reports/:id',
+  authorize('report', 'delete'),
+  asyncHandler(async (req, res) => {
+    const { tenantId } = requireAuth(req);
+    const { id } = idParamSchema.parse(req.params);
+
+    const affected = await reportsRepo.softDeleteReport(mysqlPool, tenantId, id);
+    if (affected === 0) throw notFound('Không tìm thấy báo cáo này.');
 
     res.status(204).end();
   }),

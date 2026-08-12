@@ -75,6 +75,39 @@ const envSchema = z.object({
   LOGIN_MAX_ATTEMPTS: z.coerce.number().int().positive().default(10),
   LOGIN_LOCKOUT_MINUTES: z.coerce.number().int().positive().default(15),
 
+  // --- Object storage cho file người dùng tải lên (§7.4) ---
+  //
+  // Dev dùng MinIO trong docker-compose (profile `data`), production dùng AWS S3
+  // thật. Code GIỐNG HỆT nhau — `@aws-sdk/client-s3` nói cùng một giao thức với
+  // cả hai — nên chuyển sang AWS chỉ là đổi bốn biến dưới đây, không sửa dòng
+  // code nào.
+  //
+  // KHÔNG có giá trị mặc định cho khoá: một cặp khoá mặc định là đúng loại thứ
+  // sẽ theo chân code lên production, y như lý do JWT_SECRET không có mặc định.
+  S3_ENDPOINT: z.string().url(),
+  S3_REGION: z.string().min(1).default('us-east-1'),
+  S3_BUCKET: z.string().min(1),
+  S3_ACCESS_KEY: z.string().min(1),
+  S3_SECRET_KEY: z.string().min(1),
+
+  // MinIO phân biệt bucket bằng ĐƯỜNG DẪN (localhost:9000/bi-datasets), còn AWS
+  // dùng TÊN MIỀN CON (bi-datasets.s3.amazonaws.com). Đặt sai thì SDK ký URL cho
+  // một host không tồn tại và lỗi hiện ra dưới dạng DNS chứ không phải S3.
+  S3_FORCE_PATH_STYLE: z
+    .enum(['true', 'false'])
+    .default('true')
+    .transform((v) => v === 'true'),
+
+  // Trần dung lượng file, mặc định 50MB theo §7.3. Giá trị này đi vào ĐIỀU KIỆN
+  // của presigned URL, nên chính S3 từ chối file quá cỡ — không phải Express,
+  // vốn không nhìn thấy file nào cả khi upload đi thẳng.
+  UPLOAD_MAX_BYTES: z.coerce.number().int().positive().default(52_428_800),
+
+  // Số dòng tối đa nạp vào MySQL cho một dataset. Xem ghi chú ở migration 6 và
+  // ở `services/dataset/ingest.ts` để biết vì sao có trần, và vì sao việc chạm
+  // trần phải hiện ra trên giao diện chứ không im lặng.
+  DATASET_MAX_ROWS: z.coerce.number().int().positive().default(50_000),
+
   // --- Seed tài khoản quản trị đầu tiên (§2.7) ---
   // Đều có giá trị mặc định nên KHÔNG bắt buộc khai trong .env; chỉ script
   // seed đọc tới.
