@@ -395,4 +395,169 @@ export const migrations: readonly Migration[] = [
       `ALTER TABLE tenants ADD UNIQUE KEY uq_tenants_owner (owner_user_id)`,
     ],
   },
+
+  {
+    id: 6,
+    name: 'data_connections',
+    statements: [
+      // ─── connections: CSDL CỦA KHÁCH HÀNG mà tổ chức trỏ tới ─────────────
+      //
+      // Đây là bảng đầu tiên trong dự án chạm tới hệ thống bên ngoài, nên có
+      // ba điểm khác mọi bảng trước đó:
+      //
+      // 1. `password_cipher` là MÃ HOÁ ĐỐI XỨNG, không phải hash. Mật khẩu
+      //    người dùng chỉ cần so khớp nên bcrypt một chiều là đủ; mật khẩu CSDL
+      //    thì phải LẤY LẠI ĐƯỢC mới mở được kết nối. Xem services/connections/
+      //    secretBox.ts. TEXT chứ không VARCHAR: bản mã dài hơn bản rõ và còn
+      //    mang theo iv + thẻ xác thực.
+      //
+      // 2. KHÔNG có cột nào lưu mật khẩu dạng rõ, kể cả tạm. Không có đường
+      //    nào để một câu SELECT vô tình phơi nó ra log.
+      //
+      // 3. `last_test_error` lưu lý do lần kiểm tra gần nhất thất bại. Người
+      //    vận hành mở danh sách phải thấy ngay kết nối nào đang hỏng và hỏng
+      //    vì sao, thay vì phải bấm thử từng cái.
+      //
+      // UNIQUE (tenant_id, name): trùng tên trong CÙNG tổ chức mới là lỗi; hai
+      // công ty đều đặt tên "CRM sản xuất" là chuyện bình thường.
+      //
+      // UNIQUE (tenant_id, id) trông thừa vì `id` đã là khoá chính — nó KHÔNG
+      // thừa: đây là đích cho khoá ngoại GHÉP của `datasets` bên dưới, đúng
+      // khuôn mà `workspaces` làm cho `projects`.
+      `CREATE TABLE IF NOT EXISTS connections (
+        id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+        tenant_id       BIGINT UNSIGNED NOT NULL,
+        name            VARCHAR(255) NOT NULL,
+        kind            ENUM('mysql','postgres','clickhouse') NOT NULL,
+        host            VARCHAR(255) NOT NULL,
+        port            SMALLINT UNSIGNED NOT NULL,
+        database_name   VARCHAR(255) NOT NULL,
+        username        VARCHAR(255) NOT NULL,
+        password_cipher TEXT NOT NULL,
+        last_tested_at  DATETIME(3)  NULL,
+        last_test_error VARCHAR(500) NULL,
+        created_by      BIGINT UNSIGNED NULL,
+        deleted_at      DATETIME(3)  NULL,
+        created_at      DATETIME(3)  NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+        updated_at      DATETIME(3)  NOT NULL DEFAULT CURRENT_TIMESTAMP(3)
+                                     ON UPDATE CURRENT_TIMESTAMP(3),
+        PRIMARY KEY (id),
+        UNIQUE KEY uq_connections_tenant_name (tenant_id, name),
+        UNIQUE KEY uq_connections_tenant_id (tenant_id, id),
+        KEY idx_connections_tenant_deleted (tenant_id, deleted_at),
+        CONSTRAINT fk_connections_tenant FOREIGN KEY (tenant_id)
+          REFERENCES tenants (id) ON DELETE CASCADE,
+        -- Kết nối sống lâu hơn người tạo ra nó, giống workspace.
+        CONSTRAINT fk_connections_creator FOREIGN KEY (created_by)
+          REFERENCES users (id) ON DELETE SET NULL
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+
+      // ─── datasets: mỗi BẢNG NGUỒN thành một tập dữ liệu ──────────────────
+      //
+      // `tenant_id` lặp lại dù suy ra được qua `connection_id`, và nó xứng đáng
+      // vì đúng hai lý do đã dùng cho `projects`:
+      //
+      //  1. Mọi truy vấn thành `WHERE tenant_id = ? AND id = ?`, nên đọc nhầm
+      //     tổ chức biến thành "không có dòng nào" thay vì "thiếu một câu if".
+      //  2. Nó cho phép khoá ngoại GHÉP bên dưới, khiến việc gắn dataset vào
+      //     connection của tổ chức KHÁC là bất khả thi ở tầng cơ sở dữ liệu.
+      //
+      // UNIQUE (tenant_id, connection_id, source_schema, source_table) là thứ
+      // biến "đồng bộ lần hai" thành ON DUPLICATE KEY UPDATE. Thiếu nó, mỗi lần
+      // bấm Đồng bộ là nhân đôi toàn bộ kho dữ liệu.
+      //
+      // `name` tách khỏi `source_table` vì mục 8.9 cho đổi tên hiển thị. Đổi
+      // tên KHÔNG được làm mất dấu bảng nguồn, nếu không lần đồng bộ sau sẽ
+      // tưởng đó là bảng mới và tạo thêm một dataset nữa.
+      //
+      // `column_count` là dữ liệu dẫn xuất từ `dataset_columns`, giữ ở đây để
+      // bảng danh sách (8.5) không phải đếm bằng truy vấn con trên mỗi dòng.
+      // Chỉ cập nhật trong cùng transaction với việc ghi cột.
+      //
+      // ON DELETE RESTRICT: xoá connection phải dọn dataset trước. Cascade sẽ
+      // xoá lặng lẽ hàng trăm dataset — và mô hình dữ liệu dựng trên chúng —
+      // vì một cú bấm nhầm.
+      `CREATE TABLE IF NOT EXISTS datasets (
+        id            BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+        tenant_id     BIGINT UNSIGNED NOT NULL,
+        connection_id BIGINT UNSIGNED NOT NULL,
+        source_schema VARCHAR(255) NOT NULL,
+        source_table  VARCHAR(255) NOT NULL,
+        name          VARCHAR(255) NOT NULL,
+        column_count  INT UNSIGNED NOT NULL DEFAULT 0,
+        synced_at     DATETIME(3)  NULL,
+        deleted_at    DATETIME(3)  NULL,
+        created_at    DATETIME(3)  NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+        updated_at    DATETIME(3)  NOT NULL DEFAULT CURRENT_TIMESTAMP(3)
+                                   ON UPDATE CURRENT_TIMESTAMP(3),
+        PRIMARY KEY (id),
+        UNIQUE KEY uq_datasets_source (tenant_id, connection_id, source_schema, source_table),
+        KEY idx_datasets_tenant_deleted (tenant_id, deleted_at),
+        CONSTRAINT fk_datasets_connection FOREIGN KEY (tenant_id, connection_id)
+          REFERENCES connections (tenant_id, id) ON DELETE RESTRICT
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+
+      // ─── dataset_columns: schema của bảng nguồn ──────────────────────────
+      //
+      // Bảng RIÊNG chứ không phải một cột JSON trong `datasets`. Section 09 sẽ
+      // định nghĩa dimension và measure trỏ tới từng cột cụ thể, mà một mảng
+      // JSON thì không đặt được khoá ngoại lên phần tử của nó — đến lúc đó sẽ
+      // phải di trú dữ liệu thật thay vì chỉ thêm một bảng.
+      //
+      // CASCADE theo dataset: cột không có ý nghĩa độc lập.
+      //
+      // `ordinal` giữ đúng thứ tự cột của bảng nguồn. Sắp theo tên trông gọn
+      // hơn nhưng người đọc schema mong thấy đúng thứ tự họ đã khai trong CSDL.
+      `CREATE TABLE IF NOT EXISTS dataset_columns (
+        id          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+        dataset_id  BIGINT UNSIGNED NOT NULL,
+        name        VARCHAR(255) NOT NULL,
+        data_type   VARCHAR(100) NOT NULL,
+        is_nullable TINYINT(1)   NOT NULL DEFAULT 1,
+        ordinal     INT UNSIGNED NOT NULL,
+        PRIMARY KEY (id),
+        UNIQUE KEY uq_dataset_columns_name (dataset_id, name),
+        KEY idx_dataset_columns_order (dataset_id, ordinal),
+        CONSTRAINT fk_dataset_columns_dataset FOREIGN KEY (dataset_id)
+          REFERENCES datasets (id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    ],
+  },
+
+  {
+    id: 7,
+    name: 'connection_ssl',
+    statements: [
+      // ─── use_ssl: bọc kết nối trong TLS ──────────────────────────────────
+      //
+      // Không có cột này thì mọi CSDL nằm trên Internet công cộng đều nối
+      // không được — ClickHouse Cloud chỉ nhận HTTPS ở cổng 8443 và đóng phăng
+      // socket khi nhận HTTP thô, còn MySQL của các nhà cung cấp dịch vụ thì
+      // bắt buộc TLS.
+      //
+      // TRẠNG THÁI LƯU LẠI chứ không suy ra từ `port`. Suy ra thì đọc rất gọn
+      // ("8443 nghĩa là TLS") nhưng số cổng chỉ là quy ước: một máy chủ tự dựng
+      // hoàn toàn có thể chạy TLS ở 9000, và khi đoán sai thì thứ người dùng
+      // nhận được là "máy chủ đóng kết nối" — câu không chỉ ra được ai phải sửa
+      // gì. Một cột TINYINT rẻ hơn nhiều so với lớp lỗi ấy.
+      //
+      // DEFAULT 0: những kết nối đã lưu trước migration này đều đang chạy HTTP
+      // thô và vẫn phải chạy y như cũ sau khi nâng cấp.
+      `ALTER TABLE connections ADD COLUMN use_ssl TINYINT(1) NOT NULL DEFAULT 0 AFTER port`,
+
+      // ─── Thu hẹp ENUM: bỏ 'postgres' ─────────────────────────────────────
+      //
+      // ⚠️ Đây là ngoại lệ của quy ước "ENUM chỉ nối thêm vào cuối" ghi ở đầu
+      // file, nên phải nói rõ vì sao nó an toàn ở ĐÚNG trường hợp này: giá trị
+      // 'postgres' chưa bao giờ rời khỏi nhánh đang phát triển, nên không có
+      // dòng dữ liệu thật nào mang nó.
+      //
+      // Nếu vẫn còn một dòng như vậy, MySQL ở chế độ strict sẽ dừng migration
+      // với "Data truncated for column 'kind'" thay vì lặng lẽ biến giá trị đó
+      // thành chuỗi rỗng. Dừng ồn ào là hành vi đúng: người vận hành phải tự
+      // quyết định xử lý kết nối đó thế nào, không phải để một câu ALTER quyết
+      // hộ.
+      `ALTER TABLE connections MODIFY COLUMN kind ENUM('mysql','clickhouse') NOT NULL`,
+    ],
+  },
 ];

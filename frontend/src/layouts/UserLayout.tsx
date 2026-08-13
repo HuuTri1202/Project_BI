@@ -59,9 +59,15 @@ const NAV_ITEMS: NavItem[] = [
    * nằm ở đâu. Điều hướng giữa chúng giờ là thanh tab bên trong trang.
    */
   {
+    label: 'Kho dữ liệu',
+    to: '/datasets',
+    needs: ['readDatasets'],
+    icon: 'M12 8c4.4 0 8-1.3 8-3s-3.6-3-8-3-8 1.3-8 3 3.6 3 8 3ZM4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3',
+  },
+  {
     label: 'Quản lý tổ chức',
     to: '/organization',
-    needs: ['manageTenant', 'manageWorkspaces', 'manageMembers'],
+    needs: ['manageTenant', 'manageConnections', 'manageWorkspaces', 'manageMembers'],
     icon: 'M4 21V7l6-3 6 3v14M4 21h16M10 21v-4h4v4M8 11h.01M12 11h.01M8 15h.01M12 15h.01',
   },
 ];

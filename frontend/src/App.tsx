@@ -13,6 +13,10 @@ import OverviewPage from './pages/admin/OverviewPage';
 import TenantsPage from './pages/admin/TenantsPage';
 import UsersPage from './pages/admin/UsersPage';
 import WorkspacesPage from './pages/admin/WorkspacesPage';
+import ConnectionFormPage from './pages/tenant/ConnectionFormPage';
+import ConnectionsPage from './pages/tenant/ConnectionsPage';
+import DatasetDetailPage from './pages/tenant/DatasetDetailPage';
+import DatasetsPage from './pages/tenant/DatasetsPage';
 import MembersPage from './pages/tenant/MembersPage';
 import OrganizationPage from './pages/tenant/OrganizationPage';
 import OrganizationProfilePage from './pages/tenant/OrganizationProfilePage';
@@ -86,9 +90,20 @@ export default function App(): React.ReactElement {
               cùng ô mà thanh tab dùng để ẩn/hiện, nên tab hiện lên không bao giờ
               dẫn tới 403. Người không có ô nào sẽ đụng cổng của route con và bị
               đẩy sang /403 như trước. */}
+          <Route element={<TenantAdminRoute needs="readDatasets" />}>
+            <Route path="/datasets" element={<DatasetsPage />} />
+            {/* Chi tiết là TRANG chứ không phải hộp thoại: một bảng thật có 40–80
+                cột, và cột "Kiểu dữ liệu" bị cắt cụt trong khung 32rem thì trang
+                xem schema mất đúng thứ nó sinh ra để hiện. */}
+            <Route path="/datasets/:id" element={<DatasetDetailPage />} />
+          </Route>
+
           <Route path="/organization" element={<OrganizationPage />}>
             <Route element={<TenantAdminRoute needs="manageTenant" />}>
               <Route index element={<OrganizationProfilePage />} />
+            </Route>
+            <Route element={<TenantAdminRoute needs="manageConnections" />}>
+              <Route path="connections" element={<ConnectionsPage />} />
             </Route>
             <Route element={<TenantAdminRoute needs="manageWorkspaces" />}>
               <Route path="workspaces" element={<TenantWorkspacesPage />} />
@@ -96,6 +111,15 @@ export default function App(): React.ReactElement {
             <Route element={<TenantAdminRoute needs="manageMembers" />}>
               <Route path="members" element={<MembersPage />} />
             </Route>
+          </Route>
+
+          {/* Wizard kết nối là ANH EM của `/organization`, không phải con: nó
+              chiếm trọn khu nội dung thay vì nằm dưới tiêu đề và thanh bốn tab.
+              Xem `ConnectionFormPage`. Cùng ô quyền với tab Kết nối, nên không
+              có đường nào bấm vào rồi ăn 403. */}
+          <Route element={<TenantAdminRoute needs="manageConnections" />}>
+            <Route path="/organization/connections/new" element={<ConnectionFormPage />} />
+            <Route path="/organization/connections/:id/edit" element={<ConnectionFormPage />} />
           </Route>
 
           {/* Đường dẫn cũ vẫn sống. Người dùng đã lưu bookmark hoặc dán link cho

@@ -1,6 +1,7 @@
 import {
   ADMIN_ERROR_CODES,
   WORKSPACE_ERROR_CODES,
+  type ConnectionPrerequisitesDto,
   type HomeDataDto,
   type PermissionMatrixDto,
   type TenantRole,
@@ -10,6 +11,7 @@ import { Router, type Request, type Response } from 'express';
 import type { PoolConnection } from 'mysql2/promise';
 
 import { permissionMatrixFor } from '../../authz/enforcer';
+import { env } from '../../config/env';
 import { mysqlPool } from '../../config/mysql';
 import { withTransaction } from '../../db/tx';
 import { authenticate, requireAuth } from '../../middleware/authenticate';
@@ -18,6 +20,8 @@ import { authorize } from '../../middleware/authorize';
 import { requireFreshMembership } from '../../middleware/requireFreshMembership';
 import * as adminMembersRepo from '../../repositories/adminMembers';
 import * as adminWorkspacesRepo from '../../repositories/adminWorkspaces';
+import * as connectionsRepo from '../../repositories/connections';
+import * as datasetsRepo from '../../repositories/datasets';
 import type { Db } from '../../repositories/db';
 import * as membershipsRepo from '../../repositories/memberships';
 import * as projectsRepo from '../../repositories/projects';
@@ -25,18 +29,36 @@ import * as tenantsRepo from '../../repositories/tenants';
 import { createMember } from '../../services/admin/createMember';
 import { createWorkspace } from '../../services/admin/createWorkspace';
 import { resetMemberPassword } from '../../services/admin/resetMemberPassword';
+import {
+  createConnection,
+  deleteConnection,
+  listSourceTables,
+  testConnection,
+  testSavedConnection,
+  updateConnection,
+} from '../../services/connections/connectionService';
+import { deleteDataset } from '../../services/connections/deleteDataset';
+import { DEFAULT_PORTS, DEFAULT_SSL, REQUIRED_GRANTS } from '../../services/connections/drivers';
+import { previewDataset } from '../../services/connections/previewDataset';
+import { syncDatasets } from '../../services/connections/syncDatasets';
 import { asyncHandler } from '../../utils/asyncHandler';
 import { badRequest, HttpError, notFound } from '../../utils/httpError';
 import { buildPageResult, resolveSortColumn } from '../../utils/pagination';
 import {
+  createConnectionBodySchema,
   createMemberBodySchema,
   createProjectBodySchema,
   createWorkspaceBodySchema,
   homeQuerySchema,
   idParamSchema,
+  listDatasetsQuerySchema,
   listMembersQuerySchema,
   listProjectsQuerySchema,
+  renameDatasetBodySchema,
   setActiveBodySchema,
+  syncBodySchema,
+  testConnectionBodySchema,
+  updateConnectionBodySchema,
   updateProjectBodySchema,
   updateRoleBodySchema,
   updateTenantBodySchema,
@@ -634,3 +656,270 @@ v1Router.delete(
     res.status(204).end();
   }),
 );
+
+// ─── §8 Kết nối CSDL ─────────────────────────────────────────────────────────
+
+/*
+ * Đây là nhóm endpoint DUY NHẤT trong hệ thống mở kết nối ra ngoài Internet
+ * theo địa chỉ do người dùng khai. Ba lớp bảo vệ riêng, chồng lên ba lớp chung
+ * của router:
+ *
+ *   resolveAndGuardHost   chặn SSRF — không cho trỏ vào mạng nội bộ
+ *   secretBox             mật khẩu CSDL mã hoá AES-256-GCM, không bao giờ trả ra
+ *   rateLimit             mỗi lần test là một kết nối TCP thật tới máy người khác
+ *
+ * Hạn mức đặt trên các endpoint CHẠM MẠNG, không đặt trên endpoint đọc database
+ * của chính mình: `POST /test` không giới hạn là biến hệ thống này thành công cụ
+ * quét cổng, và mỗi request lại tiêu một socket của ta lẫn của bên kia.
+ */
+
+const connectionProbeLimit = rateLimit({
+  bucket: 'connection-probe',
+  max: 30,
+  windowSeconds: 300,
+});
+
+// Không bọc `asyncHandler`: handler này đồng bộ hoàn toàn (đọc hằng số + env),
+// nên không có Promise nào để bắt lỗi.
+v1Router.get('/connections/prerequisites', authorize('connection', 'read'), (_req, res) => {
+  res.json({
+    egressIp: env.EGRESS_IP,
+    grants: REQUIRED_GRANTS,
+    defaultPorts: DEFAULT_PORTS,
+    defaultSsl: DEFAULT_SSL,
+  } satisfies ConnectionPrerequisitesDto);
+});
+
+v1Router.get(
+  '/connections',
+  authorize('connection', 'read'),
+  asyncHandler(async (req, res) => {
+    const { tenantId } = requireAuth(req);
+    res.json(await connectionsRepo.list(mysqlPool, tenantId));
+  }),
+);
+
+/**
+ * Thử kết nối CHƯA lưu — bước 3 của wizard.
+ *
+ * Trả 200 kể cả khi kết nối thất bại: `{ ok: false, message }` là câu trả lời
+ * hợp lệ mà người dùng đang chờ đọc, không phải một sự cố của hệ thống ta. Trả
+ * 4xx/5xx ở đây sẽ khiến `getApiError` phía frontend hiện "đã có lỗi xảy ra"
+ * thay vì câu nói rõ phải sửa gì.
+ */
+v1Router.post(
+  '/connections/test',
+  authorize('connection', 'modify'),
+  connectionProbeLimit,
+  asyncHandler(async (req, res) => {
+    const body = testConnectionBodySchema.parse(req.body);
+    res.json(await testConnection(body));
+  }),
+);
+
+v1Router.post(
+  '/connections',
+  authorize('connection', 'modify'),
+  asyncHandler(async (req, res) => {
+    const auth = requireAuth(req);
+    const body = createConnectionBodySchema.parse(req.body);
+
+    const id = await createConnection(auth.tenantId, auth.userId, body).catch((err: unknown) => {
+      throw asDuplicateName(err);
+    });
+
+    res.status(201).json(await connectionsRepo.findOne(mysqlPool, auth.tenantId, id));
+  }),
+);
+
+v1Router.patch(
+  '/connections/:id',
+  authorize('connection', 'modify'),
+  asyncHandler(async (req, res) => {
+    const { tenantId } = requireAuth(req);
+    const { id } = idParamSchema.parse(req.params);
+    const body = updateConnectionBodySchema.parse(req.body);
+
+    // Chuỗi rỗng và `undefined` đều nghĩa là GIỮ NGUYÊN mật khẩu. Gộp chúng ở
+    // đây thay vì bắt frontend phải biết gửi cái nào — một ô input để trống trả
+    // về `''`, và bắt nó tự đổi thành `undefined` là đặt bẫy cho lần sửa sau.
+    await updateConnection(tenantId, id, {
+      ...body,
+      password: body.password ? body.password : null,
+    }).catch((err: unknown) => {
+      throw asDuplicateName(err);
+    });
+
+    res.json(await connectionsRepo.findOne(mysqlPool, tenantId, id));
+  }),
+);
+
+v1Router.post(
+  '/connections/:id/test',
+  authorize('connection', 'modify'),
+  connectionProbeLimit,
+  asyncHandler(async (req, res) => {
+    const { tenantId } = requireAuth(req);
+    const { id } = idParamSchema.parse(req.params);
+    res.json(await testSavedConnection(tenantId, id));
+  }),
+);
+
+v1Router.delete(
+  '/connections/:id',
+  authorize('connection', 'delete'),
+  asyncHandler(async (req, res) => {
+    const { tenantId } = requireAuth(req);
+    const { id } = idParamSchema.parse(req.params);
+
+    await deleteConnection(tenantId, id);
+    res.status(204).end();
+  }),
+);
+
+/**
+ * Bảng trong CSDL nguồn — nuôi hộp thoại chọn bảng.
+ *
+ * Gác bằng `dataset:modify` chứ không `connection:read`: đây là bước một của
+ * thao tác đồng bộ, nên ai đồng bộ được thì xem được danh sách. Đảo lại sẽ
+ * khiến `creator` mở được hộp thoại rồi bị chặn ở nút xác nhận.
+ */
+v1Router.get(
+  '/connections/:id/tables',
+  authorize('dataset', 'modify'),
+  connectionProbeLimit,
+  asyncHandler(async (req, res) => {
+    const { tenantId } = requireAuth(req);
+    const { id } = idParamSchema.parse(req.params);
+    res.json(await listSourceTables(tenantId, id));
+  }),
+);
+
+v1Router.post(
+  '/connections/:id/sync',
+  authorize('dataset', 'modify'),
+  connectionProbeLimit,
+  asyncHandler(async (req, res) => {
+    const { tenantId } = requireAuth(req);
+    const { id } = idParamSchema.parse(req.params);
+    const { tables } = syncBodySchema.parse(req.body);
+
+    res.json(await syncDatasets(tenantId, id, tables));
+  }),
+);
+
+// ─── §8.5 Kho dữ liệu ────────────────────────────────────────────────────────
+
+v1Router.get(
+  '/datasets',
+  authorize('dataset', 'read'),
+  asyncHandler(async (req, res) => {
+    const { tenantId } = requireAuth(req);
+    const query = listDatasetsQuerySchema.parse(req.query);
+
+    const sort = resolveSortColumn(query.sort, datasetsRepo.DATASET_SORT_KEYS, 'name');
+    if (sort === null) {
+      throw badRequest('Cột sắp xếp không hợp lệ.', {
+        sort: `Chỉ nhận: ${datasetsRepo.DATASET_SORT_KEYS.join(', ')}`,
+      });
+    }
+
+    const filter: datasetsRepo.DatasetFilter = {
+      search: query.q,
+      connectionId: query.connectionId,
+      sort,
+      order: query.order,
+      page: query.page,
+      pageSize: query.pageSize,
+    };
+
+    const total = await datasetsRepo.count(mysqlPool, tenantId, filter);
+    const items = total === 0 ? [] : await datasetsRepo.list(mysqlPool, tenantId, filter);
+    res.json(buildPageResult(items, total, query.page, query.pageSize));
+  }),
+);
+
+v1Router.get(
+  '/datasets/:id',
+  authorize('dataset', 'read'),
+  asyncHandler(async (req, res) => {
+    const { tenantId } = requireAuth(req);
+    const { id } = idParamSchema.parse(req.params);
+
+    const dataset = await datasetsRepo.findOne(mysqlPool, tenantId, id);
+    if (!dataset) throw notFound('Không tìm thấy tập dữ liệu này.');
+
+    res.json({ ...dataset, columns: await datasetsRepo.listColumns(mysqlPool, id) });
+  }),
+);
+
+/**
+ * Vài dòng đầu của bảng nguồn — tab "Dữ liệu" ở trang chi tiết.
+ *
+ * `dataset:read` chứ không `modify`: xem dữ liệu là việc của người phân tích,
+ * mà `viewer` chính là vai trò đó. Gác bằng `modify` sẽ khiến người được mời vào
+ * để ĐỌC báo cáo lại không xem nổi dữ liệu nằm dưới báo cáo ấy.
+ *
+ * Có `connectionProbeLimit` vì mỗi lần gọi là một kết nối TCP thật tới máy chủ
+ * của khách hàng — cùng lý do với `POST /test` và `GET /tables`. Đây là endpoint
+ * `read` DUY NHẤT bị giới hạn, và nó xứng đáng: một vòng lặp bấm F5 trên trang
+ * này là một vòng lặp mở kết nối vào CSDL của người khác.
+ */
+v1Router.get(
+  '/datasets/:id/preview',
+  authorize('dataset', 'read'),
+  connectionProbeLimit,
+  asyncHandler(async (req, res) => {
+    const { tenantId } = requireAuth(req);
+    const { id } = idParamSchema.parse(req.params);
+    res.json(await previewDataset(tenantId, id));
+  }),
+);
+
+v1Router.patch(
+  '/datasets/:id',
+  authorize('dataset', 'modify'),
+  asyncHandler(async (req, res) => {
+    const { tenantId } = requireAuth(req);
+    const { id } = idParamSchema.parse(req.params);
+    const { name } = renameDatasetBodySchema.parse(req.body);
+
+    const affected = await datasetsRepo.rename(mysqlPool, tenantId, id, name);
+    if (affected === 0) throw notFound('Không tìm thấy tập dữ liệu này.');
+
+    res.json(await datasetsRepo.findOne(mysqlPool, tenantId, id));
+  }),
+);
+
+v1Router.delete(
+  '/datasets/:id',
+  authorize('dataset', 'delete'),
+  asyncHandler(async (req, res) => {
+    const { tenantId } = requireAuth(req);
+    const { id } = idParamSchema.parse(req.params);
+
+    await deleteDataset(tenantId, id);
+    res.status(204).end();
+  }),
+);
+
+/**
+ * Trùng tên kết nối trong cùng tổ chức -> 409 gắn đúng ô `name`.
+ *
+ * Bắt ở ràng buộc UNIQUE chứ không SELECT kiểm trước: giữa SELECT và INSERT
+ * luôn có khe hở cho hai request đồng thời, và ràng buộc mới là thứ thật sự
+ * chặn. Lỗi khác thì trả nguyên vẹn cho `errorHandler`.
+ */
+function asDuplicateName(err: unknown): unknown {
+  if (
+    typeof err === 'object' &&
+    err !== null &&
+    (err as { code?: string }).code === 'ER_DUP_ENTRY' &&
+    String((err as { message?: string }).message ?? '').includes('uq_connections_tenant_name')
+  ) {
+    return new HttpError(409, 'DuplicateName', 'Tổ chức đã có một kết nối trùng tên.', {
+      name: 'Tên này đã được dùng',
+    });
+  }
+  return err;
+}
