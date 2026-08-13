@@ -37,6 +37,15 @@ export const RESOURCES = [
    * là việc của người quản trị tổ chức.
    */
   'tenant',
+  /**
+   * Kết nối tới CSDL của khách hàng (§8).
+   *
+   * Tách khỏi `dataset` vì hai thứ có mức nhạy cảm khác hẳn: một dataset là
+   * metadata về bảng, còn một connection chứa MẬT KHẨU mở được cả CSDL nguồn.
+   * Gộp chung nghĩa là ai đồng bộ được dataset cũng sửa được thông tin đăng
+   * nhập — không phải điều ta muốn cho vai trò `creator`.
+   */
+  'connection',
 ] as const;
 
 export type Resource = (typeof RESOURCES)[number];
@@ -55,6 +64,7 @@ export const RESOURCE_LABELS: Record<Resource, string> = {
   member: 'Thành viên',
   project: 'Project',
   tenant: 'Tổ chức',
+  connection: 'Kết nối CSDL',
 };
 
 export const ACTION_LABELS: Record<Action, string> = {
@@ -162,6 +172,7 @@ export function emptyPermissionMatrix(): PermissionMatrixDto {
     member: [],
     project: [],
     tenant: [],
+    connection: [],
   };
 }
 

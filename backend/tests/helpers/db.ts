@@ -11,11 +11,16 @@ import { memoryStorage } from '../../src/storage/memoryStorage';
  */
 export async function resetDatabase(): Promise<void> {
   await mysqlPool.query('SET FOREIGN_KEY_CHECKS = 0');
+  // Thứ tự từ CON tới CHA. Khoá ngoại đã tắt nên không bắt buộc, nhưng giữ đúng
+  // thứ tự để ai đọc còn thấy được cây phụ thuộc.
   for (const table of [
     'reports',
+    // MỘT bộ `datasets` cho cả hai nguồn — file tải lên (§7) và bảng đồng bộ từ
+    // CSDL khách hàng (§8). `dataset_rows` chỉ nguồn `file` dùng tới.
     'dataset_rows',
     'dataset_columns',
     'datasets',
+    'connections',
     'projects',
     'workspaces',
     'memberships',
@@ -38,11 +43,11 @@ export async function resetDatabase(): Promise<void> {
   //                      hàng chục lần từ cùng một IP nên tự đâm vào giới hạn
   //                      của chính nó, và mọi ca sau nhận 429.
   //
-  //   dataset:analyze:*  cache kết quả phân tích file, khoá theo `datasetId`.
-  //                      TRUNCATE đặt lại AUTO_INCREMENT về 1, nên dataset số 1
-  //                      của ca này TRÙNG khoá với dataset số 1 của ca trước —
-  //                      và ca này sẽ thấy schema của một file nó chưa từng tải
-  //                      lên. Kiểu đỏ tệ nhất: nó có thể XANH nhầm.
+  //   dataset:analyze:*  cache kết quả phân tích file, khoá theo id. TRUNCATE
+  //                      đặt lại AUTO_INCREMENT về 1, nên bộ dữ liệu số 1 của ca
+  //                      này TRÙNG khoá với số 1 của ca trước — và ca này sẽ thấy
+  //                      schema của một file nó chưa từng tải lên. Kiểu đỏ tệ
+  //                      nhất: nó có thể XANH nhầm.
   const keys = await redis.keys('ratelimit:*');
   const analyzeKeys = await redis.keys('dataset:analyze:*');
   const all = [...keys, ...analyzeKeys];

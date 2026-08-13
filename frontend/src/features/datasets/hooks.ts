@@ -1,4 +1,4 @@
-import type { DatasetDto, PageResult, ReportDto } from '@bi/shared';
+import type { PageResult, ReportDto } from '@bi/shared';
 import {
   keepPreviousData,
   useMutation,
@@ -21,53 +21,26 @@ import { datasetKeys } from './keys';
  * chỗ kia hiện dữ liệu cũ ngay sau khi người dùng tự tay tạo ra thứ làm nó đổi.
  */
 
-// ─── Bộ dữ liệu ──────────────────────────────────────────────────────────────
-
-export function useDatasets(
-  query: Omit<api.DatasetListQuery, 'workspaceId'>,
-): UseQueryResult<PageResult<DatasetDto>> {
-  const { current } = useWorkspace();
-  const workspaceId = current?.id ?? null;
-
-  return useQuery({
-    queryKey: datasetKeys.list(workspaceId, query),
-    queryFn: () => api.fetchDatasets({ ...query, workspaceId: workspaceId as number }),
-    enabled: workspaceId !== null,
-    // Giữ kết quả cũ trong lúc tải trang mới, để bảng không chớp trắng mỗi lần
-    // gõ một ký tự tìm kiếm và chiều cao trang không nhảy dưới con trỏ chuột.
-    placeholderData: keepPreviousData,
-  });
-}
-
-export function useDataset(id: number | null) {
-  return useQuery({
-    queryKey: datasetKeys.detail(id ?? 0),
-    queryFn: () => api.fetchDataset(id as number),
-    enabled: id !== null,
-  });
-}
-
 /**
  * Dọn mọi thứ mà một thay đổi bộ dữ liệu có thể chạm tới.
  *
  * Xuất ra ngoài để wizard gọi sau khi nhập xong: nút "Xem bộ dữ liệu" đưa thẳng
- * sang danh sách, và nếu cache chưa được dọn thì người dùng nhìn vào một danh
+ * sang Kho dữ liệu, và nếu cache chưa được dọn thì người dùng nhìn vào một danh
  * sách KHÔNG có thứ họ vừa tạo — rồi tin rằng việc nhập đã hỏng.
+ *
+ * Dọn cả `tenantKeys`: trang Kho dữ liệu dùng chung cho hai nguồn nên danh sách
+ * của nó nằm dưới key của `features/tenant`, không phải key ở đây.
  */
 export function useInvalidateDatasets(): () => Promise<void> {
   const queryClient = useQueryClient();
   return async () => {
     await queryClient.invalidateQueries({ queryKey: datasetKeys.all });
     await queryClient.invalidateQueries({ queryKey: datasetKeys.reports() });
+    await queryClient.invalidateQueries({
+      queryKey: tenantKeys.all,
+      predicate: (q) => q.queryKey[1] === 'datasets',
+    });
   };
-}
-
-export function useDeleteDataset(): UseMutationResult<void, unknown, number> {
-  const invalidate = useInvalidateDatasets();
-  return useMutation({
-    mutationFn: api.deleteDataset,
-    onSuccess: invalidate,
-  });
 }
 
 // ─── Báo cáo ─────────────────────────────────────────────────────────────────

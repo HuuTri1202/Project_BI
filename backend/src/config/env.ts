@@ -108,6 +108,44 @@ const envSchema = z.object({
   // trần phải hiện ra trên giao diện chứ không im lặng.
   DATASET_MAX_ROWS: z.coerce.number().int().positive().default(50_000),
 
+  // --- Kết nối tới CSDL của khách hàng (§8) ---
+  //
+  // Khoá AES-256-GCM mã hoá mật khẩu CSDL. KHÔNG có mặc định, cùng lý do với
+  // JWT_SECRET: một khoá mã hoá mặc định là đúng loại thứ theo chân code lên
+  // production và biến cả lớp mã hoá thành trang trí.
+  //
+  // 44 ký tự là độ dài base64 của đúng 32 byte. `secretBox.ts` kiểm lại độ dài
+  // SAU khi giải base64 — đó mới là ràng buộc thật; ở đây chỉ chặn sớm cho lỗi
+  // dễ đọc. Sinh khoá:
+  //   node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
+  //
+  // ⚠️ Đổi khoá này = MỌI kết nối đã lưu ngừng giải mã được và phải nhập lại
+  // mật khẩu. Không có đường khôi phục.
+  CONNECTION_ENCRYPTION_KEY: z
+    .string()
+    .min(44, 'CONNECTION_ENCRYPTION_KEY phải là 32 byte mã hoá base64 (44 ký tự)'),
+
+  // Cho phép kết nối tới host trong mạng nội bộ / loopback.
+  //
+  // Endpoint kết nối nhận host:port DO NGƯỜI DÙNG KHAI rồi bắt server tự đi kết
+  // nối — đó là SSRF. Bật cờ này nghĩa là một admin tổ chức bất kỳ trỏ được vào
+  // 169.254.169.254 (metadata của cloud) hay bất kỳ máy nào trong mạng nội bộ,
+  // và dùng chính server này làm bàn đạp.
+  //
+  // Mặc định theo môi trường: dev BẬT (để demo kết nối tới container MySQL trên
+  // localhost), production TẮT. Muốn bật ở production thì phải khai tường minh,
+  // và đó là điều nên phải suy nghĩ một lần.
+  ALLOW_PRIVATE_DB_HOSTS: z.enum(['true', 'false']).optional(),
+
+  // Địa chỉ mà CSDL của khách hàng NHÌN THẤY khi hệ thống này kết nối tới. Hiện
+  // ở bước 1 của wizard để họ thêm vào danh sách cho phép của tường lửa.
+  //
+  // Là biến cấu hình chứ không tự dò: server không biết IP công khai của chính
+  // mình sau NAT/load balancer, và cách duy nhất để "tự biết" là gọi ra một
+  // dịch vụ bên ngoài — thêm một phụ thuộc mạng cho một chuỗi tĩnh mà người vận
+  // hành hoàn toàn biết trước.
+  EGRESS_IP: z.string().min(1).default('chưa cấu hình — đặt EGRESS_IP trong .env'),
+
   // --- Seed tài khoản quản trị đầu tiên (§2.7) ---
   // Đều có giá trị mặc định nên KHÔNG bắt buộc khai trong .env; chỉ script
   // seed đọc tới.
@@ -146,3 +184,17 @@ export const env: Env = loadEnv();
 
 export const isProduction = env.NODE_ENV === 'production';
 export const isTest = env.NODE_ENV === 'test';
+
+/**
+ * Có cho phép kết nối tới host nội bộ / loopback không.
+ *
+ * Suy ra ở ĐÂY chứ không bằng `.default()` trong schema, vì mặc định phụ thuộc
+ * một trường khác (`NODE_ENV`) — zod không diễn tả được quan hệ đó mà không
+ * biến cả object thành một phép transform khó đọc.
+ *
+ * Chưa khai -> theo môi trường: dev cho phép, production chặn. Khai tường minh
+ * thì lời khai thắng, kể cả ở production — nhưng khi đó nó là một quyết định có
+ * chữ ký, không phải một mặc định trôi theo.
+ */
+export const allowPrivateDbHosts =
+  env.ALLOW_PRIVATE_DB_HOSTS === undefined ? !isProduction : env.ALLOW_PRIVATE_DB_HOSTS === 'true';

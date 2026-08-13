@@ -53,12 +53,19 @@ const NAV_ITEMS: NavItem[] = [
     icon: 'M16 20v-2a4 4 0 0 0-8 0v2M12 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z',
   },
   /*
-   * §7.8 — không có `needs`: mọi vai trò kể cả viewer đều có `dataset:read`
-   * trong ma trận mặc định, nên giấu mục này là chặn họ khỏi thứ họ có quyền
-   * xem. Nút "Xoá" bên trong trang mới là thứ hỏi quyền.
+   * §7.8 + §8.5 — MỘT mục cho cả hai nguồn dữ liệu.
+   *
+   * Trước khi gộp có hai dòng cùng trỏ về `/datasets`: "Bộ dữ liệu" (file tải
+   * lên) và "Kho dữ liệu" (bảng đồng bộ từ CSDL). Với người dùng thì cả hai đều
+   * là "thứ tôi dựng báo cáo lên được", nên tách ra chỉ bắt họ đoán xem dữ liệu
+   * mình cần nằm ở dòng nào.
+   *
+   * Không có `needs`: mọi vai trò kể cả viewer đều có `dataset:read` trong ma
+   * trận mặc định, nên giấu mục này là chặn họ khỏi thứ họ có quyền xem. Những
+   * nút bên trong trang mới là thứ hỏi quyền.
    */
   {
-    label: 'Bộ dữ liệu',
+    label: 'Kho dữ liệu',
     to: '/datasets',
     icon: 'M4 7c0-1.7 3.6-3 8-3s8 1.3 8 3-3.6 3-8 3-8-1.3-8-3Zm0 0v10c0 1.7 3.6 3 8 3s8-1.3 8-3V7M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3',
   },
@@ -71,7 +78,7 @@ const NAV_ITEMS: NavItem[] = [
   {
     label: 'Quản lý tổ chức',
     to: '/organization',
-    needs: ['manageTenant', 'manageWorkspaces', 'manageMembers'],
+    needs: ['manageTenant', 'manageConnections', 'manageWorkspaces', 'manageMembers'],
     icon: 'M4 21V7l6-3 6 3v14M4 21h16M10 21v-4h4v4M8 11h.01M12 11h.01M8 15h.01M12 15h.01',
   },
 ];

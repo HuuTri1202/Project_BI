@@ -1,48 +1,133 @@
 import type {
+  ConnectionKind,
   DatasetColumnDto,
   DatasetDto,
+  DatasetSource,
   DatasetStatus,
+  FieldRole,
   FileExt,
-  SourceType,
+  SemanticType,
 } from '@bi/shared';
 import type { ResultSetHeader, RowDataPacket } from 'mysql2';
-import { escapeLikeTerm } from '../utils/sql';
 import type { Db } from './db';
 
 /**
- * Bộ dữ liệu — §7.
+ * Kho dữ liệu — MỘT khái niệm dataset, HAI nguồn.
  *
- * Cùng khuôn với `projects.ts`: mọi hàm nhận `tenantId` và mọi câu lệnh mang
- * `WHERE tenant_id = ?`, nên chạm nhầm tổ chức cho ra "không có dòng nào" thay
- * vì "thiếu một câu if". Nơi gọi thấy 0 dòng thì trả 404 — 403 sẽ xác nhận rằng
- * id đó có tồn tại.
+ *   source = 'connection'  một bảng đồng bộ từ CSDL khách hàng (§8.5). Nền tảng
+ *                          KHÔNG giữ dòng nào; mỗi lần xem là một câu SELECT
+ *                          chạy trên CSDL nguồn.
+ *   source = 'file'        một sheet trong file Excel/CSV đã tải lên (§7). Dòng
+ *                          được nạp vào `dataset_rows`.
  *
- * Bảng `dataset_columns` và `dataset_rows` KHÔNG có `tenant_id`: chúng luôn được
- * truy vấn qua `dataset_id`, mà `datasets` đã bị chặn theo tổ chức. Thêm cột ở
- * đó là thêm một chỗ có thể lệch mà không mua thêm lớp bảo vệ nào — nhưng đổi
- * lại, MỌI hàm dưới đây chạm tới hai bảng con đều phải nhận `datasetId` đã được
- * xác thực trước, không phải id thô từ URL.
+ * Cùng quy ước với `connections.ts`: executor trước, `tenantId` ngay sau, mọi
+ * câu lệnh lọc theo nó.
+ *
+ * ─── Hai chỗ dễ sai khi đọc file này ────────────────────────────────────────
+ *
+ * 1. JOIN tới `connections` phải là LEFT. Dataset nguồn `file` không có kết nối
+ *    nào, nên INNER JOIN sẽ lặng lẽ loại chúng khỏi MỌI danh sách và mọi phép
+ *    đếm — không lỗi, chỉ là dữ liệu biến mất.
+ *
+ * 2. Cột của nguồn kia luôn NULL. Đọc `sourceTable` của một dataset nguồn `file`
+ *    là đọc `null`; kiểm `source` trước.
  */
 
-export type DatasetSortKey = 'name' | 'createdAt' | 'updatedAt' | 'rowCount';
+interface DatasetRow extends RowDataPacket {
+  id: number;
+  source: DatasetSource;
+  workspace_id: number | null;
+  name: string;
+  column_count: number;
+  // nguồn `connection`
+  source_schema: string | null;
+  source_table: string | null;
+  synced_at: Date | null;
+  connection_id: number | null;
+  connection_name: string | null;
+  connection_kind: ConnectionKind | null;
+  // nguồn `file`
+  original_filename: string | null;
+  file_ext: FileExt | null;
+  file_size_bytes: number;
+  sheet_name: string | null;
+  status: DatasetStatus;
+  error_message: string | null;
+  row_count: number;
+  truncated: number;
+}
+
+const SELECT_LIST = `
+  SELECT d.id, d.source, d.workspace_id, d.name, d.column_count,
+         d.source_schema, d.source_table, d.synced_at, d.connection_id,
+         c.name AS connection_name, c.kind AS connection_kind,
+         d.original_filename, d.file_ext, d.file_size_bytes, d.sheet_name,
+         d.status, d.error_message, d.row_count, d.truncated
+    FROM datasets d
+    LEFT JOIN connections c ON c.id = d.connection_id AND c.tenant_id = d.tenant_id`;
+
+function toDto(row: DatasetRow): DatasetDto {
+  return {
+    id: Number(row.id),
+    source: row.source,
+    workspaceId: row.workspace_id === null ? null : Number(row.workspace_id),
+    name: row.name,
+    columnCount: Number(row.column_count),
+
+    sourceSchema: row.source_schema,
+    sourceTable: row.source_table,
+    syncedAt: row.synced_at?.toISOString() ?? null,
+    connectionId: row.connection_id === null ? null : Number(row.connection_id),
+    connectionName: row.connection_name,
+    connectionKind: row.connection_kind,
+
+    originalFilename: row.original_filename,
+    fileExt: row.file_ext,
+    fileSizeBytes: Number(row.file_size_bytes),
+    sheetName: row.sheet_name,
+    status: row.status,
+    errorMessage: row.error_message,
+    rowCount: Number(row.row_count),
+    truncated: row.truncated === 1,
+
+    // Luôn 0 cho tới Section 09 — chưa có bảng `datamodels` để đếm. Xem ghi chú
+    // trong `DatasetDto`.
+    datamodelCount: 0,
+  };
+}
+
+export type DatasetSortKey =
+  | 'name'
+  | 'sourceTable'
+  | 'columnCount'
+  | 'syncedAt'
+  | 'rowCount'
+  | 'createdAt';
 
 export const DATASET_SORT_KEYS: readonly DatasetSortKey[] = [
   'name',
-  'createdAt',
-  'updatedAt',
+  'sourceTable',
+  'columnCount',
+  'syncedAt',
   'rowCount',
+  'createdAt',
 ];
 
 const SORT_SQL: Record<DatasetSortKey, string> = {
   name: 'd.name',
-  createdAt: 'd.created_at',
-  updatedAt: 'd.updated_at',
+  sourceTable: 'd.source_table',
+  columnCount: 'd.column_count',
+  syncedAt: 'd.synced_at',
   rowCount: 'd.row_count',
+  createdAt: 'd.created_at',
 };
 
-export interface ListDatasetsFilter {
-  workspaceId: number;
+export interface DatasetFilter {
   search?: string | undefined;
+  connectionId?: number | undefined;
+  /** Lọc theo workspace đang mở. Bỏ trống = cả tổ chức. */
+  workspaceId?: number | undefined;
+  source?: DatasetSource | undefined;
   status?: DatasetStatus | undefined;
   sort: DatasetSortKey;
   order: 'asc' | 'desc';
@@ -50,72 +135,32 @@ export interface ListDatasetsFilter {
   pageSize: number;
 }
 
-interface DatasetRow extends RowDataPacket {
-  id: number;
-  workspace_id: number;
-  name: string;
-  original_filename: string;
-  file_ext: FileExt;
-  file_size_bytes: number;
-  source_type: SourceType;
-  sheet_name: string | null;
-  status: DatasetStatus;
-  error_message: string | null;
-  row_count: number;
-  truncated: number;
-  column_count: number;
-  creator_name: string | null;
-  created_at: Date;
-  updated_at: Date;
-}
+function where(tenantId: number, filter: DatasetFilter): { sql: string; params: unknown[] } {
+  const conditions = ['d.tenant_id = ?', 'd.deleted_at IS NULL'];
+  const params: unknown[] = [tenantId];
 
-const SELECT_COLUMNS = `d.id, d.workspace_id, d.name, d.original_filename, d.file_ext,
-            d.file_size_bytes, d.source_type, d.sheet_name, d.status, d.error_message,
-            d.row_count, d.truncated, u.full_name AS creator_name,
-            (SELECT COUNT(*) FROM dataset_columns c WHERE c.dataset_id = d.id) AS column_count,
-            d.created_at, d.updated_at
-       FROM datasets d
-       LEFT JOIN users u ON u.id = d.created_by`;
+  // Kết nối bị xoá mềm thì dataset của nó cũng khuất. Với nguồn `file` thì
+  // `c.deleted_at` là NULL do LEFT JOIN không khớp dòng nào — nên điều kiện này
+  // đúng cho cả hai mà không cần rẽ nhánh.
+  conditions.push('c.deleted_at IS NULL');
 
-function toDto(row: DatasetRow): DatasetDto {
-  return {
-    id: Number(row.id),
-    workspaceId: Number(row.workspace_id),
-    name: row.name,
-    originalFilename: row.original_filename,
-    fileExt: row.file_ext,
-    fileSizeBytes: Number(row.file_size_bytes),
-    sourceType: row.source_type,
-    sheetName: row.sheet_name,
-    status: row.status,
-    errorMessage: row.error_message,
-    rowCount: Number(row.row_count),
-    truncated: row.truncated === 1,
-    columnCount: Number(row.column_count),
-    creatorName: row.creator_name,
-    createdAt: row.created_at.toISOString(),
-    updatedAt: row.updated_at.toISOString(),
-  };
-}
+  if (filter.connectionId !== undefined) {
+    conditions.push('d.connection_id = ?');
+    params.push(filter.connectionId);
+  }
+  if (filter.workspaceId !== undefined) {
+    conditions.push('d.workspace_id = ?');
+    params.push(filter.workspaceId);
+  }
+  if (filter.source !== undefined) {
+    conditions.push('d.source = ?');
+    params.push(filter.source);
+  }
 
-/**
- * Điều kiện WHERE dùng chung cho `count` và `list`.
- *
- * Hai câu phải khớp nhau tuyệt đối, nếu không thì tổng số và số dòng thật lệch
- * nhau — phân trang hiện "trang 3/5" mà trang 3 trống rỗng.
- *
- * Mặc định CHỈ lấy `status = 'ready'`. Bản ghi `pending` là rác của những lần
- * đóng wizard giữa chừng và không có gì để xem; `failed` thì hiện khi người dùng
- * chủ động lọc, để họ biết vì sao file mình tải lên không dùng được.
- */
-function buildWhere(tenantId: number, filter: ListDatasetsFilter): {
-  sql: string;
-  params: (string | number)[];
-} {
-  const conditions = ['d.tenant_id = ?', 'd.workspace_id = ?', 'd.deleted_at IS NULL'];
-  const params: (string | number)[] = [tenantId, filter.workspaceId];
-
-  if (filter.status) {
+  // Mặc định CHỈ lấy `ready`. Bản ghi `pending` là rác của những lần đóng wizard
+  // giữa chừng và không có gì để xem; `failed` hiện khi người dùng chủ động lọc,
+  // để họ biết vì sao file mình tải lên không dùng được.
+  if (filter.status !== undefined) {
     conditions.push('d.status = ?');
     params.push(filter.status);
   } else {
@@ -123,92 +168,250 @@ function buildWhere(tenantId: number, filter: ListDatasetsFilter): {
   }
 
   if (filter.search) {
-    conditions.push(`(d.name LIKE ? ESCAPE '\\\\' OR d.original_filename LIKE ? ESCAPE '\\\\')`);
-    const term = `%${escapeLikeTerm(filter.search)}%`;
-    params.push(term, term);
+    // Escape thủ công `%` và `_`: người dùng gõ "doanh_thu" mà không escape thì
+    // `_` thành ký tự đại diện và kết quả trả về cả "doanhXthu".
+    const like = `%${filter.search.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+    conditions.push(
+      `(d.name LIKE ? ESCAPE '\\\\' OR d.source_table LIKE ? ESCAPE '\\\\'` +
+        ` OR d.original_filename LIKE ? ESCAPE '\\\\')`,
+    );
+    params.push(like, like, like);
   }
-
   return { sql: conditions.join(' AND '), params };
 }
 
-export async function countDatasets(
-  db: Db,
-  tenantId: number,
-  filter: ListDatasetsFilter,
-): Promise<number> {
-  const where = buildWhere(tenantId, filter);
+export async function count(db: Db, tenantId: number, filter: DatasetFilter): Promise<number> {
+  const w = where(tenantId, filter);
   const [rows] = await db.query<RowDataPacket[]>(
-    `SELECT COUNT(*) AS total FROM datasets d WHERE ${where.sql}`,
-    where.params,
+    `SELECT COUNT(*) AS total
+       FROM datasets d
+       LEFT JOIN connections c ON c.id = d.connection_id AND c.tenant_id = d.tenant_id
+      WHERE ${w.sql}`,
+    w.params,
   );
   return Number(rows[0]?.['total'] ?? 0);
 }
 
-export async function listDatasets(
-  db: Db,
-  tenantId: number,
-  filter: ListDatasetsFilter,
-): Promise<DatasetDto[]> {
-  const where = buildWhere(tenantId, filter);
+export async function list(db: Db, tenantId: number, filter: DatasetFilter): Promise<DatasetDto[]> {
+  const w = where(tenantId, filter);
   const direction = filter.order === 'asc' ? 'ASC' : 'DESC';
 
-  // `, d.id ASC` phá hoà: thiếu nó, các dòng trùng khoá sắp xếp đảo chỗ giữa hai
-  // trang và một bản ghi xuất hiện hai lần trong khi một bản ghi khác biến mất.
   const [rows] = await db.query<DatasetRow[]>(
-    `SELECT ${SELECT_COLUMNS}
-      WHERE ${where.sql}
+    // `, d.id ASC` là tiêu chí phá hoà: thiếu nó, các dòng trùng giá trị sắp xếp
+    // đảo chỗ giữa hai lần truy vấn và một bản ghi hiện hai lần ở hai trang.
+    //
+    // `SORT_SQL[...]` chứ không nội suy trực tiếp giá trị từ client: ORDER BY
+    // không tham số hoá được, nên whitelist là lớp phòng thủ duy nhất.
+    `${SELECT_LIST}
+      WHERE ${w.sql}
       ORDER BY ${SORT_SQL[filter.sort]} ${direction}, d.id ASC
       LIMIT ? OFFSET ?`,
-    [...where.params, filter.pageSize, (filter.page - 1) * filter.pageSize],
+    [...w.params, filter.pageSize, (filter.page - 1) * filter.pageSize],
   );
   return rows.map(toDto);
 }
 
 /**
- * Tìm theo id, KHÔNG lọc theo `status`.
+ * Tìm theo id, KHÔNG lọc `status`.
  *
- * Khác `listDatasets`: wizard phải đọc được bản ghi `pending` của chính nó giữa
- * hai bước, và trang chi tiết phải hiện được bản ghi `failed` kèm lý do.
+ * Khác `list`: wizard phải đọc được bản ghi `pending` của chính nó giữa hai
+ * bước, và trang chi tiết phải hiện được bản ghi `failed` kèm lý do.
  */
-export async function findById(db: Db, tenantId: number, id: number): Promise<DatasetDto | null> {
+export async function findOne(db: Db, tenantId: number, id: number): Promise<DatasetDto | null> {
   const [rows] = await db.query<DatasetRow[]>(
-    `SELECT ${SELECT_COLUMNS}
-      WHERE d.tenant_id = ? AND d.id = ? AND d.deleted_at IS NULL
-      LIMIT 1`,
+    `${SELECT_LIST} WHERE d.tenant_id = ? AND d.id = ? AND d.deleted_at IS NULL LIMIT 1`,
     [tenantId, id],
   );
   const row = rows[0];
   return row ? toDto(row) : null;
 }
 
+export async function listColumns(db: Db, datasetId: number): Promise<DatasetColumnDto[]> {
+  const [rows] = await db.query<RowDataPacket[]>(
+    `SELECT name, data_type, is_nullable, ordinal, field_name, semantic_type, field_role, included
+       FROM dataset_columns WHERE dataset_id = ? ORDER BY ordinal ASC`,
+    [datasetId],
+  );
+  return rows.map((r) => ({
+    name: String(r['name']),
+    dataType: String(r['data_type']),
+    isNullable: Number(r['is_nullable']) === 1,
+    ordinal: Number(r['ordinal']),
+    fieldName: r['field_name'] === null ? null : String(r['field_name']),
+    semanticType: (r['semantic_type'] as SemanticType | null) ?? null,
+    fieldRole: (r['field_role'] as FieldRole | null) ?? null,
+    included: Number(r['included']) === 1,
+  }));
+}
+
+/** Cặp (schema, table) đã có trong kho — nuôi ô tích sẵn của hộp thoại đồng bộ. */
+export async function listImportedTables(
+  db: Db,
+  tenantId: number,
+  connectionId: number,
+): Promise<{ schema: string; table: string }[]> {
+  const [rows] = await db.query<RowDataPacket[]>(
+    `SELECT source_schema, source_table FROM datasets
+      WHERE tenant_id = ? AND connection_id = ? AND deleted_at IS NULL`,
+    [tenantId, connectionId],
+  );
+  return rows.map((r) => ({
+    schema: String(r['source_schema']),
+    table: String(r['source_table']),
+  }));
+}
+
 /**
- * Khoá lưu trữ của một dataset.
+ * Tạo hoặc hồi sinh một dataset cho một bảng nguồn (nguồn `connection`).
  *
- * Tách riêng khỏi `findById` vì `s3_key` không thuộc về DTO — nó là chi tiết hạ
- * tầng mà không màn hình nào cần.
+ * `ON DUPLICATE KEY UPDATE` dựa vào `uq_datasets_source` — chính là thứ biến
+ * "đồng bộ lần hai" thành cập nhật thay vì nhân đôi kho dữ liệu.
  *
- * Nói cho đúng: đây KHÔNG phải một biện pháp bảo mật. Presigned URL bắt buộc
- * chứa khoá trong đường dẫn, nên client đã biết khoá của chính mình từ bước xin
- * URL. Thứ thật sự bảo vệ là khoá do server sinh với một UUID ngẫu nhiên và
- * mang tiền tố tổ chức của người gọi — biết khoá của mình không giúp đoán khoá
- * của người khác. Xem `services/dataset/storageKey.ts`.
+ * Nhánh UPDATE cố ý KHÔNG ghi đè `name`: người dùng có thể đã đổi tên hiển thị
+ * ở mục 8.9, và một lần đồng bộ định kỳ không được xoá công sức đó. Nhưng nó CÓ
+ * đặt `deleted_at = NULL` — đồng bộ lại một bảng từng bị xoá là cách hồi sinh
+ * nó, và giữ nguyên id thì mọi thứ trỏ tới dataset đó vẫn còn nguyên.
+ *
+ * Trả về `{ id, isNew }`: `affectedRows` của MySQL là 1 khi INSERT và 2 khi
+ * UPDATE có thay đổi — nhưng là 0 khi UPDATE mà không đổi giá trị nào, nên
+ * không dùng nó để phân biệt được. Đọc lại bằng SELECT là cách duy nhất chắc.
  */
-export async function findStorageKey(
+export async function upsert(
+  db: Db,
+  tenantId: number,
+  input: {
+    connectionId: number;
+    sourceSchema: string;
+    sourceTable: string;
+    name: string;
+    columnCount: number;
+    /** Workspace nhận bảng này. Xem ghi chú `workspace_id` ở migration 8. */
+    workspaceId: number | null;
+  },
+): Promise<{ id: number; isNew: boolean }> {
+  const [existing] = await db.query<RowDataPacket[]>(
+    `SELECT id FROM datasets
+      WHERE tenant_id = ? AND connection_id = ? AND source_schema = ? AND source_table = ?
+      LIMIT 1`,
+    [tenantId, input.connectionId, input.sourceSchema, input.sourceTable],
+  );
+  const found = existing[0];
+
+  await db.query<ResultSetHeader>(
+    `INSERT INTO datasets
+       (tenant_id, source, workspace_id, connection_id, source_schema, source_table,
+        name, column_count, synced_at, status)
+     VALUES (?, 'connection', ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP(3), 'ready')
+     ON DUPLICATE KEY UPDATE
+       column_count = VALUES(column_count),
+       workspace_id = VALUES(workspace_id),
+       synced_at    = CURRENT_TIMESTAMP(3),
+       deleted_at   = NULL`,
+    [
+      tenantId,
+      input.workspaceId,
+      input.connectionId,
+      input.sourceSchema,
+      input.sourceTable,
+      input.name,
+      input.columnCount,
+    ],
+  );
+
+  if (found) return { id: Number(found['id']), isNew: false };
+
+  const [rows] = await db.query<RowDataPacket[]>(
+    `SELECT id FROM datasets
+      WHERE tenant_id = ? AND connection_id = ? AND source_schema = ? AND source_table = ?
+      LIMIT 1`,
+    [tenantId, input.connectionId, input.sourceSchema, input.sourceTable],
+  );
+  const row = rows[0];
+  if (!row) throw new Error('Vừa tạo dataset xong nhưng đọc lại không thấy');
+  return { id: Number(row['id']), isNew: true };
+}
+
+/**
+ * Thay toàn bộ danh sách cột của một dataset.
+ *
+ * Xoá sạch rồi chèn lại, KHÔNG so từng cột để tìm khác biệt. Bảng nguồn đổi
+ * schema thì cột có thể bị đổi tên, đổi thứ tự, đổi kiểu và biến mất cùng lúc —
+ * viết thuật toán khớp cho ngần ấy trường hợp là công sức cho một thứ chạy vài
+ * lần một ngày trên vài chục dòng.
+ *
+ * An toàn vì `dataset_columns` chỉ là ẢNH CHỤP schema nguồn, không ai trỏ vào id
+ * của nó. Đến Section 09 khi mô hình dữ liệu tham chiếu tới cột thì cách này
+ * phải đổi — ghi lại ở đây để lúc đó không ai xoá nhầm.
+ *
+ * PHẢI gọi trong transaction cùng việc nạp dòng: giữa DELETE và INSERT, dataset
+ * không có cột nào.
+ */
+export interface ColumnInput {
+  name: string;
+  dataType: string;
+  isNullable: boolean;
+  ordinal: number;
+  /* Tầng ngữ nghĩa — chỉ nguồn `file` điền, nguồn `connection` để trống. */
+  fieldName?: string | null;
+  semanticType?: SemanticType | null;
+  fieldRole?: FieldRole | null;
+  included?: boolean;
+}
+
+export async function replaceColumns(
+  db: Db,
+  datasetId: number,
+  columns: ColumnInput[],
+): Promise<void> {
+  await db.query<ResultSetHeader>('DELETE FROM dataset_columns WHERE dataset_id = ?', [datasetId]);
+  if (columns.length === 0) return;
+
+  await db.query<ResultSetHeader>(
+    `INSERT INTO dataset_columns
+       (dataset_id, name, data_type, is_nullable, ordinal,
+        field_name, semantic_type, field_role, included)
+     VALUES ?`,
+    [
+      columns.map((c) => [
+        datasetId,
+        c.name,
+        c.dataType,
+        c.isNullable ? 1 : 0,
+        c.ordinal,
+        c.fieldName ?? null,
+        c.semanticType ?? null,
+        c.fieldRole ?? null,
+        c.included === false ? 0 : 1,
+      ]),
+    ],
+  );
+}
+
+export async function rename(
   db: Db,
   tenantId: number,
   id: number,
-): Promise<{ key: string; ext: FileExt } | null> {
-  const [rows] = await db.query<RowDataPacket[]>(
-    `SELECT s3_key, file_ext FROM datasets
-      WHERE tenant_id = ? AND id = ? AND deleted_at IS NULL
-      LIMIT 1`,
-    [tenantId, id],
+  name: string,
+): Promise<number> {
+  const [result] = await db.query<ResultSetHeader>(
+    `UPDATE datasets SET name = ? WHERE tenant_id = ? AND id = ? AND deleted_at IS NULL`,
+    [name, tenantId, id],
   );
-  const row = rows[0];
-  return row ? { key: String(row['s3_key']), ext: row['file_ext'] as FileExt } : null;
+  return result.affectedRows;
 }
 
-export interface CreateDatasetInput {
+export async function softDelete(db: Db, tenantId: number, id: number): Promise<number> {
+  const [result] = await db.query<ResultSetHeader>(
+    `UPDATE datasets SET deleted_at = CURRENT_TIMESTAMP(3)
+      WHERE tenant_id = ? AND id = ? AND deleted_at IS NULL`,
+    [tenantId, id],
+  );
+  return result.affectedRows;
+}
+
+// ─── Nguồn `file` (§7) ───────────────────────────────────────────────────────
+
+export interface CreateFileDatasetInput {
   workspaceId: number;
   name: string;
   originalFilename: string;
@@ -217,15 +420,17 @@ export interface CreateDatasetInput {
   createdBy: number;
 }
 
-export async function createDataset(
+/** Bản ghi `pending` sinh ra lúc xin presigned URL, trước khi file lên tới nơi. */
+export async function createFileDataset(
   db: Db,
   tenantId: number,
-  input: CreateDatasetInput,
+  input: CreateFileDatasetInput,
 ): Promise<number> {
   const [result] = await db.query<ResultSetHeader>(
     `INSERT INTO datasets
-       (tenant_id, workspace_id, name, original_filename, file_ext, s3_key, created_by)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+       (tenant_id, source, workspace_id, name, original_filename, file_ext, s3_key,
+        status, created_by)
+     VALUES (?, 'file', ?, ?, ?, ?, ?, 'pending', ?)`,
     [
       tenantId,
       input.workspaceId,
@@ -239,20 +444,56 @@ export async function createDataset(
   return result.insertId;
 }
 
+/**
+ * Khoá lưu trữ của một dataset nguồn `file`.
+ *
+ * Tách riêng khỏi `findOne` vì `s3_key` không thuộc về DTO — nó là chi tiết hạ
+ * tầng mà không màn hình nào cần.
+ *
+ * Nói cho đúng: đây KHÔNG phải một biện pháp bảo mật. Presigned URL bắt buộc
+ * chứa khoá trong đường dẫn, nên client đã biết khoá của chính mình từ bước xin
+ * URL. Thứ thật sự bảo vệ là khoá do server sinh với một UUID ngẫu nhiên và mang
+ * tiền tố tổ chức của người gọi.
+ */
+export async function findStorageKey(
+  db: Db,
+  tenantId: number,
+  id: number,
+): Promise<{ key: string; ext: FileExt } | null> {
+  const [rows] = await db.query<RowDataPacket[]>(
+    `SELECT s3_key, file_ext FROM datasets
+      WHERE tenant_id = ? AND id = ? AND source = 'file' AND deleted_at IS NULL
+      LIMIT 1`,
+    [tenantId, id],
+  );
+  const row = rows[0];
+  if (!row || row['s3_key'] === null) return null;
+  return { key: String(row['s3_key']), ext: row['file_ext'] as FileExt };
+}
+
 export async function markReady(
   db: Db,
   datasetId: number,
-  input: { name: string; sheetName: string; rowCount: number; truncated: boolean; fileSize: number },
+  input: {
+    name: string;
+    sheetName: string;
+    rowCount: number;
+    columnCount: number;
+    truncated: boolean;
+    fileSize: number;
+  },
 ): Promise<void> {
   await db.query(
     `UPDATE datasets
-        SET status = 'ready', name = ?, sheet_name = ?, row_count = ?,
-            truncated = ?, file_size_bytes = ?, error_message = NULL
+        SET status = 'ready', name = ?, sheet_name = ?, row_count = ?, column_count = ?,
+            truncated = ?, file_size_bytes = ?, synced_at = CURRENT_TIMESTAMP(3),
+            error_message = NULL
       WHERE id = ?`,
     [
       input.name,
       input.sheetName,
       input.rowCount,
+      input.columnCount,
       input.truncated ? 1 : 0,
       input.fileSize,
       datasetId,
@@ -264,23 +505,13 @@ export async function markReady(
  * Ghi lại lý do hỏng thay vì xoá bản ghi.
  *
  * Xoá đi thì người dùng tải file lên, thấy màn hình lỗi, bấm F5 và không còn dấu
- * vết nào của việc vừa xảy ra. Giữ lại kèm lý do thì trang §7.8 lọc `failed` là
- * đọc được chuyện gì đã hỏng.
+ * vết nào của việc vừa xảy ra.
  */
 export async function markFailed(db: Db, datasetId: number, reason: string): Promise<void> {
-  await db.query(
-    `UPDATE datasets SET status = 'failed', error_message = ? WHERE id = ?`,
-    [reason.slice(0, 500), datasetId],
-  );
-}
-
-export async function softDeleteDataset(db: Db, tenantId: number, id: number): Promise<number> {
-  const [result] = await db.query<ResultSetHeader>(
-    `UPDATE datasets SET deleted_at = CURRENT_TIMESTAMP(3)
-      WHERE tenant_id = ? AND id = ? AND deleted_at IS NULL`,
-    [tenantId, id],
-  );
-  return result.affectedRows;
+  await db.query(`UPDATE datasets SET status = 'failed', error_message = ? WHERE id = ?`, [
+    reason.slice(0, 500),
+    datasetId,
+  ]);
 }
 
 /** Báo cáo còn sống đang dựng trên bộ dữ liệu này. */
@@ -292,79 +523,7 @@ export async function countLiveReports(db: Db, datasetId: number): Promise<numbe
   return Number(rows[0]?.['total'] ?? 0);
 }
 
-// ─── Cột ─────────────────────────────────────────────────────────────────────
-
-interface ColumnRow extends RowDataPacket {
-  id: number;
-  column_index: number;
-  source_name: string;
-  field_name: string;
-  data_type: DatasetColumnDto['dataType'];
-  field_role: DatasetColumnDto['fieldRole'];
-  included: number;
-}
-
-export async function listColumns(db: Db, datasetId: number): Promise<DatasetColumnDto[]> {
-  const [rows] = await db.query<ColumnRow[]>(
-    `SELECT id, column_index, source_name, field_name, data_type, field_role, included
-       FROM dataset_columns WHERE dataset_id = ? ORDER BY column_index ASC`,
-    [datasetId],
-  );
-  return rows.map((row) => ({
-    id: Number(row.id),
-    columnIndex: Number(row.column_index),
-    sourceName: row.source_name,
-    fieldName: row.field_name,
-    dataType: row.data_type,
-    fieldRole: row.field_role,
-    included: row.included === 1,
-  }));
-}
-
-export interface ColumnInput {
-  columnIndex: number;
-  sourceName: string;
-  fieldName: string;
-  dataType: DatasetColumnDto['dataType'];
-  fieldRole: DatasetColumnDto['fieldRole'];
-  included: boolean;
-}
-
-/**
- * Thay toàn bộ cột của một dataset.
- *
- * Xoá hết rồi chèn lại thay vì so sánh từng dòng: cột được chốt đúng MỘT lần ở
- * bước 3 của wizard, nên "cập nhật một phần" là tình huống không tồn tại. PHẢI
- * gọi trong transaction cùng với việc nạp dòng — giữa DELETE và INSERT, dataset
- * không có cột nào.
- */
-export async function replaceColumns(
-  db: Db,
-  datasetId: number,
-  columns: readonly ColumnInput[],
-): Promise<void> {
-  await db.query('DELETE FROM dataset_columns WHERE dataset_id = ?', [datasetId]);
-  if (columns.length === 0) return;
-
-  await db.query(
-    `INSERT INTO dataset_columns
-       (dataset_id, column_index, source_name, field_name, data_type, field_role, included)
-     VALUES ?`,
-    [
-      columns.map((c) => [
-        datasetId,
-        c.columnIndex,
-        c.sourceName,
-        c.fieldName,
-        c.dataType,
-        c.fieldRole,
-        c.included ? 1 : 0,
-      ]),
-    ],
-  );
-}
-
-// ─── Dòng dữ liệu ────────────────────────────────────────────────────────────
+// ─── Dòng dữ liệu (chỉ nguồn `file`) ─────────────────────────────────────────
 
 /**
  * Số dòng chèn trong một câu INSERT.
@@ -392,22 +551,26 @@ export async function replaceRows(
 }
 
 /**
- * Đọc toàn bộ dòng của một bộ dữ liệu.
+ * Đọc toàn bộ dòng của một bộ dữ liệu nguồn `file`.
  *
  * ⚠️ THỨ TỰ KHOÁ trong mỗi document KHÔNG phải thứ tự cột trong file. MySQL lưu
  * JSON ở dạng nhị phân đã phân tích sẵn và sắp lại khoá theo ĐỘ DÀI trước, rồi
  * mới tới thứ tự byte — `Khu vuc` (7 ký tự) nằm trước `San pham` (8).
  *
- * Nơi nào cần đúng thứ tự cột thì đọc `dataset_columns` theo `column_index`.
- * Dựa vào `Object.keys()` của kết quả hàm này là sai, và sai một cách im lặng.
+ * Nơi nào cần đúng thứ tự cột thì đọc `dataset_columns` theo `ordinal`. Dựa vào
+ * `Object.keys()` của kết quả hàm này là sai, và sai một cách im lặng.
  */
 export async function readRows(
   db: Db,
   datasetId: number,
+  /** Bỏ trống = đọc hết. Bảng xem trước truyền vào để không kéo 50.000 dòng. */
+  limit?: number,
 ): Promise<Record<string, unknown>[]> {
   const [rows] = await db.query<RowDataPacket[]>(
-    'SELECT data FROM dataset_rows WHERE dataset_id = ? ORDER BY row_index ASC',
-    [datasetId],
+    `SELECT data FROM dataset_rows WHERE dataset_id = ? ORDER BY row_index ASC${
+      limit === undefined ? '' : ' LIMIT ?'
+    }`,
+    limit === undefined ? [datasetId] : [datasetId, limit],
   );
   // mysql2 tự parse cột JSON thành object. Vẫn phòng trường hợp driver trả chuỗi
   // (tuỳ phiên bản và tuỳ cấu hình `jsonStrings`) để không hỏng ở một nơi khác.

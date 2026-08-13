@@ -200,7 +200,7 @@ function SheetPreview({
                     {column.sourceName || `Cột ${column.columnIndex + 1}`}
                   </span>
                   <span className="mt-0.5 block">
-                    <Badge tone="neutral">{TYPE_LABELS[column.dataType]}</Badge>
+                    <Badge tone="neutral">{TYPE_LABELS[column.semanticType]}</Badge>
                   </span>
                 </th>
               ))}

@@ -60,13 +60,39 @@ function controlClass(error: string | undefined, extra = ''): string {
     .join(' ');
 }
 
-interface FieldProps {
+/**
+ * Hai cách nối control với dữ liệu, dùng đúng MỘT trong hai.
+ *
+ * `registration` cho form dựng bằng react-hook-form (đăng ký, mời thành viên…).
+ * `value` + `onChange` cho form mà state phải điều khiển tay — wizard kết nối là
+ * ví dụ: mỗi lần đổi bất kỳ ô nào, nó phải xoá kết quả kiểm tra kết nối, và
+ * react-hook-form không diễn tả được ràng buộc chéo đó một cách gọn hơn.
+ *
+ * Gộp vào MỘT component thay vì viết `ControlledField` riêng: hai component chỉ
+ * khác nhau ở cách lấy dữ liệu sẽ lệch nhau về giao diện ngay lần sửa CSS đầu
+ * tiên, và lúc đó không ai biết cái nào mới đúng.
+ */
+interface ControlBinding {
+  registration?: UseFormRegisterReturn;
+  value?: string;
+  onChange?: (event: React.ChangeEvent<HTMLInputElement>) => void;
+}
+
+interface FieldProps extends ControlBinding {
   label: string;
-  registration: UseFormRegisterReturn;
   error?: string | undefined;
   hint?: string;
   type?: string;
   autoComplete?: string;
+  /**
+   * Chữ mờ trong ô khi chưa nhập gì.
+   *
+   * Dành cho ô mà ĐỊNH DẠNG mới là thứ khó, không phải ý nghĩa: "vd:
+   * db.example.com" nói được điều mà nhãn "Địa chỉ máy chủ" không nói. Đừng dùng
+   * nó để thay nhãn — chữ mờ biến mất ngay khi người dùng gõ ký tự đầu tiên, và
+   * lúc kiểm lại form thì không còn gì cho biết ô đó là ô gì.
+   */
+  placeholder?: string;
   /** Hiện nút con mắt để xem mật khẩu vừa gõ. */
   revealable?: boolean;
 }
@@ -74,10 +100,13 @@ interface FieldProps {
 export function Field({
   label,
   registration,
+  value,
+  onChange,
   error,
   hint,
   type = 'text',
   autoComplete,
+  placeholder,
   revealable = false,
 }: FieldProps) {
   const [revealed, setRevealed] = useState(false);
@@ -91,10 +120,14 @@ export function Field({
             id={id}
             type={inputType}
             autoComplete={autoComplete}
+            placeholder={placeholder}
             aria-invalid={Boolean(error)}
             aria-describedby={describedBy}
             className={controlClass(error, revealable ? 'pr-11' : '')}
-            {...registration}
+            // Trải MỘT trong hai, không trải cả hai: `registration` cũng mang
+            // theo `onChange` của riêng nó, nên có cả hai thì cái sau ghi đè cái
+            // trước và một nửa số ô lặng lẽ ngừng cập nhật.
+            {...(registration ?? { value: value ?? '', onChange })}
           />
 
           {revealable && (
@@ -123,7 +156,10 @@ export interface SelectOption {
 
 interface SelectFieldProps {
   label: string;
-  registration: UseFormRegisterReturn;
+  /** Xem `ControlBinding` — dùng đúng một trong hai cách nối dữ liệu. */
+  registration?: UseFormRegisterReturn;
+  value?: string;
+  onChange?: (event: React.ChangeEvent<HTMLSelectElement>) => void;
   /**
    * Nhận cả mảng chuỗi lẫn mảng {value,label}.
    *
@@ -133,8 +169,14 @@ interface SelectFieldProps {
    * hai cái sẽ lệch nhau về giao diện ngay lần sửa đầu tiên.
    */
   options: readonly string[] | readonly SelectOption[];
-  /** Dòng hiển thị khi chưa chọn gì. Nó có value rỗng nên form vẫn ở trạng thái chưa hợp lệ. */
-  placeholder: string;
+  /**
+   * Dòng hiển thị khi chưa chọn gì. Nó có value rỗng nên form vẫn ở trạng thái
+   * chưa hợp lệ.
+   *
+   * Bỏ trống khi mọi giá trị đều hợp lệ ngay từ đầu (ô "Loại CSDL" luôn có sẵn
+   * một lựa chọn) — khi đó không có dòng trống nào được vẽ ra.
+   */
+  placeholder?: string;
   /**
    * Cho phép quay lại "chưa chọn gì".
    *
@@ -161,6 +203,8 @@ function normalizeOptions(
 export function SelectField({
   label,
   registration,
+  value,
+  onChange,
   options,
   placeholder,
   allowEmpty = false,
@@ -179,16 +223,24 @@ export function SelectField({
             // nhau hẳn giữa Chrome/Firefox/Safari và không đổi màu theo trạng
             // thái lỗi được.
             className={controlClass(error, 'appearance-none pr-10')}
-            defaultValue=""
-            {...registration}
+            // `defaultValue` CHỈ khi dùng registration. Đặt nó cùng lúc với
+            // `value` sẽ biến select thành controlled-lẫn-uncontrolled và React
+            // cảnh báo, còn giá trị thì nhảy về rỗng ở lần render đầu.
+            {...(registration
+              ? { defaultValue: '', ...registration }
+              : { value: value ?? '', onChange })}
           >
             {/* disabled + value rỗng: người dùng không quay lại chọn "trống"
                 được sau khi đã chọn, và giá trị rỗng khiến zod báo chưa hợp lệ
                 nên nút Submit vẫn khoá đúng như yêu cầu.
-                `allowEmpty` bỏ `disabled` cho những form mà trống là hợp lệ. */}
-            <option value="" disabled={!allowEmpty}>
-              {placeholder}
-            </option>
+                `allowEmpty` bỏ `disabled` cho những form mà trống là hợp lệ.
+                Không có `placeholder` thì bỏ hẳn dòng này — dùng cho ô luôn có
+                sẵn một lựa chọn hợp lệ. */}
+            {placeholder !== undefined && (
+              <option value="" disabled={!allowEmpty}>
+                {placeholder}
+              </option>
+            )}
             {normalizeOptions(options).map((option) => (
               <option key={option.value} value={option.value}>
                 {option.label}

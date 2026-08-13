@@ -3,7 +3,6 @@ import { RegisterPage } from './features/auth/RegisterPage';
 import { AdminLayout } from './layouts/AdminLayout';
 import { UserLayout } from './layouts/UserLayout';
 import ChangePasswordPage from './pages/ChangePasswordPage';
-import DatasetsPage from './pages/DatasetsPage';
 import ForbiddenPage from './pages/ForbiddenPage';
 import HealthPage from './pages/HealthPage';
 import HomePage from './pages/HomePage';
@@ -15,6 +14,10 @@ import OverviewPage from './pages/admin/OverviewPage';
 import TenantsPage from './pages/admin/TenantsPage';
 import UsersPage from './pages/admin/UsersPage';
 import WorkspacesPage from './pages/admin/WorkspacesPage';
+import ConnectionFormPage from './pages/tenant/ConnectionFormPage';
+import ConnectionsPage from './pages/tenant/ConnectionsPage';
+import DatasetDetailPage from './pages/tenant/DatasetDetailPage';
+import DatasetsPage from './pages/tenant/DatasetsPage';
 import MembersPage from './pages/tenant/MembersPage';
 import OrganizationPage from './pages/tenant/OrganizationPage';
 import OrganizationProfilePage from './pages/tenant/OrganizationProfilePage';
@@ -82,12 +85,20 @@ export default function App(): React.ReactElement {
           <Route path="/home" element={<HomePage />} />
           <Route path="/profile" element={<ProfilePage />} />
 
-          {/* §7 — bộ dữ liệu và báo cáo.
+          {/* §7 + §8 — kho dữ liệu và báo cáo.
               KHÔNG bọc `TenantAdminRoute`: mọi vai trò, kể cả viewer, đều có
               `dataset:read` và `report:read` trong ma trận mặc định. Chặn ở
               route sẽ giấu mất thứ họ có quyền xem. Các thao tác GHI vẫn bị
-              `authorize()` chặn ở backend, và giao diện ẩn nút tương ứng. */}
+              `authorize()` chặn ở backend, và giao diện ẩn nút tương ứng.
+
+              MỘT trang `/datasets` cho cả hai nguồn. Trước khi gộp có hai khai
+              báo cùng đường dẫn này, và react-router chỉ dùng cái đầu — nên bộ
+              dữ liệu từ CSDL không có cách nào hiện ra. */}
           <Route path="/datasets" element={<DatasetsPage />} />
+          {/* Chi tiết là TRANG chứ không phải hộp thoại: một bảng thật có 40–80
+              cột, và cột "Kiểu dữ liệu" bị cắt cụt trong khung 32rem thì trang
+              xem schema mất đúng thứ nó sinh ra để hiện. */}
+          <Route path="/datasets/:id" element={<DatasetDetailPage />} />
           <Route path="/reports/:id" element={<ReportPage />} />
 
           {/* ─── Quản lý tổ chức: một trang, ba tab ─────────────────────────
@@ -100,12 +111,24 @@ export default function App(): React.ReactElement {
             <Route element={<TenantAdminRoute needs="manageTenant" />}>
               <Route index element={<OrganizationProfilePage />} />
             </Route>
+            <Route element={<TenantAdminRoute needs="manageConnections" />}>
+              <Route path="connections" element={<ConnectionsPage />} />
+            </Route>
             <Route element={<TenantAdminRoute needs="manageWorkspaces" />}>
               <Route path="workspaces" element={<TenantWorkspacesPage />} />
             </Route>
             <Route element={<TenantAdminRoute needs="manageMembers" />}>
               <Route path="members" element={<MembersPage />} />
             </Route>
+          </Route>
+
+          {/* Wizard kết nối là ANH EM của `/organization`, không phải con: nó
+              chiếm trọn khu nội dung thay vì nằm dưới tiêu đề và thanh bốn tab.
+              Xem `ConnectionFormPage`. Cùng ô quyền với tab Kết nối, nên không
+              có đường nào bấm vào rồi ăn 403. */}
+          <Route element={<TenantAdminRoute needs="manageConnections" />}>
+            <Route path="/organization/connections/new" element={<ConnectionFormPage />} />
+            <Route path="/organization/connections/:id/edit" element={<ConnectionFormPage />} />
           </Route>
 
           {/* Đường dẫn cũ vẫn sống. Người dùng đã lưu bookmark hoặc dán link cho

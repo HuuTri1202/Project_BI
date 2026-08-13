@@ -216,7 +216,7 @@ export function toPreview(sheet: ParsedSheet): SheetPreviewDto {
       return {
         columnIndex,
         sourceName,
-        dataType: inferColumnType(values),
+        semanticType: inferColumnType(values),
         samples: values.filter((v) => v !== '').slice(0, 3),
       };
     }),

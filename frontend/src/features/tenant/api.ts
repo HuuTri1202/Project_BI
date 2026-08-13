@@ -1,14 +1,24 @@
 import type {
   AdminUserDto,
   AdminWorkspaceDto,
+  ConnectionDto,
+  ConnectionKind,
+  ConnectionPrerequisitesDto,
   CreateAdminUserResultDto,
+  DatasetDetailDto,
+  DatasetDto,
+  DatasetPreviewDto,
+  DatasetSource,
   HomeDataDto,
   JobTitle,
   PageResult,
   ProjectDto,
   ResetMemberPasswordResultDto,
+  SourceTableDto,
+  SyncResultDto,
   TenantDto,
   TenantRole,
+  TestConnectionResultDto,
   UpdateProfileDto,
   UserDto,
 } from '@bi/shared';
@@ -65,6 +75,122 @@ export async function fetchTenant(): Promise<TenantDto> {
 export async function updateTenant(name: string): Promise<TenantDto> {
   const { data } = await apiClient.patch<TenantDto>('/v1/tenant', { name });
   return data;
+}
+
+// ─── Kết nối CSDL (§8) ───────────────────────────────────────────────────────
+
+export async function fetchPrerequisites(): Promise<ConnectionPrerequisitesDto> {
+  const { data } = await apiClient.get<ConnectionPrerequisitesDto>(
+    '/v1/connections/prerequisites',
+  );
+  return data;
+}
+
+export async function fetchConnections(): Promise<ConnectionDto[]> {
+  const { data } = await apiClient.get<ConnectionDto[]>('/v1/connections');
+  return data;
+}
+
+export interface ConnectionFormValues {
+  name: string;
+  kind: ConnectionKind;
+  host: string;
+  port: number;
+  useSsl: boolean;
+  databaseName: string;
+  username: string;
+  password: string;
+}
+
+/** Thử kết nối CHƯA lưu — bước 3 của wizard. */
+export async function testConnection(
+  input: ConnectionFormValues,
+): Promise<TestConnectionResultDto> {
+  const { data } = await apiClient.post<TestConnectionResultDto>('/v1/connections/test', input);
+  return data;
+}
+
+export async function createConnection(input: ConnectionFormValues): Promise<ConnectionDto> {
+  const { data } = await apiClient.post<ConnectionDto>('/v1/connections', input);
+  return data;
+}
+
+/** Mật khẩu chuỗi rỗng = giữ nguyên mật khẩu đang lưu. */
+export async function updateConnection(
+  id: number,
+  input: ConnectionFormValues,
+): Promise<ConnectionDto> {
+  const { data } = await apiClient.patch<ConnectionDto>(`/v1/connections/${id}`, input);
+  return data;
+}
+
+export async function testSavedConnection(id: number): Promise<TestConnectionResultDto> {
+  const { data } = await apiClient.post<TestConnectionResultDto>(`/v1/connections/${id}/test`);
+  return data;
+}
+
+export async function deleteConnection(id: number): Promise<void> {
+  await apiClient.delete(`/v1/connections/${id}`);
+}
+
+export async function fetchSourceTables(id: number): Promise<SourceTableDto[]> {
+  const { data } = await apiClient.get<SourceTableDto[]>(`/v1/connections/${id}/tables`);
+  return data;
+}
+
+export async function syncTables(
+  id: number,
+  tables: { schema: string; table: string }[],
+): Promise<SyncResultDto> {
+  const { data } = await apiClient.post<SyncResultDto>(`/v1/connections/${id}/sync`, { tables });
+  return data;
+}
+
+// ─── Kho dữ liệu (§8.5) ──────────────────────────────────────────────────────
+
+export interface DatasetListQuery {
+  page: number;
+  pageSize: number;
+  sort: string;
+  order: 'asc' | 'desc';
+  q: string;
+  connectionId: number | '';
+  /** `''` = cả hai nguồn. Xem `DATASET_SOURCE_LABELS`. */
+  source: DatasetSource | '';
+}
+
+export async function fetchDatasets(
+  query: DatasetListQuery,
+): Promise<PageResult<DatasetDto>> {
+  const { data } = await apiClient.get<PageResult<DatasetDto>>('/v1/datasets', {
+    params: clean({ ...query }),
+  });
+  return data;
+}
+
+export async function fetchDataset(id: number): Promise<DatasetDetailDto> {
+  const { data } = await apiClient.get<DatasetDetailDto>(`/v1/datasets/${id}`);
+  return data;
+}
+
+/**
+ * Vài dòng đầu, đọc TRỰC TIẾP từ CSDL nguồn.
+ *
+ * Không nhận tham số `limit`: số dòng do backend quyết. Cho client chọn nghĩa là
+ * ai đó gửi một con số rất lớn và ta kéo cả bảng của khách hàng qua mạng.
+ */
+export async function fetchDatasetPreview(id: number): Promise<DatasetPreviewDto> {
+  const { data } = await apiClient.get<DatasetPreviewDto>(`/v1/datasets/${id}/preview`);
+  return data;
+}
+
+export async function renameDataset(id: number, name: string): Promise<DatasetDto> {
+  const { data } = await apiClient.patch<DatasetDto>(`/v1/datasets/${id}`, { name });
+  return data;
+}
+
+export async function deleteDataset(id: number): Promise<void> {
+  await apiClient.delete(`/v1/datasets/${id}`);
 }
 
 // ─── Workspace (§4.5, §4.6) ──────────────────────────────────────────────────

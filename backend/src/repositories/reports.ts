@@ -1,4 +1,4 @@
-import type { ChartType, ReportConfigDto, ReportDto } from '@bi/shared';
+import type { ChartType, DatasetSource, ReportConfigDto, ReportDto } from '@bi/shared';
 import type { ResultSetHeader, RowDataPacket } from 'mysql2';
 import { escapeLikeTerm } from '../utils/sql';
 import type { Db } from './db';
@@ -19,6 +19,7 @@ interface ReportRow extends RowDataPacket {
   workspace_id: number;
   dataset_id: number;
   dataset_name: string;
+  dataset_source: DatasetSource;
   name: string;
   chart_type: ChartType | null;
   config: unknown;
@@ -28,6 +29,7 @@ interface ReportRow extends RowDataPacket {
 }
 
 const SELECT_COLUMNS = `r.id, r.workspace_id, r.dataset_id, d.name AS dataset_name,
+            d.source AS dataset_source,
             r.name, r.chart_type, r.config, u.full_name AS creator_name,
             r.created_at, r.updated_at
        FROM reports r
@@ -80,6 +82,7 @@ function toDto(row: ReportRow): ReportDto {
     workspaceId: Number(row.workspace_id),
     datasetId: Number(row.dataset_id),
     datasetName: row.dataset_name,
+    datasetSource: row.dataset_source,
     name: row.name,
     chartType: row.chart_type,
     config: parseConfig(row.config),

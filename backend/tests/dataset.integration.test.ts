@@ -145,10 +145,10 @@ async function commitSheets(
     .send({ name, sheets });
   expect(res.status, JSON.stringify(res.body)).toBe(200);
 
-  return res.body.map((d: { dataset: { id: number; sheetName: string; name: string } }) => ({
-    id: d.dataset.id,
-    sheetName: d.dataset.sheetName,
-    name: d.dataset.name,
+  return res.body.map((d: { id: number; sheetName: string; name: string }) => ({
+    id: d.id,
+    sheetName: d.sheetName,
+    name: d.name,
   }));
 }
 
@@ -373,8 +373,8 @@ describe('§7.3 kiểm định dạng bằng magic bytes', () => {
       .get(`/api/v1/datasets/${datasetId}`)
       .set(bearer(f.tokenAdminA));
 
-    expect(res.body.dataset.status).toBe('failed');
-    expect(res.body.dataset.errorMessage).toBeTruthy();
+    expect(res.body.status).toBe('failed');
+    expect(res.body.errorMessage).toBeTruthy();
   });
 
   it('gọi analyze khi chưa tải file lên -> 409, không phải 500', async () => {
@@ -439,8 +439,8 @@ describe('§7.5 đọc CSV khó', () => {
       .set(bearer(f.tokenAdminA));
 
     const columns = res.body.sheets[0].columns;
-    expect(columns[0].dataType).toBe('text');
-    expect(columns[2].dataType).toBe('number');
+    expect(columns[0].semanticType).toBe('text');
+    expect(columns[2].semanticType).toBe('number');
     // Mẫu để người dùng đối chiếu bằng mắt xem đoán có đúng không.
     expect(columns[0].samples.length).toBeGreaterThan(0);
   });
@@ -566,8 +566,8 @@ describe('trần số dòng', () => {
       .get(`/api/v1/datasets/${datasetId}`)
       .set(bearer(f.tokenAdminA));
 
-    expect(res.body.dataset.rowCount).toBe(100);
-    expect(res.body.dataset.truncated).toBe(true);
+    expect(res.body.rowCount).toBe(100);
+    expect(res.body.truncated).toBe(true);
   });
 
   it('xem trước tối đa 100 dòng, nhưng NHẬP đủ số dòng', async () => {
@@ -590,8 +590,8 @@ describe('trần số dòng', () => {
       .get(`/api/v1/datasets/${datasetId}`)
       .set(bearer(f.tokenAdminA));
 
-    expect(res.body.dataset.rowCount).toBe(60);
-    expect(res.body.dataset.truncated).toBe(false);
+    expect(res.body.rowCount).toBe(60);
+    expect(res.body.truncated).toBe(false);
   });
 });
 
@@ -676,8 +676,8 @@ describe('§7.5 mỗi sheet là MỘT bộ dữ liệu riêng', () => {
       const res = await request(app)
         .get(`/api/v1/datasets/${item.id}`)
         .set(bearer(f.tokenAdminA));
-      expect(res.body.dataset.originalFilename).toBe('bao-cao.xlsx');
-      expect(res.body.dataset.fileExt).toBe('xlsx');
+      expect(res.body.originalFilename).toBe('bao-cao.xlsx');
+      expect(res.body.fileExt).toBe('xlsx');
     }
   });
 
@@ -726,7 +726,7 @@ describe('§7.5 mỗi sheet là MỘT bộ dữ liệu riêng', () => {
     // Mã nhân viên `0012` phải là CHỮ. Đây là quy tắc giữ số 0 đầu, kiểm trên
     // đường đi thật chứ không chỉ ở test đơn vị.
     const maNv = second.body.columns.find((c: { fieldName: string }) => c.fieldName === 'Ma NV');
-    expect(maNv.dataType).toBe('text');
+    expect(maNv.semanticType).toBe('text');
   });
 
   it('cả lô nạp trong MỘT transaction — hỏng một sheet thì không sheet nào vào', async () => {

@@ -1,8 +1,7 @@
 import {
   DATASET_ERROR_CODES,
-  type DataType,
-  type FieldRole,
   type FileExt,
+  type SemanticType,
 } from '@bi/shared';
 
 import { withTransaction } from '../../db/tx';
@@ -114,7 +113,7 @@ export async function commitDatasets(input: CommitInput): Promise<CommittedDatas
       const datasetId =
         index === 0
           ? input.datasetId
-          : await datasetsRepo.createDataset(conn, input.tenantId, {
+          : await datasetsRepo.createFileDataset(conn, input.tenantId, {
               workspaceId: input.workspaceId,
               name,
               originalFilename: input.originalFilename,
@@ -129,6 +128,7 @@ export async function commitDatasets(input: CommitInput): Promise<CommittedDatas
         name,
         sheetName: sheet.name,
         rowCount: rows.length,
+        columnCount: columns.length,
         truncated: analyzed.result.truncated,
         fileSize: analyzed.fileSize,
       });
@@ -152,7 +152,7 @@ function buildColumns(sheet: ParsedSheet): datasetsRepo.ColumnInput[] {
 
   return sheet.header.map((sourceName, columnIndex) => {
     const values = sheet.rows.slice(0, SAMPLE_ROWS).map((row) => row[columnIndex] ?? '');
-    const dataType = inferColumnType(values);
+    const semanticType = inferColumnType(values);
 
     let fieldName = defaultFieldName(sourceName, columnIndex);
     if (used.has(fieldName)) {
@@ -163,11 +163,17 @@ function buildColumns(sheet: ParsedSheet): datasetsRepo.ColumnInput[] {
     used.add(fieldName);
 
     return {
-      columnIndex,
-      sourceName,
+      // `name`/`ordinal`/`dataType` là những trường DÙNG CHUNG với nguồn
+      // `connection`: ở đó chúng là tên cột và kiểu do CSDL khai báo, ở đây là
+      // tiêu đề trong file và kiểu ta suy ra. Cùng một ý nghĩa, nên cùng một cột.
+      name: sourceName,
+      ordinal: columnIndex,
+      dataType: semanticType,
+      // Ô trống trong file là chuyện thường, nên mọi cột đều cho phép null.
+      isNullable: true,
       fieldName,
-      dataType,
-      fieldRole: defaultFieldRole(dataType),
+      semanticType,
+      fieldRole: defaultFieldRole(semanticType),
       included: true,
     };
   });
@@ -193,19 +199,24 @@ function buildRows(
   return sheet.rows.map((row) => {
     const doc: Record<string, unknown> = {};
     for (const column of columns) {
-      doc[column.fieldName] = normalize(row[column.columnIndex] ?? '', column.dataType);
+      // `fieldName`/`semanticType` là tuỳ chọn trên `ColumnInput` vì nguồn
+      // `connection` không điền; `buildColumns` luôn điền cả hai.
+      doc[column.fieldName ?? column.name] = normalize(
+        row[column.ordinal] ?? '',
+        column.semanticType ?? 'text',
+      );
     }
     return doc;
   });
 }
 
-function normalize(raw: string, dataType: DataType): unknown {
+function normalize(raw: string, semanticType: SemanticType): unknown {
   const trimmed = raw.trim();
   // Ô trống lưu thành `null` chứ không phải chuỗi rỗng: `null` phân biệt được
   // với "giá trị là chuỗi rỗng", và `aggregate` bỏ qua nó đúng cách.
   if (trimmed === '') return null;
 
-  switch (dataType) {
+  switch (semanticType) {
     case 'number':
       return parseNumber(trimmed);
     case 'boolean':
@@ -214,21 +225,4 @@ function normalize(raw: string, dataType: DataType): unknown {
     case 'text':
       return trimmed;
   }
-}
-
-/** Suy ra cấu hình biểu đồ mặc định cho một bộ dữ liệu (§7.6). */
-export function deriveReportConfig(
-  columns: readonly { fieldName: string; dataType: DataType; fieldRole: FieldRole }[],
-): { dimension: string; measure: string | null; aggregate: 'sum' | 'count'; limit: number } {
-  const firstText = columns.find((c) => c.dataType !== 'number');
-  const firstNumber = columns.find((c) => c.dataType === 'number');
-
-  return {
-    dimension: (firstText ?? columns[0])?.fieldName ?? '',
-    measure: firstNumber?.fieldName ?? null,
-    // Không có cột số nào thì đếm dòng — luôn vẽ được, không bao giờ để người
-    // dùng nhìn một biểu đồ trống mà không hiểu vì sao.
-    aggregate: firstNumber ? 'sum' : 'count',
-    limit: 20,
-  };
 }

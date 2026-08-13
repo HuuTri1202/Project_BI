@@ -1,4 +1,16 @@
-import type { AdminUserDto, PageResult, ProjectDto, TenantDto, TenantRole } from '@bi/shared';
+import type {
+  AdminUserDto,
+  ConnectionDto,
+  ConnectionPrerequisitesDto,
+  DatasetDetailDto,
+  DatasetDto,
+  DatasetPreviewDto,
+  PageResult,
+  ProjectDto,
+  SourceTableDto,
+  TenantDto,
+  TenantRole,
+} from '@bi/shared';
 import {
   keepPreviousData,
   useMutation,
@@ -127,6 +139,156 @@ export function useUpdateTenant() {
       await queryClient.invalidateQueries({ queryKey: tenantKeys.tenant() });
     },
   });
+}
+
+// ─── Kết nối CSDL (§8) ───────────────────────────────────────────────────────
+
+export function usePrerequisites(): UseQueryResult<ConnectionPrerequisitesDto> {
+  return useQuery({
+    queryKey: tenantKeys.prerequisites(),
+    queryFn: api.fetchPrerequisites,
+    // Nội dung là hằng số cấu hình phía server — IP hệ thống và danh sách quyền
+    // không đổi giữa hai lần mở wizard.
+    staleTime: Infinity,
+  });
+}
+
+export function useConnections(): UseQueryResult<ConnectionDto[]> {
+  return useQuery({ queryKey: tenantKeys.connections(), queryFn: api.fetchConnections });
+}
+
+function useInvalidateConnections(): () => Promise<void> {
+  const queryClient = useQueryClient();
+  return async () => {
+    await queryClient.invalidateQueries({ queryKey: tenantKeys.connections() });
+  };
+}
+
+export function useCreateConnection() {
+  const invalidate = useInvalidateConnections();
+  return useMutation({ mutationFn: api.createConnection, onSuccess: invalidate });
+}
+
+export function useUpdateConnection() {
+  const invalidate = useInvalidateConnections();
+  return useMutation({
+    mutationFn: ({ id, values }: { id: number; values: api.ConnectionFormValues }) =>
+      api.updateConnection(id, values),
+    onSuccess: invalidate,
+  });
+}
+
+export function useDeleteConnection() {
+  const invalidate = useInvalidateConnections();
+  return useMutation({ mutationFn: api.deleteConnection, onSuccess: invalidate });
+}
+
+/**
+ * Thử lại một kết nối đã lưu.
+ *
+ * Làm mới danh sách sau khi chạy vì backend ghi kết quả vào `last_tested_at` /
+ * `last_test_error` — không invalidate thì huy hiệu trạng thái trên bảng vẫn
+ * hiện kết quả của lần thử trước.
+ */
+export function useTestSavedConnection() {
+  const invalidate = useInvalidateConnections();
+  return useMutation({ mutationFn: api.testSavedConnection, onSuccess: invalidate });
+}
+
+/**
+ * Bảng trong CSDL nguồn.
+ *
+ * `enabled` để nó CHỈ chạy khi hộp thoại đã mở và đã chọn kết nối: mỗi lần gọi
+ * là một kết nối TCP thật tới máy chủ của khách hàng, không phải một truy vấn
+ * rẻ tiền trong database của mình.
+ */
+export function useSourceTables(connectionId: number | null): UseQueryResult<SourceTableDto[]> {
+  return useQuery({
+    queryKey: tenantKeys.sourceTables(connectionId),
+    queryFn: () => api.fetchSourceTables(connectionId as number),
+    enabled: connectionId !== null,
+    // Không tự chạy lại khi người dùng quay lại tab: xem lý do ở trên.
+    refetchOnWindowFocus: false,
+    staleTime: 60_000,
+  });
+}
+
+export function useSyncTables() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, tables }: { id: number; tables: { schema: string; table: string }[] }) =>
+      api.syncTables(id, tables),
+    onSuccess: async () => {
+      // Đồng bộ đổi CẢ BA thứ: kho dữ liệu, cờ `imported` của danh sách bảng, và
+      // `datasetCount` trên từng kết nối. Nhắm đúng một key nghĩa là hai chỗ kia
+      // hiện số cũ ngay sau khi người dùng vừa tự tay làm nó thay đổi.
+      await queryClient.invalidateQueries({ queryKey: tenantKeys.datasets() });
+      await queryClient.invalidateQueries({ queryKey: tenantKeys.connections() });
+    },
+  });
+}
+
+// ─── Kho dữ liệu (§8.5) ──────────────────────────────────────────────────────
+
+export function useDatasets(query: api.DatasetListQuery): UseQueryResult<PageResult<DatasetDto>> {
+  return useQuery({
+    queryKey: tenantKeys.datasetList(query),
+    queryFn: () => api.fetchDatasets(query),
+    placeholderData: keepPreviousData,
+  });
+}
+
+export function useDataset(id: number | null): UseQueryResult<DatasetDetailDto> {
+  return useQuery({
+    queryKey: tenantKeys.dataset(id),
+    queryFn: () => api.fetchDataset(id as number),
+    enabled: id !== null,
+  });
+}
+
+/**
+ * Xem trước dữ liệu của một dataset.
+ *
+ * `enabled` để nó chỉ chạy khi tab "Dữ liệu" đang mở: mỗi lần gọi là một câu
+ * SELECT trên CSDL của khách hàng, không phải một truy vấn rẻ tiền trong database
+ * của mình. Người vào thẳng tab "Cấu trúc" thì không tốn kết nối nào.
+ *
+ * `staleTime` 60 giây và không tự chạy lại khi quay lại tab trình duyệt — cùng
+ * lý do với `useSourceTables`.
+ */
+export function useDatasetPreview(id: number | null): UseQueryResult<DatasetPreviewDto> {
+  return useQuery({
+    queryKey: tenantKeys.datasetPreview(id),
+    queryFn: () => api.fetchDatasetPreview(id as number),
+    enabled: id !== null,
+    refetchOnWindowFocus: false,
+    staleTime: 60_000,
+    // Không thử lại: lỗi ở đây gần như luôn là lỗi phía CSDL nguồn (mất quyền,
+    // bảng đã xoá, máy chủ không tới được), và thử lại chỉ nhân số kết nối mở ra
+    // máy chủ của khách hàng lên trong khi kết quả không đổi.
+    retry: false,
+  });
+}
+
+function useInvalidateDatasets(): () => Promise<void> {
+  const queryClient = useQueryClient();
+  return async () => {
+    await queryClient.invalidateQueries({ queryKey: tenantKeys.datasets() });
+    await queryClient.invalidateQueries({ queryKey: tenantKeys.connections() });
+  };
+}
+
+export function useRenameDataset() {
+  const invalidate = useInvalidateDatasets();
+  return useMutation({
+    mutationFn: ({ id, name }: { id: number; name: string }) => api.renameDataset(id, name),
+    onSuccess: invalidate,
+  });
+}
+
+export function useDeleteDataset() {
+  const invalidate = useInvalidateDatasets();
+  return useMutation({ mutationFn: api.deleteDataset, onSuccess: invalidate });
 }
 
 // ─── Workspace (§4.5) ────────────────────────────────────────────────────────

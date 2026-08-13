@@ -70,6 +70,7 @@ const RESOURCE_NOUNS: Record<Resource, string> = {
   member: 'thành viên',
   project: 'project',
   tenant: 'thông tin tổ chức',
+  connection: 'kết nối CSDL',
 };
 
 function describe(action: Action, resource: Resource): string {

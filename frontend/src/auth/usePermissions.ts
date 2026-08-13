@@ -45,6 +45,8 @@ export type PermissionFlag =
   | 'manageMembers'
   | 'manageWorkspaces'
   | 'manageTenant'
+  | 'manageConnections'
+  | 'readDatasets'
   | 'editContent'
   | 'adminConsole';
 
@@ -62,6 +64,10 @@ export type Permissions = Record<PermissionFlag, boolean> & {
   manageWorkspaces: boolean;
   /** §6.2 — đổi tên tổ chức và cấu hình cấp tổ chức. */
   manageTenant: boolean;
+  /** §8 — thêm, sửa, xoá kết nối tới CSDL của khách hàng. Chứa mật khẩu, nên admin. */
+  manageConnections: boolean;
+  /** §8.5 — mở được Kho dữ liệu. Mọi vai trò đều có. */
+  readDatasets: boolean;
   /** Tạo và sửa project, báo cáo, biểu đồ. */
   editContent: boolean;
   /** Console vận hành hệ thống — trục NỀN TẢNG, không phải trục tổ chức. */
@@ -94,6 +100,8 @@ export function usePermissions(): Permissions {
       manageMembers: can(matrix, 'member', 'invite'),
       manageWorkspaces: can(matrix, 'workspace', 'modify'),
       manageTenant: can(matrix, 'tenant', 'modify'),
+      manageConnections: can(matrix, 'connection', 'modify'),
+      readDatasets: can(matrix, 'dataset', 'read'),
       editContent: can(matrix, 'project', 'modify'),
       // KHÔNG lấy từ ma trận: đây là trục `users.role`, hoàn toàn tách khỏi
       // policy theo tổ chức. Trộn vào cùng một object phẳng sẽ khiến người viết

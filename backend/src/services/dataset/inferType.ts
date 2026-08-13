@@ -1,4 +1,4 @@
-import type { DataType, FieldRole } from '@bi/shared';
+import type { SemanticType, FieldRole } from '@bi/shared';
 
 /**
  * Đoán kiểu dữ liệu của một cột từ nội dung của nó.
@@ -122,7 +122,7 @@ export function looksLikeBoolean(raw: string): boolean {
  *
  * Cột rỗng hoàn toàn -> `text`. Không có gì để đoán, và `text` không làm hỏng gì.
  */
-export function inferColumnType(values: readonly string[]): DataType {
+export function inferColumnType(values: readonly string[]): SemanticType {
   const filled = values.filter((v) => !isBlank(v));
   if (filled.length === 0) return 'text';
 
@@ -138,7 +138,7 @@ export function inferColumnType(values: readonly string[]): DataType {
  * Chỉ số mới đo được; mọi thứ khác dùng để nhóm. Người dùng đổi được ở bước 2 —
  * một cột năm sinh là số nhưng dùng để nhóm mới có nghĩa.
  */
-export function defaultFieldRole(dataType: DataType): FieldRole {
+export function defaultFieldRole(dataType: SemanticType): FieldRole {
   return dataType === 'number' ? 'measure' : 'dimension';
 }
 

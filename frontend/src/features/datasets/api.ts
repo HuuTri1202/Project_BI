@@ -5,8 +5,6 @@ import type {
   CreateReportInput,
   CreateUploadResultDto,
   DatasetDetailDto,
-  DatasetDto,
-  DatasetStatus,
   PageResult,
   ReportConfigDto,
   ReportDataDto,
@@ -38,28 +36,10 @@ function clean(
 }
 
 // ─── Bộ dữ liệu ──────────────────────────────────────────────────────────────
-
-export interface DatasetListQuery {
-  workspaceId: number;
-  page: number;
-  pageSize: number;
-  q: string;
-  status: DatasetStatus | '';
-  sort: string;
-  order: 'asc' | 'desc';
-}
-
-export async function fetchDatasets(query: DatasetListQuery): Promise<PageResult<DatasetDto>> {
-  const { data } = await apiClient.get<PageResult<DatasetDto>>('/v1/datasets', {
-    params: clean({ ...query }),
-  });
-  return data;
-}
-
-export async function fetchDataset(id: number): Promise<DatasetDetailDto> {
-  const { data } = await apiClient.get<DatasetDetailDto>(`/v1/datasets/${id}`);
-  return data;
-}
+//
+// Chỉ luồng TẢI FILE nằm ở đây. Danh sách, chi tiết và xoá bộ dữ liệu dùng chung
+// với nguồn `connection` nên sống ở `features/tenant/api.ts` — một trang Kho dữ
+// liệu, một bộ hàm gọi API.
 
 export async function createUpload(input: {
   workspaceId: number;
@@ -90,10 +70,6 @@ export async function commitDatasets(
   return data;
 }
 
-export async function deleteDataset(id: number): Promise<void> {
-  await apiClient.delete(`/v1/datasets/${id}`);
-}
-
 // ─── Báo cáo ─────────────────────────────────────────────────────────────────
 
 export interface ReportListQuery {
@@ -121,10 +97,10 @@ export async function fetchReportData(id: number): Promise<ReportDataDto> {
 }
 
 /**
- * `config` tuỳ chọn — bỏ trống thì backend tự suy từ cột của bộ dữ liệu.
+ * Tạo báo cáo RỖNG — chỉ tên và bộ dữ liệu.
  *
- * Wizard tích nhiều sheet cùng lúc, mỗi sheet có bộ cột khác nhau, nên không có
- * một cấu hình chung nào đúng cho tất cả.
+ * Không nhận loại biểu đồ hay cấu hình trục: biểu đồ là việc người dùng dựng
+ * trên trang Report, không phải thứ wizard đoán hộ.
  */
 export async function createReport(input: CreateReportInput): Promise<ReportDto> {
   const { data } = await apiClient.post<ReportDto>('/v1/reports', input);

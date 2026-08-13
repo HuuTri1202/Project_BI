@@ -38,6 +38,7 @@ interface TabDef {
 
 const TABS: TabDef[] = [
   { to: '/organization', label: 'Tổ chức', needs: 'manageTenant', end: true },
+  { to: '/organization/connections', label: 'Kết nối', needs: 'manageConnections' },
   { to: '/organization/workspaces', label: 'Workspace', needs: 'manageWorkspaces' },
   { to: '/organization/members', label: 'Thành viên', needs: 'manageMembers' },
 ];
@@ -53,7 +54,7 @@ export default function OrganizationPage(): React.ReactElement {
       <header>
         <h1 className="text-xl font-bold text-slate-900">Quản lý tổ chức</h1>
         <p className="mt-1 text-sm text-slate-500">
-          Thông tin, workspace, thành viên và quyền của{' '}
+          Thông tin, kết nối, workspace, thành viên và quyền của{' '}
           <strong className="font-semibold text-slate-700">{tenant?.name}</strong>.
         </p>
       </header>

@@ -13,12 +13,13 @@ mà **không cần viết SQL**.
 | Phần                                                                                      | Trạng thái                        |
 | ----------------------------------------------------------------------------------------- | --------------------------------- |
 | Hạ tầng dev — 8 container (MySQL, Redis, MinIO, ClickHouse, Cube.js, Kafka, Connect, dbt) | ✅ chạy được                      |
-| Backend skeleton (Express + health check thật)                                            | ✅ chạy được                      |
-| Frontend (React + Vite + Tailwind v4)                                                     | ✅ chạy được                      |
-| **Xác thực người dùng** — đăng nhập, JWT, đổi mật khẩu                                    | ✅ chạy được — xem mục _Xác thực_ |
-| **Trang quản trị** — khung sidebar/topbar, chặn quyền Admin                               | ✅ khung xong, số liệu chưa nối   |
-| Quản lý người dùng & workspace                                                            | ⏳ chưa làm                       |
-| Phân quyền Casbin / ingest / Cube schema / chart                                          | ⏳ chưa làm                       |
+| Backend (Express) + Frontend (React + Vite + Tailwind v4)                                 | ✅ chạy được                      |
+| **Xác thực** — đăng ký, đăng nhập, JWT, đổi mật khẩu                                      | ✅ xong — xem mục _Xác thực_      |
+| **Console vận hành hệ thống** (`/admin`) — nhìn xuyên mọi tổ chức                         | ✅ xong                           |
+| **Khu người dùng** — trang chủ, project, workspace, thành viên, hồ sơ                     | ✅ xong                           |
+| **Phân quyền Casbin** — 8 tài nguyên × 4 hành động, policy trong database                 | ✅ xong                           |
+| **Kết nối CSDL & Kho dữ liệu** (§8) — MySQL, ClickHouse (SSL/TLS, xem trước dữ liệu)      | ✅ xong                           |
+| Mô hình dữ liệu (Cube schema) / phân tích tự phục vụ / biểu đồ                            | ⏳ chưa làm                       |
 
 Xem lộ trình đầy đủ và phân công theo tính năng trong tài liệu kế hoạch của nhóm.
 
@@ -48,7 +49,12 @@ npm run setup        # tạo 3 file .env + npm install cho backend & frontend
 ```
 
 `npm run setup` **không bao giờ ghi đè** file `.env` đã có, nên chạy lại lúc nào
-cũng an toàn.
+cũng an toàn. Lúc tạo mới `backend/.env`, nó **tự sinh** `JWT_SECRET` và
+`CONNECTION_ENCRYPTION_KEY` ngẫu nhiên cho riêng máy bạn — không phải chép tay,
+và không máy nào trong nhóm dùng chung một bí mật.
+
+> ⚠️ Đổi `CONNECTION_ENCRYPTION_KEY` sau khi đã lưu kết nối CSDL = mọi mật khẩu
+> kết nối ngừng giải mã được và phải nhập lại. Không có đường khôi phục.
 
 ### Chạy hằng ngày — 2 lệnh, 2 terminal
 
@@ -462,7 +468,7 @@ Casbin và query proxy giờ đã có `sub` để làm việc: `req.auth` mang
 | Cube báo `ECONNREFUSED` tới ClickHouse                           | Mount cả thư mục `config.d` dạng `:ro` chặn image ghi `docker_related_config.xml`, ClickHouse chỉ nghe `127.0.0.1`. Compose đã mount từng file — đừng đổi lại                          |
 | Kafka client trên host timeout                                   | Phải dùng `localhost:29092` (listener `PLAINTEXT_HOST`), không phải 9092                                                                                                               |
 | `port is already allocated` khi `docker compose up`              | Máy đã có service giữ cổng đó (hay gặp: Redis/Memurai giữ 6379). Xem [docs/ports.md](docs/ports.md)                                                                                    |
-| `EADDRINUSE :::4000`                                             | Còn tiến trình backend cũ. Windows: `Get-NetTCPConnection -LocalPort 4000 -State Listen` rồi `Stop-Process`                                                                            |
+| `EADDRINUSE :::4000`                                             | Còn tiến trình backend cũ chưa chết hẳn. `npm run ports:free` — xem mục _Cổng bị chiếm_ bên dưới                                                                                       |
 | `docker: daemon is not running`                                  | Mở Docker Desktop rồi chạy lại                                                                                                                                                         |
 | Đăng nhập trên web trả 404                                       | `VITE_API_BASE_URL` trong `frontend/.env` phải là `/api`, không phải `/api/v1` — router xác thực mount ở `/api/auth`. Sửa xong phải khởi động lại Vite, biến `VITE_*` chỉ đọc lúc boot |
 | Mở `localhost:5173/health` ra JSON chứ không ra giao diện        | Đúng như thiết kế: Vite proxy `/health` sang Express. Trang kiểm tra kết nối nằm ở `/system-health`                                                                                    |
@@ -470,3 +476,36 @@ Casbin và query proxy giờ đã có `sub` để làm việc: `req.auth` mang
 | Mỗi lần F5 thấy trang login nháy lên rồi biến mất                | Thiếu trạng thái `loading` — `ProtectedRoute` phải chờ `GET /me` trả lời rồi mới kết luận                                                                                              |
 | Tab Network hiện **hai** request `GET /me`                       | `StrictMode` cố tình chạy effect hai lần ở dev. Vô hại, bản build không có                                                                                                             |
 | Đăng nhập sai 10 lần rồi bị 429                                  | Bộ đếm chống dò mật khẩu. Xoá bằng `docker exec bi-redis redis-cli -a redispassword --scan --pattern 'login:fail:*'` rồi `DEL`, hoặc chờ 15 phút                                       |
+
+### Cổng bị chiếm (`EADDRINUSE`)
+
+`npm run dev` đã **tự dọn** cổng 4000 và 5173 trước khi khởi động, nên lỗi này
+gần như không còn gặp. Dọn tay khi cần:
+
+```bash
+npm run ports:free
+```
+
+**Vì sao nó hay xảy ra trên Windows.** `npm run dev` dựng một cây bốn tầng —
+`concurrently → npm → tsx watch → node` — mà tầng cuối mới là tầng mở cổng.
+Windows không có tín hiệu POSIX, nên `child.kill()` mà `concurrently --kill-others`
+dùng thực chất là `TerminateProcess`: nó chỉ hạ đúng tiến trình được trỏ tới, con
+cháu không nhận được gì. Đóng terminal hay bấm Stop của IDE sẽ giết ba tầng trên
+và để tầng dưới cùng sống sót, vẫn ôm cổng 4000.
+
+Ba lớp xử lý, mỗi lớp lo một tình huống khác nhau:
+
+| Lớp | Ở đâu | Cứu được gì |
+| --- | --- | --- |
+| Bắt `SIGINT`/`SIGTERM`/`SIGHUP`/`SIGBREAK` | `backend/src/index.ts` | Tiến trình **nhận được** tín hiệu thì trả cổng tử tế |
+| `predev` gọi `scripts/free-ports.mjs` | `package.json` | Tiến trình **mồ côi** từ lần chạy trước — không sửa được từ bên trong một tiến trình đã mất liên lạc |
+| Bắt `EADDRINUSE` khi `listen` | `backend/src/index.ts` | Cổng bị thứ khác chiếm: in một câu chỉ rõ việc cần làm thay vì 25 dòng stack trace |
+
+Script chỉ giết tiến trình **đang nghe đúng cổng được truyền vào** và **có tên
+nằm trong danh sách cho phép** (`node`, `npm`, `tsx`, `bun`). Cổng bị một ứng
+dụng khác chiếm thì nó cảnh báo rồi dừng — dọn hộ quá tay còn tệ hơn lỗi ban đầu:
+
+```
+[ports] cổng 3310 đang bị "com.docker.backend.exe" (PID 21912) chiếm
+        — KHÔNG phải tiến trình của dự án này, nên bỏ qua.
+```

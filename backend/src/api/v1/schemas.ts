@@ -2,6 +2,7 @@ import {
   AGGREGATES,
   CHART_TYPES,
   DATASET_NAME_MAX,
+  DATASET_SOURCES,
   DATASET_STATUSES,
   REPORT_NAME_MAX,
   companyNameRule,
@@ -136,7 +137,7 @@ export const setActiveBodySchema = z.object({
   isActive: z.boolean(),
 });
 
-// ─── Bộ dữ liệu (§7) ─────────────────────────────────────────────────────────
+// ─── Bộ dữ liệu, nguồn FILE (§7) ─────────────────────────────────────────────
 
 /**
  * Xin presigned URL.
@@ -172,14 +173,6 @@ export const commitDatasetsBodySchema = z.object({
     .array(z.string().min(1))
     .min(1, 'Hãy chọn ít nhất một sheet')
     .max(50, 'Chọn tối đa 50 sheet một lần'),
-});
-
-export const listDatasetsQuerySchema = paginationSchema.extend({
-  workspaceId: z.coerce.number().int().positive(),
-  q: z.string().trim().max(100).optional(),
-  status: z.enum(DATASET_STATUSES).optional(),
-  sort: z.string().optional(),
-  order: z.enum(['asc', 'desc']).default('desc'),
 });
 
 // ─── Báo cáo (§7.6) ──────────────────────────────────────────────────────────
@@ -224,4 +217,117 @@ export const updateReportBodySchema = z.object({
 export const listReportsQuerySchema = paginationSchema.extend({
   workspaceId: z.coerce.number().int().positive(),
   q: z.string().trim().max(100).optional(),
+});
+
+// ─── Kết nối CSDL (§8) ───────────────────────────────────────────────────────
+
+/**
+ * Host của CSDL nguồn.
+ *
+ * Chỉ kiểm HÌNH DẠNG ở đây — có phải tên miền hoặc IP hay không. Việc nó có trỏ
+ * vào mạng nội bộ hay không thuộc về `resolveAndGuardHost`, vì câu trả lời đó
+ * cần DNS và cần biết môi trường đang chạy. Trộn hai loại kiểm tra vào một chỗ
+ * sẽ khiến zod phải làm việc bất đồng bộ và thông báo lỗi mất ngữ cảnh.
+ */
+const hostRule = z
+  .string()
+  .trim()
+  .min(1, 'Vui lòng nhập địa chỉ máy chủ')
+  .max(255)
+  .regex(/^[a-zA-Z0-9._:[\]-]+$/, 'Địa chỉ chỉ gồm chữ, số và các ký tự . - : [ ]');
+
+const connectionFields = {
+  name: z
+    .string()
+    .trim()
+    .min(1, 'Vui lòng đặt tên cho kết nối')
+    .max(255)
+    .transform((v) => v.replace(/\s+/g, ' ')),
+  kind: z.enum(['mysql', 'clickhouse']),
+  host: hostRule,
+  port: z.coerce.number().int().min(1).max(65535),
+  /**
+   * `z.boolean()` chứ KHÔNG `z.coerce.boolean()`.
+   *
+   * `coerce` gọi `Boolean(v)`, mà `Boolean('false')` là `true` — nên một client
+   * gửi chuỗi `"false"` sẽ bật SSL lên. Ở đây body luôn là JSON thật nên kiểu
+   * boolean gốc là đủ, và cái gì không phải boolean thì đáng bị từ chối thẳng.
+   */
+  useSsl: z.boolean().optional().default(false),
+  databaseName: z.string().trim().min(1, 'Vui lòng nhập tên database').max(255),
+  username: z.string().trim().min(1, 'Vui lòng nhập tên đăng nhập').max(255),
+};
+
+/** Thử kết nối chưa lưu — bắt buộc có mật khẩu vì chưa có gì để giữ nguyên. */
+export const testConnectionBodySchema = z.object({
+  ...connectionFields,
+  // KHÔNG `.trim()`: khoảng trắng đầu/cuối là ký tự hợp lệ trong mật khẩu, và
+  // cắt nó đi sẽ khiến kết nối thất bại vì một lý do người dùng không nhìn thấy.
+  password: z.string().min(1, 'Vui lòng nhập mật khẩu').max(512),
+});
+
+export const createConnectionBodySchema = testConnectionBodySchema;
+
+/**
+ * Sửa kết nối — mật khẩu TUỲ CHỌN.
+ *
+ * Để trống nghĩa là giữ nguyên mật khẩu đang lưu. Bắt buộc nhập lại nghĩa là
+ * admin muốn đổi mỗi cái tên cũng phải biết mật khẩu CSDL — thứ mà người dựng
+ * kết nối ban đầu có thể đã không chia sẻ cho họ.
+ */
+export const updateConnectionBodySchema = z.object({
+  ...connectionFields,
+  password: z.string().max(512).optional(),
+});
+
+/**
+ * Danh sách bảng cần đồng bộ.
+ *
+ * Tối đa 500 bảng một lần: đây là request đồng bộ, và một CSDL có 5000 bảng sẽ
+ * treo request tới lúc timeout rồi không đồng bộ được gì cả. Chặn sớm và nói rõ
+ * tốt hơn là để người dùng chờ 30 giây rồi nhận một lỗi mạng.
+ */
+export const syncBodySchema = z.object({
+  tables: z
+    .array(
+      z.object({
+        schema: z.string().trim().min(1).max(255),
+        table: z.string().trim().min(1).max(255),
+      }),
+    )
+    .min(1, 'Chọn ít nhất một bảng để đồng bộ')
+    .max(500, 'Chọn tối đa 500 bảng mỗi lần đồng bộ'),
+});
+
+// ─── Kho dữ liệu — chung cho CẢ HAI nguồn ────────────────────────────────────
+
+/**
+ * Danh sách bộ dữ liệu.
+ *
+ * Một schema cho cả hai nguồn, vì chỉ còn MỘT trang danh sách. Mọi bộ lọc đều
+ * tuỳ chọn:
+ *
+ *   workspaceId  bỏ trống = cả tổ chức. Cần thế cho những bộ dữ liệu §8 tạo
+ *                trước khi hai phần được gộp — chúng chưa thuộc workspace nào.
+ *   source       lọc riêng "từ file" hoặc "từ CSDL".
+ *   connectionId chỉ có nghĩa với nguồn `connection`.
+ *   status       bỏ trống = chỉ `ready`, xem `where()` trong repository.
+ */
+export const listDatasetsQuerySchema = paginationSchema.extend({
+  q: z.string().trim().max(100).optional(),
+  workspaceId: z.coerce.number().int().positive().optional(),
+  source: z.enum(DATASET_SOURCES).optional(),
+  connectionId: z.coerce.number().int().positive().optional(),
+  status: z.enum(DATASET_STATUSES).optional(),
+  sort: z.string().optional(),
+  order: z.enum(['asc', 'desc']).default('desc'),
+});
+
+export const renameDatasetBodySchema = z.object({
+  name: z
+    .string()
+    .trim()
+    .min(1, 'Tên không được để trống')
+    .max(255)
+    .transform((v) => v.replace(/\s+/g, ' ')),
 });
