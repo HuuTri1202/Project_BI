@@ -16,6 +16,35 @@ async function start(): Promise<void> {
   server = app.listen(env.PORT, () => {
     console.log(`[server] listening on http://localhost:${env.PORT} (${env.NODE_ENV})`);
   });
+
+  // Không có listener nào cho 'error' thì Node coi đó là "unhandled error event"
+  // và đổ ra hơn hai chục dòng stack trace của node:net — trong đó không dòng
+  // nào nói được việc cần làm. Bắt lấy để đổi thành một câu.
+  server.on('error', onListenError);
+}
+
+/**
+ * Cổng đã bị chiếm là lỗi VẬN HÀNH, không phải lỗi lập trình.
+ *
+ * Gần như luôn cùng một nguyên nhân: một tiến trình dev cũ chưa chết hẳn. Trên
+ * Windows nó xảy ra thường xuyên vì `npm run dev` dựng cây bốn tầng
+ * (concurrently → npm → tsx watch → node) mà `child.kill()` chỉ hạ được tầng
+ * trên — xem `scripts/free-ports.mjs`.
+ */
+function onListenError(err: NodeJS.ErrnoException): void {
+  if (err.code === 'EADDRINUSE') {
+    console.error(
+      `\n[server] Cổng ${env.PORT} đang bị một tiến trình khác chiếm.\n` +
+        '         Gần như chắc chắn là một server dev cũ chưa tắt hẳn.\n\n' +
+        '         Dọn bằng:  npm run ports:free\n' +
+        '         Rồi chạy lại:  npm run dev\n\n' +
+        '         (Muốn đổi cổng thì sửa PORT trong backend/.env)\n',
+    );
+    process.exit(1);
+  }
+
+  console.error('[server] không mở được cổng:', err);
+  process.exit(1);
 }
 
 // --- Graceful shutdown ---
@@ -44,7 +73,11 @@ async function shutdown(signal: NodeJS.Signals): Promise<void> {
   process.exit(0);
 }
 
-for (const signal of ['SIGINT', 'SIGTERM'] as const) {
+// SIGHUP và SIGBREAK là hai đường thoát mà Windows dùng nhiều hơn hẳn: Node phát
+// SIGHUP khi cửa sổ console bị đóng, SIGBREAK khi người dùng bấm Ctrl+Break. Bỏ
+// chúng nghĩa là đóng terminal thì tiến trình chết ngang mà không kịp trả cổng —
+// đúng cái tình huống sinh ra lỗi EADDRINUSE ở lần chạy sau.
+for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP', 'SIGBREAK'] as const) {
   process.on(signal, () => {
     void shutdown(signal);
   });

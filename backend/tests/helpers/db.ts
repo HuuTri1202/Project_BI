@@ -10,7 +10,16 @@ import { redis } from '../../src/config/redis';
  */
 export async function resetDatabase(): Promise<void> {
   await mysqlPool.query('SET FOREIGN_KEY_CHECKS = 0');
-  for (const table of ['projects', 'workspaces', 'memberships', 'users', 'tenants']) {
+  for (const table of [
+    'dataset_columns',
+    'datasets',
+    'connections',
+    'projects',
+    'workspaces',
+    'memberships',
+    'users',
+    'tenants',
+  ]) {
     await mysqlPool.query(`TRUNCATE TABLE ${table}`);
   }
   await mysqlPool.query('SET FOREIGN_KEY_CHECKS = 1');

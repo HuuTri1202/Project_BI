@@ -22,6 +22,7 @@ Cập nhật lần cuối: 11/08/2026 — bổ sung phần **Không gian cá nh�
 | **Bộ chuyển tổ chức** trên sidebar (§5.1) | `hanh@saomai.vn` — thuộc 3 tổ chức |
 | **Quản lý tổ chức** — 3 tab: Tổ chức · Workspace · Thành viên | `hanh@saomai.vn` hoặc `mai@anhduong.vn` |
 | **Đổi tên tổ chức** (`PATCH /v1/tenant`, mới) | `mai@anhduong.vn` → Quản lý tổ chức → tab Tổ chức |
+| **Kết nối CSDL + Kho dữ liệu** (§8) | `mai@anhduong.vn` — xem mục dưới |
 | Người xem — bị ẩn hết nút hành động (§5.9) | `viewer@bi-platform.local` |
 | **Cấp lại mật khẩu tạm** khi lỡ quên chép | `mai@anhduong.vn` — mời một người mới rồi thử |
 | **Không gian cá nhân** cấp kèm tài khoản mới | `mai@anhduong.vn` — mời người mới, rồi đăng nhập bằng họ |
@@ -158,6 +159,70 @@ cứu. Đánh đổi: Admin cấp lại mật khẩu thì vào được cả kh�
 
 Mật khẩu mới **không** đá phiên đang mở của người đó ra (token còn hạn 7 ngày).
 Cần chặn ngay thì dùng nút **Khoá**.
+
+## Thử Kết nối CSDL & Kho dữ liệu (§8)
+
+Không cần dựng thêm CSDL nào: **trỏ thẳng vào chính `bi-mysql`** và coi nó như
+CSDL của khách hàng. Vào **Quản lý tổ chức → Kết nối → Thêm kết nối**:
+
+| Ô | Giá trị |
+|---|---|
+| Loại CSDL | MySQL |
+| Địa chỉ · Cổng | `127.0.0.1` · `3310` |
+| Dùng SSL/TLS | **không tick** — `bi-mysql` chạy trong máy, không có chứng chỉ |
+| Database | `bi_platform` |
+| Tài khoản · Mật khẩu | `bi_user` · `bi_password` |
+
+Bước 3 bấm **Kiểm tra kết nối** → hiện `8.0.46` thì nút Lưu mới mở. Sau đó vào
+**Kho dữ liệu → Đồng bộ từ CSDL**, tích vài bảng (`users`, `tenants`,
+`workspaces`) rồi xác nhận.
+
+Bấm vào tên một tập dữ liệu để mở trang chi tiết, ở đó có hai tab:
+
+- **Dữ liệu** — 100 dòng đầu, đọc **trực tiếp** từ CSDL nguồn mỗi lần mở trang.
+  Nền tảng **không giữ bản sao dòng nào**, nên cũng không có tổng số dòng:
+  `COUNT(*)` trên một bảng vài chục triệu dòng là một lần quét toàn bảng trên máy
+  chủ của khách hàng, mỗi lần ai đó mở trang.
+- **Cấu trúc** — ảnh chụp schema đã đồng bộ, có ô tìm cột theo tên hoặc kiểu.
+
+Vài điều đáng thử để thấy hệ thống cư xử đúng:
+
+- **Đồng bộ lần hai** cùng bộ bảng → báo *"không đổi"*, kho **không** nhân đôi.
+- **Đổi tên** một dataset rồi đồng bộ lại → tên bạn đặt **vẫn còn**.
+- **Xoá kết nối** khi còn dataset → `409` kèm số lượng phải dọn trước.
+- Nhập **sai mật khẩu** ở bước 3 → hiện *"Sai tên đăng nhập hoặc mật khẩu…"*,
+  không phải một chuỗi lỗi của thư viện.
+- Đăng nhập bằng `viewer@bi-platform.local` → **thấy** Kho dữ liệu nhưng
+  **không** thấy nút Đồng bộ, và tab Kết nối biến mất khỏi Quản lý tổ chức.
+
+Mật khẩu CSDL được mã hoá AES-256-GCM bằng `CONNECTION_ENCRYPTION_KEY` trong
+`backend/.env`, và **không bao giờ** trả về cho trình duyệt. Kiểm chứng:
+
+```bash
+docker exec bi-mysql mysql -uroot -prootpassword bi_platform \
+  -e "SELECT LEFT(password_cipher, 40) FROM connections;"
+# -> v1.BfbWsVXW0245Rebt.TZsLKqZLHPJrb3HaMAGo...
+```
+
+### Thử ClickHouse
+
+Hệ thống nhận **hai loại CSDL: MySQL và ClickHouse**. Hai cách dựng ClickHouse để
+thử, và chúng khác nhau ở đúng ô SSL:
+
+| | Cổng | Dùng SSL/TLS |
+|---|---|---|
+| Tự dựng: `docker compose --profile data up -d clickhouse` | `8123` | **không** tick |
+| ClickHouse Cloud | `8443` | **tick** |
+
+Máy chủ tự dựng dùng `bi_analytics` / `bi_user` / `clickhouse_password`.
+
+ClickHouse Cloud **chỉ nhận HTTPS**: gửi HTTP thô vào cổng 8443 thì nó đóng phăng
+socket, và thông báo hiện ra là *"Máy chủ đóng kết nối ngay khi vừa mở. Gần như
+chắc chắn CSDL này yêu cầu SSL…"*. Tick ô là xong. Lần bấm **Kiểm tra kết nối**
+đầu tiên có thể mất tới nửa phút vì Cloud tự ngủ khi không ai dùng và cần thời
+gian thức dậy — đó là lý do thời gian chờ của ClickHouse là 30 giây thay vì 10.
+
+**Chỉ nhánh MySQL được test tự động.** ClickHouse có driver nhưng phải thử tay.
 
 ## Còn thiếu gì để thử đủ vai trò
 
