@@ -1,4 +1,4 @@
-import { act, render, waitFor } from '@testing-library/react';
+import { render, waitFor } from '@testing-library/react';
 import { StrictMode, useEffect } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -27,15 +27,30 @@ import { useUppyS3 } from '../src/features/datasets/wizard/useUppyS3';
  * Bỏ `<StrictMode>` ra khỏi ca này thì nó XANH kể cả với code hỏng, vì effect
  * chỉ chạy một lần. Đó chính là lý do lỗi lọt qua mọi thứ khác và chỉ lộ ra khi
  * mở trình duyệt: `main.tsx` bọc cả ứng dụng trong StrictMode.
+ *
+ * ─── Vì sao gọi thẳng `uppy.addFile` chứ không qua giao diện ────────────────
+ *
+ * Giao diện giờ là `<Dashboard>` của Uppy. Render nó trong jsdom rồi giả lập
+ * kéo thả sẽ là kiểm chính Dashboard — thứ Uppy đã tự kiểm. Ca này chỉ quan tâm
+ * một điều: instance mà hook giao ra có CÒN SỐNG sau khi StrictMode gắn lại
+ * component hay không.
  */
 
-/** Đầu dò: gọi `addFile` ngay khi hook sẵn sàng, y như người dùng chọn file. */
+/** Đầu dò: đưa file vào Uppy ngay khi instance sẵn sàng. */
 function Probe({ file }: { file: File }): null {
-  const { state, addFile } = useUppyS3(7);
+  const { uppy } = useUppyS3(7);
 
   useEffect(() => {
-    if (state.status === 'idle') addFile(file);
-  }, [state.status, addFile, file]);
+    if (!uppy) return;
+    try {
+      uppy.addFile({ name: file.name, type: file.type, data: file });
+    } catch {
+      // `addFile` NÉM khi file vi phạm `restrictions`. Dashboard bắt lỗi này rồi
+      // hiện thông báo ngay trên giao diện; ở đây chỉ cần nuốt nó để đầu dò
+      // không làm hỏng cả ca test — thứ đang được kiểm là `createUpload` có
+      // được gọi hay không.
+    }
+  }, [uppy, file]);
 
   return null;
 }
@@ -45,16 +60,14 @@ beforeEach(() => {
 });
 
 describe('useUppyS3 dưới StrictMode', () => {
-  it('vẫn thật sự bắt đầu tải sau khi StrictMode gắn lại component', async () => {
+  it('instance vẫn SỐNG và thật sự bắt đầu tải sau khi StrictMode gắn lại', async () => {
     // Nếu Uppy bị destroy ở lần unmount giả lập, hàm này KHÔNG BAO GIỜ được gọi:
     // Uppy nhận file rồi im lặng. Đó chính là lỗi mà ca này canh.
-    const createUpload = vi
-      .spyOn(api, 'createUpload')
-      .mockResolvedValue({
-        datasetId: 42,
-        uploadUrl: 'http://localhost:9000/bi-datasets/t1/w7/abc.csv',
-        expiresAt: new Date(Date.now() + 900_000).toISOString(),
-      });
+    const createUpload = vi.spyOn(api, 'createUpload').mockResolvedValue({
+      datasetId: 42,
+      uploadUrl: 'http://localhost:9000/bi-datasets/t1/w7/abc.csv',
+      expiresAt: new Date(Date.now() + 900_000).toISOString(),
+    });
 
     const file = new File(['a,b\n1,2'], 'so-lieu.csv', { type: 'text/csv' });
 
@@ -75,9 +88,10 @@ describe('useUppyS3 dưới StrictMode', () => {
     });
   });
 
-  it('file sai đuôi bị chặn ở client, KHÔNG tốn một vòng mạng nào', async () => {
-    // §7.3 phía client. Kiểm ngay tại chỗ là khác biệt thật giữa "báo lỗi tức
-    // thì" và "chờ tải xong 50MB rồi mới biết bị từ chối".
+  it('file sai đuôi bị Uppy chặn, KHÔNG tốn một vòng mạng nào', async () => {
+    // §7.3 phía client, giờ do `restrictions.allowedFileTypes` của Uppy lo.
+    // Kiểm ngay tại chỗ là khác biệt thật giữa "báo lỗi tức thì" và "chờ tải
+    // xong 50MB rồi mới biết bị từ chối".
     const createUpload = vi.spyOn(api, 'createUpload');
 
     const file = new File(['noi dung'], 'tai-lieu.pdf', { type: 'application/pdf' });
@@ -88,7 +102,7 @@ describe('useUppyS3 dưới StrictMode', () => {
       </StrictMode>,
     );
 
-    await act(() => new Promise((r) => setTimeout(r, 300)));
+    await new Promise((r) => setTimeout(r, 400));
     expect(createUpload).not.toHaveBeenCalled();
   });
 });

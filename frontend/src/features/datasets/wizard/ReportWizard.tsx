@@ -341,7 +341,7 @@ export function ReportWizard({ open, onClose }: Props): React.ReactElement {
 
       <div className="px-6 py-5">
         {step === 0 && (
-          <StepUpload state={upload.state} onPick={upload.addFile} onReset={upload.reset} />
+          <StepUpload uppy={upload.uppy} state={upload.state} />
         )}
 
         {step === 1 && analysis && (

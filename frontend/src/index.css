@@ -1,6 +1,35 @@
 @import 'tailwindcss';
 
 /*
+ * Giao diện Dashboard của Uppy (§7.2).
+ *
+ * Đặt SAU Tailwind: preflight của Tailwind đặt lại margin, border và font cho
+ * mọi thẻ, nên nạp trước thì nó xoá sạch phần định dạng của Uppy và Dashboard
+ * hiện ra như một khối HTML trần.
+ *
+ * Uppy tự bọc mọi lớp của nó trong `.uppy-*`, nên hai bộ CSS không giẫm lên
+ * nhau — trừ đúng phần preflight nói trên.
+ */
+@import '@uppy/core/css/style.min.css';
+@import '@uppy/dashboard/css/style.min.css';
+
+/*
+ * Kéo màu và bo góc của Uppy về đúng tông chung.
+ *
+ * Chỉ ghi đè BIẾN mà Uppy phơi ra, không đụng tới selector nội bộ của nó: bản
+ * cập nhật sau của Uppy đổi tên lớp thì phần này vẫn sống, còn CSS nhắm vào
+ * `.uppy-Dashboard-inner` thì hỏng lặng lẽ.
+ */
+.uppy-Root {
+  --uppy-c-blue: var(--color-brand-600);
+  font-family: var(--font-sans);
+}
+
+.uppy-Dashboard-inner {
+  border-radius: 0.75rem;
+}
+
+/*
  * Tailwind v4 khai báo theme bằng CSS chứ không bằng tailwind.config.js.
  * Mỗi biến ở đây sinh ra một lớp tiện ích tương ứng: --color-brand-500 dùng
  * được ngay dưới dạng bg-brand-500 / text-brand-500 / ring-brand-500...
