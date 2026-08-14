@@ -1,55 +1,116 @@
-import type { ConnectionKind, DatasetColumnDto, DatasetDto } from '@bi/shared';
+import type {
+  ConnectionKind,
+  DatasetColumnDto,
+  DatasetDto,
+  DatasetSource,
+  DatasetStatus,
+  FieldRole,
+  FileExt,
+  SemanticType,
+} from '@bi/shared';
 import type { ResultSetHeader, RowDataPacket } from 'mysql2';
 import type { Db } from './db';
 
 /**
- * Kho dữ liệu (§8.5) — mỗi bảng nguồn là một dataset.
+ * Kho dữ liệu — MỘT khái niệm dataset, HAI nguồn.
+ *
+ *   source = 'connection'  một bảng đồng bộ từ CSDL khách hàng (§8.5). Nền tảng
+ *                          KHÔNG giữ dòng nào; mỗi lần xem là một câu SELECT
+ *                          chạy trên CSDL nguồn.
+ *   source = 'file'        một sheet trong file Excel/CSV đã tải lên (§7). Dòng
+ *                          được nạp vào `dataset_rows`.
  *
  * Cùng quy ước với `connections.ts`: executor trước, `tenantId` ngay sau, mọi
  * câu lệnh lọc theo nó.
+ *
+ * ─── Hai chỗ dễ sai khi đọc file này ────────────────────────────────────────
+ *
+ * 1. JOIN tới `connections` phải là LEFT. Dataset nguồn `file` không có kết nối
+ *    nào, nên INNER JOIN sẽ lặng lẽ loại chúng khỏi MỌI danh sách và mọi phép
+ *    đếm — không lỗi, chỉ là dữ liệu biến mất.
+ *
+ * 2. Cột của nguồn kia luôn NULL. Đọc `sourceTable` của một dataset nguồn `file`
+ *    là đọc `null`; kiểm `source` trước.
  */
 
 interface DatasetRow extends RowDataPacket {
   id: number;
+  source: DatasetSource;
+  workspace_id: number | null;
   name: string;
-  source_schema: string;
-  source_table: string;
   column_count: number;
+  // nguồn `connection`
+  source_schema: string | null;
+  source_table: string | null;
   synced_at: Date | null;
-  connection_id: number;
-  connection_name: string;
-  connection_kind: ConnectionKind;
+  connection_id: number | null;
+  connection_name: string | null;
+  connection_kind: ConnectionKind | null;
+  // nguồn `file`
+  original_filename: string | null;
+  file_ext: FileExt | null;
+  file_size_bytes: number;
+  sheet_name: string | null;
+  status: DatasetStatus;
+  error_message: string | null;
+  row_count: number;
+  truncated: number;
 }
 
 const SELECT_LIST = `
-  SELECT d.id, d.name, d.source_schema, d.source_table, d.column_count, d.synced_at,
-         d.connection_id, c.name AS connection_name, c.kind AS connection_kind
+  SELECT d.id, d.source, d.workspace_id, d.name, d.column_count,
+         d.source_schema, d.source_table, d.synced_at, d.connection_id,
+         c.name AS connection_name, c.kind AS connection_kind,
+         d.original_filename, d.file_ext, d.file_size_bytes, d.sheet_name,
+         d.status, d.error_message, d.row_count, d.truncated
     FROM datasets d
-    JOIN connections c ON c.id = d.connection_id AND c.tenant_id = d.tenant_id`;
+    LEFT JOIN connections c ON c.id = d.connection_id AND c.tenant_id = d.tenant_id`;
 
 function toDto(row: DatasetRow): DatasetDto {
   return {
     id: Number(row.id),
+    source: row.source,
+    workspaceId: row.workspace_id === null ? null : Number(row.workspace_id),
     name: row.name,
+    columnCount: Number(row.column_count),
+
     sourceSchema: row.source_schema,
     sourceTable: row.source_table,
-    columnCount: Number(row.column_count),
     syncedAt: row.synced_at?.toISOString() ?? null,
-    connectionId: Number(row.connection_id),
+    connectionId: row.connection_id === null ? null : Number(row.connection_id),
     connectionName: row.connection_name,
     connectionKind: row.connection_kind,
+
+    originalFilename: row.original_filename,
+    fileExt: row.file_ext,
+    fileSizeBytes: Number(row.file_size_bytes),
+    sheetName: row.sheet_name,
+    status: row.status,
+    errorMessage: row.error_message,
+    rowCount: Number(row.row_count),
+    truncated: row.truncated === 1,
+
     // Luôn 0 cho tới Section 09 — chưa có bảng `datamodels` để đếm. Xem ghi chú
     // trong `DatasetDto`.
     datamodelCount: 0,
   };
 }
 
-export type DatasetSortKey = 'name' | 'sourceTable' | 'columnCount' | 'syncedAt';
+export type DatasetSortKey =
+  | 'name'
+  | 'sourceTable'
+  | 'columnCount'
+  | 'syncedAt'
+  | 'rowCount'
+  | 'createdAt';
+
 export const DATASET_SORT_KEYS: readonly DatasetSortKey[] = [
   'name',
   'sourceTable',
   'columnCount',
   'syncedAt',
+  'rowCount',
+  'createdAt',
 ];
 
 const SORT_SQL: Record<DatasetSortKey, string> = {
@@ -57,11 +118,17 @@ const SORT_SQL: Record<DatasetSortKey, string> = {
   sourceTable: 'd.source_table',
   columnCount: 'd.column_count',
   syncedAt: 'd.synced_at',
+  rowCount: 'd.row_count',
+  createdAt: 'd.created_at',
 };
 
 export interface DatasetFilter {
   search?: string | undefined;
   connectionId?: number | undefined;
+  /** Lọc theo workspace đang mở. Bỏ trống = cả tổ chức. */
+  workspaceId?: number | undefined;
+  source?: DatasetSource | undefined;
+  status?: DatasetStatus | undefined;
   sort: DatasetSortKey;
   order: 'asc' | 'desc';
   page: number;
@@ -69,19 +136,46 @@ export interface DatasetFilter {
 }
 
 function where(tenantId: number, filter: DatasetFilter): { sql: string; params: unknown[] } {
-  const conditions = ['d.tenant_id = ?', 'd.deleted_at IS NULL', 'c.deleted_at IS NULL'];
+  const conditions = ['d.tenant_id = ?', 'd.deleted_at IS NULL'];
   const params: unknown[] = [tenantId];
+
+  // Kết nối bị xoá mềm thì dataset của nó cũng khuất. Với nguồn `file` thì
+  // `c.deleted_at` là NULL do LEFT JOIN không khớp dòng nào — nên điều kiện này
+  // đúng cho cả hai mà không cần rẽ nhánh.
+  conditions.push('c.deleted_at IS NULL');
 
   if (filter.connectionId !== undefined) {
     conditions.push('d.connection_id = ?');
     params.push(filter.connectionId);
   }
+  if (filter.workspaceId !== undefined) {
+    conditions.push('d.workspace_id = ?');
+    params.push(filter.workspaceId);
+  }
+  if (filter.source !== undefined) {
+    conditions.push('d.source = ?');
+    params.push(filter.source);
+  }
+
+  // Mặc định CHỈ lấy `ready`. Bản ghi `pending` là rác của những lần đóng wizard
+  // giữa chừng và không có gì để xem; `failed` hiện khi người dùng chủ động lọc,
+  // để họ biết vì sao file mình tải lên không dùng được.
+  if (filter.status !== undefined) {
+    conditions.push('d.status = ?');
+    params.push(filter.status);
+  } else {
+    conditions.push("d.status = 'ready'");
+  }
+
   if (filter.search) {
     // Escape thủ công `%` và `_`: người dùng gõ "doanh_thu" mà không escape thì
     // `_` thành ký tự đại diện và kết quả trả về cả "doanhXthu".
     const like = `%${filter.search.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
-    conditions.push(`(d.name LIKE ? ESCAPE '\\\\' OR d.source_table LIKE ? ESCAPE '\\\\')`);
-    params.push(like, like);
+    conditions.push(
+      `(d.name LIKE ? ESCAPE '\\\\' OR d.source_table LIKE ? ESCAPE '\\\\'` +
+        ` OR d.original_filename LIKE ? ESCAPE '\\\\')`,
+    );
+    params.push(like, like, like);
   }
   return { sql: conditions.join(' AND '), params };
 }
@@ -91,18 +185,14 @@ export async function count(db: Db, tenantId: number, filter: DatasetFilter): Pr
   const [rows] = await db.query<RowDataPacket[]>(
     `SELECT COUNT(*) AS total
        FROM datasets d
-       JOIN connections c ON c.id = d.connection_id AND c.tenant_id = d.tenant_id
+       LEFT JOIN connections c ON c.id = d.connection_id AND c.tenant_id = d.tenant_id
       WHERE ${w.sql}`,
     w.params,
   );
   return Number(rows[0]?.['total'] ?? 0);
 }
 
-export async function list(
-  db: Db,
-  tenantId: number,
-  filter: DatasetFilter,
-): Promise<DatasetDto[]> {
+export async function list(db: Db, tenantId: number, filter: DatasetFilter): Promise<DatasetDto[]> {
   const w = where(tenantId, filter);
   const direction = filter.order === 'asc' ? 'ASC' : 'DESC';
 
@@ -121,6 +211,12 @@ export async function list(
   return rows.map(toDto);
 }
 
+/**
+ * Tìm theo id, KHÔNG lọc `status`.
+ *
+ * Khác `list`: wizard phải đọc được bản ghi `pending` của chính nó giữa hai
+ * bước, và trang chi tiết phải hiện được bản ghi `failed` kèm lý do.
+ */
 export async function findOne(db: Db, tenantId: number, id: number): Promise<DatasetDto | null> {
   const [rows] = await db.query<DatasetRow[]>(
     `${SELECT_LIST} WHERE d.tenant_id = ? AND d.id = ? AND d.deleted_at IS NULL LIMIT 1`,
@@ -132,7 +228,7 @@ export async function findOne(db: Db, tenantId: number, id: number): Promise<Dat
 
 export async function listColumns(db: Db, datasetId: number): Promise<DatasetColumnDto[]> {
   const [rows] = await db.query<RowDataPacket[]>(
-    `SELECT name, data_type, is_nullable, ordinal
+    `SELECT name, data_type, is_nullable, ordinal, field_name, semantic_type, field_role, included
        FROM dataset_columns WHERE dataset_id = ? ORDER BY ordinal ASC`,
     [datasetId],
   );
@@ -141,6 +237,10 @@ export async function listColumns(db: Db, datasetId: number): Promise<DatasetCol
     dataType: String(r['data_type']),
     isNullable: Number(r['is_nullable']) === 1,
     ordinal: Number(r['ordinal']),
+    fieldName: r['field_name'] === null ? null : String(r['field_name']),
+    semanticType: (r['semantic_type'] as SemanticType | null) ?? null,
+    fieldRole: (r['field_role'] as FieldRole | null) ?? null,
+    included: Number(r['included']) === 1,
   }));
 }
 
@@ -162,7 +262,7 @@ export async function listImportedTables(
 }
 
 /**
- * Tạo hoặc hồi sinh một dataset cho một bảng nguồn.
+ * Tạo hoặc hồi sinh một dataset cho một bảng nguồn (nguồn `connection`).
  *
  * `ON DUPLICATE KEY UPDATE` dựa vào `uq_datasets_source` — chính là thứ biến
  * "đồng bộ lần hai" thành cập nhật thay vì nhân đôi kho dữ liệu.
@@ -185,6 +285,8 @@ export async function upsert(
     sourceTable: string;
     name: string;
     columnCount: number;
+    /** Workspace nhận bảng này. Xem ghi chú `workspace_id` ở migration 8. */
+    workspaceId: number | null;
   },
 ): Promise<{ id: number; isNew: boolean }> {
   const [existing] = await db.query<RowDataPacket[]>(
@@ -197,14 +299,17 @@ export async function upsert(
 
   await db.query<ResultSetHeader>(
     `INSERT INTO datasets
-       (tenant_id, connection_id, source_schema, source_table, name, column_count, synced_at)
-     VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP(3))
+       (tenant_id, source, workspace_id, connection_id, source_schema, source_table,
+        name, column_count, synced_at, status)
+     VALUES (?, 'connection', ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP(3), 'ready')
      ON DUPLICATE KEY UPDATE
        column_count = VALUES(column_count),
+       workspace_id = VALUES(workspace_id),
        synced_at    = CURRENT_TIMESTAMP(3),
        deleted_at   = NULL`,
     [
       tenantId,
+      input.workspaceId,
       input.connectionId,
       input.sourceSchema,
       input.sourceTable,
@@ -237,18 +342,48 @@ export async function upsert(
  * An toàn vì `dataset_columns` chỉ là ẢNH CHỤP schema nguồn, không ai trỏ vào id
  * của nó. Đến Section 09 khi mô hình dữ liệu tham chiếu tới cột thì cách này
  * phải đổi — ghi lại ở đây để lúc đó không ai xoá nhầm.
+ *
+ * PHẢI gọi trong transaction cùng việc nạp dòng: giữa DELETE và INSERT, dataset
+ * không có cột nào.
  */
+export interface ColumnInput {
+  name: string;
+  dataType: string;
+  isNullable: boolean;
+  ordinal: number;
+  /* Tầng ngữ nghĩa — chỉ nguồn `file` điền, nguồn `connection` để trống. */
+  fieldName?: string | null;
+  semanticType?: SemanticType | null;
+  fieldRole?: FieldRole | null;
+  included?: boolean;
+}
+
 export async function replaceColumns(
   db: Db,
   datasetId: number,
-  columns: { name: string; dataType: string; isNullable: boolean; ordinal: number }[],
+  columns: ColumnInput[],
 ): Promise<void> {
   await db.query<ResultSetHeader>('DELETE FROM dataset_columns WHERE dataset_id = ?', [datasetId]);
   if (columns.length === 0) return;
 
   await db.query<ResultSetHeader>(
-    `INSERT INTO dataset_columns (dataset_id, name, data_type, is_nullable, ordinal) VALUES ?`,
-    [columns.map((c) => [datasetId, c.name, c.dataType, c.isNullable ? 1 : 0, c.ordinal])],
+    `INSERT INTO dataset_columns
+       (dataset_id, name, data_type, is_nullable, ordinal,
+        field_name, semantic_type, field_role, included)
+     VALUES ?`,
+    [
+      columns.map((c) => [
+        datasetId,
+        c.name,
+        c.dataType,
+        c.isNullable ? 1 : 0,
+        c.ordinal,
+        c.fieldName ?? null,
+        c.semanticType ?? null,
+        c.fieldRole ?? null,
+        c.included === false ? 0 : 1,
+      ]),
+    ],
   );
 }
 
@@ -259,7 +394,7 @@ export async function rename(
   name: string,
 ): Promise<number> {
   const [result] = await db.query<ResultSetHeader>(
-    'UPDATE datasets SET name = ? WHERE tenant_id = ? AND id = ? AND deleted_at IS NULL',
+    `UPDATE datasets SET name = ? WHERE tenant_id = ? AND id = ? AND deleted_at IS NULL`,
     [name, tenantId, id],
   );
   return result.affectedRows;
@@ -272,4 +407,175 @@ export async function softDelete(db: Db, tenantId: number, id: number): Promise<
     [tenantId, id],
   );
   return result.affectedRows;
+}
+
+// ─── Nguồn `file` (§7) ───────────────────────────────────────────────────────
+
+export interface CreateFileDatasetInput {
+  workspaceId: number;
+  name: string;
+  originalFilename: string;
+  fileExt: FileExt;
+  s3Key: string;
+  createdBy: number;
+}
+
+/** Bản ghi `pending` sinh ra lúc xin presigned URL, trước khi file lên tới nơi. */
+export async function createFileDataset(
+  db: Db,
+  tenantId: number,
+  input: CreateFileDatasetInput,
+): Promise<number> {
+  const [result] = await db.query<ResultSetHeader>(
+    `INSERT INTO datasets
+       (tenant_id, source, workspace_id, name, original_filename, file_ext, s3_key,
+        status, created_by)
+     VALUES (?, 'file', ?, ?, ?, ?, ?, 'pending', ?)`,
+    [
+      tenantId,
+      input.workspaceId,
+      input.name,
+      input.originalFilename,
+      input.fileExt,
+      input.s3Key,
+      input.createdBy,
+    ],
+  );
+  return result.insertId;
+}
+
+/**
+ * Khoá lưu trữ của một dataset nguồn `file`.
+ *
+ * Tách riêng khỏi `findOne` vì `s3_key` không thuộc về DTO — nó là chi tiết hạ
+ * tầng mà không màn hình nào cần.
+ *
+ * Nói cho đúng: đây KHÔNG phải một biện pháp bảo mật. Presigned URL bắt buộc
+ * chứa khoá trong đường dẫn, nên client đã biết khoá của chính mình từ bước xin
+ * URL. Thứ thật sự bảo vệ là khoá do server sinh với một UUID ngẫu nhiên và mang
+ * tiền tố tổ chức của người gọi.
+ */
+export async function findStorageKey(
+  db: Db,
+  tenantId: number,
+  id: number,
+): Promise<{ key: string; ext: FileExt } | null> {
+  const [rows] = await db.query<RowDataPacket[]>(
+    `SELECT s3_key, file_ext FROM datasets
+      WHERE tenant_id = ? AND id = ? AND source = 'file' AND deleted_at IS NULL
+      LIMIT 1`,
+    [tenantId, id],
+  );
+  const row = rows[0];
+  if (!row || row['s3_key'] === null) return null;
+  return { key: String(row['s3_key']), ext: row['file_ext'] as FileExt };
+}
+
+export async function markReady(
+  db: Db,
+  datasetId: number,
+  input: {
+    name: string;
+    sheetName: string;
+    rowCount: number;
+    columnCount: number;
+    truncated: boolean;
+    fileSize: number;
+  },
+): Promise<void> {
+  await db.query(
+    `UPDATE datasets
+        SET status = 'ready', name = ?, sheet_name = ?, row_count = ?, column_count = ?,
+            truncated = ?, file_size_bytes = ?, synced_at = CURRENT_TIMESTAMP(3),
+            error_message = NULL
+      WHERE id = ?`,
+    [
+      input.name,
+      input.sheetName,
+      input.rowCount,
+      input.columnCount,
+      input.truncated ? 1 : 0,
+      input.fileSize,
+      datasetId,
+    ],
+  );
+}
+
+/**
+ * Ghi lại lý do hỏng thay vì xoá bản ghi.
+ *
+ * Xoá đi thì người dùng tải file lên, thấy màn hình lỗi, bấm F5 và không còn dấu
+ * vết nào của việc vừa xảy ra.
+ */
+export async function markFailed(db: Db, datasetId: number, reason: string): Promise<void> {
+  await db.query(`UPDATE datasets SET status = 'failed', error_message = ? WHERE id = ?`, [
+    reason.slice(0, 500),
+    datasetId,
+  ]);
+}
+
+/** Báo cáo còn sống đang dựng trên bộ dữ liệu này. */
+export async function countLiveReports(db: Db, datasetId: number): Promise<number> {
+  const [rows] = await db.query<RowDataPacket[]>(
+    'SELECT COUNT(*) AS total FROM reports WHERE dataset_id = ? AND deleted_at IS NULL',
+    [datasetId],
+  );
+  return Number(rows[0]?.['total'] ?? 0);
+}
+
+// ─── Dòng dữ liệu (chỉ nguồn `file`) ─────────────────────────────────────────
+
+/**
+ * Số dòng chèn trong một câu INSERT.
+ *
+ * Chèn từng dòng cho 50.000 dòng là 50.000 vòng đi về database. Chèn tất cả
+ * trong một câu thì vượt `max_allowed_packet` (mặc định 64MB) và MySQL đóng
+ * connection với một lỗi không nói được nguyên nhân. 500 là mức mà cả hai vấn đề
+ * đều không xảy ra.
+ */
+const INSERT_CHUNK = 500;
+
+export async function replaceRows(
+  db: Db,
+  datasetId: number,
+  rows: readonly Record<string, unknown>[],
+): Promise<void> {
+  await db.query('DELETE FROM dataset_rows WHERE dataset_id = ?', [datasetId]);
+
+  for (let offset = 0; offset < rows.length; offset += INSERT_CHUNK) {
+    const chunk = rows.slice(offset, offset + INSERT_CHUNK);
+    await db.query('INSERT INTO dataset_rows (dataset_id, row_index, data) VALUES ?', [
+      chunk.map((row, i) => [datasetId, offset + i, JSON.stringify(row)]),
+    ]);
+  }
+}
+
+/**
+ * Đọc toàn bộ dòng của một bộ dữ liệu nguồn `file`.
+ *
+ * ⚠️ THỨ TỰ KHOÁ trong mỗi document KHÔNG phải thứ tự cột trong file. MySQL lưu
+ * JSON ở dạng nhị phân đã phân tích sẵn và sắp lại khoá theo ĐỘ DÀI trước, rồi
+ * mới tới thứ tự byte — `Khu vuc` (7 ký tự) nằm trước `San pham` (8).
+ *
+ * Nơi nào cần đúng thứ tự cột thì đọc `dataset_columns` theo `ordinal`. Dựa vào
+ * `Object.keys()` của kết quả hàm này là sai, và sai một cách im lặng.
+ */
+export async function readRows(
+  db: Db,
+  datasetId: number,
+  /** Bỏ trống = đọc hết. Bảng xem trước truyền vào để không kéo 50.000 dòng. */
+  limit?: number,
+): Promise<Record<string, unknown>[]> {
+  const [rows] = await db.query<RowDataPacket[]>(
+    `SELECT data FROM dataset_rows WHERE dataset_id = ? ORDER BY row_index ASC${
+      limit === undefined ? '' : ' LIMIT ?'
+    }`,
+    limit === undefined ? [datasetId] : [datasetId, limit],
+  );
+  // mysql2 tự parse cột JSON thành object. Vẫn phòng trường hợp driver trả chuỗi
+  // (tuỳ phiên bản và tuỳ cấu hình `jsonStrings`) để không hỏng ở một nơi khác.
+  return rows.map((row) => {
+    const data = row['data'];
+    return (typeof data === 'string' ? JSON.parse(data) : data) as Record<string, unknown>;
+  });
 }

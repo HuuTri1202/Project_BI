@@ -88,6 +88,10 @@ export async function syncDatasets(
         // ghi đè tên, nên đổi tên ở mục 8.9 sống qua mọi lần đồng bộ sau.
         name: schema.table,
         columnCount: schema.columns.length,
+        // Kho dữ liệu §8 ở phạm vi TỔ CHỨC: một kết nối là tài sản chung, và
+        // bảng đồng bộ từ nó cũng vậy. Chỉ bộ dữ liệu từ file mới thuộc về một
+        // workspace, vì nó do một người trong workspace đó tải lên.
+        workspaceId: null,
       });
 
       await datasetsRepo.replaceColumns(conn, id, schema.columns);

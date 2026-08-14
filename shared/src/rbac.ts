@@ -114,14 +114,22 @@ export const DEFAULT_POLICY: readonly PolicyRule[] = [
 
   // ─── Creator: tạo và sửa NỘI DUNG, không đụng tới cơ cấu tổ chức ─────────
   //
-  // Cố ý KHÔNG có `delete`: §6.3 chỉ cho Creator `modify`. Xoá là thao tác một
-  // chiều, và một người tạo báo cáo không nên xoá được báo cáo của người khác.
+  // `delete` chỉ có ở những tài nguyên Creator TỰ DỰNG RA từ đầu: project (§6.3),
+  // rồi dataset và report (§7.8, migration 6). Không xoá được thứ mình vừa tạo
+  // nghĩa là mỗi lần tải nhầm file là một bản ghi rác nằm lại vĩnh viễn và phải
+  // đi nhờ Admin.
+  //
+  // `datamodel` và `chart` vẫn KHÔNG có `delete`: chúng chưa có endpoint nào, và
+  // cấp một quyền trước khi có thứ để áp dụng là cách policy lệch dần khỏi thực
+  // tế mà không ai nhận ra.
   { role: 'creator', resource: 'dataset', action: 'read' },
   { role: 'creator', resource: 'dataset', action: 'modify' },
+  { role: 'creator', resource: 'dataset', action: 'delete' },
   { role: 'creator', resource: 'datamodel', action: 'read' },
   { role: 'creator', resource: 'datamodel', action: 'modify' },
   { role: 'creator', resource: 'report', action: 'read' },
   { role: 'creator', resource: 'report', action: 'modify' },
+  { role: 'creator', resource: 'report', action: 'delete' },
   { role: 'creator', resource: 'chart', action: 'read' },
   { role: 'creator', resource: 'chart', action: 'modify' },
   { role: 'creator', resource: 'project', action: 'read' },

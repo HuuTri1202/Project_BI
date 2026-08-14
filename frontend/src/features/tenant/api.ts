@@ -8,6 +8,7 @@ import type {
   DatasetDetailDto,
   DatasetDto,
   DatasetPreviewDto,
+  DatasetSource,
   HomeDataDto,
   JobTitle,
   PageResult,
@@ -154,6 +155,8 @@ export interface DatasetListQuery {
   order: 'asc' | 'desc';
   q: string;
   connectionId: number | '';
+  /** `''` = cả hai nguồn. Xem `DATASET_SOURCE_LABELS`. */
+  source: DatasetSource | '';
 }
 
 export async function fetchDatasets(

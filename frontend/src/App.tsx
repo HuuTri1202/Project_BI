@@ -9,6 +9,7 @@ import HomePage from './pages/HomePage';
 import LoginPage from './pages/LoginPage';
 import NotFoundPage from './pages/NotFoundPage';
 import ProfilePage from './pages/ProfilePage';
+import ReportPage from './pages/ReportPage';
 import OverviewPage from './pages/admin/OverviewPage';
 import TenantsPage from './pages/admin/TenantsPage';
 import UsersPage from './pages/admin/UsersPage';
@@ -84,20 +85,28 @@ export default function App(): React.ReactElement {
           <Route path="/home" element={<HomePage />} />
           <Route path="/profile" element={<ProfilePage />} />
 
+          {/* §7 + §8 — kho dữ liệu và báo cáo.
+              KHÔNG bọc `TenantAdminRoute`: mọi vai trò, kể cả viewer, đều có
+              `dataset:read` và `report:read` trong ma trận mặc định. Chặn ở
+              route sẽ giấu mất thứ họ có quyền xem. Các thao tác GHI vẫn bị
+              `authorize()` chặn ở backend, và giao diện ẩn nút tương ứng.
+
+              MỘT trang `/datasets` cho cả hai nguồn. Trước khi gộp có hai khai
+              báo cùng đường dẫn này, và react-router chỉ dùng cái đầu — nên bộ
+              dữ liệu từ CSDL không có cách nào hiện ra. */}
+          <Route path="/datasets" element={<DatasetsPage />} />
+          {/* Chi tiết là TRANG chứ không phải hộp thoại: một bảng thật có 40–80
+              cột, và cột "Kiểu dữ liệu" bị cắt cụt trong khung 32rem thì trang
+              xem schema mất đúng thứ nó sinh ra để hiện. */}
+          <Route path="/datasets/:id" element={<DatasetDetailPage />} />
+          <Route path="/reports/:id" element={<ReportPage />} />
+
           {/* ─── Quản lý tổ chức: một trang, ba tab ─────────────────────────
               Tab là ROUTE THẬT chứ không phải state — xem `OrganizationPage`.
               Khung `element` KHÔNG gác quyền: mỗi tab khai đúng ô quyền nó cần,
               cùng ô mà thanh tab dùng để ẩn/hiện, nên tab hiện lên không bao giờ
               dẫn tới 403. Người không có ô nào sẽ đụng cổng của route con và bị
               đẩy sang /403 như trước. */}
-          <Route element={<TenantAdminRoute needs="readDatasets" />}>
-            <Route path="/datasets" element={<DatasetsPage />} />
-            {/* Chi tiết là TRANG chứ không phải hộp thoại: một bảng thật có 40–80
-                cột, và cột "Kiểu dữ liệu" bị cắt cụt trong khung 32rem thì trang
-                xem schema mất đúng thứ nó sinh ra để hiện. */}
-            <Route path="/datasets/:id" element={<DatasetDetailPage />} />
-          </Route>
-
           <Route path="/organization" element={<OrganizationPage />}>
             <Route element={<TenantAdminRoute needs="manageTenant" />}>
               <Route index element={<OrganizationProfilePage />} />

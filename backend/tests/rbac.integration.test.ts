@@ -173,7 +173,15 @@ describe('§6.8 GET /v1/permissions', () => {
     const res = await request(app).get('/api/v1/permissions').set(bearer(f.tokenBob));
 
     expect(res.status).toBe(200);
-    expect(res.body.report.sort()).toEqual(['modify', 'read']);
+    // Creator có `delete` trên `report` và `dataset` từ migration 6 (§7.8):
+    // không xoá được thứ mình vừa tạo thì mỗi lần gõ nhầm tên là một bản ghi rác
+    // nằm lại vĩnh viễn và phải đi nhờ Admin.
+    expect(res.body.report.sort()).toEqual(['delete', 'modify', 'read']);
+    expect(res.body.dataset.sort()).toEqual(['delete', 'modify', 'read']);
+    // `datamodel` và `chart` cố ý KHÔNG có `delete`: chúng chưa có endpoint nào,
+    // và cấp quyền trước khi có thứ để áp dụng là cách policy lệch dần khỏi thực
+    // tế mà không ai nhận ra.
+    expect(res.body.datamodel.sort()).toEqual(['modify', 'read']);
     expect(res.body.member).toEqual(['read']);
     expect(res.body.workspace).toEqual(['read']);
   });

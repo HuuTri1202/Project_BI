@@ -1,7 +1,13 @@
-import { CONNECTION_KIND_LABELS, type DatasetDto } from '@bi/shared';
+import {
+  CONNECTION_KIND_LABELS,
+  DATASET_SOURCE_LABELS,
+  DATASET_SOURCES,
+  type DatasetDto,
+} from '@bi/shared';
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { usePermissions } from '../../auth/usePermissions';
+import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
 import { FilterSelect, ListToolbar } from '../../components/ui/ListToolbar';
@@ -16,11 +22,23 @@ import { useListQueryState } from '../../hooks/useListQueryState';
 import { getApiError } from '../../services/apiClient';
 
 /**
- * Kho dữ liệu — §8.5.
+ * Kho dữ liệu — §7.8 + §8.5, MỘT trang cho cả hai nguồn.
  *
  * Trang riêng ở sidebar chứ không phải một tab của Quản lý tổ chức: kho dữ liệu
  * là nơi làm việc HÀNG NGÀY của người phân tích, còn Quản lý tổ chức là nơi cấu
- * hình. Viewer đọc được trang này; chỉ creator trở lên mới đồng bộ.
+ * hình. Viewer đọc được trang này; chỉ creator trở lên mới đồng bộ hoặc xoá.
+ *
+ * ─── Vì sao một bảng chứ không phải hai tab ─────────────────────────────────
+ *
+ * Bộ dữ liệu từ file (§7) và bảng đồng bộ từ CSDL (§8) trả lời cùng một câu hỏi
+ * của người dùng: "tôi dựng báo cáo lên được cái gì". Tách thành hai tab bắt họ
+ * nhớ mình đã nạp dữ liệu bằng đường nào mới tìm lại được — mà đó chính là chi
+ * tiết họ không cần biết. Cột "Nguồn" nói rõ cái nào là cái nào, và ô lọc cho
+ * ai thật sự cần chỉ xem một loại.
+ *
+ * Đổi lại, vài cột chỉ có nghĩa với một nguồn (bảng nguồn, số dòng) nên hiện
+ * `—` với nguồn kia. Chấp nhận được: một dấu gạch đọc ra ngay là "không áp
+ * dụng", trong khi hai bảng riêng thì mọi chỗ đếm đều phải cộng hai câu truy vấn.
  */
 const DEFAULTS: DatasetListQuery = {
   page: 1,
@@ -29,12 +47,19 @@ const DEFAULTS: DatasetListQuery = {
   order: 'asc',
   q: '',
   connectionId: '',
+  source: '',
 };
 
 const ALLOWED = {
-  sort: ['name', 'sourceTable', 'columnCount', 'syncedAt'],
+  sort: ['name', 'sourceTable', 'columnCount', 'syncedAt', 'rowCount'],
   order: ['asc', 'desc'],
+  source: ['connection', 'file'],
 } as const;
+
+const SOURCE_OPTIONS = DATASET_SOURCES.map((value) => ({
+  value,
+  label: DATASET_SOURCE_LABELS[value],
+}));
 
 export default function DatasetsPage(): React.ReactElement {
   const permissions = usePermissions();
@@ -43,6 +68,7 @@ export default function DatasetsPage(): React.ReactElement {
   const { data, isPending, isError, error, isPlaceholderData } = useDatasets({
     ...query,
     order: query.order as 'asc' | 'desc',
+    source: query.source as DatasetListQuery['source'],
     connectionId: query.connectionId === '' ? '' : Number(query.connectionId),
   });
   const { data: connections } = useConnections();
@@ -53,7 +79,7 @@ export default function DatasetsPage(): React.ReactElement {
 
   const remove = useDeleteDataset();
 
-  const hasFilter = query.q !== '' || query.connectionId !== '';
+  const hasFilter = query.q !== '' || query.connectionId !== '' || query.source !== '';
 
   function onSort(key: string): void {
     update(
@@ -69,8 +95,9 @@ export default function DatasetsPage(): React.ReactElement {
         <div>
           <h1 className="text-xl font-bold text-slate-900">Kho dữ liệu</h1>
           <p className="mt-1 text-sm text-slate-500">
-            Các bảng đã lấy về từ CSDL của tổ chức. Hệ thống chỉ lưu <strong>cấu trúc</strong> —
-            dữ liệu vẫn nằm nguyên trong CSDL nguồn.
+            Mọi bộ dữ liệu dựng báo cáo được. Với bảng lấy từ CSDL, hệ thống chỉ lưu{' '}
+            <strong>cấu trúc</strong> — dữ liệu vẫn nằm nguyên trong CSDL nguồn; với file Excel/CSV
+            thì dữ liệu đã được nhập vào đây.
           </p>
         </div>
         {/* Ẩn nút với viewer. Backend cũng chặn bằng 403, nhưng để nút bấm được
@@ -86,10 +113,18 @@ export default function DatasetsPage(): React.ReactElement {
         <ListToolbar
           search={query.q}
           onSearch={(q) => update({ q })}
-          placeholder="Tên tập dữ liệu hoặc tên bảng…"
+          placeholder="Tên bộ dữ liệu, tên bảng hoặc tên file…"
           hasFilter={hasFilter}
           onReset={reset}
         >
+          <FilterSelect
+            id="filter-source"
+            label="Nguồn"
+            value={String(query.source)}
+            onChange={(source) => update({ source })}
+            allLabel="Mọi nguồn"
+            options={SOURCE_OPTIONS}
+          />
           <FilterSelect
             id="filter-connection"
             label="Kết nối"
@@ -110,11 +145,11 @@ export default function DatasetsPage(): React.ReactElement {
 
         {data && data.items.length === 0 && (
           <EmptyState
-            title={hasFilter ? 'Không có tập dữ liệu nào khớp' : 'Kho dữ liệu đang trống'}
+            title={hasFilter ? 'Không có bộ dữ liệu nào khớp' : 'Kho dữ liệu đang trống'}
             hint={
               hasFilter
                 ? 'Thử bỏ bớt bộ lọc hoặc đổi từ khoá.'
-                : 'Bấm “Đồng bộ từ CSDL” để chọn những bảng muốn đưa vào kho.'
+                : 'Bấm “Đồng bộ từ CSDL” để lấy bảng về, hoặc “Tạo báo cáo” ở trang chủ để tải file Excel/CSV lên.'
             }
             action={
               hasFilter ? (
@@ -136,16 +171,18 @@ export default function DatasetsPage(): React.ReactElement {
                   <SortableTh sortKey="name" activeKey={query.sort} order={query.order} onSort={onSort}>
                     Tên
                   </SortableTh>
+                  <Th>Nguồn</Th>
                   <SortableTh sortKey="sourceTable" activeKey={query.sort} order={query.order} onSort={onSort}>
-                    Bảng nguồn
+                    Bảng / File gốc
                   </SortableTh>
-                  <Th>Nguồn gốc</Th>
                   <SortableTh sortKey="columnCount" activeKey={query.sort} order={query.order} onSort={onSort}>
                     Số cột
                   </SortableTh>
-                  <Th align="right">Mô hình</Th>
+                  <SortableTh sortKey="rowCount" activeKey={query.sort} order={query.order} onSort={onSort}>
+                    Số dòng
+                  </SortableTh>
                   <SortableTh sortKey="syncedAt" activeKey={query.sort} order={query.order} onSort={onSort}>
-                    Đồng bộ lần cuối
+                    Cập nhật lần cuối
                   </SortableTh>
                   <Th align="right">Thao tác</Th>
                 </Tr>
@@ -164,23 +201,62 @@ export default function DatasetsPage(): React.ReactElement {
                       >
                         {dataset.name}
                       </Link>
+                      {dataset.status === 'failed' && (
+                        <div className="mt-0.5 text-xs text-red-600">
+                          {dataset.errorMessage ?? 'Nhập không thành công'}
+                        </div>
+                      )}
+                    </Td>
+                    <Td>
+                      <span className="text-slate-700">
+                        {DATASET_SOURCE_LABELS[dataset.source]}
+                      </span>
+                      <div className="text-xs text-slate-500">
+                        {dataset.source === 'connection'
+                          ? [
+                              dataset.connectionName,
+                              dataset.connectionKind
+                                ? CONNECTION_KIND_LABELS[dataset.connectionKind]
+                                : null,
+                            ]
+                              .filter(Boolean)
+                              .join(' · ')
+                          : (dataset.fileExt?.toUpperCase() ?? '')}
+                      </div>
                     </Td>
                     <Td>
                       <code className="rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-600">
-                        {dataset.sourceSchema}.{dataset.sourceTable}
+                        {dataset.source === 'connection'
+                          ? `${dataset.sourceSchema}.${dataset.sourceTable}`
+                          : dataset.originalFilename}
                       </code>
-                    </Td>
-                    <Td>
-                      <div className="text-slate-700">{dataset.connectionName}</div>
-                      <div className="text-xs text-slate-500">
-                        {CONNECTION_KIND_LABELS[dataset.connectionKind]}
-                      </div>
+                      {/* Một file nhiều sheet sinh ra nhiều bộ dữ liệu cùng tên
+                          file, nên tên sheet là thứ phân biệt chúng. */}
+                      {dataset.sheetName !== null && (
+                        <div className="text-xs text-slate-500">Sheet: {dataset.sheetName}</div>
+                      )}
                     </Td>
                     <Td>{dataset.columnCount}</Td>
-                    <Td align="right">
-                      {/* Luôn 0 cho tới Section 09. Gắn nhãn thay vì hiện số 0
-                          trần: một cột toàn số 0 trông như dữ liệu hỏng. */}
-                      <span className="text-xs text-slate-400">sắp có</span>
+                    <Td>
+                      {/* Nguồn `connection` không có số dòng: nền tảng không giữ
+                          bản sao nào, và `COUNT(*)` trên bảng của khách hàng mỗi
+                          lần mở trang là cái giá không đáng trả. */}
+                      {dataset.source === 'file' ? (
+                        <>
+                          <span className="tabular-nums">
+                            {dataset.rowCount.toLocaleString('vi-VN')}
+                          </span>
+                          {dataset.truncated && (
+                            // `rowCount` một mình nói dối: 50.000 có thể là toàn
+                            // bộ file hoặc phần đầu của nửa triệu dòng.
+                            <div className="mt-0.5">
+                              <Badge tone="warning">đã cắt bớt</Badge>
+                            </div>
+                          )}
+                        </>
+                      ) : (
+                        <span className="text-slate-400">—</span>
+                      )}
                     </Td>
                     <Td>
                       <span className="text-slate-500">
@@ -231,7 +307,7 @@ export default function DatasetsPage(): React.ReactElement {
       <ConfirmDialog
         open={deleting !== null}
         onClose={() => setDeleting(null)}
-        title="Xoá tập dữ liệu"
+        title="Xoá bộ dữ liệu"
         description={deleting?.name}
         confirmLabel="Xoá"
         danger
@@ -241,9 +317,21 @@ export default function DatasetsPage(): React.ReactElement {
           remove.mutate(deleting.id, { onSuccess: () => setDeleting(null), onError });
         }}
       >
-        Tập dữ liệu bị gỡ khỏi kho. <strong>Dữ liệu trong CSDL nguồn không bị đụng tới</strong> —
-        đồng bộ lại bảng <code className="text-xs">{deleting?.sourceTable}</code> sẽ đưa nó trở
-        lại đúng như cũ.
+        {/* Hai nguồn có hậu quả khác hẳn nhau, nên câu cảnh báo phải khác nhau.
+            Nói "dữ liệu nguồn không bị đụng tới" cho một file đã nhập vào đây là
+            trấn an người dùng bằng một điều không đúng. */}
+        {deleting?.source === 'file' ? (
+          <>
+            Bộ dữ liệu bị ẩn khỏi kho (xoá mềm) cùng toàn bộ dòng đã nhập. Còn báo cáo đang dùng nó
+            thì hệ thống từ chối và cho bạn biết còn bao nhiêu — xoá những báo cáo đó trước.
+          </>
+        ) : (
+          <>
+            Bộ dữ liệu bị gỡ khỏi kho. <strong>Dữ liệu trong CSDL nguồn không bị đụng tới</strong> —
+            đồng bộ lại bảng <code className="text-xs">{deleting?.sourceTable}</code> sẽ đưa nó trở
+            lại đúng như cũ.
+          </>
+        )}
       </ConfirmDialog>
     </div>
   );

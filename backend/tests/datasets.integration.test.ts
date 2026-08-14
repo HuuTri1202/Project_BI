@@ -113,6 +113,20 @@ describe('bảng route §8 — mọi endpoint đều có guard', () => {
     ['get', '/api/v1/connections/1/tables'],
     ['post', '/api/v1/connections/1/sync'],
     ['patch', '/api/v1/datasets/1'],
+    /*
+     * Xoá bộ dữ liệu CHUYỂN từ nhóm admin sang đây khi §7 và §8 được gộp.
+     *
+     * Hai mục ra hai luật khác nhau cho cùng một thao tác: §8 để xoá cho riêng
+     * admin, §7.8 nói "Creator trở lên mới tạo/xoá". Một bảng `datasets` thì
+     * chỉ có MỘT policy `dataset:delete` — không có cách nào cho creator xoá bộ
+     * dữ liệu từ file mà vẫn cấm họ xoá bộ dữ liệu từ CSDL, vì Casbin chấm điểm
+     * trên tài nguyên chứ không trên từng dòng.
+     *
+     * Chọn luật của §7.8 vì nó nới rộng chứ không siết lại, và vì xoá ở đây là
+     * xoá MỀM: đồng bộ lại bảng đó hồi sinh bộ dữ liệu với nguyên id cũ (xem
+     * `deleteDataset`), nên thao tác này không một chiều như tên gọi gợi ý.
+     */
+    ['delete', '/api/v1/datasets/1'],
   ];
 
   /** CHỈ admin tổ chức. */
@@ -124,7 +138,6 @@ describe('bảng route §8 — mọi endpoint đều có guard', () => {
     ['patch', '/api/v1/connections/1'],
     ['post', '/api/v1/connections/1/test'],
     ['delete', '/api/v1/connections/1'],
-    ['delete', '/api/v1/datasets/1'],
   ];
 
   it.each([...READ_ROUTES, ...EDITOR_ROUTES, ...ADMIN_ROUTES])(
@@ -597,7 +610,7 @@ describe('đồng bộ (§8.6, §8.7)', () => {
     expect(after.body.sourceTable).toBe('users');
   });
 
-  it('creator đồng bộ được nhưng KHÔNG xoá được dataset', async () => {
+  it('creator đồng bộ VÀ xoá được dataset, nhưng không đụng được kết nối', async () => {
     const id = await makeConnection(f.tokenAlice);
 
     expect((await sync(id, TABLES, f.tokenBob)).status).toBe(200);
@@ -605,10 +618,17 @@ describe('đồng bộ (§8.6, §8.7)', () => {
     const list = await request(app).get('/api/v1/datasets').set(bearer(f.tokenBob));
     const datasetId = list.body.items[0].id as number;
 
-    // Policy cho creator `dataset:modify` nhưng không cho `dataset:delete` —
-    // xoá là thao tác một chiều.
+    // §7.8: creator trở lên tạo/xoá được bộ dữ liệu. Xoá ở đây là xoá MỀM và
+    // đồng bộ lại hồi sinh đúng bản ghi cũ, nên nó không phải thao tác một
+    // chiều. Xem chú thích ở `EDITOR_ROUTES` phía trên.
     expect(
       (await request(app).delete(`/api/v1/datasets/${datasetId}`).set(bearer(f.tokenBob))).status,
+    ).toBe(204);
+
+    // Ranh giới THẬT của creator nằm ở kết nối: mật khẩu CSDL của khách hàng là
+    // việc của admin, và xoá kết nối kéo theo mọi bộ dữ liệu dựng trên nó.
+    expect(
+      (await request(app).delete(`/api/v1/connections/${id}`).set(bearer(f.tokenBob))).status,
     ).toBe(403);
   });
 

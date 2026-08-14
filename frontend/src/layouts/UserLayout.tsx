@@ -53,17 +53,28 @@ const NAV_ITEMS: NavItem[] = [
     icon: 'M16 20v-2a4 4 0 0 0-8 0v2M12 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z',
   },
   /*
+   * §7.8 + §8.5 — MỘT mục cho cả hai nguồn dữ liệu.
+   *
+   * Trước khi gộp có hai dòng cùng trỏ về `/datasets`: "Bộ dữ liệu" (file tải
+   * lên) và "Kho dữ liệu" (bảng đồng bộ từ CSDL). Với người dùng thì cả hai đều
+   * là "thứ tôi dựng báo cáo lên được", nên tách ra chỉ bắt họ đoán xem dữ liệu
+   * mình cần nằm ở dòng nào.
+   *
+   * Không có `needs`: mọi vai trò kể cả viewer đều có `dataset:read` trong ma
+   * trận mặc định, nên giấu mục này là chặn họ khỏi thứ họ có quyền xem. Những
+   * nút bên trong trang mới là thứ hỏi quyền.
+   */
+  {
+    label: 'Kho dữ liệu',
+    to: '/datasets',
+    icon: 'M4 7c0-1.7 3.6-3 8-3s8 1.3 8 3-3.6 3-8 3-8-1.3-8-3Zm0 0v10c0 1.7 3.6 3 8 3s8-1.3 8-3V7M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3',
+  },
+  /*
    * Ba mục cũ — Workspace, Thành viên và (chưa từng có) thông tin tổ chức — gom
    * thành MỘT. Chúng cùng trả lời câu hỏi "tổ chức này được cấu hình thế nào",
    * nên tách ra thành nhiều dòng sidebar chỉ bắt người quản trị phải nhớ mỗi thứ
    * nằm ở đâu. Điều hướng giữa chúng giờ là thanh tab bên trong trang.
    */
-  {
-    label: 'Kho dữ liệu',
-    to: '/datasets',
-    needs: ['readDatasets'],
-    icon: 'M12 8c4.4 0 8-1.3 8-3s-3.6-3-8-3-8 1.3-8 3 3.6 3 8 3ZM4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3',
-  },
   {
     label: 'Quản lý tổ chức',
     to: '/organization',

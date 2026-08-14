@@ -8,7 +8,18 @@ interface ModalProps {
   children: ReactNode;
   /** Hàng nút ở đáy. */
   footer?: ReactNode;
+  /**
+   * `md` (mặc định) cho form vài trường. `lg` cho nội dung dạng bảng — wizard ở
+   * §7 phải hiện được bảng xem trước dữ liệu, và 32rem thì mỗi cột còn vài chục
+   * pixel, không đọc được gì.
+   */
+  size?: 'md' | 'lg';
 }
+
+const SIZE_CLASS: Record<'md' | 'lg', string> = {
+  md: 'w-[min(32rem,calc(100vw-2rem))]',
+  lg: 'w-[min(64rem,calc(100vw-2rem))]',
+};
 
 /**
  * Hộp thoại, bọc quanh thẻ `<dialog>` gốc của trình duyệt.
@@ -30,6 +41,7 @@ export function Modal({
   description,
   children,
   footer,
+  size = 'md',
 }: ModalProps): React.ReactElement {
   const ref = useRef<HTMLDialogElement>(null);
 
@@ -58,7 +70,8 @@ export function Modal({
       }}
       aria-labelledby="modal-title"
       className={[
-        'm-auto w-[min(32rem,calc(100vw-2rem))] rounded-2xl border border-slate-200 bg-white p-0',
+        'm-auto rounded-2xl border border-slate-200 bg-white p-0',
+        SIZE_CLASS[size],
         'shadow-xl backdrop:bg-slate-900/40',
       ].join(' ')}
     >

@@ -1,5 +1,6 @@
 import {
   CONNECTION_KIND_LABELS,
+  DATASET_SOURCE_LABELS,
   type DatasetCellValue,
   type DatasetColumnDto,
 } from '@bi/shared';
@@ -120,11 +121,23 @@ export default function DatasetDetailPage(): React.ReactElement {
             <div>
               <h1 className="text-xl font-bold text-slate-900">{data.name}</h1>
               <p className="mt-1 text-sm text-slate-500">
-                Ảnh chụp cấu trúc của bảng{' '}
-                <code className="rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-600">
-                  {data.sourceSchema}.{data.sourceTable}
-                </code>
-                . Dữ liệu vẫn nằm nguyên trong CSDL nguồn.
+                {data.source === 'connection' ? (
+                  <>
+                    Ảnh chụp cấu trúc của bảng{' '}
+                    <code className="rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-600">
+                      {data.sourceSchema}.{data.sourceTable}
+                    </code>
+                    . Dữ liệu vẫn nằm nguyên trong CSDL nguồn.
+                  </>
+                ) : (
+                  <>
+                    Dữ liệu nhập từ file{' '}
+                    <code className="rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-600">
+                      {data.originalFilename}
+                    </code>
+                    {data.sheetName !== null && <> · sheet “{data.sheetName}”</>}.
+                  </>
+                )}
               </p>
             </div>
 
@@ -141,21 +154,43 @@ export default function DatasetDetailPage(): React.ReactElement {
           </header>
 
           <dl className="mt-6 grid gap-px overflow-hidden rounded-xl border border-slate-200 bg-slate-200 sm:grid-cols-2 lg:grid-cols-4">
-            <Fact label="Kết nối">
-              <span className="text-slate-800">{data.connectionName}</span>
+            <Fact label="Nguồn">
+              <span className="text-slate-800">{DATASET_SOURCE_LABELS[data.source]}</span>
               <span className="mt-0.5 block text-xs font-normal text-slate-500">
-                {CONNECTION_KIND_LABELS[data.connectionKind]}
+                {data.source === 'connection'
+                  ? [
+                      data.connectionName,
+                      data.connectionKind ? CONNECTION_KIND_LABELS[data.connectionKind] : null,
+                    ]
+                      .filter(Boolean)
+                      .join(' · ')
+                  : (data.fileExt?.toUpperCase() ?? '')}
               </span>
             </Fact>
-            <Fact label="Bảng nguồn">
+            <Fact label={data.source === 'connection' ? 'Bảng nguồn' : 'File gốc'}>
               <code className="text-sm text-slate-800">
-                {data.sourceSchema}.{data.sourceTable}
+                {data.source === 'connection'
+                  ? `${data.sourceSchema}.${data.sourceTable}`
+                  : data.originalFilename}
               </code>
             </Fact>
             <Fact label="Số cột">{data.columnCount}</Fact>
-            <Fact label="Đồng bộ lần cuối">
-              {data.syncedAt ? new Date(data.syncedAt).toLocaleString('vi-VN') : '—'}
-            </Fact>
+            {/* Nguồn `connection` không có số dòng — nền tảng không giữ bản sao
+                nào, nên ô này nói "đồng bộ lần cuối" thay vì bịa ra một con số. */}
+            {data.source === 'file' ? (
+              <Fact label="Số dòng">
+                {data.rowCount.toLocaleString('vi-VN')}
+                {data.truncated && (
+                  <span className="mt-0.5 block text-xs font-normal text-amber-700">
+                    đã cắt bớt — file còn nhiều dòng hơn
+                  </span>
+                )}
+              </Fact>
+            ) : (
+              <Fact label="Đồng bộ lần cuối">
+                {data.syncedAt ? new Date(data.syncedAt).toLocaleString('vi-VN') : '—'}
+              </Fact>
+            )}
           </dl>
 
           <nav className="mt-7 flex gap-1 border-b border-slate-200" aria-label="Nội dung">

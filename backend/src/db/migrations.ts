@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Danh sách migration, chạy theo thứ tự `id` tăng dần.
  *
  * SQL viết thẳng trong TypeScript chứ không để file .sql rời, vì `tsc` KHÔNG
@@ -558,6 +558,212 @@ export const migrations: readonly Migration[] = [
       // quyết định xử lý kết nối đó thế nào, không phải để một câu ALTER quyết
       // hộ.
       `ALTER TABLE connections MODIFY COLUMN kind ENUM('mysql','clickhouse') NOT NULL`,
+    ],
+  },
+
+  {
+    id: 8,
+    name: 'unify_datasets_with_file_source',
+    statements: [
+      // ─── MỘT khái niệm "bộ dữ liệu", HAI nguồn ───────────────────────────
+      //
+      // §8 dựng `datasets` cho bảng đồng bộ từ CSDL khách hàng. §7 cần bộ dữ
+      // liệu đến từ file Excel/CSV tải lên. Hai thứ đó KHÔNG phải hai khái niệm
+      // — với người dùng thì cả hai đều là "bộ dữ liệu tôi có thể dựng báo cáo
+      // lên", và họ không nên phải nhớ mình đã nạp nó bằng đường nào để tìm lại.
+      //
+      // Nên MỞ RỘNG bảng của §8 thay vì tạo bảng thứ hai. Bảng thứ hai nghĩa là
+      // hai trang danh sách, hai câu truy vấn cho mọi chỗ đếm, và một câu hỏi
+      // "cái nào là cái nào" lặp lại vĩnh viễn.
+      //
+      // Migration này CHỈ ALTER, không CREATE lại: dữ liệu §8 đã có trên máy
+      // người khác và phải sống sót.
+
+      // `source` phân biệt hai nguồn. DEFAULT 'connection' để mọi dòng đã có
+      // được gán đúng mà không cần câu UPDATE riêng.
+      //
+      // Đặt 'connection' TRƯỚC 'file' trong ENUM vì đó là giá trị đã tồn tại;
+      // quy ước ENUM của repo là nối giá trị mới vào cuối.
+      `ALTER TABLE datasets
+         ADD COLUMN source ENUM('connection','file') NOT NULL DEFAULT 'connection'
+           AFTER tenant_id`,
+
+      // ─── workspace_id: cho CẢ HAI nguồn ──────────────────────────────────
+      //
+      // §8 để bộ dữ liệu ở phạm vi tổ chức, §7 gắn vào workspace. Chọn phạm vi
+      // workspace cho cả hai: project và report đều thuộc workspace, nên để
+      // riêng bộ dữ liệu ở phạm vi tổ chức là một ngoại lệ mà người dùng phải
+      // học thuộc.
+      //
+      // NULL được, và đó là chủ ý cho dữ liệu CŨ: những bộ dữ liệu §8 tạo trước
+      // migration này chưa thuộc workspace nào. Ép NOT NULL sẽ phải bịa ra một
+      // workspace cho chúng — bịa sai thì dữ liệu của người ta nhảy sang bộ phận
+      // khác. Giao diện hiện chúng ở mục "chưa gán workspace" để người dùng tự
+      // quyết định.
+      //
+      // Bộ dữ liệu MỚI luôn có workspace: tầng ứng dụng bắt buộc, xem
+      // `repositories/datasets.ts`.
+      `ALTER TABLE datasets
+         ADD COLUMN workspace_id BIGINT UNSIGNED NULL AFTER source,
+         ADD KEY idx_datasets_workspace (tenant_id, workspace_id, deleted_at),
+         ADD CONSTRAINT fk_datasets_workspace FOREIGN KEY (tenant_id, workspace_id)
+           REFERENCES workspaces (tenant_id, id) ON DELETE CASCADE`,
+
+      // ─── Ba cột của §8 thành tuỳ chọn ────────────────────────────────────
+      //
+      // Bộ dữ liệu từ file không có kết nối, không có schema nguồn, không có
+      // bảng nguồn. Giữ NOT NULL thì phải nhét giá trị giả vào — và một
+      // `connection_id = 0` trỏ vào hư không là thứ sẽ làm hỏng một câu JOIN nào
+      // đó về sau.
+      //
+      // Khoá ngoại phải gỡ trước khi đổi cột sang NULL, rồi gắn lại.
+      `ALTER TABLE datasets DROP FOREIGN KEY fk_datasets_connection`,
+      `ALTER TABLE datasets
+         MODIFY COLUMN connection_id BIGINT UNSIGNED NULL,
+         MODIFY COLUMN source_schema VARCHAR(255) NULL,
+         MODIFY COLUMN source_table  VARCHAR(255) NULL`,
+      `ALTER TABLE datasets
+         ADD CONSTRAINT fk_datasets_connection FOREIGN KEY (tenant_id, connection_id)
+           REFERENCES connections (tenant_id, id) ON DELETE RESTRICT`,
+
+      // ─── Cột riêng của nguồn FILE ────────────────────────────────────────
+      //
+      // Tất cả đều NULL được: dòng của §8 không có chúng. Ràng buộc "file thì
+      // phải có s3_key" nằm ở tầng ứng dụng — MySQL không có CHECK ràng buộc
+      // theo giá trị cột khác một cách đáng tin trên mọi phiên bản.
+      //
+      // `truncated` tồn tại vì `row_count` một mình nói dối: 50000 có thể là
+      // "file có đúng 50000 dòng" hoặc "file có nửa triệu dòng và ta cắt". Trong
+      // sản phẩm BI, để người ta tin vào một biểu đồ thiếu chín phần mười dữ
+      // liệu là kiểu sai tệ nhất, nên sự thật đó phải nằm trong schema.
+      `ALTER TABLE datasets
+         ADD COLUMN project_id        BIGINT UNSIGNED NULL AFTER workspace_id,
+         ADD COLUMN original_filename VARCHAR(255) NULL AFTER name,
+         ADD COLUMN file_ext          ENUM('csv','xlsx') NULL AFTER original_filename,
+         ADD COLUMN file_size_bytes   BIGINT UNSIGNED NOT NULL DEFAULT 0 AFTER file_ext,
+         ADD COLUMN s3_key            VARCHAR(512) NULL AFTER file_size_bytes,
+         ADD COLUMN sheet_name        VARCHAR(255) NULL AFTER s3_key,
+         ADD COLUMN status            ENUM('pending','ready','failed') NOT NULL DEFAULT 'ready'
+                                      AFTER sheet_name,
+         ADD COLUMN error_message     VARCHAR(500) NULL AFTER status,
+         ADD COLUMN row_count         INT UNSIGNED NOT NULL DEFAULT 0 AFTER error_message,
+         ADD COLUMN truncated         TINYINT(1) NOT NULL DEFAULT 0 AFTER row_count,
+         ADD COLUMN created_by        BIGINT UNSIGNED NULL,
+         ADD KEY idx_datasets_s3_key (s3_key),
+         ADD CONSTRAINT fk_datasets_creator FOREIGN KEY (created_by)
+           REFERENCES users (id) ON DELETE SET NULL`,
+
+      // `status` mặc định 'ready' để mọi dòng §8 đã có được gán đúng: chúng đã
+      // đồng bộ xong. Chỉ nguồn file mới đi qua 'pending'.
+      //
+      // KHÔNG đặt UNIQUE trên `s3_key`: một file Excel nhiều sheet sinh ra NHIỀU
+      // bộ dữ liệu cùng trỏ vào một object trên S3. Hệ quả phải nhớ: xoá một bộ
+      // dữ liệu KHÔNG được xoá file, vì những bộ anh em vẫn cần nó.
+
+      // ─── dataset_columns: thêm tầng ngữ nghĩa ────────────────────────────
+      //
+      // §8 lưu kiểu THÔ của CSDL (`data_type` = 'varchar(255)', 'bigint'...).
+      // §7 cần thêm một tầng nữa: cột này là chữ hay số, dùng để nhóm hay để đo,
+      // và tên người dùng muốn thấy trên biểu đồ.
+      //
+      // Giữ nguyên `name`, `ordinal`, `data_type`, `is_nullable` của §8 —
+      // code của họ đọc đúng những cột đó và không được đổi.
+      `ALTER TABLE dataset_columns
+         ADD COLUMN field_name    VARCHAR(255) NULL AFTER name,
+         ADD COLUMN semantic_type ENUM('text','number','date','boolean') NULL AFTER data_type,
+         ADD COLUMN field_role    ENUM('dimension','measure') NULL AFTER semantic_type,
+         ADD COLUMN included      TINYINT(1) NOT NULL DEFAULT 1 AFTER field_role`,
+
+      // Danh tính của một cột là VỊ TRÍ, không phải TÊN.
+      //
+      // §6 đặt UNIQUE (dataset_id, name) — đúng với nguồn `connection`, vì CSDL
+      // không cho hai cột cùng tên trong một bảng. Với file thì sai: bảng tính
+      // thật rất hay có hai cột "Ghi chú", và ràng buộc đó biến một file hoàn
+      // toàn bình thường thành lỗi 500 lúc nhập.
+      //
+      // `ordinal` đúng cho CẢ HAI nguồn và bắt được đúng lỗi mà ràng buộc cũ
+      // muốn bắt: một cột bị ghi hai lần. Tên trùng giờ được `commit.ts` xử lý ở
+      // tầng `field_name` — thứ làm khoá của document JSON và vì thế mới thật sự
+      // bắt buộc phải duy nhất.
+      `ALTER TABLE dataset_columns
+         DROP INDEX uq_dataset_columns_name,
+         ADD UNIQUE KEY uq_dataset_columns_ordinal (dataset_id, ordinal)`,
+
+      // ─── dataset_rows: dữ liệu thật của nguồn FILE ───────────────────────
+      //
+      // Chỉ nguồn file mới có bảng này. Bộ dữ liệu §8 đọc thẳng từ CSDL nguồn
+      // qua kết nối, không sao chép dòng nào sang đây.
+      //
+      // Mỗi dòng là một document JSON thay vì sinh một bảng riêng cho mỗi bộ dữ
+      // liệu. DDL lúc chạy nghĩa là: xoá mềm để lại một bảng mồ côi mà không
+      // migration nào mô tả, và một tên cột do người dùng đặt trong Excel đi
+      // thẳng vào câu CREATE TABLE.
+      //
+      // Khoá chính GHÉP (dataset_id, row_index), không có id tự tăng: dòng dữ
+      // liệu không có danh tính riêng ngoài vị trí của nó trong file. Khoá ghép
+      // cũng là khoá gom cụm của InnoDB, nên đọc cả bộ dữ liệu là đọc tuần tự
+      // trên đĩa thay vì nhảy theo secondary index.
+      `CREATE TABLE IF NOT EXISTS dataset_rows (
+        dataset_id BIGINT UNSIGNED NOT NULL,
+        row_index  INT UNSIGNED NOT NULL,
+        data       JSON NOT NULL,
+        PRIMARY KEY (dataset_id, row_index),
+        CONSTRAINT fk_dataset_rows_dataset FOREIGN KEY (dataset_id)
+          REFERENCES datasets (id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+
+      // ─── reports: một biểu đồ dựng trên một bộ dữ liệu ───────────────────
+      //
+      // `chart_type` và `config` để NULL: wizard tạo bản ghi RỖNG, người dùng
+      // dựng biểu đồ sau trên trang Report. NULL ở đây là dữ liệu thật — nó phân
+      // biệt "chưa ai dựng biểu đồ" với "đã dựng và chọn biểu đồ cột".
+      //
+      // `config` là JSON chứ không phải một loạt cột: mỗi loại biểu đồ cần một
+      // bộ tham số khác nhau, và biểu đồ tròn không có trục X. Trải thành cột
+      // nghĩa là phần lớn cột luôn NULL, và thêm một loại biểu đồ là một
+      // migration.
+      //
+      // ON DELETE RESTRICT với dataset: xoá bộ dữ liệu mà cuốn theo báo cáo của
+      // người khác là mất dữ liệu ngoài ý muốn.
+      `CREATE TABLE IF NOT EXISTS reports (
+        id           BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+        tenant_id    BIGINT UNSIGNED NOT NULL,
+        workspace_id BIGINT UNSIGNED NOT NULL,
+        dataset_id   BIGINT UNSIGNED NOT NULL,
+        name         VARCHAR(255) NOT NULL,
+        chart_type   ENUM('bar','line','area','pie','table') NULL,
+        config       JSON NULL,
+        created_by   BIGINT UNSIGNED NULL,
+        deleted_at   DATETIME(3)  NULL,
+        created_at   DATETIME(3)  NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+        updated_at   DATETIME(3)  NOT NULL DEFAULT CURRENT_TIMESTAMP(3)
+                                  ON UPDATE CURRENT_TIMESTAMP(3),
+        PRIMARY KEY (id),
+        KEY idx_reports_workspace_live (workspace_id, deleted_at),
+        KEY idx_reports_tenant_deleted (tenant_id, deleted_at),
+        KEY idx_reports_dataset (dataset_id),
+        CONSTRAINT fk_reports_workspace FOREIGN KEY (tenant_id, workspace_id)
+          REFERENCES workspaces (tenant_id, id) ON DELETE CASCADE,
+        CONSTRAINT fk_reports_dataset FOREIGN KEY (dataset_id)
+          REFERENCES datasets (id) ON DELETE RESTRICT,
+        CONSTRAINT fk_reports_creator FOREIGN KEY (created_by)
+          REFERENCES users (id) ON DELETE SET NULL
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+
+      // ─── §7.8 Creator được XOÁ bộ dữ liệu và báo cáo ─────────────────────
+      //
+      // Migration 4 chỉ cho Creator read + modify trên hai tài nguyên này.
+      // Người tạo một bộ dữ liệu từ file của chính mình mà không xoá được nó thì
+      // mỗi lần tải nhầm file là một bản ghi rác nằm lại vĩnh viễn và phải đi
+      // nhờ Admin. Đó cũng chính là lý do migration 4 đã cho Creator xoá
+      // `project`.
+      //
+      // ⚠️ Bài test `rbac.integration` đối chiếu số dòng trong bảng với
+      // `DEFAULT_POLICY.length` của @bi/shared. Sửa ở đây mà quên sửa bên kia là
+      // đỏ ngay — đó chính là việc của bài test đó.
+      `INSERT IGNORE INTO casbin_rule (ptype, v0, v1, v2, v3) VALUES
+         ('p', 'creator', '*', 'dataset', 'delete'),
+         ('p', 'creator', '*', 'report',  'delete')`,
     ],
   },
 ];

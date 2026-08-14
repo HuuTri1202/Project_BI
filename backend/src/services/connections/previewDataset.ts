@@ -1,4 +1,8 @@
-import { CONNECTION_ERROR_CODES, type DatasetPreviewDto } from '@bi/shared';
+import {
+  CONNECTION_ERROR_CODES,
+  type DatasetCellValue,
+  type DatasetPreviewDto,
+} from '@bi/shared';
 
 import { mysqlPool } from '../../config/mysql';
 import * as datasetsRepo from '../../repositories/datasets';
@@ -39,6 +43,13 @@ export async function previewDataset(
   // 404 chứ không 403 cho id của tổ chức khác — cùng quy ước với phần còn lại.
   if (!dataset) throw notFound('Không tìm thấy tập dữ liệu này.');
 
+  // Nguồn `file` (§7) đã nằm sẵn trong kho của ta, không có CSDL nào để hỏi.
+  if (dataset.source === 'file') return previewFileRows(datasetId);
+
+  if (dataset.connectionId === null || dataset.sourceSchema === null || dataset.sourceTable === null) {
+    throw notFound('Không tìm thấy tập dữ liệu này.');
+  }
+
   const secret = await requireSecret(tenantId, dataset.connectionId);
   const cfg = await toConfigFromSecret(secret);
 
@@ -59,4 +70,34 @@ export async function previewDataset(
       explainConnectionError(err, secret.kind, secret.useSsl),
     );
   }
+}
+
+/**
+ * Xem trước bộ dữ liệu nguồn `file` — đọc từ `dataset_rows` của chính ta.
+ *
+ * Ngược hẳn với nhánh `connection` ở trên: ở đây nền tảng GIỮ dữ liệu, vì file
+ * người dùng tải lên thì không còn nguồn nào khác để hỏi lại.
+ *
+ * Thứ tự cột lấy từ `dataset_columns` chứ không từ khoá của object JSON — MySQL
+ * không giữ thứ tự chèn khoá trong cột JSON, nên đọc theo khoá sẽ cho ra một
+ * bảng có cột xáo trộn so với file gốc.
+ */
+async function previewFileRows(datasetId: number): Promise<DatasetPreviewDto> {
+  const columns = await datasetsRepo.listColumns(mysqlPool, datasetId);
+  const rows = await datasetsRepo.readRows(mysqlPool, datasetId, PREVIEW_ROW_LIMIT);
+
+  const names = columns.map((c) => c.name);
+  return {
+    columns: columns.map((c) => c.fieldName ?? c.name),
+    rows: rows.map((row) => names.map((name) => toCell(row[name]))),
+    limit: PREVIEW_ROW_LIMIT,
+  };
+}
+
+function toCell(value: unknown): DatasetCellValue {
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'string') {
+    return value;
+  }
+  return String(value);
 }
