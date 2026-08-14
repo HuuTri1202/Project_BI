@@ -55,4 +55,33 @@ export const tenantKeys = {
    * thao tác thuần nội bộ lại bắn một truy vấn ra máy chủ của người khác.
    */
   datasetPreview: (id: number | null) => [...tenantKeys.all, 'preview', id] as const,
+
+  /**
+   * Tiến độ nạp vào kho phân tích (§9) — cũng nằm NGOÀI `datasets()`.
+   *
+   * Lý do khác hai cái trên: key này là key DUY NHẤT trong dự án có polling. Đặt
+   * nó dưới `datasets()` thì mỗi lần đổi tên hay xoá một bộ dữ liệu sẽ
+   * `invalidate` trúng nó và khởi động lại một vòng hỏi-lại-mỗi-2-giây cho một
+   * bộ dữ liệu người dùng thậm chí không mở.
+   */
+  datasetLoad: (id: number | null) => [...tenantKeys.all, 'load', id] as const,
+  datasetLoadErrors: (id: number | null, query: unknown) =>
+    [...tenantKeys.datasetLoad(id), 'errors', query] as const,
+  /**
+   * Dữ liệu ĐÃ NẠP trong kho.
+   *
+   * Nằm dưới `datasetLoad(id)` để một lần nạp mới tự cuốn theo nó — bảng cũ mà
+   * còn hiện sau khi vừa nạp lại là đúng thứ khiến người ta nghi ngờ cả tính
+   * năng.
+   */
+  warehousePreview: (id: number | null, query: unknown) =>
+    [...tenantKeys.datasetLoad(id), 'rows', query] as const,
+  /**
+   * Cấu trúc bảng trong kho.
+   *
+   * Cũng nằm dưới `datasetLoad(id)`: nạp lại có thể đổi cả kiểu cột (đồng bộ lại
+   * bảng nguồn rồi nạp, hoặc sửa lựa chọn kiểu ở §7), nên bảng cấu trúc phải hết
+   * hạn cùng lúc với dữ liệu.
+   */
+  warehouseSchema: (id: number | null) => [...tenantKeys.datasetLoad(id), 'schema'] as const,
 };

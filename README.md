@@ -19,6 +19,7 @@ mà **không cần viết SQL**.
 | **Khu người dùng** — trang chủ, project, workspace, thành viên, hồ sơ                     | ✅ xong                           |
 | **Phân quyền Casbin** — 8 tài nguyên × 4 hành động, policy trong database                 | ✅ xong                           |
 | **Kết nối CSDL & Kho dữ liệu** (§8) — MySQL, ClickHouse (SSL/TLS, xem trước dữ liệu)      | ✅ xong                           |
+| **Nạp dữ liệu vào ClickHouse** (§9) — bảng `raw_*`, nạp nền, nạp lại nguyên tử            | ✅ xong                           |
 | Mô hình dữ liệu (Cube schema) / phân tích tự phục vụ / biểu đồ                            | ⏳ chưa làm                       |
 
 Xem lộ trình đầy đủ và phân công theo tính năng trong tài liệu kế hoạch của nhóm.
@@ -66,9 +67,18 @@ npm run infra:up
 npm run dev
 ```
 
-- `infra:up` kiểm tra Docker → khởi động MySQL + Redis → chờ tới khi **thật sự**
-  healthy (không chỉ "đã start") → in thông tin kết nối. Lần đầu mất khoảng
-  **1–2 phút** vì MySQL phải khởi tạo data directory.
+- `infra:up` kiểm tra Docker → khởi động **MySQL + Redis + MinIO + ClickHouse** →
+  chờ tới khi **thật sự** healthy (không chỉ "đã start") → in thông tin kết nối.
+  Lần đầu mất khoảng **1–2 phút** vì MySQL phải khởi tạo data directory, và thêm
+  vài phút nữa nếu image ClickHouse (~1,5 GB) chưa có trong máy.
+  MinIO nằm trong nhóm lõi vì mục §7 tải file lên cần nó: trình duyệt PUT file
+  **thẳng** lên MinIO bằng URL ký sẵn, nên MinIO tắt thì backend vẫn trả `201`
+  cho bước ký URL và log sạch bong, còn người dùng nhận "Có lỗi không xác định".
+  ClickHouse vào nhóm lõi từ mục §9 vì nó là nơi dữ liệu phân tích **thật sự
+  nằm** — không bật thì nút "Nạp vào kho phân tích" hỏng ở mọi máy.
+  > Cái giá phải nói ra: nhóm lõi giờ ăn thêm ~2 GB RAM cho **mọi** người, kể cả
+  > người chỉ sửa giao diện. Máy chật thì `docker compose stop clickhouse` —
+  > phần còn lại chạy bình thường, chỉ mất chức năng nạp.
 - `dev` chạy song song backend và frontend, log gắn nhãn `[api]` / `[web]` theo
   màu. **Ctrl+C tắt cả hai.**
 
@@ -84,8 +94,8 @@ service lõi; phần còn lại chia theo profile:
 
 | Lệnh                    | Thêm gì                | Bật khi bắt đầu làm                                             |
 | ----------------------- | ---------------------- | --------------------------------------------------------------- |
-| `npm run infra:up`      | MySQL, Redis           | **luôn luôn** — đăng ký, đăng nhập, quản trị user, mọi metadata |
-| `npm run infra:up:data` | MinIO, ClickHouse      | **nạp dữ liệu**: upload CSV, presigned URL, bảng `raw_*`        |
+| `npm run infra:up`      | MySQL, Redis, MinIO, ClickHouse | **luôn luôn** — đăng nhập, tải file, nạp vào kho phân tích |
+| `npm run infra:up:data` | (đã nằm trong lõi)     | không còn thêm gì so với `infra:up`                             |
 | `npm run infra:up:bi`   | Cube.js (+ ClickHouse) | **tầng ngữ nghĩa**: DataModel, Explore kéo-thả, chart           |
 | `npm run infra:up:all`  | + Kafka, Connect, dbt  | **dbt / CDC realtime**, hoặc demo toàn hệ thống                 |
 
@@ -458,13 +468,410 @@ Casbin và query proxy giờ đã có `sub` để làm việc: `req.auth` mang
 
 ---
 
+## Chọn database khi tạo kết nối (§8.2)
+
+Ô "Database" trong wizard **không còn là ô gõ tay** — nó là danh sách máy chủ trả
+về, kèm số bảng mỗi cái:
+
+```
+Database
+┌──────────────────────────────┐
+│ bi_analytics · 4 bảng      ▾ │
+└──────────────────────────────┘
+   ├─ Tất cả database
+   ├─ bi_analytics · 4 bảng
+   └─ default · 0 bảng
+```
+
+Lý do đổi là một chế độ hỏng không lớp kiểm tra nào bắt được: gõ `defualt` thay
+vì `default` cho ra một kết nối **lưu được và test XANH** — vì `test()` chỉ đọc
+phiên bản máy chủ, nó không đụng tới database. Lỗi chỉ lộ ra ở màn hình khác,
+dưới dạng hộp thoại Đồng bộ rỗng, kèm một câu không hề nhắc tới database. Chọn từ
+danh sách thì tên sai không còn là trạng thái biểu diễn được, và `default · 0
+bảng` nói thẳng điều người dùng cần biết ngay tại chỗ chọn.
+
+| Điểm | Cách làm |
+|---|---|
+| Để trống | **Hợp lệ** — nghĩa là "mọi database". `listTables` quét cả máy chủ trừ schema hệ thống |
+| Không cần migration | `database_name` là `VARCHAR(255) NOT NULL`; chuỗi rỗng vẫn hợp lệ. Cố ý **không** dùng `NULL`: hai cách viết cho cùng một ý nghĩa là một chỗ sẽ có người quên kiểm |
+| Nút, không tự nạp | Mỗi lần liệt kê là một kết nối THẬT tới máy khách hàng. Nạp theo phím gõ là hàng chục kết nối cho một lần điền form, và `connectionProbeLimit` sẽ chặn đúng lúc gõ xong |
+| Vẫn giữ "Nhập tay" | Tài khoản bị khoá chặt có thể `SELECT` được trên đúng một database mà không có quyền liệt kê. Bỏ hẳn là khoá đúng những khách hàng cẩn thận nhất ra ngoài |
+| Giá trị lạ vẫn hiện | Kết nối cũ trỏ tới database đã bị xoá thì nó xuất hiện kèm `(không còn thấy)`, không bị lặng lẽ đổi sang cái khác |
+
+Hai endpoint, cùng gác `connection:modify` + `connectionProbeLimit` như
+`/connections/test` — chúng mở kết nối ra ngoài, nên không được gác bằng quyền
+đọc, kẻo thành công cụ quét cổng cho bất kỳ ai xem được danh sách kết nối:
+
+| Endpoint | Dùng khi |
+|---|---|
+| `POST /v1/connections/databases` | Tạo mới — thông tin chưa lưu, có mật khẩu trong body |
+| `GET /v1/connections/:id/databases` | Sửa — ô mật khẩu để trống nghĩa là "giữ nguyên", nên phải dùng bí mật đã lưu |
+
+⚠️ **Bẫy ClickHouse**: đếm bảng phải dùng `countIf(t.name != '')`, không phải
+`count(t.name)`. ClickHouse để `join_use_nulls = 0` mặc định nên `LEFT JOIN`
+không khớp điền **giá trị mặc định** (chuỗi rỗng) chứ không phải `NULL` — khác
+SQL chuẩn, và `count()` đếm luôn chuỗi rỗng đó. Trước khi sửa, mọi database rỗng
+hiện ra là "1 bảng".
+
+⚠️ **Bẫy MySQL**: chuỗi rỗng phải quy đổi thành `undefined` trước khi đưa cho
+mysql2 — nó gửi chuỗi rỗng đi như `USE ''` và máy chủ từ chối bắt tay. Quy đổi
+nằm trong `connectionOptions`, một chỗ duy nhất, để cả `test()` cũng an toàn.
+
+---
+
+## Nạp dữ liệu vào kho phân tích (§9)
+
+Đây là mục đầu tiên nền tảng **giữ dữ liệu thật của khách hàng** — ngược hẳn §8,
+nơi chỉ chép cấu trúc. Xong mục này thì **mọi** bộ dữ liệu, dù từ file hay từ
+CSDL, đều có một bảng `raw_*` trong ClickHouse — điều kiện cần để §10 dựng mô
+hình Cube, vì Cube chỉ đọc được **một** nơi.
+
+### Luồng
+
+Nạp chạy **tự động**, không phải một nút người dùng phải nhớ bấm:
+
+- **Tải file lên xong** (§7 `commitDatasets`) → tự xếp hàng nạp.
+- **Đồng bộ bảng xong** (§8 `syncDatasets`) → tự xếp hàng nạp **mọi bảng được
+  chọn**, kể cả bảng `unchanged`: "không đổi" ở đó nghĩa là CẤU TRÚC không đổi,
+  còn dữ liệu bên trong thì gần như chắc chắn có đổi — và đó mới là thứ người ta
+  bấm đồng bộ để lấy.
+- Nút **Nạp lại** ở tab "Kho phân tích" vẫn còn, giờ mang đúng nghĩa của nó.
+
+Việc xếp hàng tự động **không bao giờ làm hỏng** luồng gọi nó: ClickHouse tắt thì
+tải file vẫn báo thành công (vì nó *đã* thành công), còn lần nạp hiện `failed`
+kèm lý do ở đúng chỗ người dùng đi tìm.
+
+1. Người dùng tải file / đồng bộ bảng — hoặc bấm **Nạp lại**.
+2. Một dòng `queued` được ghi vào `dataset_load_runs`, API trả về **ngay**. Nạp
+   50.000 dòng mất nhiều phút — một request HTTP treo ngần ấy sẽ bị proxy cắt
+   giữa chừng.
+3. Vòng lặp nền trong chính tiến trình Express nhặt việc mỗi 2 giây bằng
+   `UPDATE … WHERE status='queued' … LIMIT 1` — **database làm trọng tài**, nên
+   hai tiến trình `tsx watch` không thể cùng nhận một việc.
+4. Nạp vào bảng tạm `raw_t{tenant}_d{dataset}__new`, rồi `EXCHANGE TABLES` để
+   tráo tên **nguyên tử**. Không có một mili-giây nào bảng đang phục vụ bị rỗng.
+5. Giao diện tự hỏi lại 2 giây một lần **và tự dừng** khi xong
+   (`refetchInterval` dạng hàm — chỗ duy nhất trong dự án dùng polling).
+
+### Ba quyết định đáng nhớ
+
+- **Tên bảng sinh hoàn toàn từ hai số nguyên** (`raw_t4_d21`). Không một ký tự
+  người dùng đặt nào lọt vào câu `CREATE TABLE` — định danh không tham số hoá
+  được, và `datasets.name` thì sửa được ở §8.9 nên tên bảng suy từ nó sẽ thành
+  mồ côi ngay lần đổi tên đầu tiên.
+- **Escape định danh ClickHouse bằng dấu chéo ngược**, không nhân đôi backtick
+  như MySQL: `` a`b `` → `` `a\`b` ``. Đã kiểm bằng `CREATE TABLE` thật rồi đọc
+  lại `system.columns`; nhân đôi backtick cho ra lỗi cú pháp.
+- **Một ô hỏng không giết cả lần nạp.** Ô không ép được kiểu → ghi `NULL` + một
+  dòng `dataset_load_errors`, rồi đi tiếp. Với dữ liệu thật thì luôn có ô rác;
+  bắt hỏng cả lần nạp nghĩa là không bao giờ nạp được gì.
+
+⚠️ **Bẫy Excel — `styles` phải là `'cache'` khi đọc luồng.** Trong xlsx, một ô
+ngày KHÔNG được lưu như ngày: nó là **số sê-ri** (số ngày kể từ 1899-12-30), và
+chỉ định dạng số trong `xl/styles.xml` mới nói đó là ngày. `WorkbookReader` mặc
+định `styles: 'ignore'`, nên ô 31/07/2012 trả về đúng số `41121` và cả cột ngày
+thành `NULL` trong ClickHouse.
+
+Bẫy nằm ở chỗ **nó không để lại dấu vết nào ở bước tải lên**: nhánh phân tích
+dùng `workbook.xlsx.load()` vốn luôn đọc styles, nên giao diện vẫn hiện đúng kiểu
+`date`. Chỉ nhánh nạp hỏng. Đã xảy ra thật trên Global-Superstore: 51.290 dòng
+vào kho với hai cột ngày rỗng sạch, 102.580 ô lỗi, mà lần nạp vẫn `succeeded`.
+Đo lại: `'cache'` **không** đắt hơn (390 ms so với 429 ms trên chính file đó).
+Có test hồi quy trong `ingest.integration.test.ts` khẳng định ô ra `2012-07-31`
+chứ không phải `'41121'`.
+
+### Trang không cuộn, bảng mới cuộn
+
+Vỏ ngoài (`UserLayout`, `AdminLayout`) là `h-screen overflow-hidden`, và mọi
+trang bắt đầu bằng `components/ui/Page.tsx`: phần đầu (`PageHeader`) đứng yên,
+phần thân (`PageBody`) nhận hết chỗ còn lại. Danh sách dài cuộn **trong hộp của
+chính nó**, với hàng tiêu đề `sticky` nên cuộn tới dòng thứ 60 vẫn đọc được tên
+cột. Đo trên 12 trang ở cả 1440×900 lẫn 1366×700: cửa sổ tràn **0px**.
+
+Ba chỗ dễ sai, đều đã gặp:
+
+- **`min-h-0` là bắt buộc** trên mọi flex item chứa vùng cuộn. Mặc định
+  `min-height: auto` khiến flex item không chịu co nhỏ hơn nội dung, nên `flex-1`
+  vô tác dụng và cửa sổ cuộn lại như cũ.
+- **`TableWrap fill` dùng `min-h-0` mà KHÔNG `flex-1`.** `flex-1` bắt hộp căng
+  hết chiều cao, nên bảng ba dòng để lại một mảng trắng tới tận đáy màn hình.
+- ⚠️ **`sr-only` không co được thẻ `<table>`.** Với `display: table`, CSS coi
+  `height`/`width` là kích thước TỐI THIỂU chứ không phải cố định. Bảng phụ đề
+  cho trình đọc màn hình trong `VegaChart` vì thế vẫn cao đúng nội dung, và
+  `position: absolute` không có tổ tiên định vị làm nó bám vào khối chứa gốc:
+  2208px vô hình kéo dài trang Tổng quan. Phải bọc trong một `<div className="sr-only">`.
+
+Thanh cuộn được tạo kiểu ở cuối `index.css`: mảnh, con trượt bo tròn, **nền trong
+suốt** — nền xám đặc nằm sát viền bảng đọc ra như một cột rỗng thứ hai. Lớp
+`.scrollbar-dark` cho vùng cuộn trên nền tối (sidebar).
+
+⚠️ Khai cả `scrollbar-width`/`scrollbar-color` lẫn `::-webkit-scrollbar` thì
+**thuộc tính chuẩn thắng** ở Chrome/Edge 121+. Đo được: hộp cuộn dày 12px (cỡ
+"thin" của trình duyệt) chứ không phải 10px khai trong khối `::-webkit-`. Khối đó
+giờ chỉ còn phục vụ Safari và Chromium đời cũ — sửa `width` trong đó rồi chờ
+Chrome đổi theo là chờ vô ích.
+
+### Ba tab của trang chi tiết đọc từ ba nơi khác nhau
+
+Sau §9, mỗi tab trả lời một câu hỏi khác hẳn — và biết tab nào đọc ở đâu là cách
+duy nhất để đối chiếu khi số liệu lệch:
+
+| Tab | Đọc từ | Trả lời |
+|---|---|---|
+| Dữ liệu | **Nguồn** — `SELECT … LIMIT` sang CSDL khách hàng, hoặc mẫu 1.000 dòng của file | "dữ liệu gốc trông thế nào" |
+| Cấu trúc | **Kho** — `system.columns` của ClickHouse | "cột này nằm trong kho dưới dạng gì" |
+| Kho phân tích | **Kho** — bảng `raw_*` | "thứ đã nạp trông thế nào" |
+
+Tab **Cấu trúc** từng đọc `dataset_columns` (kiểu của nguồn). Nó đổi sang đọc kho
+vì mọi thứ từ đây trở đi dựng trên kho: báo cáo tổng hợp bằng SQL trên `raw_*`,
+và §10 sinh mô hình Cube từ đúng những cột đó. `date` của §7 và
+`Nullable(DateTime64(3, 'UTC'))` của ClickHouse là hai thông tin khác nhau, và
+chỉ cái sau là thứ đang được truy vấn. Lỗi cột ngày Excel ở trên là ví dụ đắt
+giá: giao diện hiện `date` trong khi kho chứa toàn `NULL`, và không tab nào nói
+ra điều đó. Chưa nạp thì tab rơi về cấu trúc nguồn, có ghi rõ đang xem cái nào.
+
+**Phân trang** (20/50/100 dòng) có ở cả hai bảng dữ liệu, nhưng khác nhau về bản
+chất và khác biệt đó cố ý để lộ ra:
+
+- **Trong kho** — phân trang phía máy chủ, có tổng THẬT ("Hiện 1–20 trong
+  51.290"). `count()` trên MergeTree đọc từ metadata của part chứ không quét
+  dòng nào, và `OFFSET` nhảy thẳng tới granule vì bảng đã `ORDER BY _row_index`.
+- **Từ nguồn** — phân trang phía trình duyệt trên ảnh chụp đã tải về, và **không**
+  có tổng. `COUNT(*)` trên bảng vài chục triệu dòng của khách hàng là một lần
+  quét toàn bảng; không ai đáng phải trả giá đó để trang hiện được một con số.
+
+### Nợ kỹ thuật — ghi ra, không giấu
+
+- **Job không sống qua restart.** Đang chạy mà backend restart (`tsx watch` khi
+  lưu file) thì job bị đánh `failed` lúc boot sau, phải bấm nạp lại. Đây là cái
+  giá đã biết của việc không dùng hàng đợi thật.
+- **Chỉ một job chạy một lúc** trên toàn hệ thống. Hai tổ chức cùng nạp thì xếp
+  hàng.
+- **Luôn nạp lại toàn bộ**, không có nạp tăng dần, không có lịch tự động.
+- **`dataset_rows` vẫn giữ 1.000 dòng mẫu** cho tab Xem trước — nay là *mẫu*,
+  không còn là bản sao đầy đủ. Xem mục _Gỡ nút thắt `dataset_rows`_ ngay dưới.
+- **Cách ly tổ chức trong ClickHouse chỉ ở tầng ứng dụng** — một `bi_user` thấy
+  mọi bảng. Tới §10, `securityContext` của Cube **phải** mang `tenantId`; quên là
+  rò dữ liệu thật.
+- **Janitor chỉ quét mỗi giờ và chỉ khi backend đang chạy.** Một máy dev tắt cả
+  tuần thì bảng mồ côi nằm nguyên cả tuần — vô hại, nhưng đừng trông nó dọn ngay.
+- **`ObjectStorage.getObject` vẫn trả `Buffer`**, nên file được tải trọn vẹn vào
+  RAM một lần trước khi parse. Bị chặn ở `UPLOAD_MAX_BYTES` (50 MB) và chỉ sống
+  một lần nạp, nhưng thêm một API luồng vào tầng lưu trữ sẽ gỡ nốt phần cuối.
+- **Excel không streaming ở bước phân tích**: `workbook.xlsx.load()` dựng cả
+  workbook trong RAM. Nhánh nạp thì có (`WorkbookReader`). CSV đã streaming cả
+  hai đầu.
+- **`dataset_rows` của bộ đã xoá mềm không được dọn.** Janitor chỉ dọn ClickHouse.
+
+### Gỡ nút thắt `dataset_rows`
+
+Trần 50.000 dòng **không đến từ ClickHouse** — 50.000 dòng chỉ tốn 4,57 MiB và
+nạp xong dưới 5 giây. Nó đến từ chỗ dữ liệu **đọng lại trên đường đi**:
+
+```
+Trước                                    Sau
+─────────────────────────────────────    ────────────────────────────────
+file → parse TOÀN BỘ vào RAM             file → parse theo LUỒNG
+     → 1 khoá Redis  ~29 MB/50k dòng          → Redis chỉ 1.000 dòng mẫu
+     → dataset_rows  ~29 MB/50k dòng          → dataset_rows 1.000 dòng mẫu
+     → ClickHouse    4,57 MiB/50k             → ClickHouse (đọc THẲNG file)
+```
+
+Cùng một dữ liệu bị lưu **ba lần**, và bản đắt nhất lại là bản tạm — JSON lặp
+tên cột ở từng dòng nên phình **6,3×** so với chính nó trong ClickHouse. Redis
+còn chặn cứng 512 MB mỗi giá trị chuỗi, tức tường ở khoảng 500.000 dòng.
+
+Đo trên máy dev với CSV 500.000 dòng (10,1 MB):
+
+| | Kết quả |
+|---|---|
+| `parseFile` | **1,1 giây**, giữ đúng 1.000 dòng |
+| Cache Redis | **~0 MB** (trước: ~290 MB ước tính cho 500k) |
+| `readFileRows` | **388.000 dòng/giây**, heap đỉnh 245 MB và phẳng |
+
+Ba thay đổi đi CÙNG NHAU, không tách được:
+
+1. **`readFileRows`** đọc thẳng file từ MinIO theo lô, cùng hình dạng
+   `unknown[][]` mà `Driver.readAllRows` phát ra — nhờ vậy `loadDataset` gộp hai
+   nhánh file/CSDL thành một vòng lặp.
+2. **`dataset_rows` co về `RETAINED_ROWS = 1.000`** dòng mẫu, đúng vai trò còn
+   lại của nó: nuôi tab "Dữ liệu".
+3. **`aggregateWarehouse`** — §7.6 gom nhóm bằng ClickHouse thay vì RAM Node.
+   **Bắt buộc**: bỏ (3) mà làm (2) thì biểu đồ vẽ trên 1/500 dữ liệu, trông hoàn
+   toàn hợp lý mà sai số liệu.
+
+Đây cũng là lời hứa của §9 được trả. `aggregate.ts` cũ gom nhóm trong TypeScript
+vì lý do **an toàn**, không phải tốc độ: dữ liệu nằm trong cột JSON nên `GROUP BY`
+sẽ phải nội suy tên field người dùng đặt vào `data->>'$.<tên>'`. Giờ mỗi bộ dữ
+liệu có bảng `raw_*` với **cột thật**, nên `GROUP BY` trở lại là SQL bình thường,
+chặn hai lớp: tên cột phải khớp `dataset_columns`, rồi `quoteIdent` bọc nó.
+
+Hai thay đổi hành vi, ghi ra chứ không giấu:
+
+| | |
+|---|---|
+| `rowCount` | giờ là số dòng **thật trong file**, không phải số dòng đã lưu. Đi cặp với `loadedRowCount` (số dòng truy vấn được) — trước đây hai số luôn bằng nhau nên một là đủ |
+| Báo cáo chưa nạp | trả **409 `DatasetNotLoaded`**, và trang Report hiện "Đang nạp…" rồi tự hỏi lại mỗi 3 giây thay vì một hộp đỏ |
+
+Ba hàm dùng CHUNG một bản, không chép: `normalizeCell` (ô → giá trị) và
+`cellText` (ô Excel → chuỗi). Hai đường đọc cùng một file mà lệch nhau một bản
+sao là bảng xem trước và dữ liệu trong kho nói hai điều khác nhau về đúng một ô.
+`convert()` của §9 từng đòi số dạng thuần trong khi `parseNumber` hiểu
+`1.234,56` kiểu Việt Nam — khác biệt đó bị che chừng nào §9 còn đọc
+`dataset_rows`.
+- **`decimal` không có `(p,s)`** (dataset đồng bộ trước nhánh này) rơi về
+  `String` thay vì đoán bừa — đồng bộ lại một lần là có kiểu đúng.
+
+### Xem dữ liệu đã nạp
+
+Tab **Kho phân tích** có bảng **"Dữ liệu trong kho"** đọc thẳng từ ClickHouse
+(`GET /v1/datasets/:id/load/preview`). Nó khác tab **"Dữ liệu"** ở đúng chỗ quan
+trọng nhất:
+
+| Tab | Đọc từ | Trả lời câu hỏi |
+|---|---|---|
+| Dữ liệu | **nguồn** (CSDL khách hàng / `dataset_rows`) | dữ liệu gốc trông thế nào |
+| Kho phân tích → Dữ liệu trong kho | **đích** (bảng `raw_*`) | thứ *nằm trong kho* trông thế nào |
+
+Đặt hai bảng cạnh nhau là cách rẻ nhất bắt những lỗi im lặng: ngày lệch múi giờ,
+một cột toàn `NULL` vì ánh xạ kiểu sai, số bị làm tròn. Cột `_row_index` cố ý
+không bị giấu — nó nối một dòng ở đây với một dòng trong bảng lỗi §9.8.
+
+Muốn truy vấn thẳng thì dùng CLI:
+
+```bash
+# Có những bảng nào, bao nhiêu dòng
+docker exec bi-clickhouse clickhouse-client --user bi_user --password clickhouse_password \
+  --query "SELECT name, total_rows, formatReadableSize(total_bytes) AS size
+             FROM system.tables WHERE database='bi_analytics' AND name LIKE 'raw_%'
+            FORMAT PrettyCompact"
+
+# Tổng hợp thật bằng SQL — thứ mà `aggregate.ts` phải làm trong bộ nhớ Node
+docker exec bi-clickhouse clickhouse-client --user bi_user --password clickhouse_password \
+  --query "SELECT \`Country\`, count() AS don, round(sum(\`Sales\`)) AS doanh_thu
+             FROM bi_analytics.raw_t4_d21 GROUP BY \`Country\`
+            ORDER BY doanh_thu DESC LIMIT 5 FORMAT PrettyCompact"
+```
+
+`raw_t{tenantId}_d{datasetId}` — tra `id` và `tenant_id` trong bảng `datasets`,
+hoặc đọc cột **Bảng trong ClickHouse** ngay trên giao diện.
+
+### Dọn kho khi xoá bộ dữ liệu
+
+Bảng `raw_*` là **dẫn xuất**, không phải bản gốc: mọi thứ cần để dựng lại nó
+(`dataset_rows`, file trong MinIO, hay chính CSDL khách hàng) đều sống sót qua
+lần xoá mềm. Nên xoá bộ dữ liệu là **xoá luôn bảng của nó** — giữ lại không bảo
+vệ được gì, chỉ chiếm đĩa.
+
+Và nó chiếm nhiều hơn tưởng, vì hai nguồn hành xử khác hẳn nhau:
+
+| Nguồn | Tải/đồng bộ lại sau khi xoá | Hệ quả |
+|---|---|---|
+| `connection` | trúng `uq_datasets_source` → hồi sinh **đúng id cũ** | bảng cũ bị ghi đè, **tự lành** |
+| `file` | ba cột khoá đều `NULL`, mà MySQL không coi `NULL` là trùng → **id mới** | bảng cũ mồ côi **vĩnh viễn**, mỗi vòng thêm một bản sao |
+
+Hai lớp, và lớp thứ hai không phải thừa:
+
+1. **Xoá ngay** trong `deleteDataset` — đường nhanh. Cố ý *không* ném ra nếu
+   hỏng: dòng MySQL đã xoá xong, trả lỗi lúc này là báo thất bại cho một thao tác
+   đã thành công, và buộc "xoá được một dòng" vào "ClickHouse phải đang sống".
+2. **Janitor** trong runner (`sweepOrphanTables`) — lúc khởi động rồi mỗi giờ. Nó
+   suy tên bảng từ `raw_t{tenant}_d{dataset}` chứ **không đọc `ch_table`**, nên
+   dọn được cả bảng mà MySQL đã quên mất là mình từng có. Ba lỗ mà lớp 1 không
+   bịt nổi, cả ba đều có thật:
+
+   - ClickHouse tắt đúng lúc người dùng bấm xoá.
+   - Xoá **kết nối** làm dataset của nó khuất khỏi giao diện nhưng
+     `datasets.deleted_at` vẫn `NULL` — đường xoá dataset không hề chạy qua.
+   - Người dùng xoá **giữa lúc đang nạp**: lần nạp đó chạy tiếp và tạo lại đúng
+     cái bảng vừa bị drop, ở bước `CREATE` trước `EXCHANGE TABLES`.
+
+Janitor đi chung `tick()` với việc nạp thay vì có bộ đếm giờ riêng, để một lần
+quét không bao giờ chạy song song với một lần nạp trong cùng tiến trình — nó
+không thể drop trúng bảng tạm `__new` đang được ghi dở.
+
+⚠️ Regex `^raw_t(\d+)_d(\d+)(?:__new)?$` neo **cả hai đầu**. `bi_analytics` còn
+chứa `spike_orders` của spike F1.7 và sẽ chứa view của dbt ở §10; nới nó thành
+tiền tố `raw_` là đủ để một tác vụ nền xoá mất thứ nó không hiểu.
+
+### Vào thẳng ClickHouse để tự xem
+
+Ba đường, cùng một dữ liệu. Tài khoản luôn là `bi_user` / `clickhouse_password`.
+
+**a) Giao diện web có sẵn — không cần cài gì.** Mở <http://localhost:8123/play>,
+điền user/password ở góc trên, gõ SQL, bấm **Run**. Đây là trang ClickHouse tự
+phục vụ, tiện nhất khi chỉ muốn ngó nhanh.
+
+**b) Phiên dòng lệnh tương tác** — gõ nhiều câu liên tiếp mà không phải lặp lại
+mật khẩu:
+
+```bash
+docker exec -it bi-clickhouse clickhouse-client \
+  --user bi_user --password clickhouse_password --database bi_analytics
+```
+
+Rồi trong phiên đó:
+
+```sql
+SHOW TABLES;                      -- có những bảng nào
+DESCRIBE raw_t4_d22;              -- cột nào, kiểu gì
+SELECT count() FROM raw_t4_d22;   -- bao nhiêu dòng
+SELECT * FROM raw_t4_d22 ORDER BY _row_index LIMIT 3 FORMAT Vertical;
+```
+
+`FORMAT Vertical` là mẹo đáng nhớ nhất: bảng nhiều cột in ngang sẽ vỡ dòng thành
+cháo, `Vertical` in mỗi cột một dòng nên đọc được. Thoát bằng `exit` hoặc Ctrl-D.
+
+**c) Một câu lẻ, không vào phiên** — dạng `--query` như các ví dụ ở trên, hợp khi
+copy vào script.
+
+Ba câu hay dùng khi nghi ngờ dữ liệu sai:
+
+```sql
+-- Cột nào toàn NULL? Dấu hiệu kinh điển của ánh xạ sai khoá hoặc sai kiểu.
+SELECT countIf(`Sales` IS NULL) AS thieu, count() AS tong FROM raw_t4_d22;
+
+-- Ngày có bị lệch múi giờ không? So mốc sớm nhất/muộn nhất với nguồn.
+SELECT min(`Order Date`), max(`Order Date`) FROM raw_t4_d22;
+
+-- Nạp lại có nhân đôi không? Số này phải bằng count().
+SELECT uniqExact(_row_index) FROM raw_t4_d22;
+```
+
+### Kiểm chứng
+
+```bash
+npm run verify                                   # unit: ánh xạ kiểu, quoteIdent, DDL
+npm run test:integration                         # 12 ca chỉ cần MySQL
+INGEST_CH_TESTS=1 npm run test:integration       # + 4 ca nạp thật vào ClickHouse
+```
+
+Nhánh chạm ClickHouse nằm sau một biến khai **tường minh**, không phải sau một
+phép "ping rồi lặng lẽ skip": skip ngầm thì một lần chạy bỏ qua phần quan trọng
+nhất vẫn hiện màu xanh, và đó là kiểu hỏng tệ nhất.
+
+Đối chiếu tay:
+
+```bash
+docker exec bi-clickhouse clickhouse-client --user bi_user \
+  --password clickhouse_password \
+  --query "SELECT count() FROM bi_analytics.raw_t4_d21"
+```
+
+---
+
 ## Sự cố thường gặp
 
 | Triệu chứng                                                      | Nguyên nhân & cách xử lý                                                                                                                                                               |
 | ---------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `$'\r': command not found` khi chạy `.sh`                        | File bị CRLF. `git rm --cached -r . && git reset --hard`                                                                                                                               |
-| Backend thoát ngay, in `[env] Cấu hình môi trường không hợp lệ`  | Thiếu biến trong `.env`. Đối chiếu với `.env.example`                                                                                                                                  |
+| Backend thoát ngay, in `[env] Cấu hình môi trường không hợp lệ`  | `.env` thiếu biến mà một nhánh vừa merge thêm vào. Chạy `npm run setup` — nó bổ sung biến mới và **không** đụng giá trị đang có                                                         |
+| Đăng nhập/đăng ký báo "Có lỗi không xác định. Vui lòng thử lại." | Backend không chạy nên request không tới đâu cả. Xem log terminal `[api]`; hay gặp nhất là dòng `[env] Cấu hình môi trường không hợp lệ` ở trên                                        |
+| Tải file lên thất bại, nhưng log `[api]` chỉ thấy `POST /datasets/uploads 201` | MinIO không chạy. Backend chỉ **ký URL** — trình duyệt mới là bên PUT file, nên lỗi không lọt vào log backend. `npm run infra:up`, hoặc kiểm bằng `docker ps \| grep bi-minio` |
 | `/health/ready` trả 503                                          | Container chưa chạy hoặc sai password. `docker compose ps`                                                                                                                             |
+| Bấm "Nạp vào kho phân tích" báo *Chưa kết nối được tới kho phân tích* | ClickHouse không chạy. `npm run infra:up`, kiểm bằng `docker ps \| grep bi-clickhouse`. Thông báo cố ý nói thẳng lệnh cần chạy thay vì "lỗi không xác định"                        |
+| Trạng thái nạp kẹt ở **Đang nạp** mãi không đổi                  | Backend đã restart giữa chừng (hay gặp: `tsx watch` khi bạn lưu file). Lần boot sau tự đánh `failed` kèm lý do — bấm **Nạp lại**                                                       |
+| ClickHouse báo `Directory for table data already exists`         | Thiếu `SYNC` sau `DROP TABLE`. Database engine `Atomic` hoãn xoá thật 480 giây, nên nạp lại trong vòng 8 phút sẽ đâm vào thư mục cũ. Mọi câu `DROP` trong `loadDataset.ts` đều có `SYNC` |
 | Cube báo `ECONNREFUSED` tới ClickHouse                           | Mount cả thư mục `config.d` dạng `:ro` chặn image ghi `docker_related_config.xml`, ClickHouse chỉ nghe `127.0.0.1`. Compose đã mount từng file — đừng đổi lại                          |
 | Kafka client trên host timeout                                   | Phải dùng `localhost:29092` (listener `PLAINTEXT_HOST`), không phải 9092                                                                                                               |
 | `port is already allocated` khi `docker compose up`              | Máy đã có service giữ cổng đó (hay gặp: Redis/Memurai giữ 6379). Xem [docs/ports.md](docs/ports.md)                                                                                    |

@@ -2,6 +2,7 @@
 import { useState } from 'react';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
+import { Page, PageBody, PageHeader } from '../../components/ui/Page';
 import { Pagination } from '../../components/ui/Pagination';
 import { TBody, Td, Th, THead, TableWrap, Tr } from '../../components/ui/Table';
 import { EmptyState, ErrorState, TableSkeleton } from '../../components/ui/states';
@@ -70,18 +71,10 @@ export default function WorkspacesPage(): React.ReactElement {
     query.q !== '' || query.status !== '' || query.tenantId !== '' || query.kind !== '';
 
   return (
-    <div className="mx-auto max-w-6xl">
-      <header>
-        <h1 className="text-xl font-bold text-slate-900">Quản lý workspace</h1>
-        <p className="mt-1 text-sm text-slate-500">
-          Không gian làm việc của tất cả tổ chức. Mỗi công ty có thể có nhiều workspace để chia
-          theo bộ phận. Danh sách mặc định <strong>không</strong> hiện workspace nằm trong không
-          gian cá nhân của người dùng.
-        </p>
-      </header>
-
-      <div className="mt-6">
-        <ListToolbar
+    <Page>
+      <PageHeader title="Quản lý workspace" description="Không gian làm việc của tất cả tổ chức. Mặc định không hiện workspace cá nhân.">
+        <div className="mt-4">
+          <ListToolbar
           search={query.q}
           onSearch={(q) => update({ q })}
           placeholder="Tên workspace hoặc tên công ty…"
@@ -115,10 +108,11 @@ export default function WorkspacesPage(): React.ReactElement {
             allLabel="Công ty thật"
             options={KIND_OPTIONS}
           />
-        </ListToolbar>
-      </div>
+          </ListToolbar>
+        </div>
+      </PageHeader>
 
-      <div className="mt-4">
+      <PageBody scroll={false}>
         {isPending && <TableSkeleton />}
         {isError && <ErrorState message={getApiError(error).message} />}
 
@@ -135,8 +129,12 @@ export default function WorkspacesPage(): React.ReactElement {
         )}
 
         {data && data.items.length > 0 && (
-          <div className={isPlaceholderData ? 'opacity-60 transition-opacity' : ''}>
-            <TableWrap>
+          <div
+            className={`flex min-h-0 flex-1 flex-col ${
+              isPlaceholderData ? 'opacity-60 transition-opacity' : ''
+            }`}
+          >
+            <TableWrap fill>
               <THead>
                 <Tr>
                   <Th>Tổ chức</Th>
@@ -183,65 +181,67 @@ export default function WorkspacesPage(): React.ReactElement {
               </TBody>
             </TableWrap>
 
-            <Pagination
-              page={data.page}
-              pageSize={data.pageSize}
-              total={data.total}
-              totalPages={data.totalPages}
-              onPageChange={(page) => update({ page })}
-            />
+            <div className="shrink-0">
+              <Pagination
+                page={data.page}
+                pageSize={data.pageSize}
+                total={data.total}
+                totalPages={data.totalPages}
+                onPageChange={(page) => update({ page })}
+              />
+            </div>
           </div>
         )}
-      </div>
 
-      <ConfirmDialog
-        open={lockTarget !== null}
-        onClose={() => setLockTarget(null)}
-        title={lockTarget?.isActive ? 'Khoá workspace' : 'Mở khoá workspace'}
-        description={lockTarget ? `${lockTarget.tenantName} · ${lockTarget.name}` : ''}
-        confirmLabel={lockTarget?.isActive ? 'Khoá' : 'Mở khoá'}
-        danger={lockTarget?.isActive === true}
-        loading={setActive.isPending}
-        onConfirm={(onError) => {
-          if (!lockTarget) return;
-          setActive.mutate(
-            { id: lockTarget.id, isActive: !lockTarget.isActive },
-            { onSuccess: () => setLockTarget(null), onError },
-          );
-        }}
-      >
-        {lockTarget?.isActive ? (
-          <>Workspace tạm ngừng hoạt động. Dữ liệu bên trong được giữ nguyên, mở lại được.</>
-        ) : (
-          <>Workspace hoạt động trở lại.</>
-        )}
-      </ConfirmDialog>
+        <ConfirmDialog
+          open={lockTarget !== null}
+          onClose={() => setLockTarget(null)}
+          title={lockTarget?.isActive ? 'Khoá workspace' : 'Mở khoá workspace'}
+          description={lockTarget ? `${lockTarget.tenantName} · ${lockTarget.name}` : ''}
+          confirmLabel={lockTarget?.isActive ? 'Khoá' : 'Mở khoá'}
+          danger={lockTarget?.isActive === true}
+          loading={setActive.isPending}
+          onConfirm={(onError) => {
+            if (!lockTarget) return;
+            setActive.mutate(
+              { id: lockTarget.id, isActive: !lockTarget.isActive },
+              { onSuccess: () => setLockTarget(null), onError },
+            );
+          }}
+        >
+          {lockTarget?.isActive ? (
+            <>Workspace tạm ngừng hoạt động. Dữ liệu bên trong được giữ nguyên, mở lại được.</>
+          ) : (
+            <>Workspace hoạt động trở lại.</>
+          )}
+        </ConfirmDialog>
 
-      <ConfirmDialog
-        open={deleteTarget !== null}
-        onClose={() => setDeleteTarget(null)}
-        title="Xoá workspace"
-        description={deleteTarget ? `${deleteTarget.tenantName} · ${deleteTarget.name}` : ''}
-        confirmLabel="Xoá workspace"
-        danger
-        loading={remove.isPending}
-        onConfirm={(onError) => {
-          if (!deleteTarget) return;
-          remove.mutate(deleteTarget.id, { onSuccess: () => setDeleteTarget(null), onError });
-        }}
-      >
-        {(deleteTarget?.projectCount ?? 0) > 0 ? (
-          <>
-            Workspace này còn <strong>{deleteTarget?.projectCount} project</strong>. Xoá workspace
-            sẽ khiến chúng không truy cập được nữa.
-          </>
-        ) : (
-          <>
-            Workspace bị ẩn khỏi tổ chức (xoá mềm). Tên đường dẫn được giải phóng nên tạo lại
-            workspace cùng tên sau này vẫn được.
-          </>
-        )}
-      </ConfirmDialog>
-    </div>
+        <ConfirmDialog
+          open={deleteTarget !== null}
+          onClose={() => setDeleteTarget(null)}
+          title="Xoá workspace"
+          description={deleteTarget ? `${deleteTarget.tenantName} · ${deleteTarget.name}` : ''}
+          confirmLabel="Xoá workspace"
+          danger
+          loading={remove.isPending}
+          onConfirm={(onError) => {
+            if (!deleteTarget) return;
+            remove.mutate(deleteTarget.id, { onSuccess: () => setDeleteTarget(null), onError });
+          }}
+        >
+          {(deleteTarget?.projectCount ?? 0) > 0 ? (
+            <>
+              Workspace này còn <strong>{deleteTarget?.projectCount} project</strong>. Xoá workspace
+              sẽ khiến chúng không truy cập được nữa.
+            </>
+          ) : (
+            <>
+              Workspace bị ẩn khỏi tổ chức. Tên đường dẫn được giải phóng nên tạo lại
+              workspace cùng tên sau này vẫn được.
+            </>
+          )}
+        </ConfirmDialog>
+        </PageBody>
+    </Page>
   );
 }

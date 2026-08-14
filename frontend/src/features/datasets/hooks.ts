@@ -1,4 +1,4 @@
-import type { PageResult, ReportDto } from '@bi/shared';
+import { REPORT_ERROR_CODES, type PageResult, type ReportDto } from '@bi/shared';
 import {
   keepPreviousData,
   useMutation,
@@ -7,6 +7,7 @@ import {
   type UseMutationResult,
   type UseQueryResult,
 } from '@tanstack/react-query';
+import { getApiError } from '../../services/apiClient';
 import { useWorkspace } from '../../workspace/useWorkspace';
 import { tenantKeys } from '../tenant/keys';
 import * as api from './api';
@@ -72,6 +73,20 @@ export function useReportData(id: number | null) {
     queryKey: datasetKeys.reportData(id ?? 0),
     queryFn: () => api.fetchReportData(id as number),
     enabled: id !== null,
+    /**
+     * Hỏi lại khi bộ dữ liệu ĐANG được nạp vào kho phân tích.
+     *
+     * Từ khi §7.6 gom nhóm bằng ClickHouse, một báo cáo vừa tạo trên file vừa
+     * tải lên sẽ nhận 409 `DatasetNotLoaded` trong vài giây đầu — trạng thái
+     * bình thường, không phải hỏng. Không hỏi lại thì người dùng phải tự F5 mà
+     * không có gì bảo họ nên làm vậy.
+     *
+     * Dạng hàm để TỰ DỪNG: chỉ lặp đúng mã lỗi này, mọi lỗi khác dừng ngay —
+     * hỏi lại mãi một lỗi thật là giấu nó đi sau một vòng quay vô tận.
+     */
+    refetchInterval: (query) =>
+      getApiError(query.state.error).error === REPORT_ERROR_CODES.DATASET_NOT_LOADED ? 3_000 : false,
+    retry: false,
   });
 }
 

@@ -1,5 +1,6 @@
 import { useNavigate, useParams } from 'react-router-dom';
 import { Button } from '../../components/ui/Button';
+import { Page, PageBody, PageHeader } from '../../components/ui/Page';
 import { ErrorState, TableSkeleton } from '../../components/ui/states';
 import { ConnectionWizard } from '../../features/tenant/connections/ConnectionWizard';
 import { useConnections } from '../../features/tenant/hooks';
@@ -45,20 +46,14 @@ export default function ConnectionFormPage(): React.ReactElement {
   const missing = isEdit && data !== undefined && editing === null;
 
   return (
-    <div className="mx-auto max-w-4xl">
-      <header className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h1 className="text-xl font-bold text-slate-900">
-            {isEdit ? 'Sửa kết nối' : 'Thêm kết nối'}
-          </h1>
-          <p className="mt-1 text-sm text-slate-500">
-            Kết nối một cơ sở dữ liệu riêng vào tổ chức của bạn.
-          </p>
-        </div>
-        <Button onClick={back}>Huỷ</Button>
-      </header>
+    <Page width="4xl">
+      <PageHeader
+        title={isEdit ? 'Sửa kết nối' : 'Thêm kết nối'}
+        description="Kết nối một cơ sở dữ liệu riêng vào tổ chức của bạn."
+        actions={<Button onClick={back}>Huỷ</Button>}
+      />
 
-      <div className="mt-6">
+      <PageBody>
         {isError && <ErrorState message={getApiError(error).message} />}
 
         {missing && (
@@ -72,7 +67,7 @@ export default function ConnectionFormPage(): React.ReactElement {
         {!isError && !missing && (!isEdit || editing !== null) && (
           <ConnectionWizard editing={editing} onDone={back} />
         )}
-      </div>
-    </div>
+      </PageBody>
+    </Page>
   );
 }

@@ -1,5 +1,6 @@
 import type { FileExt, SheetPreviewDto } from '@bi/shared';
 import ExcelJS from 'exceljs';
+import { Readable } from 'node:stream';
 import Papa from 'papaparse';
 
 import { env } from '../../config/env';
@@ -30,15 +31,40 @@ export const PREVIEW_ROWS = 100;
 /** Số ô dùng để đoán kiểu của một cột. Đọc hết 50000 dòng chỉ để đoán là phí. */
 const SAMPLE_ROWS = 200;
 
+/**
+ * Số dòng thật sự GIỮ LẠI trong bộ nhớ sau khi parse.
+ *
+ * ─── Đây là con số gỡ trần 50.000 dòng ──────────────────────────────────────
+ *
+ * Trước đây hàm này giữ đủ `DATASET_MAX_ROWS` dòng, rồi `analyze` nhét cả mảng
+ * đó vào MỘT khoá Redis (~29 MB cho 50.000 dòng) và `commit` chép tiếp vào
+ * `dataset_rows`. Chuỗi đó đặt hai bức tường: RAM của Node, và trần 512 MB cho
+ * một giá trị chuỗi của Redis — tức khoảng 500.000 dòng là hết đường.
+ *
+ * Từ khi §9 đọc thẳng file để nạp (`readFileRows`), không ai còn cần cả mảng
+ * nữa. Ba việc còn lại đều chỉ cần phần đầu:
+ *
+ *   đoán kiểu cột   200 dòng  (`SAMPLE_ROWS`)
+ *   bảng xem trước  100 dòng  (`PREVIEW_ROWS`)
+ *   `dataset_rows`  mẫu để tab "Dữ liệu" hiển thị
+ *
+ * 1.000 dòng phủ dư cả ba mà vẫn đủ để người dùng cuộn xem thật. Chi phí lưu trữ
+ * từ đây KHÔNG còn tăng theo kích thước file.
+ */
+export const RETAINED_ROWS = 1_000;
+
 export interface ParsedSheet {
   name: string;
   header: string[];
+  /** CHỈ `RETAINED_ROWS` dòng đầu. Toàn bộ dữ liệu nằm ở file, đọc khi nạp. */
   rows: string[][];
+  /** Tổng số dòng THẬT trong sheet — đếm hết, kể cả phần không giữ lại. */
+  totalRows: number;
 }
 
 export interface ParseResult {
   sheets: ParsedSheet[];
-  /** Có sheet nào bị cắt vì chạm trần `DATASET_MAX_ROWS` không. */
+  /** Có sheet nào nhiều dòng hơn `DATASET_MAX_ROWS` — phần dư sẽ không được nạp. */
   truncated: boolean;
 }
 
@@ -63,31 +89,64 @@ export function parseFile(buffer: Buffer, ext: FileExt): Promise<ParseResult> {
  *
  * Cái cuối là lý do để `delimiter` trống — papaparse tự dò từ vài dòng đầu.
  */
+/**
+ * ─── Đọc theo LUỒNG, không dựng cả bảng rồi mới cắt ─────────────────────────
+ *
+ * Bản trước gọi `Papa.parse(text)` một phát và nhận về `result.data` chứa TOÀN
+ * BỘ dòng, rồi mới `.slice(0, RETAINED_ROWS)`. Cắt như vậy giảm được phần GIỮ
+ * LẠI nhưng không giảm phần DỰNG LÊN: 500.000 dòng vẫn thành nửa triệu mảng JS
+ * trước khi dòng đầu tiên bị vứt đi. Đo được: quá năm phút chưa xong.
+ *
+ * `chunk` cho papaparse trả về từng khối, nên ta ĐẾM hết mà chỉ GIỮ phần đầu.
+ * Bộ nhớ từ đây phẳng theo kích thước file.
+ */
 function parseCsv(buffer: Buffer): Promise<ParseResult> {
-  const text = stripBom(buffer).toString('utf8');
+  return new Promise((resolve, reject) => {
+    const kept: string[][] = [];
+    let seen = 0;
 
-  const result = Papa.parse<string[]>(text, {
-    // Không dùng `header: true`: nó trả về object, mà object thì MẤT cột trùng
-    // tên — file thật hay có hai cột cùng tên "Ghi chú" và cột sau đè cột trước
-    // trong im lặng. Mảng giữ đủ.
-    header: false,
-    skipEmptyLines: 'greedy',
-    delimiter: '',
-  });
+    Papa.parse(Readable.from(stripBom(buffer)) as never, {
+      // Không dùng `header: true`: nó trả về object, mà object thì MẤT cột trùng
+      // tên — file thật hay có hai cột cùng tên "Ghi chú" và cột sau đè cột
+      // trước trong im lặng. Mảng giữ đủ.
+      header: false,
+      skipEmptyLines: 'greedy',
+      delimiter: '',
+      chunk: (result: Papa.ParseResult<string[]>) => {
+        for (const row of result.data) {
+          // `errors` của papaparse phần lớn là cảnh báo về dòng thiếu cột, và
+          // file thật đầy những dòng như thế. Chỉ bỏ dòng RỖNG hẳn.
+          if (row.length === 0) continue;
+          seen += 1;
+          // +1 cho hàng tiêu đề, nằm ở `kept[0]`.
+          if (kept.length <= RETAINED_ROWS) kept.push(row);
+        }
+      },
+      complete: () => {
+        if (kept.length === 0) {
+          reject(new ParseError('Không đọc được dòng dữ liệu nào từ file.'));
+          return;
+        }
 
-  // `errors` của papaparse phần lớn là cảnh báo về dòng thiếu cột, và file thật
-  // đầy những dòng như thế. Chỉ chặn khi không đọc ra được dòng nào.
-  const table = result.data.filter((row) => row.length > 0);
-  if (table.length === 0) {
-    throw new ParseError('Không đọc được dòng dữ liệu nào từ file.');
-  }
+        const [header = [], ...rest] = kept;
+        const totalRows = Math.max(0, seen - 1);
 
-  const [header = [], ...rest] = table;
-  const limited = rest.slice(0, env.DATASET_MAX_ROWS);
-
-  return Promise.resolve({
-    sheets: [{ name: 'Sheet1', header: header.map(cellText), rows: limited.map(normalizeRow(header.length)) }],
-    truncated: rest.length > env.DATASET_MAX_ROWS,
+        resolve({
+          sheets: [
+            {
+              name: 'Sheet1',
+              header: header.map(cellText),
+              rows: rest.map(normalizeRow(header.length)),
+              totalRows,
+            },
+          ],
+          truncated: totalRows > env.DATASET_MAX_ROWS,
+        });
+      },
+      error: (err: Error) => {
+        reject(new ParseError(`Không đọc được file CSV: ${err.message}`));
+      },
+    });
   });
 }
 
@@ -113,28 +172,30 @@ async function parseXlsx(buffer: Buffer): Promise<ParseResult> {
     if (worksheet.state === 'hidden' || worksheet.state === 'veryHidden') continue;
 
     const table: string[][] = [];
-    let overflow = false;
+    // ĐẾM mọi dòng nhưng chỉ GIỮ phần đầu. Trước đây hai việc này là một, và đó
+    // là chỗ bộ nhớ tăng tuyến tính theo kích thước file. +1 cho hàng tiêu đề.
+    let seen = 0;
 
     worksheet.eachRow({ includeEmpty: false }, (row) => {
-      // +1 cho hàng tiêu đề.
-      if (table.length > env.DATASET_MAX_ROWS) {
-        overflow = true;
-        return;
-      }
+      seen += 1;
+      if (table.length > RETAINED_ROWS) return;
       // `row.values` là mảng 1-INDEXED — phần tử 0 luôn là undefined. Cắt bỏ nó,
       // nếu không mọi cột lệch một vị trí và cột cuối cùng biến mất.
       const values = Array.isArray(row.values) ? row.values.slice(1) : [];
       table.push(values.map(cellText));
     });
 
-    if (overflow) truncated = true;
     if (table.length === 0) continue;
+
+    const totalRows = Math.max(0, seen - 1);
+    if (totalRows > env.DATASET_MAX_ROWS) truncated = true;
 
     const [header = [], ...rest] = table;
     sheets.push({
       name: worksheet.name,
       header: header.map(cellText),
       rows: rest.map(normalizeRow(header.length)),
+      totalRows,
     });
   }
 
@@ -157,7 +218,7 @@ async function parseXlsx(buffer: Buffer): Promise<ParseResult> {
  * Không xử lý hết thì một ô được tô đậm nửa chừng sẽ ra `[object Object]` trong
  * dữ liệu — và nó trông giống một giá trị thật cho tới khi ai đó nhìn biểu đồ.
  */
-function cellText(value: unknown): string {
+export function cellText(value: unknown): string {
   if (value === null || value === undefined) return '';
   if (typeof value === 'string') return value.trim();
   if (typeof value === 'number' || typeof value === 'boolean') return String(value);
@@ -209,7 +270,10 @@ export function toPreview(sheet: ParsedSheet): SheetPreviewDto {
 
   return {
     name: sheet.name,
-    rowCount: sheet.rows.length,
+    // Số dòng THẬT của sheet, không phải số dòng đang giữ trong bộ nhớ. Lấy
+    // `rows.length` ở đây thì mọi file đều hiện đúng 1.000 dòng — con số vừa sai
+    // vừa trông hợp lý, nên không ai nghi ngờ.
+    rowCount: sheet.totalRows,
     previewRows: sheet.rows.slice(0, PREVIEW_ROWS),
     columns: sheet.header.map((sourceName, columnIndex) => {
       const values = sample.map((row) => row[columnIndex] ?? '');

@@ -1,5 +1,5 @@
-import { escapeId } from 'mysql2';
-import { createConnection, type RowDataPacket } from 'mysql2/promise';
+import { createConnection as createCallbackConnection, escapeId } from 'mysql2';
+import { createConnection, type ConnectionOptions, type RowDataPacket } from 'mysql2/promise';
 import { isIP } from 'node:net';
 import { toCell } from './cell';
 import {
@@ -42,23 +42,54 @@ export const mysqlDriver: Driver = {
     }
   },
 
+  async listDatabases(cfg) {
+    // Mở KHÔNG kèm database: hàm này trả lời "có những cái nào", nên tự khoá vào
+    // cái đang chọn là tự mâu thuẫn — và nếu cái đang chọn gõ sai thì đến cả
+    // việc mở kết nối cũng hỏng, đúng lúc người dùng cần danh sách nhất.
+    const conn = await open({ ...cfg, database: '' });
+    try {
+      // `LEFT JOIN` chứ không `GROUP BY` trên riêng `tables`: database KHÔNG có
+      // bảng nào phải xuất hiện trong danh sách, vì đó chính là ca người dùng
+      // cần nhìn thấy — chọn nhầm một database rỗng là nguyên nhân thường gặp
+      // nhất của "đồng bộ không ra bảng nào".
+      //
+      // `information_schema.schemata` đã tự lọc theo quyền của tài khoản, nên
+      // danh sách này là đúng những gì họ thật sự với tới được.
+      const [rows] = await conn.query<RowDataPacket[]>(
+        `SELECT s.schema_name AS s, COUNT(t.table_name) AS n
+           FROM information_schema.schemata s
+           LEFT JOIN information_schema.tables t
+             ON t.table_schema = s.schema_name
+            AND t.table_type IN ('BASE TABLE', 'VIEW')
+          WHERE s.schema_name NOT IN (?)
+          GROUP BY s.schema_name
+          ORDER BY s.schema_name`,
+        [SYSTEM_SCHEMAS],
+      );
+      return rows.map((r) => ({ name: String(r['s']), tableCount: Number(r['n']) }));
+    } finally {
+      await conn.end();
+    }
+  },
+
   async listTables(cfg) {
+    const scoped = cfg.database !== '';
     const conn = await open(cfg);
     try {
-      // Giới hạn trong ĐÚNG database đã khai, không quét cả máy chủ: tài khoản
-      // kết nối có thể thấy nhiều database, nhưng người dùng đã chỉ định họ
-      // muốn database nào.
-      //
       // BASE TABLE và VIEW đều lấy — với người phân tích, một view là một nguồn
       // dữ liệu hợp lệ y như bảng.
+      //
+      // `cfg.database` rỗng nghĩa là người dùng chọn "tất cả database": quét cả
+      // máy chủ, trừ schema hệ thống. Sắp theo `table_schema` TRƯỚC rồi mới tới
+      // tên bảng, để danh sách gộp nhóm sẵn cho giao diện.
       const [rows] = await conn.query<RowDataPacket[]>(
         `SELECT table_schema AS s, table_name AS t
            FROM information_schema.tables
-          WHERE table_schema = ?
+          WHERE ${scoped ? 'table_schema = ?' : '1 = 1'}
             AND table_schema NOT IN (?)
             AND table_type IN ('BASE TABLE', 'VIEW')
-          ORDER BY table_name`,
-        [cfg.database, SYSTEM_SCHEMAS],
+          ORDER BY table_schema, table_name`,
+        scoped ? [cfg.database, SYSTEM_SCHEMAS] : [SYSTEM_SCHEMAS],
       );
       return rows.map((r) => ({ schema: String(r['s']), table: String(r['t']) }));
     } finally {
@@ -83,9 +114,25 @@ export const mysqlDriver: Driver = {
       // và MariaDB trả viết thường. Đọc `row['table_schema']` thì trên MySQL 8
       // ra `undefined` — và `String(undefined)` cho chuỗi "undefined", nên lỗi
       // không nổ ở đâu cả, chỉ lặng lẽ tạo ra dataset tên "undefined".
+      //
+      // `column_type` chứ KHÔNG phải `data_type`, và khác biệt này quan trọng
+      // hơn vẻ ngoài của nó. `data_type` trả kiểu GỐC (`decimal`, `tinyint`),
+      // `column_type` trả kiểu ĐẦY ĐỦ (`decimal(18,4)`, `tinyint(1)`).
+      //
+      // Mục 8 dùng chuỗi này chỉ để hiển thị nên hai cái tương đương. Mục 9 thì
+      // dựng câu `CREATE TABLE` bên ClickHouse từ chính nó, và ở đó phần trong
+      // ngoặc là dữ liệu chứ không phải trang trí:
+      //
+      //   `decimal` trần   -> không biết mấy chữ số thập phân -> đoán bừa
+      //                       `Decimal(18,2)` và ÂM THẦM làm tròn tiền.
+      //   `tinyint` trần   -> không phân biệt được boolean `tinyint(1)` với số
+      //                       nguyên nhỏ.
+      //
+      // Dataset đồng bộ trước thay đổi này giữ kiểu cũ cho tới lần đồng bộ sau;
+      // không mất gì, vì mục 8 vốn chỉ giữ cấu trúc.
       const [rows] = await conn.query<RowDataPacket[]>(
         `SELECT table_schema AS s, table_name AS t, column_name AS c,
-                data_type AS dt, is_nullable AS nl, ordinal_position AS ord
+                column_type AS dt, is_nullable AS nl, ordinal_position AS ord
            FROM information_schema.columns
           WHERE (table_schema, table_name) IN (?)
           ORDER BY table_schema, table_name, ordinal_position`,
@@ -161,33 +208,139 @@ export const mysqlDriver: Driver = {
       await conn.end();
     }
   },
+
+  async *readAllRows(cfg, ref, opts) {
+    if (opts.columns.length === 0) {
+      throw new Error('readAllRows cần ít nhất một cột.');
+    }
+
+    const conn = createCallbackConnection(
+      connectionOptions(cfg, {
+        // ─── Hai cờ này chống MẤT CHÍNH XÁC, không phải tối ưu ────────────
+        //
+        // Mặc định mysql2 đưa BIGINT qua `Number` của JS, vốn chỉ chính xác tới
+        // 2^53. Một khoá chính 9007199254740993 về thành ...992 và KHÔNG có lỗi
+        // nào cả. Ép về chuỗi thì ClickHouse parse thẳng vào Int64/UInt64 đúng
+        // từng chữ số.
+        supportBigNumbers: true,
+        bigNumberStrings: true,
+      }),
+    );
+
+    try {
+      // ─── Bẫy lệch 7 tiếng, và nó chỉ có ở đường NẠP ─────────────────────
+      //
+      // Cột `TIMESTAMP` được máy chủ NGUỒN đổi sang múi giờ của phiên trước khi
+      // trả về. Máy chủ MySQL đặt `TZ=Asia/Ho_Chi_Minh` — như chính `bi-mysql`
+      // trong docker-compose — sẽ trả `'2026-07-01 16:15:00'` cho một mốc mà
+      // UTC là `09:15`. Nạp thẳng chuỗi đó vào cột khai `'UTC'` là lệch đúng 7
+      // tiếng, im lặng, và chỉ lộ ra ở báo cáo sai một ngày.
+      //
+      // Đúng khuôn `config/mysql.ts` đã làm cho pool nội bộ. Sau câu này,
+      // `TIMESTAMP` về đúng UTC.
+      //
+      // `DATETIME` thì KHÔNG đổi — nó là giờ đồng hồ treo tường, không mang múi
+      // giờ nào. Ta buộc phải giả định nó đã là UTC, và giả định đó được ghi ra
+      // đây vì không có cách nào biết được từ metadata.
+      await new Promise<void>((resolve, reject) => {
+        conn.query("SET time_zone = '+00:00'", (err) => {
+          if (err) reject(err);
+          else resolve();
+        });
+      });
+
+      const table = `${escapeId(ref.schema)}.${escapeId(ref.table)}`;
+      const columns = opts.columns.map((c) => escapeId(c)).join(', ');
+
+      // `.stream()` thay cho `await query()`: câu await dựng TOÀN BỘ kết quả
+      // trong bộ nhớ Node trước khi trả về dòng đầu tiên, nên một bảng triệu
+      // dòng là một lần hết RAM.
+      const stream = conn
+        .query({ sql: `SELECT ${columns} FROM ${table}`, rowsAsArray: true })
+        .stream({ highWaterMark: opts.batchSize });
+
+      let batch: unknown[][] = [];
+      let total = 0;
+
+      for await (const row of stream) {
+        batch.push(row as unknown[]);
+        total += 1;
+
+        if (batch.length >= opts.batchSize) {
+          yield batch;
+          batch = [];
+        }
+        if (total >= opts.maxRows) {
+          // `destroy()` chứ không `break` trần: bỏ vòng lặp mà để stream sống
+          // thì mysql2 vẫn kéo nốt kết quả về qua mạng cho một thứ không ai đọc.
+          stream.destroy();
+          break;
+        }
+      }
+
+      if (batch.length > 0) yield batch;
+    } finally {
+      // `destroy()` chứ không `end()`: `end()` chờ hàng đợi lệnh trôi hết, mà
+      // khi người gọi bỏ vòng lặp giữa chừng (hoặc một lỗi ném ra) thì hàng đợi
+      // đó có thể còn nguyên một kết quả đang chảy về — và ta sẽ treo ở đây.
+      conn.destroy();
+    }
+  },
 };
+
+/** Trần của cột `dataset_columns.data_type` sau migration 9. */
+const MAX_DATA_TYPE_CHARS = 255;
 
 function toColumn(row: RowDataPacket): ColumnMeta {
   return {
     name: String(row['c']),
-    dataType: String(row['dt']),
+    // Cắt bớt vì `column_type` KHÔNG có giới hạn thực tế: một cột
+    // `enum('a','b',…)` với vài chục giá trị dài hơn mọi VARCHAR hợp lý, và
+    // MySQL ở chế độ strict sẽ làm HỎNG CẢ LẦN ĐỒNG BỘ chỉ vì một cột như vậy.
+    // Phần bị cắt không mất gì thật: mọi kiểu dài đều là enum/set, và bảng ánh
+    // xạ ở mục 9.2 cho chúng về `Nullable(String)` bất kể nội dung trong ngoặc.
+    dataType: String(row['dt']).slice(0, MAX_DATA_TYPE_CHARS),
     // information_schema trả chuỗi 'YES' / 'NO', không phải boolean.
     isNullable: String(row['nl']).toUpperCase() === 'YES',
     ordinal: Number(row['ord']),
   };
 }
 
-function open(cfg: ConnectionConfig) {
-  return createConnection({
+/**
+ * Tuỳ chọn kết nối, dùng chung cho CẢ HAI kiểu client.
+ *
+ * Tách ra khỏi `open()` vì đường đọc theo dòng chảy (`readAllRows`) buộc phải
+ * dùng client kiểu CALLBACK: bản gói `mysql2/promise` trả Promise từ `query()`
+ * nên không có `.stream()`, và không có stream thì cả kết quả bị dựng trong bộ
+ * nhớ Node trước khi trả về dòng đầu tiên.
+ *
+ * Cùng một object cấu hình cho hai đường là điều kiện để lớp bảo vệ không bị bỏ
+ * quên ở một bên: `tlsOptions` và `multipleStatements: false` phải áp cho cả hai.
+ */
+function connectionOptions(cfg: ConnectionConfig, extra: ConnectionOptions = {}): ConnectionOptions {
+  return {
     host: cfg.host,
     port: cfg.port,
-    database: cfg.database,
+    // Chuỗi rỗng ("mọi database") phải thành `undefined`, KHÔNG được gửi nguyên:
+    // mysql2 gửi chuỗi rỗng đi như một yêu cầu `USE ''` và máy chủ từ chối bắt
+    // tay. Quy đổi ở đây, một chỗ duy nhất, để mọi hàm của driver — kể cả
+    // `test()` chạy trước khi kết nối được lưu — đều an toàn.
+    ...(cfg.database === '' ? {} : { database: cfg.database }),
     user: cfg.username,
     password: cfg.password,
     connectTimeout: CONNECT_TIMEOUT_MS,
     ...tlsOptions(cfg),
+    ...extra,
     // Cấm TUYỆT ĐỐI nhiều câu lệnh trong một query. Ta chỉ chạy truy vấn đọc
     // metadata, nên bật nó không mang lại gì; còn tắt thì mọi lỗi nối chuỗi
     // trong tương lai dừng ở một câu lệnh thay vì thành cả một kịch bản.
     multipleStatements: false,
     dateStrings: true,
-  });
+  };
+}
+
+function open(cfg: ConnectionConfig, extra: ConnectionOptions = {}) {
+  return createConnection(connectionOptions(cfg, extra));
 }
 
 /**

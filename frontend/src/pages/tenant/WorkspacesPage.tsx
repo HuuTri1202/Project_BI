@@ -41,8 +41,8 @@ export default function TenantWorkspacesPage(): React.ReactElement {
   }
 
   return (
-    <div>
-      <div className="flex flex-wrap items-start justify-between gap-4">
+    <div className="flex h-full flex-col">
+      <div className="flex shrink-0 flex-wrap items-start justify-between gap-4">
         <p className="text-sm text-slate-500">
           Không gian làm việc để nhóm project và dữ liệu của tổ chức.
         </p>
@@ -51,7 +51,7 @@ export default function TenantWorkspacesPage(): React.ReactElement {
         </Button>
       </div>
 
-      <div className="mt-5">
+      <div className="mt-4 flex min-h-0 flex-1 flex-col">
         {error && <ErrorState message={error} />}
         {isLoading && <TableSkeleton rows={3} />}
 
@@ -68,7 +68,7 @@ export default function TenantWorkspacesPage(): React.ReactElement {
         )}
 
         {items.length > 0 && (
-          <TableWrap>
+          <TableWrap fill>
             <THead>
               <Tr>
                 {/* Bảng này không phân trang và không sắp xếp được — một tổ

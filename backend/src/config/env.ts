@@ -103,10 +103,19 @@ const envSchema = z.object({
   // vốn không nhìn thấy file nào cả khi upload đi thẳng.
   UPLOAD_MAX_BYTES: z.coerce.number().int().positive().default(52_428_800),
 
-  // Số dòng tối đa nạp vào MySQL cho một dataset. Xem ghi chú ở migration 6 và
-  // ở `services/dataset/ingest.ts` để biết vì sao có trần, và vì sao việc chạm
-  // trần phải hiện ra trên giao diện chứ không im lặng.
-  DATASET_MAX_ROWS: z.coerce.number().int().positive().default(50_000),
+  // Số dòng tối đa NẠP VÀO CLICKHOUSE từ một file. Chạm trần phải hiện ra trên
+  // giao diện chứ không im lặng — xem `truncated` trong `parseFile.ts`.
+  //
+  // Từng là 50.000, và con số đó KHÔNG đến từ ClickHouse: 50.000 dòng chỉ tốn
+  // 4,57 MiB và nạp xong dưới 5 giây. Nó đến từ chỗ dữ liệu đọng lại trên đường
+  // đi — cache phân tích trong một khoá Redis, rồi một bản sao JSON đầy đủ trong
+  // `dataset_rows`, cả hai đều lớn tuyến tính theo số dòng.
+  //
+  // Sau khi §9 đọc thẳng file để nạp (`readFileRows`) và `dataset_rows` co về
+  // đúng `RETAINED_ROWS` dòng mẫu, chi phí lưu trữ KHÔNG còn tăng theo con số
+  // này nữa. Thứ còn giới hạn là `UPLOAD_MAX_BYTES` và thời gian nạp — hai thứ
+  // người dùng nhìn thấy và hiểu được.
+  DATASET_MAX_ROWS: z.coerce.number().int().positive().default(1_000_000),
 
   // --- Kết nối tới CSDL của khách hàng (§8) ---
   //
@@ -146,6 +155,23 @@ const envSchema = z.object({
   // hành hoàn toàn biết trước.
   EGRESS_IP: z.string().min(1).default('chưa cấu hình — đặt EGRESS_IP trong .env'),
 
+  // --- Kho phân tích ClickHouse (§9) ---
+  //
+  // ĐỪNG NHẦM với `connections` của §8. Đó là CSDL CỦA KHÁCH HÀNG: địa chỉ do
+  // người dùng gõ lên form, ta chỉ ĐỌC, và phải chống SSRF. Đây là kho của
+  // CHÍNH TA: địa chỉ do người vận hành đặt ở đây, và ta GHI vào nó (CREATE
+  // TABLE + INSERT). Hai thứ đối lập nhau về mọi mặt an toàn, nên chúng có hai
+  // đường cấu hình riêng và hai client riêng — xem `config/clickhouse.ts`.
+  //
+  // Không có giá trị mặc định, cùng khuôn với MYSQL_*: một mặc định thầm lặng
+  // nghĩa là máy thiếu cấu hình vẫn boot rồi ghi dữ liệu vào một ClickHouse
+  // không ai ngờ tới. `npm run setup` tự bổ sung bốn biến này vào `.env` đã có.
+  CLICKHOUSE_HOST: z.string().min(1),
+  CLICKHOUSE_PORT: portFromEnv,
+  CLICKHOUSE_DATABASE: z.string().min(1),
+  CLICKHOUSE_USER: z.string().min(1),
+  CLICKHOUSE_PASSWORD: z.string().min(1),
+
   // --- Seed tài khoản quản trị đầu tiên (§2.7) ---
   // Đều có giá trị mặc định nên KHÔNG bắt buộc khai trong .env; chỉ script
   // seed đọc tới.
@@ -171,7 +197,13 @@ function loadEnv(): Env {
         '[env] Cấu hình môi trường không hợp lệ:',
         details,
         '',
-        'Khắc phục: cp .env.example .env  rồi điền giá trị (xem README.md).',
+        // TUYỆT ĐỐI không khuyên `cp .env.example .env` ở đây. Nguyên nhân phổ
+        // biến nhất của thông báo này là `.env` ĐÃ CÓ nhưng thiếu biến mà một
+        // nhánh vừa merge thêm vào — và chép đè lên nó sẽ xoá mất
+        // CONNECTION_ENCRYPTION_KEY, khiến mọi mật khẩu kết nối đã lưu vĩnh viễn
+        // không giải mã được. `npm run setup` chỉ BỔ SUNG biến còn thiếu.
+        'Khắc phục: chạy  npm run setup  ở thư mục gốc — lệnh này bổ sung biến',
+        'còn thiếu vào .env và KHÔNG đụng tới giá trị bạn đã đặt.',
       ].join('\n'),
     );
     process.exit(1);

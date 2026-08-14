@@ -1,6 +1,7 @@
 import {
   CONNECTION_ERROR_CODES,
   type ConnectionKind,
+  type DatabaseOptionDto,
   type SourceTableDto,
   type TestConnectionResultDto,
 } from '@bi/shared';
@@ -150,6 +151,53 @@ export async function deleteConnection(tenantId: number, id: number): Promise<vo
  * tích sẵn những bảng đã nhập, nên lần đồng bộ thứ hai chỉ cần bấm xác nhận.
  * Không cần cột nào lưu lựa chọn — kho dữ liệu TỰ NÓ là bản ghi nhớ.
  */
+/**
+ * Database mà một bộ thông tin CHƯA lưu nhìn thấy — nuôi bộ chọn ở bước 2.
+ *
+ * Ném 502 khi không nối được, KHÁC hẳn `testConnection` vốn trả
+ * `{ ok: false }` với mã 200. Lý do: `testConnection` là một câu hỏi mà "không"
+ * là câu trả lời hợp lệ người dùng đang chờ đọc; còn hàm này là một thao tác lấy
+ * dữ liệu, và một danh sách rỗng vì lỗi mạng trông y hệt một máy chủ thật sự
+ * không có database nào. Trộn hai thứ đó lại là dạy người dùng tin vào một danh
+ * sách rỗng.
+ */
+export async function listDatabases(input: ConnectionInput): Promise<DatabaseOptionDto[]> {
+  const cfg = await toConfig(input);
+  try {
+    return await driverFor(input.kind).listDatabases(cfg);
+  } catch (err) {
+    throw new HttpError(
+      502,
+      CONNECTION_ERROR_CODES.CONNECTION_FAILED,
+      explainConnectionError(err, input.kind, input.useSsl),
+    );
+  }
+}
+
+/**
+ * Như trên nhưng cho kết nối ĐÃ lưu.
+ *
+ * Cần bản riêng vì form sửa để trống ô mật khẩu (nghĩa là "giữ nguyên"), nên
+ * đường dùng thông tin chưa lưu không có mật khẩu để mà thử.
+ */
+export async function listSavedDatabases(
+  tenantId: number,
+  id: number,
+): Promise<DatabaseOptionDto[]> {
+  const secret = await requireSecret(tenantId, id);
+  const cfg = await toConfigFromSecret(secret);
+
+  try {
+    return await driverFor(secret.kind).listDatabases(cfg);
+  } catch (err) {
+    throw new HttpError(
+      502,
+      CONNECTION_ERROR_CODES.CONNECTION_FAILED,
+      explainConnectionError(err, secret.kind, secret.useSsl),
+    );
+  }
+}
+
 export async function listSourceTables(
   tenantId: number,
   connectionId: number,

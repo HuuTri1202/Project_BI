@@ -766,4 +766,125 @@ export const migrations: readonly Migration[] = [
          ('p', 'creator', '*', 'report',  'delete')`,
     ],
   },
+
+  {
+    id: 9,
+    name: 'clickhouse_ingest',
+    statements: [
+      // ═══ §9 Nạp dữ liệu vào ClickHouse ═══════════════════════════════════
+      //
+      // Đây là mục đầu tiên nền tảng GIỮ dữ liệu THẬT của khách hàng, ngược hẳn
+      // nguyên tắc của §8 (chỉ chép cấu trúc). Dữ liệu không nằm trong MySQL —
+      // nó sang ClickHouse. Những bảng dưới đây chỉ là SỔ GHI CHÉP: ai bấm nạp
+      // lúc nào, chạy tới đâu, dòng nào hỏng vì sao.
+      //
+      // Ranh giới đó phải giữ cho rõ. Ngày nào có người thêm cột "dữ liệu" vào
+      // đây thì hệ thống có hai kho phân tích, và không ai biết kho nào đúng.
+
+      // ─── data_type phải chứa nổi kiểu ĐẦY ĐỦ ─────────────────────────────
+      //
+      // Driver MySQL đổi từ `data_type` sang `column_type` cùng nhánh này, nên
+      // giá trị lưu vào đây dài hơn hẳn: `decimal(18,4)` thay cho `decimal`,
+      // `enum('a','b',…)` thay cho `enum`. 100 ký tự cũ đủ cho kiểu gốc nhưng
+      // không đủ cho enum, và MySQL ở chế độ strict sẽ làm HỎNG cả lần đồng bộ
+      // chứ không cắt bớt.
+      `ALTER TABLE dataset_columns MODIFY COLUMN data_type VARCHAR(255) NOT NULL`,
+
+      // ─── Mở đường cho khoá ngoại ghép ────────────────────────────────────
+      //
+      // Quy ước cách ly tổ chức của repo: bảng con trỏ tới cha bằng
+      // (tenant_id, id), không phải id trần. Nhờ vậy một dòng con KHÔNG THỂ trỏ
+      // sang cha của tổ chức khác — chính database từ chối, không phụ thuộc vào
+      // việc mọi câu WHERE đều nhớ lọc `tenant_id`.
+      //
+      // `datasets` chưa có UNIQUE (tenant_id, id) nên chưa làm đích của FK ghép
+      // được. `id` đã là khoá chính nên chỉ số này không thêm ràng buộc thật nào
+      // — nó chỉ khai với InnoDB rằng cặp đó là duy nhất.
+      `ALTER TABLE datasets ADD UNIQUE KEY uq_datasets_tenant_id (tenant_id, id)`,
+
+      // ─── Trạng thái nạp, TÁCH khỏi `status` của §7 ───────────────────────
+      //
+      // Không mượn lại `status` (pending/ready/failed): cột đó nói về việc FILE
+      // đã phân tích xong chưa. Một dataset hoàn toàn có thể `status='ready'` mà
+      // chưa từng được nạp lên ClickHouse — và với mọi dataset nguồn
+      // `connection` thì đó là trạng thái mặc định. Gộp hai vòng đời khác nhau
+      // vào một cột là thứ về sau không tách ra được.
+      //
+      // `ch_table` lưu tên bảng ĐANG PHỤC VỤ. Suy lại từ (tenant_id, id) cũng
+      // được, nhưng lưu ra thì khi đi dọn rác ta biết chắc bảng nào của ai mà
+      // không phải chạy lại một hàm sinh tên có thể đã đổi.
+      `ALTER TABLE datasets
+         ADD COLUMN load_status ENUM('idle','queued','running','loaded','failed')
+                                NOT NULL DEFAULT 'idle' AFTER truncated,
+         ADD COLUMN ch_table    VARCHAR(255) NULL AFTER load_status,
+         ADD COLUMN loaded_at   DATETIME(3)  NULL AFTER ch_table,
+         ADD COLUMN loaded_row_count BIGINT UNSIGNED NOT NULL DEFAULT 0 AFTER loaded_at,
+         ADD KEY idx_datasets_load_status (load_status)`,
+
+      // ─── dataset_load_runs: vừa là LỊCH SỬ, vừa là HÀNG ĐỢI ──────────────
+      //
+      // Không thêm BullMQ/Redis queue cho một tác vụ chạy vài lần một ngày. Vòng
+      // lặp nền trong chính tiến trình Node nhặt dòng `queued` cũ nhất bằng
+      // `UPDATE … WHERE status='queued' … LIMIT 1` rồi đọc `affectedRows` —
+      // chính InnoDB làm trọng tài, nên hai tiến trình (rất hay gặp ở dev vì
+      // `tsx watch` restart liên tục) không thể cùng nhận một việc.
+      //
+      // `idx_load_runs_queue (status, id)` là chỉ mục phục vụ đúng câu nhặt việc
+      // đó: lọc theo status rồi lấy id nhỏ nhất, không phải quét bảng.
+      //
+      // ON DELETE CASCADE theo dataset: xoá bộ dữ liệu thì lịch sử nạp của nó
+      // không còn nghĩa gì. Nhưng người bấm nút thì SET NULL — xoá một nhân sự
+      // không được phép xoá lịch sử vận hành.
+      `CREATE TABLE IF NOT EXISTS dataset_load_runs (
+        id            BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+        tenant_id     BIGINT UNSIGNED NOT NULL,
+        dataset_id    BIGINT UNSIGNED NOT NULL,
+        status        ENUM('queued','running','succeeded','failed') NOT NULL DEFAULT 'queued',
+        rows_read     BIGINT UNSIGNED NOT NULL DEFAULT 0,
+        rows_loaded   BIGINT UNSIGNED NOT NULL DEFAULT 0,
+        rows_failed   INT UNSIGNED    NOT NULL DEFAULT 0,
+        error_message VARCHAR(500) NULL,
+        triggered_by  BIGINT UNSIGNED NULL,
+        queued_at     DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+        started_at    DATETIME(3) NULL,
+        finished_at   DATETIME(3) NULL,
+        PRIMARY KEY (id),
+        KEY idx_load_runs_queue (status, id),
+        KEY idx_load_runs_dataset (dataset_id, id),
+        CONSTRAINT fk_load_runs_dataset FOREIGN KEY (tenant_id, dataset_id)
+          REFERENCES datasets (tenant_id, id) ON DELETE CASCADE,
+        CONSTRAINT fk_load_runs_user FOREIGN KEY (triggered_by)
+          REFERENCES users (id) ON DELETE SET NULL
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+
+      // ─── dataset_load_errors: dòng nào hỏng, vì sao (§9.8) ───────────────
+      //
+      // Có TRẦN 100 dòng mỗi lần nạp, cưỡng chế ở tầng ứng dụng. Mục tiêu là cho
+      // người dùng biết KIỂU lỗi để đi sửa nguồn — mười dòng đầu đã đủ nói
+      // "cột Ngày giao có định dạng d/m/Y". Không có trần thì một file sai định
+      // dạng ngày ở cả 50.000 dòng sẽ chép nguyên bản sao dữ liệu hỏng vào
+      // MySQL, và bảng sổ ghi chép to hơn cả thứ nó ghi chép.
+      //
+      // `raw_value` cắt còn 255 ký tự: đây là manh mối để đi sửa, không phải bản
+      // lưu. Ô JSON dài vài KB không giúp ai thêm được gì.
+      `CREATE TABLE IF NOT EXISTS dataset_load_errors (
+        id          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+        run_id      BIGINT UNSIGNED NOT NULL,
+        row_index   BIGINT UNSIGNED NOT NULL,
+        column_name VARCHAR(255) NULL,
+        raw_value   VARCHAR(255) NULL,
+        reason      VARCHAR(255) NOT NULL,
+        PRIMARY KEY (id),
+        KEY idx_load_errors_run (run_id, id),
+        CONSTRAINT fk_load_errors_run FOREIGN KEY (run_id)
+          REFERENCES dataset_load_runs (id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+
+      // KHÔNG có migration `casbin_rule` ở đây, và đó là kết luận sau khi kiểm
+      // chứ không phải bỏ sót: nạp dữ liệu là `dataset:modify`, xem tiến độ là
+      // `dataset:read`. `creator` đã có cả hai từ migration 4, `admin` có (*,*).
+      // Thêm quyền mới cho một hành động dùng lại quyền cũ chỉ làm bảng chính
+      // sách phình ra mà không đổi ai làm được gì.
+    ],
+  },
 ];

@@ -2,6 +2,7 @@
 import { useState } from 'react';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
+import { Page, PageBody, PageHeader } from '../../components/ui/Page';
 import { Pagination } from '../../components/ui/Pagination';
 import { SortableTh, TBody, Td, Th, THead, TableWrap, Tr } from '../../components/ui/Table';
 import { EmptyState, ErrorState, TableSkeleton } from '../../components/ui/states';
@@ -73,17 +74,10 @@ export default function TenantsPage(): React.ReactElement {
   const hasFilter = query.q !== '' || query.status !== '' || query.kind !== '';
 
   return (
-    <div className="mx-auto max-w-6xl">
-      <header>
-        <h1 className="text-xl font-bold text-slate-900">Quản lý tổ chức</h1>
-        <p className="mt-1 text-sm text-slate-500">
-          Các công ty trên nền tảng. Danh sách mặc định <strong>không</strong> hiện không gian cá
-          nhân — mỗi tài khoản được cấp một cái khi tạo, nên chúng sẽ lấn át công ty thật.
-        </p>
-      </header>
-
-      <div className="mt-6">
-        <ListToolbar
+    <Page>
+      <PageHeader title="Quản lý tổ chức" description="Các công ty trên nền tảng. Mặc định không hiện không gian cá nhân.">
+        <div className="mt-4">
+          <ListToolbar
           search={query.q}
           onSearch={(q) => update({ q })}
           placeholder="Tên công ty hoặc đường dẫn…"
@@ -106,10 +100,11 @@ export default function TenantsPage(): React.ReactElement {
             allLabel="Công ty thật"
             options={KIND_OPTIONS}
           />
-        </ListToolbar>
-      </div>
+          </ListToolbar>
+        </div>
+      </PageHeader>
 
-      <div className="mt-4">
+      <PageBody scroll={false}>
         {isPending && <TableSkeleton />}
         {isError && <ErrorState message={getApiError(error).message} />}
 
@@ -126,8 +121,12 @@ export default function TenantsPage(): React.ReactElement {
         )}
 
         {data && data.items.length > 0 && (
-          <div className={isPlaceholderData ? 'opacity-60 transition-opacity' : ''}>
-            <TableWrap>
+          <div
+            className={`flex min-h-0 flex-1 flex-col ${
+              isPlaceholderData ? 'opacity-60 transition-opacity' : ''
+            }`}
+          >
+            <TableWrap fill>
               <THead>
                 <Tr>
                   <SortableTh sortKey="name" activeKey={query.sort} order={query.order} onSort={onSort}>
@@ -198,76 +197,78 @@ export default function TenantsPage(): React.ReactElement {
               </TBody>
             </TableWrap>
 
-            <Pagination
-              page={data.page}
-              pageSize={data.pageSize}
-              total={data.total}
-              totalPages={data.totalPages}
-              onPageChange={(page) => update({ page })}
-            />
+            <div className="shrink-0">
+              <Pagination
+                page={data.page}
+                pageSize={data.pageSize}
+                total={data.total}
+                totalPages={data.totalPages}
+                onPageChange={(page) => update({ page })}
+              />
+            </div>
           </div>
         )}
-      </div>
 
-      <TenantDetailModal tenantId={detailId} onClose={() => setDetailId(null)} />
+        <TenantDetailModal tenantId={detailId} onClose={() => setDetailId(null)} />
 
-      <ConfirmDialog
-        open={lockTarget !== null}
-        onClose={() => setLockTarget(null)}
-        title={lockTarget?.isActive ? 'Khoá tổ chức' : 'Mở khoá tổ chức'}
-        description={lockTarget?.name}
-        confirmLabel={lockTarget?.isActive ? 'Khoá' : 'Mở khoá'}
-        danger={lockTarget?.isActive === true}
-        loading={setActive.isPending}
-        onConfirm={(onError) => {
-          if (!lockTarget) return;
-          setActive.mutate(
-            { id: lockTarget.id, isActive: !lockTarget.isActive },
-            { onSuccess: () => setLockTarget(null), onError },
-          );
-        }}
-      >
-        {lockTarget?.isActive ? (
-          <>
-            <strong>Toàn bộ {lockTarget.userCount} thành viên</strong> của tổ chức này sẽ không
-            đăng nhập được nữa. Họ vẫn dùng được tài khoản ở những tổ chức khác. Mở khoá lại được
-            bất cứ lúc nào.
-          </>
-        ) : (
-          <>Thành viên của tổ chức này sẽ đăng nhập lại được với vai trò cũ.</>
-        )}
-      </ConfirmDialog>
+        <ConfirmDialog
+          open={lockTarget !== null}
+          onClose={() => setLockTarget(null)}
+          title={lockTarget?.isActive ? 'Khoá tổ chức' : 'Mở khoá tổ chức'}
+          description={lockTarget?.name}
+          confirmLabel={lockTarget?.isActive ? 'Khoá' : 'Mở khoá'}
+          danger={lockTarget?.isActive === true}
+          loading={setActive.isPending}
+          onConfirm={(onError) => {
+            if (!lockTarget) return;
+            setActive.mutate(
+              { id: lockTarget.id, isActive: !lockTarget.isActive },
+              { onSuccess: () => setLockTarget(null), onError },
+            );
+          }}
+        >
+          {lockTarget?.isActive ? (
+            <>
+              <strong>Toàn bộ {lockTarget.userCount} thành viên</strong> của tổ chức này sẽ không
+              đăng nhập được nữa. Họ vẫn dùng được tài khoản ở những tổ chức khác. Mở khoá lại được
+              bất cứ lúc nào.
+            </>
+          ) : (
+            <>Thành viên của tổ chức này sẽ đăng nhập lại được với vai trò cũ.</>
+          )}
+        </ConfirmDialog>
 
-      <ConfirmDialog
-        open={deleteTarget !== null}
-        onClose={() => setDeleteTarget(null)}
-        title="Xoá tổ chức"
-        description={deleteTarget?.name}
-        confirmLabel="Xoá tổ chức"
-        danger
-        loading={remove.isPending}
-        onConfirm={(onError) => {
-          if (!deleteTarget) return;
-          remove.mutate(deleteTarget.id, {
-            onSuccess: () => setDeleteTarget(null),
-            onError,
-          });
-        }}
-      >
-        {(deleteTarget?.workspaceCount ?? 0) > 0 ? (
-          <>
-            Tổ chức này còn <strong>{deleteTarget?.workspaceCount} workspace</strong>. Hãy xoá
-            chúng trước — hệ thống không xoá lan xuống workspace và project để tránh mất dữ liệu
-            ngoài ý muốn.
-          </>
-        ) : (
-          <>
-            Tổ chức bị ẩn khỏi hệ thống (xoá mềm). Thành viên mất quyền truy cập nhưng{' '}
-            <strong>tài khoản của họ không bị xoá</strong> — email là định danh chung, họ có thể
-            đang làm ở tổ chức khác.
-          </>
-        )}
-      </ConfirmDialog>
-    </div>
+        <ConfirmDialog
+          open={deleteTarget !== null}
+          onClose={() => setDeleteTarget(null)}
+          title="Xoá tổ chức"
+          description={deleteTarget?.name}
+          confirmLabel="Xoá tổ chức"
+          danger
+          loading={remove.isPending}
+          onConfirm={(onError) => {
+            if (!deleteTarget) return;
+            remove.mutate(deleteTarget.id, {
+              onSuccess: () => setDeleteTarget(null),
+              onError,
+            });
+          }}
+        >
+          {(deleteTarget?.workspaceCount ?? 0) > 0 ? (
+            <>
+              Tổ chức này còn <strong>{deleteTarget?.workspaceCount} workspace</strong>. Hãy xoá
+              chúng trước — hệ thống không xoá lan xuống workspace và project để tránh mất dữ liệu
+              ngoài ý muốn.
+            </>
+          ) : (
+            <>
+              Tổ chức bị ẩn khỏi hệ thống. Thành viên mất quyền truy cập nhưng{' '}
+              <strong>tài khoản của họ không bị xoá</strong> — email là định danh chung, họ có thể
+              đang làm ở tổ chức khác.
+            </>
+          )}
+        </ConfirmDialog>
+        </PageBody>
+    </Page>
   );
 }

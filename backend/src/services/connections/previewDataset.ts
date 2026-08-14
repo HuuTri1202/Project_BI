@@ -81,15 +81,22 @@ export async function previewDataset(
  * Thứ tự cột lấy từ `dataset_columns` chứ không từ khoá của object JSON — MySQL
  * không giữ thứ tự chèn khoá trong cột JSON, nên đọc theo khoá sẽ cho ra một
  * bảng có cột xáo trộn so với file gốc.
+ *
+ * ⚠️ Khoá của document là `fieldName`, KHÔNG phải `name` — xem `buildRows` trong
+ * `services/dataset/commit.ts`. Hai tên này trùng nhau với file có tiêu đề vốn
+ * đã sạch, nên tra nhầm bằng `name` vẫn chạy đúng ở phần lớn trường hợp và chỉ
+ * hỏng khi `defaultFieldName()` phải chuẩn hoá: `doanh_thu` → `Doanh thu`, cột
+ * không tiêu đề → `Cột 1`, hai cột trùng tên → `… (2)`. Khi đó cả bảng ra NULL
+ * mà không có lỗi nào — nên phải tra đúng một khoá duy nhất ở mọi nơi.
  */
-async function previewFileRows(datasetId: number): Promise<DatasetPreviewDto> {
+export async function previewFileRows(datasetId: number): Promise<DatasetPreviewDto> {
   const columns = await datasetsRepo.listColumns(mysqlPool, datasetId);
   const rows = await datasetsRepo.readRows(mysqlPool, datasetId, PREVIEW_ROW_LIMIT);
 
-  const names = columns.map((c) => c.name);
+  const keys = columns.map((c) => c.fieldName ?? c.name);
   return {
-    columns: columns.map((c) => c.fieldName ?? c.name),
-    rows: rows.map((row) => names.map((name) => toCell(row[name]))),
+    columns: keys,
+    rows: rows.map((row) => keys.map((key) => toCell(row[key]))),
     limit: PREVIEW_ROW_LIMIT,
   };
 }

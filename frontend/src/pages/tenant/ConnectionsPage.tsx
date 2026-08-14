@@ -42,8 +42,8 @@ export default function ConnectionsPage(): React.ReactElement {
   }
 
   return (
-    <div>
-      <div className="flex flex-wrap items-start justify-between gap-4">
+    <div className="flex h-full flex-col">
+      <div className="flex shrink-0 flex-wrap items-start justify-between gap-4">
         <p className="text-sm text-slate-500">
           CSDL của tổ chức mà hệ thống lấy dữ liệu về. Mật khẩu được mã hoá và{' '}
           <strong>không bao giờ hiện lại</strong>.
@@ -53,7 +53,7 @@ export default function ConnectionsPage(): React.ReactElement {
         </Button>
       </div>
 
-      <div className="mt-5">
+      <div className="mt-4 flex min-h-0 flex-1 flex-col">
         {isError && <ErrorState message={getApiError(error).message} />}
         {isPending && <TableSkeleton rows={3} />}
 
@@ -70,7 +70,7 @@ export default function ConnectionsPage(): React.ReactElement {
         )}
 
         {data && data.length > 0 && (
-          <TableWrap>
+          <TableWrap fill>
             <THead>
               <Tr>
                 <Th>Tên</Th>
@@ -87,7 +87,12 @@ export default function ConnectionsPage(): React.ReactElement {
                   <Td>
                     <div className="font-medium text-slate-900">{connection.name}</div>
                     <div className="text-xs text-slate-500">
-                      {connection.databaseName} · {connection.username}
+                      {/* Rỗng = mọi database. Để trống thật thì dòng này thành
+                          "· bi_user" và trông như một chỗ bị lỗi hiển thị. */}
+                      {connection.databaseName === ''
+                        ? 'Mọi database'
+                        : connection.databaseName}{' '}
+                      · {connection.username}
                     </div>
                   </Td>
                   <Td>

@@ -4,6 +4,7 @@ import type { RowDataPacket } from 'mysql2';
 import { withTransaction } from '../../db/tx';
 import * as datasetsRepo from '../../repositories/datasets';
 import { HttpError } from '../../utils/httpError';
+import { queueAutoLoad } from '../ingest/autoLoad';
 import { driverFor, type TableRef, type TableSchema } from './drivers';
 import { explainConnectionError } from './explainError';
 import { requireSecret, toConfigFromSecret } from './connectionService';
@@ -39,6 +40,8 @@ export async function syncDatasets(
   tenantId: number,
   connectionId: number,
   refs: TableRef[],
+  /** Ai bấm đồng bộ — ghi vào lần nạp tự động sinh ra ở cuối hàm. */
+  triggeredBy: number | null = null,
 ): Promise<SyncResultDto> {
   if (refs.length === 0) {
     return { added: [], updated: [], unchanged: [], failed: [] };
@@ -62,6 +65,9 @@ export async function syncDatasets(
 
   const found = new Map(schemas.map((s) => [key(s.schema, s.table), s]));
   const result: SyncResultDto = { added: [], updated: [], unchanged: [], failed: [] };
+
+  // Id của những bảng cần nạp lại sau khi đồng bộ xong — xem cuối hàm.
+  const toLoad: number[] = [];
 
   await withTransaction(async (conn) => {
     for (const ref of refs) {
@@ -95,12 +101,30 @@ export async function syncDatasets(
       });
 
       await datasetsRepo.replaceColumns(conn, id, schema.columns);
+      toLoad.push(id);
 
       if (isNew) result.added.push(label);
       else if (before !== schema.columns.length) result.updated.push(label);
       else result.unchanged.push(label);
     }
   });
+
+  // ─── Đồng bộ xong thì NẠP luôn dữ liệu (§9) ────────────────────────────────
+  //
+  // Đây là chỗ §8 và §9 nối vào nhau. §8 một mình chỉ chép CẤU TRÚC, nên một
+  // bảng vừa đồng bộ vẫn chưa phân tích được — người dùng bấm "Đồng bộ", thấy
+  // báo thành công, rồi phát hiện chẳng làm được gì với nó. Nạp ngay sau đó là
+  // thứ biến "đã biết bảng này có cột gì" thành "dùng được".
+  //
+  // Nạp CẢ những bảng `unchanged`, không chỉ `added`/`updated`: `unchanged` ở
+  // đây nghĩa là CẤU TRÚC không đổi — dữ liệu bên trong thì gần như chắc chắn có
+  // đổi, và đó mới là thứ người ta bấm đồng bộ để lấy. Bỏ qua chúng sẽ biến nút
+  // "Đồng bộ" thành một nút chỉ chạy đúng lần đầu.
+  //
+  // Chỉ những bảng ĐƯỢC CHỌN mới vào đây, đúng luật 1 của hàm này. Hàng đợi chạy
+  // tuần tự một job một lúc, nên chọn 20 bảng là 20 lần đọc nối tiếp chứ không
+  // phải 20 kết nối đồng thời vào CSDL của khách hàng.
+  await queueAutoLoad(tenantId, toLoad, triggeredBy);
 
   return result;
 }

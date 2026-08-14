@@ -1,19 +1,12 @@
-import {
-  DATASET_ERROR_CODES,
-  type FileExt,
-  type SemanticType,
-} from '@bi/shared';
+import { DATASET_ERROR_CODES, type FileExt } from '@bi/shared';
 
 import { withTransaction } from '../../db/tx';
 import * as datasetsRepo from '../../repositories/datasets';
+import { queueAutoLoad } from '../ingest/autoLoad';
 import { HttpError } from '../../utils/httpError';
 import { analyzeDataset } from './analyze';
-import {
-  defaultFieldName,
-  defaultFieldRole,
-  inferColumnType,
-  parseNumber,
-} from './inferType';
+import { defaultFieldName, defaultFieldRole, inferColumnType } from './inferType';
+import { normalizeCell } from './normalizeCell';
 import type { ParsedSheet } from './parseFile';
 
 /** Chỉ đoán trên vài trăm ô đầu — đọc hết 50.000 dòng chỉ để đoán là phí. */
@@ -100,7 +93,7 @@ export async function commitDatasets(input: CommitInput): Promise<CommittedDatas
   // MỘT transaction cho tất cả: nửa chừng mà hỏng thì để lại vài dataset ở trạng
   // thái `ready` và vài cái còn `pending`, trong khi người dùng tin rằng cả lô
   // đã vào. Hoặc tất cả, hoặc không.
-  return withTransaction(async (conn) => {
+  const created = await withTransaction(async (conn) => {
     const created: CommittedDataset[] = [];
 
     for (const [index, sheet] of sheets.entries()) {
@@ -123,11 +116,16 @@ export async function commitDatasets(input: CommitInput): Promise<CommittedDatas
             });
 
       await datasetsRepo.replaceColumns(conn, datasetId, columns);
+      // MẪU, không phải toàn bộ. `buildRows` chỉ dựng từ `sheet.rows`, vốn đã bị
+      // `parseFile` giới hạn ở `RETAINED_ROWS` — xem ghi chú ở hằng số đó. Dữ
+      // liệu đầy đủ đi thẳng từ file vào ClickHouse ở bước nạp.
       await datasetsRepo.replaceRows(conn, datasetId, rows);
       await datasetsRepo.markReady(conn, datasetId, {
         name,
         sheetName: sheet.name,
-        rowCount: rows.length,
+        // Tổng THẬT của sheet, không phải số dòng mẫu vừa ghi. Người dùng thấy
+        // "50.000 dòng" và đó phải là sự thật về file của họ.
+        rowCount: sheet.totalRows,
         columnCount: columns.length,
         truncated: analyzed.result.truncated,
         fileSize: analyzed.fileSize,
@@ -138,6 +136,20 @@ export async function commitDatasets(input: CommitInput): Promise<CommittedDatas
 
     return created;
   });
+
+  // SAU khi transaction đã commit, không phải bên trong. Hai lý do:
+  //
+  //   - Vòng lặp nền nhặt việc từ một connection KHÁC. Xếp hàng bên trong
+  //     transaction nghĩa là nó có thể nhặt được dòng `queued` trước khi
+  //     `dataset_rows` kịp commit, rồi nạp một bảng rỗng.
+  //   - Xếp hàng hỏng không được phép cuốn theo cả việc nhập file, vốn đã xong.
+  await queueAutoLoad(
+    input.tenantId,
+    created.map((c) => c.id),
+    input.createdBy,
+  );
+
+  return created;
 }
 
 /**
@@ -201,7 +213,7 @@ function buildRows(
     for (const column of columns) {
       // `fieldName`/`semanticType` là tuỳ chọn trên `ColumnInput` vì nguồn
       // `connection` không điền; `buildColumns` luôn điền cả hai.
-      doc[column.fieldName ?? column.name] = normalize(
+      doc[column.fieldName ?? column.name] = normalizeCell(
         row[column.ordinal] ?? '',
         column.semanticType ?? 'text',
       );
@@ -210,19 +222,3 @@ function buildRows(
   });
 }
 
-function normalize(raw: string, semanticType: SemanticType): unknown {
-  const trimmed = raw.trim();
-  // Ô trống lưu thành `null` chứ không phải chuỗi rỗng: `null` phân biệt được
-  // với "giá trị là chuỗi rỗng", và `aggregate` bỏ qua nó đúng cách.
-  if (trimmed === '') return null;
-
-  switch (semanticType) {
-    case 'number':
-      return parseNumber(trimmed);
-    case 'boolean':
-      return ['true', 'yes', 'có', 'x'].includes(trimmed.toLowerCase());
-    case 'date':
-    case 'text':
-      return trimmed;
-  }
-}

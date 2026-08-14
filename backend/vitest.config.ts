@@ -38,6 +38,24 @@ export default defineConfig({
       S3_ACCESS_KEY: 'test',
       S3_SECRET_KEY: 'test',
 
+      // Kho phân tích §9.
+      //
+      // Test ĐƠN VỊ không chạm ClickHouse (phần thuần của `services/ingest/*`
+      // không import client), nhưng `env.ts` khai bốn biến này là bắt buộc và
+      // validate ngay lúc import — thiếu thì process chết trước khi ca test nào
+      // kịp chạy, và thông báo lỗi sẽ nói về biến môi trường chứ không về bài
+      // test. Cùng lý do với bốn biến S3 ngay trên.
+      //
+      // Khác S3 ở một điểm: đây là thông tin đăng nhập THẬT, vì nhánh
+      // `INGEST_CH_TESTS=1` của test tích hợp nối tới ClickHouse thật. Cùng
+      // khuôn với MYSQL_* ngay trên — user thật, DATABASE RIÊNG. Một lần chạy
+      // test hỏng không bao giờ chạm được `bi_analytics` của môi trường dev.
+      CLICKHOUSE_HOST: 'localhost',
+      CLICKHOUSE_PORT: '8123',
+      CLICKHOUSE_DATABASE: 'bi_analytics_test',
+      CLICKHOUSE_USER: 'bi_user',
+      CLICKHOUSE_PASSWORD: 'clickhouse_password',
+
       // Hạ trần xuống 100 để ca kiểm "file bị cắt" không phải dựng một file nửa
       // triệu dòng. Chính con số này là thứ ca đó khẳng định.
       DATASET_MAX_ROWS: '100',

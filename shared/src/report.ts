@@ -111,6 +111,18 @@ export const REPORT_ERROR_CODES = {
    * Giao diện hiện lời mời dựng biểu đồ chứ không hiện màn hình lỗi.
    */
   REPORT_NOT_CONFIGURED: 'ReportNotConfigured',
+  /**
+   * Bộ dữ liệu chưa nằm trong kho phân tích, nên chưa tổng hợp được.
+   *
+   * Cũng KHÔNG phải lỗi hỏng: từ khi §7.6 gom nhóm bằng ClickHouse thay vì trong
+   * RAM Node, một báo cáo chỉ vẽ được sau khi bộ dữ liệu đã nạp. Trạng thái này
+   * kéo dài vài giây sau khi tải file lên, và giao diện hiện tiến độ nạp thay vì
+   * một biểu đồ rỗng.
+   *
+   * Thà 409 còn hơn vẽ trên `dataset_rows`: bảng đó giờ chỉ giữ MẪU, nên tổng
+   * hợp trên nó sẽ ra một biểu đồ trông hoàn toàn hợp lý mà sai số liệu.
+   */
+  DATASET_NOT_LOADED: 'DatasetNotLoaded',
 } as const;
 
 export type ReportErrorCode = (typeof REPORT_ERROR_CODES)[keyof typeof REPORT_ERROR_CODES];

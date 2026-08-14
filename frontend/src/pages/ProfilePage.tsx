@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
 import { useAuth } from '../auth/useAuth';
+import { Page, PageBody, PageHeader } from '../components/ui/Page';
 import { Button } from '../components/ui/Button';
 import { Field, SelectField } from '../components/ui/Field';
 import { useChangePassword, useUpdateProfile } from '../features/tenant/hooks';
@@ -21,28 +22,30 @@ export default function ProfilePage(): React.ReactElement {
   const { user, tenant, role } = useAuth();
 
   return (
-    <div className="mx-auto max-w-2xl">
-      <header>
-        <h1 className="text-xl font-bold text-slate-900">Hồ sơ cá nhân</h1>
-        <p className="mt-1 text-sm text-slate-500">
-          {tenant?.name} · {role ? ROLE_LABELS[role] : ''}
+    <Page width="6xl">
+      <PageHeader
+        title="Hồ sơ cá nhân"
+        description={`${tenant?.name ?? ''} · ${role ? ROLE_LABELS[role] : ''}`}
+      />
+
+      <PageBody>
+        {/* Hai thẻ nằm CẠNH nhau chứ không chồng lên nhau. Xếp dọc trong một cột
+            hẹp bỏ trống hơn nửa bề ngang màn hình rồi bắt cuộn để xem thẻ thứ
+            hai — trong khi cả hai đều là form ngắn, thừa chỗ để đứng cạnh.
+            Dưới `lg` mới xếp dọc, vì lúc đó bề ngang thật sự không đủ. */}
+        <div className="grid items-start gap-5 lg:grid-cols-2">
+          <ProfileForm />
+          <PasswordForm />
+        </div>
+
+        <p className="mt-4 text-xs text-slate-400">
+          Tài khoản tạo ngày {user ? new Date(user.createdAt).toLocaleDateString('vi-VN') : '—'}
+          {user?.lastLoginAt
+            ? ` · đăng nhập gần nhất ${new Date(user.lastLoginAt).toLocaleString('vi-VN')}`
+            : ''}
         </p>
-      </header>
-
-      <ProfileForm />
-
-      <div className="mt-6">
-        <PasswordForm />
-      </div>
-
-      <p className="mt-6 text-xs text-slate-400">
-        Tài khoản tạo ngày{' '}
-        {user ? new Date(user.createdAt).toLocaleDateString('vi-VN') : '—'}
-        {user?.lastLoginAt
-          ? ` · đăng nhập gần nhất ${new Date(user.lastLoginAt).toLocaleString('vi-VN')}`
-          : ''}
-      </p>
-    </div>
+      </PageBody>
+    </Page>
   );
 }
 
@@ -119,21 +122,29 @@ function ProfileForm(): React.ReactElement {
   }
 
   return (
-    <section className="mt-6 rounded-xl border border-slate-200 bg-white p-6">
+    <section className="rounded-xl border border-slate-200 bg-white p-5">
       <h2 className="text-sm font-semibold text-slate-900">Thông tin cá nhân</h2>
 
-      <form onSubmit={(e) => void handleSubmit(onSubmit)(e)} noValidate className="mt-5 space-y-4">
-        <Field
-          label="Họ và tên"
-          registration={register('fullName')}
-          error={errors.fullName?.message}
-          autoComplete="name"
-        />
+      {/* Các ô ngắn đi thành hai cột. Một ô "Ngày sinh" kéo hết bề ngang thẻ vừa
+          xấu vừa tốn một hàng cho thứ chỉ cần vài chục pixel. */}
+      <form
+        onSubmit={(e) => void handleSubmit(onSubmit)(e)}
+        noValidate
+        className="mt-4 grid gap-4 sm:grid-cols-2"
+      >
+        <div className="sm:col-span-2">
+          <Field
+            label="Họ và tên"
+            registration={register('fullName')}
+            error={errors.fullName?.message}
+            autoComplete="name"
+          />
+        </div>
 
         {/* Email chỉ đọc. Nó là định danh đăng nhập DUY NHẤT và duy nhất TOÀN
             CỤC; đổi nó cần một luồng xác thực email mà hệ thống chưa có, và cho
             sửa tự do nghĩa là gõ nhầm một ký tự là mất tài khoản vĩnh viễn. */}
-        <div>
+        <div className="sm:col-span-2">
           <label
             htmlFor="profile-email"
             className="mb-1.5 block text-sm font-medium text-slate-700"
@@ -146,9 +157,7 @@ function ProfileForm(): React.ReactElement {
             readOnly
             className="w-full cursor-not-allowed rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-sm text-slate-500"
           />
-          <p className="mt-1.5 text-xs text-slate-400">
-            Email là tên đăng nhập nên không đổi được. Liên hệ quản trị viên nếu cần.
-          </p>
+          <p className="mt-1.5 text-xs text-slate-400">Email là tên đăng nhập, không đổi được.</p>
         </div>
 
         <Field
@@ -156,7 +165,6 @@ function ProfileForm(): React.ReactElement {
           registration={register('phone')}
           error={errors.phone?.message}
           autoComplete="tel"
-          hint="Không bắt buộc. Để trống nếu không muốn lưu."
         />
 
         <SelectField
@@ -173,10 +181,9 @@ function ProfileForm(): React.ReactElement {
           type="date"
           registration={register('dateOfBirth')}
           error={errors.dateOfBirth?.message}
-          hint="Không bắt buộc."
         />
 
-        <div className="flex items-center gap-3 pt-1">
+        <div className="flex items-center gap-3 sm:col-span-2">
           <Button
             type="submit"
             variant="primary"
@@ -268,10 +275,10 @@ function PasswordForm(): React.ReactElement {
   }
 
   return (
-    <section className="rounded-xl border border-slate-200 bg-white p-6">
+    <section className="rounded-xl border border-slate-200 bg-white p-5">
       <h2 className="text-sm font-semibold text-slate-900">Đổi mật khẩu</h2>
 
-      <form onSubmit={(e) => void handleSubmit(onSubmit)(e)} noValidate className="mt-5 space-y-4">
+      <form onSubmit={(e) => void handleSubmit(onSubmit)(e)} noValidate className="mt-4 space-y-4">
         <Field
           label="Mật khẩu hiện tại"
           type="password"

@@ -48,10 +48,19 @@ function run(file, args) {
 /** PID đang LISTEN trên cổng này. Trả về mảng vì IPv4 và IPv6 là hai dòng riêng. */
 function listenersOn(port) {
   if (isWindows) {
-    // `netstat -ano` cho cả bốn cột; chỉ nhận dòng LISTENING và địa chỉ cục bộ
-    // kết thúc đúng bằng `:<port>`. So khớp phần đuôi chứ không `includes`:
-    // `includes(':4000')` sẽ trúng cả `:40001`.
-    return run('netstat', ['-ano', '-p', 'TCP'])
+    // ⚠️ KHÔNG thêm `-p TCP`. Trên Windows, `netstat -p TCP` chỉ liệt kê IPv4 —
+    // IPv6 là một giao thức RIÊNG tên `TCPv6`. Mà Vite bind mặc định vào
+    // `[::1]:5173`, tức là một listener IPv6 thuần: script này sẽ báo "cổng
+    // đang trống" rồi `npm run dev` đâm ngay vào `EADDRINUSE`. Đúng cái lỗi mà
+    // nó sinh ra để dọn, và nó im lặng bỏ qua.
+    //
+    // `netstat -ano` không lọc giao thức nên trả cả hai. Dòng UDP không có chữ
+    // LISTENING nên đã bị bộ lọc ngay dưới loại ra.
+    //
+    // Chỉ nhận dòng LISTENING và địa chỉ cục bộ kết thúc đúng bằng `:<port>`.
+    // So khớp phần đuôi chứ không `includes`: `includes(':4000')` sẽ trúng cả
+    // `:40001`.
+    return run('netstat', ['-ano'])
       .split(/\r?\n/)
       .filter((line) => /\bLISTENING\b/.test(line))
       .map((line) => line.trim().split(/\s+/))
@@ -128,3 +137,33 @@ for (const port of ports) {
 
 if (seen === 0) console.log(`[ports] cổng ${ports.join(', ')} đang trống.`);
 else if (freed === 0) console.warn('[ports] không dọn được cổng nào — xem cảnh báo phía trên.');
+else waitUntilFree(ports);
+
+/**
+ * Chờ hệ điều hành THẬT SỰ nhả cổng ra.
+ *
+ * `taskkill /F` (và `SIGKILL`) trả về ngay khi đã YÊU CẦU kết thúc tiến trình,
+ * không phải khi socket đã được thu hồi. Quãng giữa hai thời điểm đó chỉ dài
+ * vài trăm mili-giây — vừa đủ để `npm run dev` chạy tiếp rồi đâm vào
+ * `EADDRINUSE` với chính cái cổng script này vừa dọn xong.
+ *
+ * Triệu chứng của lỗi đó đặc biệt khó tin: log in ra "đã giải phóng cổng 5173"
+ * rồi ngay dòng sau là "Port 5173 is already in use".
+ *
+ * Vòng chờ ĐỒNG BỘ vì script này chạy ở `predev` — nó phải kết thúc muộn hơn
+ * thời điểm cổng trống, không phải chỉ hứa hẹn điều đó.
+ */
+function waitUntilFree(portList) {
+  const deadline = Date.now() + 3_000;
+
+  while (Date.now() < deadline) {
+    const busy = portList.filter((port) => listenersOn(port).length > 0);
+    if (busy.length === 0) return;
+    // Ngủ đồng bộ 100ms. `Atomics.wait` là cách duy nhất làm việc này mà không
+    // cần async — và ở đây async sẽ không giúp gì, vì không có việc nào khác để
+    // làm trong lúc chờ.
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100);
+  }
+
+  console.warn('[ports] đã giết tiến trình nhưng cổng chưa được nhả sau 3 giây — thử lại lệnh.');
+}

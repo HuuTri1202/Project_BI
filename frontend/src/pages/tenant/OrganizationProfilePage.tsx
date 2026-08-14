@@ -64,7 +64,7 @@ export default function OrganizationProfilePage(): React.ReactElement {
   if (isError) return <ErrorState message={getApiError(error).message} />;
 
   return (
-    <div className="max-w-xl">
+    <div className="h-full max-w-xl overflow-y-auto pr-1">
       <form onSubmit={onSubmit} noValidate className="space-y-4">
         {formError && (
           <p

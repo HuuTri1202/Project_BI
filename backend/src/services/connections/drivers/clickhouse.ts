@@ -2,6 +2,7 @@ import { createClient, type ClickHouseClient } from '@clickhouse/client';
 import { Agent as HttpAgent } from 'node:http';
 import { Agent as HttpsAgent } from 'node:https';
 import { isIP } from 'node:net';
+import { quoteIdent } from '../../ingest/typeMap';
 import { toCell } from './cell';
 import {
   CLICKHOUSE_TIMEOUT_MS,
@@ -43,17 +44,53 @@ export const clickhouseDriver: Driver = {
     }
   },
 
+  async listDatabases(cfg) {
+    // Mở KHÔNG kèm database — xem ghi chú cùng tên ở driver MySQL.
+    const client = open({ ...cfg, database: '' });
+    try {
+      // ⚠️ `countIf(t.name != '')`, KHÔNG phải `count(t.name)`.
+      //
+      // ClickHouse để `join_use_nulls = 0` mặc định, nên `LEFT JOIN` không khớp
+      // sẽ điền GIÁ TRỊ MẶC ĐỊNH (chuỗi rỗng) chứ không phải `NULL` — khác hẳn
+      // SQL chuẩn. `count(t.name)` đếm luôn chuỗi rỗng đó, và mọi database rỗng
+      // hiện ra là "1 bảng". Đã kiểm trên máy: `default` trả 1 trước khi sửa, 0
+      // sau khi sửa. Con số sai ở đây còn tệ hơn không có con số, vì nó nói với
+      // người dùng rằng database rỗng có dữ liệu.
+      const rs = await client.query({
+        query: `SELECT d.name AS name, countIf(t.name != '') AS n
+                  FROM system.databases AS d
+                  LEFT JOIN system.tables AS t ON t.database = d.name
+                 WHERE d.name NOT IN ({sys:Array(String)})
+                 GROUP BY d.name
+                 ORDER BY d.name`,
+        query_params: { sys: SYSTEM_DATABASES },
+        format: 'JSONEachRow',
+      });
+      const rows = await rs.json<{ name: string; n: string }>();
+      return rows.map((r) => ({ name: r.name, tableCount: Number(r.n) }));
+    } finally {
+      await client.close();
+    }
+  },
+
   async listTables(cfg) {
     const client = open(cfg);
     try {
+      // `cfg.database` rỗng = người dùng chọn "tất cả database". Dùng một tham số
+      // cờ thay vì ghép hai câu SQL: điều kiện vẫn tham số hoá hoàn toàn, và chỉ
+      // có MỘT câu truy vấn để đọc khi đi tìm lỗi.
       const rs = await client.query({
         query: `SELECT database, name
                   FROM system.tables
-                 WHERE database = {db:String}
+                 WHERE ({all:UInt8} = 1 OR database = {db:String})
                    AND database NOT IN ({sys:Array(String)})
                    AND NOT is_temporary
-                 ORDER BY name`,
-        query_params: { db: cfg.database, sys: SYSTEM_DATABASES },
+                 ORDER BY database, name`,
+        query_params: {
+          all: cfg.database === '' ? 1 : 0,
+          db: cfg.database,
+          sys: SYSTEM_DATABASES,
+        },
         format: 'JSONEachRow',
       });
       const rows = await rs.json<{ database: string; name: string }>();
@@ -132,6 +169,44 @@ export const clickhouseDriver: Driver = {
       await client.close();
     }
   },
+
+  async *readAllRows(cfg, ref, opts) {
+    if (opts.columns.length === 0) {
+      throw new Error('readAllRows cần ít nhất một cột.');
+    }
+
+    const client = open(cfg);
+    try {
+      // Danh sách cột KHÔNG tham số hoá được ({x:Identifier} chỉ thay được MỘT
+      // định danh, không thay được cả một danh sách), nên đây là chỗ duy nhất
+      // của driver này phải nối chuỗi. Tên cột đến từ `dataset_columns` — do
+      // `describeTables` ghi vào từ `system.columns` — và vẫn được bọc bằng
+      // `quoteIdent` để một thay đổi tương lai không biến nó thành lỗ hổng.
+      const columns = opts.columns.map(quoteIdent).join(', ');
+
+      const rs = await client.query({
+        query: `SELECT ${columns} FROM {db:Identifier}.{tbl:Identifier} LIMIT {n:UInt64}`,
+        query_params: { db: ref.schema, tbl: ref.table, n: opts.maxRows },
+        format: 'JSONCompactEachRow',
+      });
+
+      // `rs.stream()` phát ra từng KHỐI dòng theo nhịp mạng, không phải từng
+      // dòng — nên phải tự gom lại cho đúng cỡ lô mà tầng nạp yêu cầu.
+      let batch: unknown[][] = [];
+      for await (const chunk of rs.stream<unknown[]>()) {
+        for (const row of chunk) {
+          batch.push(row.json());
+          if (batch.length >= opts.batchSize) {
+            yield batch;
+            batch = [];
+          }
+        }
+      }
+      if (batch.length > 0) yield batch;
+    } finally {
+      await client.close();
+    }
+  },
 };
 
 function toColumn(row: { name: string; type: string; position: number }): ColumnMeta {
@@ -203,7 +278,11 @@ function open(cfg: ConnectionConfig): ClickHouseClient {
 
   return createClient({
     url: `${cfg.ssl ? 'https' : 'http'}://${authority}:${cfg.port}`,
-    database: cfg.database,
+    // Bỏ hẳn khoá khi rỗng ("mọi database") thay vì gửi chuỗi rỗng: client sẽ
+    // đính `database=` vào mọi request, và ClickHouse hiểu đó là tên database
+    // rỗng chứ không phải "không chọn". Mọi truy vấn của driver này đều ghi rõ
+    // tiền tố database nên không có gì phụ thuộc vào ngữ cảnh mặc định.
+    ...(cfg.database === '' ? {} : { database: cfg.database }),
     username: cfg.username,
     password: cfg.password,
     request_timeout: CLICKHOUSE_TIMEOUT_MS,

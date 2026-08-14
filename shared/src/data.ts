@@ -63,6 +63,13 @@ export interface ConnectionDto {
    * phải sửa gì.
    */
   useSsl: boolean;
+  /**
+   * Database dùng để thu hẹp danh sách bảng. **Chuỗi rỗng = mọi database.**
+   *
+   * Không phải `string | null`: cột dưới database là `NOT NULL`, và thêm một
+   * trạng thái `null` bên cạnh chuỗi rỗng là hai cách viết cho cùng một ý nghĩa
+   * — chỗ nào quên kiểm một trong hai là một lỗi.
+   */
   databaseName: string;
   username: string;
   /** Lần kiểm tra gần nhất thành công. `null` = chưa từng kiểm hoặc lần cuối lỗi. */
@@ -80,6 +87,18 @@ export interface TestConnectionResultDto {
   serverVersion?: string;
   /** Chỉ có khi `!ok` — câu tiếng Việt nói được phải sửa gì. */
   message?: string;
+}
+
+/**
+ * Một database ứng viên trong bộ chọn ở wizard kết nối.
+ *
+ * `tableCount` đi kèm là có chủ đích: nó biến việc chọn nhầm database từ một lỗi
+ * chỉ lộ ra ở màn hình khác (hộp thoại Đồng bộ rỗng) thành thông tin đọc được
+ * ngay tại chỗ chọn — `default · 0 bảng`.
+ */
+export interface DatabaseOptionDto {
+  name: string;
+  tableCount: number;
 }
 
 /** Nuôi bước 1 của wizard: chuẩn bị gì trước khi kết nối. */
@@ -214,6 +233,23 @@ export interface DatasetDto {
    * hợp đồng API.
    */
   datamodelCount: number;
+
+  /* ─── Kho phân tích ClickHouse (§9) ────────────────────────────────────── */
+  /**
+   * Trạng thái nạp vào ClickHouse.
+   *
+   * ⚠️ HOÀN TOÀN TÁCH BIỆT với `status` ở trên. `status` nói "file đã phân tích
+   * xong chưa" (§7); trường này nói "dữ liệu đã vào kho phân tích chưa" (§9).
+   * Một bộ dữ liệu `status='ready'` mà `loadStatus='idle'` là chuyện bình thường
+   * — và đó là trạng thái mặc định của MỌI bộ dữ liệu nguồn `connection`.
+   *
+   * Giao diện phải đặt nhãn phân biệt rõ hai thứ này. Không có nhãn thì người
+   * dùng thấy "Sẵn sàng" cạnh "Chưa nạp" rồi kết luận hệ thống mâu thuẫn.
+   */
+  loadStatus: DatasetLoadStatus;
+  /** Số dòng thật sự nằm trong kho sau lần nạp gần nhất. */
+  loadedRowCount: number;
+  loadedAt: string | null;
 }
 
 export interface DatasetDetailDto extends DatasetDto {
@@ -271,6 +307,132 @@ export type FileExt = (typeof FILE_EXTS)[number];
  */
 export const DATASET_STATUSES = ['pending', 'ready', 'failed'] as const;
 export type DatasetStatus = (typeof DATASET_STATUSES)[number];
+
+/* ─── Nạp vào kho phân tích ClickHouse (§9) ──────────────────────────────── */
+
+/**
+ * Vòng đời một lần nạp, nhìn từ phía bộ dữ liệu.
+ *
+ * `idle` là "chưa từng nạp", khác `failed` là "đã thử và hỏng". Phân biệt được
+ * hai cái đó mới nói đúng được câu trên giao diện: một bên là lời mời bấm nút,
+ * một bên là lời giải thích kèm lý do.
+ */
+export const LOAD_STATUSES = ['idle', 'queued', 'running', 'loaded', 'failed'] as const;
+export type DatasetLoadStatus = (typeof LOAD_STATUSES)[number];
+
+/**
+ * Nhãn tiếng Việt. Giao diện KHÔNG bao giờ chỉ dùng màu để phân biệt trạng thái
+ * — quy ước của repo, và cũng là điều kiện để người mù màu đọc được.
+ */
+export const LOAD_STATUS_LABELS: Record<DatasetLoadStatus, string> = {
+  idle: 'Chưa nạp',
+  queued: 'Đang chờ',
+  running: 'Đang nạp',
+  loaded: 'Đã nạp',
+  failed: 'Nạp lỗi',
+};
+
+/** Còn chuyển động — giao diện hỏi lại cho tới khi thoát khỏi hai trạng thái này. */
+export const LOAD_STATUSES_LIVE: readonly DatasetLoadStatus[] = ['queued', 'running'];
+
+export const LOAD_RUN_STATUSES = ['queued', 'running', 'succeeded', 'failed'] as const;
+export type LoadRunStatus = (typeof LOAD_RUN_STATUSES)[number];
+
+/** Một lần bấm nạp — vừa là lịch sử, vừa là mục trong hàng đợi. */
+export interface DatasetLoadDto {
+  /** `null` khi bộ dữ liệu chưa từng được nạp lần nào. */
+  runId: number | null;
+  status: LoadRunStatus | null;
+  /** Trạng thái đang hiện trên bộ dữ liệu. Luôn có, kể cả khi chưa có lần nạp nào. */
+  datasetStatus: DatasetLoadStatus;
+  /** Đọc được bao nhiêu dòng từ nguồn — tăng dần trong lúc chạy. */
+  rowsRead: number;
+  /** Ghi được bao nhiêu dòng sang ClickHouse. */
+  rowsLoaded: number;
+  /** Số Ô không ép được kiểu (không phải số dòng hỏng). */
+  rowsFailed: number;
+  errorMessage: string | null;
+  /** Tên bảng trong ClickHouse. Hiện ra để người dùng tự truy vấn được. */
+  chTable: string | null;
+  queuedAt: string | null;
+  startedAt: string | null;
+  finishedAt: string | null;
+}
+
+/** Một ô không ép được kiểu (§9.8). */
+export interface DatasetLoadErrorDto {
+  id: number;
+  /**
+   * Vị trí dòng trong NGUỒN.
+   *
+   * Nguồn `file`: khớp số dòng trong Excel (không tính hàng tiêu đề).
+   * Nguồn `connection`: thứ tự đọc được của lần nạp này — KHÔNG phải khoá tự
+   * nhiên. Giao diện phải nói rõ khác biệt đó.
+   */
+  rowIndex: number;
+  columnName: string | null;
+  rawValue: string | null;
+  reason: string;
+}
+
+/**
+ * Một cột như nó THẬT SỰ tồn tại trong ClickHouse.
+ *
+ * Khác `DatasetColumnDto` ở chỗ căn bản: cột kia mô tả NGUỒN (kiểu MySQL, hoặc
+ * kiểu đoán được từ file), còn cột này mô tả ĐÍCH. Chỉ có nó trả lời được câu
+ * "sau khi nạp thì cột này nằm ở kho dưới dạng gì" — và đó mới là kiểu mà §10
+ * dựng mô hình lên trên, chứ không phải kiểu của file gốc.
+ */
+export interface WarehouseColumnDto {
+  /** Vị trí trong bảng ClickHouse, 0-based. */
+  ordinal: number;
+  name: string;
+  /** Kiểu ClickHouse đầy đủ, ví dụ `Nullable(DateTime64(3, 'UTC'))`. */
+  type: string;
+  /** Rút từ `type`: có bọc `Nullable(...)` hay không. */
+  nullable: boolean;
+}
+
+export interface WarehouseSchemaDto {
+  /** Tên bảng trong ClickHouse — hiện ra để người dùng tự truy vấn được. */
+  table: string;
+  columns: WarehouseColumnDto[];
+}
+
+/**
+ * Một trang dữ liệu trong kho.
+ *
+ * Có `total` thật, khác hẳn `DatasetPreviewDto`: kho là bảng của CHÍNH TA nên
+ * `count()` trên MergeTree đọc từ metadata, không quét bảng. Không có lý do gì
+ * để giấu người dùng con số "trong 51.290" như phía CSDL nguồn.
+ */
+export interface WarehousePageDto {
+  columns: string[];
+  rows: DatasetCellValue[][];
+  page: number;
+  pageSize: number;
+  total: number;
+  totalPages: number;
+}
+
+/**
+ * Các cỡ trang cho bảng dữ liệu.
+ *
+ * Trần 100 trùng `MAX_PAGE_SIZE` của backend — để một lựa chọn trên giao diện
+ * không bao giờ dẫn tới 400 từ máy chủ.
+ */
+export const DATA_PAGE_SIZES = [20, 50, 100] as const;
+
+export const LOAD_ERROR_CODES = {
+  /** Đã có một lần nạp đang xếp hàng hoặc đang chạy cho bộ dữ liệu này. */
+  LOAD_ALREADY_RUNNING: 'LoadAlreadyRunning',
+  /** Không nối được tới ClickHouse. Thông báo phải nói rõ lệnh cần chạy. */
+  CLICKHOUSE_UNAVAILABLE: 'ClickHouseUnavailable',
+  /** Bộ dữ liệu chưa `ready`, hoặc không có cột nào được chọn nhập. */
+  DATASET_NOT_LOADABLE: 'DatasetNotLoadable',
+} as const;
+
+export type LoadErrorCode = (typeof LOAD_ERROR_CODES)[keyof typeof LOAD_ERROR_CODES];
 
 export interface CreateUploadResultDto {
   datasetId: number;

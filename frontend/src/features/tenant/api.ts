@@ -5,8 +5,11 @@ import type {
   ConnectionKind,
   ConnectionPrerequisitesDto,
   CreateAdminUserResultDto,
+  DatabaseOptionDto,
   DatasetDetailDto,
   DatasetDto,
+  DatasetLoadDto,
+  DatasetLoadErrorDto,
   DatasetPreviewDto,
   DatasetSource,
   HomeDataDto,
@@ -21,6 +24,8 @@ import type {
   TestConnectionResultDto,
   UpdateProfileDto,
   UserDto,
+  WarehousePageDto,
+  WarehouseSchemaDto,
 } from '@bi/shared';
 import { apiClient } from '../../services/apiClient';
 
@@ -110,6 +115,24 @@ export async function testConnection(
   return data;
 }
 
+/**
+ * Database mà thông tin vừa gõ nhìn thấy — nuôi bộ chọn ở bước 2.
+ *
+ * Gửi cả `databaseName` hiện tại lên cho khớp schema của backend, nhưng backend
+ * bỏ qua nó: câu hỏi ở đây là "có những cái nào", nên tự lọc theo cái đang chọn
+ * là tự mâu thuẫn.
+ */
+export async function listDatabases(input: ConnectionFormValues): Promise<DatabaseOptionDto[]> {
+  const { data } = await apiClient.post<DatabaseOptionDto[]>('/v1/connections/databases', input);
+  return data;
+}
+
+/** Như trên nhưng cho kết nối ĐÃ lưu — dùng khi sửa, lúc ô mật khẩu để trống. */
+export async function listSavedDatabases(id: number): Promise<DatabaseOptionDto[]> {
+  const { data } = await apiClient.get<DatabaseOptionDto[]>(`/v1/connections/${id}/databases`);
+  return data;
+}
+
 export async function createConnection(input: ConnectionFormValues): Promise<ConnectionDto> {
   const { data } = await apiClient.post<ConnectionDto>('/v1/connections', input);
   return data;
@@ -191,6 +214,52 @@ export async function renameDataset(id: number, name: string): Promise<DatasetDt
 
 export async function deleteDataset(id: number): Promise<void> {
   await apiClient.delete(`/v1/datasets/${id}`);
+}
+
+// ─── Nạp vào kho phân tích ClickHouse (§9) ───────────────────────────────────
+
+/** Xếp hàng một lần nạp. Trả về NGAY, việc chạy nền — theo dõi bằng `fetchLoad`. */
+export async function startLoad(id: number): Promise<DatasetLoadDto> {
+  const { data } = await apiClient.post<DatasetLoadDto>(`/v1/datasets/${id}/load`);
+  return data;
+}
+
+export async function fetchLoad(id: number): Promise<DatasetLoadDto> {
+  const { data } = await apiClient.get<DatasetLoadDto>(`/v1/datasets/${id}/load`);
+  return data;
+}
+
+/**
+ * Một trang dữ liệu của bảng TRONG KHO ClickHouse.
+ *
+ * Khác `fetchDatasetPreview` ở chỗ quan trọng nhất: cái kia đọc từ NGUỒN, cái
+ * này đọc từ ĐÍCH. Đặt hai bảng cạnh nhau là cách kiểm chứng một lần nạp.
+ */
+export async function fetchWarehousePreview(
+  id: number,
+  query: { page: number; pageSize: number },
+): Promise<WarehousePageDto> {
+  const { data } = await apiClient.get<WarehousePageDto>(`/v1/datasets/${id}/load/preview`, {
+    params: query,
+  });
+  return data;
+}
+
+/** Cấu trúc bảng trong kho — kiểu ClickHouse thật, không phải kiểu của nguồn. */
+export async function fetchWarehouseSchema(id: number): Promise<WarehouseSchemaDto> {
+  const { data } = await apiClient.get<WarehouseSchemaDto>(`/v1/datasets/${id}/load/schema`);
+  return data;
+}
+
+export async function fetchLoadErrors(
+  id: number,
+  query: { page: number; pageSize: number },
+): Promise<PageResult<DatasetLoadErrorDto>> {
+  const { data } = await apiClient.get<PageResult<DatasetLoadErrorDto>>(
+    `/v1/datasets/${id}/load/errors`,
+    { params: clean({ ...query }) },
+  );
+  return data;
 }
 
 // ─── Workspace (§4.5, §4.6) ──────────────────────────────────────────────────

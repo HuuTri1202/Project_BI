@@ -41,6 +41,8 @@ import { resetMemberPassword } from '../../services/admin/resetMemberPassword';
 import {
   createConnection,
   deleteConnection,
+  listDatabases,
+  listSavedDatabases,
   listSourceTables,
   testConnection,
   testSavedConnection,
@@ -50,7 +52,14 @@ import { deleteDataset } from '../../services/connections/deleteDataset';
 import { DEFAULT_PORTS, DEFAULT_SSL, REQUIRED_GRANTS } from '../../services/connections/drivers';
 import { previewDataset } from '../../services/connections/previewDataset';
 import { syncDatasets } from '../../services/connections/syncDatasets';
-import { aggregate } from '../../services/dataset/aggregate';
+import {
+  getLoadStatus,
+  listLoadErrors,
+  previewWarehouse,
+  queueLoad,
+  warehouseSchema,
+} from '../../services/ingest/loadService';
+import { aggregateInWarehouse } from '../../services/dataset/aggregateWarehouse';
 import { analyzeDataset, clearAnalyzeCache } from '../../services/dataset/analyze';
 import { commitDatasets } from '../../services/dataset/commit';
 import {
@@ -62,7 +71,7 @@ import {
 import { storage } from '../../storage';
 import { asyncHandler } from '../../utils/asyncHandler';
 import { badRequest, HttpError, notFound } from '../../utils/httpError';
-import { buildPageResult, resolveSortColumn } from '../../utils/pagination';
+import { buildPageResult, paginationSchema, resolveSortColumn } from '../../utils/pagination';
 import {
   commitDatasetsBodySchema,
   createConnectionBodySchema,
@@ -74,6 +83,7 @@ import {
   homeQuerySchema,
   idParamSchema,
   listDatasetsQuerySchema,
+  listLoadErrorsQuerySchema,
   listMembersQuerySchema,
   listProjectsQuerySchema,
   listReportsQuerySchema,
@@ -648,10 +658,22 @@ v1Router.get(
       );
     }
 
-    const columns = await datasetsRepo.listColumns(mysqlPool, report.datasetId);
-    const rows = await datasetsRepo.readRows(mysqlPool, report.datasetId);
+    // Gom nhóm trong ClickHouse, KHÔNG đọc `dataset_rows` lên RAM nữa.
+    //
+    // Bảng đó giờ chỉ giữ một MẪU để xem trước, nên tổng hợp trên nó sẽ cho ra
+    // một biểu đồ trông hoàn toàn hợp lý mà sai số liệu — kiểu hỏng tệ nhất
+    // trong BI. Xem `aggregateWarehouse.ts`.
+    const dataset = await datasetsRepo.findOne(mysqlPool, tenantId, report.datasetId);
+    if (!dataset) throw notFound('Bộ dữ liệu của báo cáo này không còn tồn tại.');
 
-    const body: ReportDataDto = aggregate(rows, columns, report.config);
+    const columns = await datasetsRepo.listColumns(mysqlPool, report.datasetId);
+
+    const body: ReportDataDto = await aggregateInWarehouse(
+      tenantId,
+      dataset,
+      columns,
+      report.config,
+    );
     res.json(body);
   }),
 );
@@ -1103,6 +1125,25 @@ v1Router.post(
   }),
 );
 
+/**
+ * Database mà bộ thông tin vừa gõ nhìn thấy — nuôi bộ chọn ở bước 2 của wizard.
+ *
+ * `connection:modify` chứ không `connection:read`: đây là một thao tác MỞ KẾT NỐI
+ * THẬT tới máy chủ của khách hàng bằng thông tin client vừa gửi lên, cùng hạng
+ * với `/connections/test`, nên nó dùng chung cả quyền lẫn `connectionProbeLimit`.
+ * Gác bằng quyền đọc sẽ biến nó thành một cổng dò cổng mạng cho bất kỳ ai xem
+ * được danh sách kết nối.
+ */
+v1Router.post(
+  '/connections/databases',
+  authorize('connection', 'modify'),
+  connectionProbeLimit,
+  asyncHandler(async (req, res) => {
+    const body = testConnectionBodySchema.parse(req.body);
+    res.json(await listDatabases(body));
+  }),
+);
+
 v1Router.post(
   '/connections',
   authorize('connection', 'modify'),
@@ -1151,6 +1192,24 @@ v1Router.post(
   }),
 );
 
+/**
+ * Như `/connections/databases` nhưng cho kết nối ĐÃ lưu.
+ *
+ * Tồn tại vì form sửa để trống ô mật khẩu (nghĩa là "giữ nguyên"), nên đường
+ * dùng thông tin chưa lưu không có mật khẩu để mà thử. `GET` vì nó chỉ đọc và
+ * không nhận body nào.
+ */
+v1Router.get(
+  '/connections/:id/databases',
+  authorize('connection', 'modify'),
+  connectionProbeLimit,
+  asyncHandler(async (req, res) => {
+    const { tenantId } = requireAuth(req);
+    const { id } = idParamSchema.parse(req.params);
+    res.json(await listSavedDatabases(tenantId, id));
+  }),
+);
+
 v1Router.delete(
   '/connections/:id',
   authorize('connection', 'delete'),
@@ -1186,11 +1245,11 @@ v1Router.post(
   authorize('dataset', 'modify'),
   connectionProbeLimit,
   asyncHandler(async (req, res) => {
-    const { tenantId } = requireAuth(req);
+    const { tenantId, userId } = requireAuth(req);
     const { id } = idParamSchema.parse(req.params);
     const { tables } = syncBodySchema.parse(req.body);
 
-    res.json(await syncDatasets(tenantId, id, tables));
+    res.json(await syncDatasets(tenantId, id, tables, userId));
   }),
 );
 
@@ -1263,6 +1322,103 @@ v1Router.get(
     const { tenantId } = requireAuth(req);
     const { id } = idParamSchema.parse(req.params);
     res.json(await previewDataset(tenantId, id));
+  }),
+);
+
+/**
+ * Nạp bộ dữ liệu vào kho phân tích ClickHouse (§9.7).
+ *
+ * `dataset:modify` chứ không phải một quyền mới: nạp là một thao tác TRÊN bộ dữ
+ * liệu, và `creator` đã có quyền đó từ migration 4. Thêm một cặp resource/action
+ * chỉ để diễn đạt lại điều đã đúng sẽ làm bảng chính sách phình ra mà không đổi
+ * ai làm được gì.
+ *
+ * Trả về NGAY sau khi xếp hàng — nạp 50.000 dòng mất nhiều phút, và một request
+ * treo ngần ấy sẽ bị proxy cắt giữa chừng, để lại một lần nạp không ai biết đã
+ * xong hay chưa.
+ *
+ * KHÔNG gắn `connectionProbeLimit`: endpoint này không mở kết nối tới CSDL của
+ * khách hàng trong request (vòng lặp nền mới làm việc đó), và câu 409 khi đã có
+ * job chưa xong tự nó đã là một cái phanh.
+ */
+v1Router.post(
+  '/datasets/:id/load',
+  authorize('dataset', 'modify'),
+  asyncHandler(async (req, res) => {
+    const { tenantId, userId } = requireAuth(req);
+    const { id } = idParamSchema.parse(req.params);
+
+    res.status(202).json(await queueLoad(tenantId, id, userId));
+  }),
+);
+
+/**
+ * Tiến độ lần nạp gần nhất (§9.6) — giao diện hỏi lại 2 giây một lần khi còn chạy.
+ *
+ * `dataset:read`, cùng lý do với `/preview`: người được mời vào để ĐỌC báo cáo
+ * phải hiểu được vì sao số liệu đang cũ.
+ */
+v1Router.get(
+  '/datasets/:id/load',
+  authorize('dataset', 'read'),
+  asyncHandler(async (req, res) => {
+    const { tenantId } = requireAuth(req);
+    const { id } = idParamSchema.parse(req.params);
+
+    res.json(await getLoadStatus(tenantId, id));
+  }),
+);
+
+/**
+ * Một trang dữ liệu của bảng TRONG KHO — để đối chiếu với tab "Dữ liệu".
+ *
+ * Không gắn `connectionProbeLimit`: khác `/preview`, endpoint này đọc kho của
+ * CHÍNH TA chứ không mở kết nối nào tới máy chủ của khách hàng. Cũng vì thế nó
+ * phân trang được thoải mái — mỗi lần bấm "Sau" không đụng gì tới hạ tầng của
+ * khách hàng.
+ */
+v1Router.get(
+  '/datasets/:id/load/preview',
+  authorize('dataset', 'read'),
+  asyncHandler(async (req, res) => {
+    const { tenantId } = requireAuth(req);
+    const { id } = idParamSchema.parse(req.params);
+    const { page, pageSize } = paginationSchema.parse(req.query);
+
+    res.json(await previewWarehouse(tenantId, id, page, pageSize));
+  }),
+);
+
+/**
+ * Cấu trúc bảng TRONG KHO, đọc từ `system.columns`.
+ *
+ * Tách khỏi `/load` (tiến độ nạp) vì hai thứ đổi theo nhịp hoàn toàn khác nhau:
+ * tiến độ được hỏi lại mỗi 2 giây trong lúc nạp, còn cấu trúc chỉ đổi khi nạp
+ * xong. Gộp chung thì mỗi nhịp polling kéo theo một câu truy vấn `system.columns`
+ * không ai cần.
+ */
+v1Router.get(
+  '/datasets/:id/load/schema',
+  authorize('dataset', 'read'),
+  asyncHandler(async (req, res) => {
+    const { tenantId } = requireAuth(req);
+    const { id } = idParamSchema.parse(req.params);
+
+    res.json(await warehouseSchema(tenantId, id));
+  }),
+);
+
+/** Những ô không ép được kiểu trong lần nạp gần nhất (§9.8). */
+v1Router.get(
+  '/datasets/:id/load/errors',
+  authorize('dataset', 'read'),
+  asyncHandler(async (req, res) => {
+    const { tenantId } = requireAuth(req);
+    const { id } = idParamSchema.parse(req.params);
+    const query = listLoadErrorsQuerySchema.parse(req.query);
+
+    const { items, total } = await listLoadErrors(tenantId, id, query.page, query.pageSize);
+    res.json(buildPageResult(items, total, query.page, query.pageSize));
   }),
 );
 

@@ -101,9 +101,11 @@ function NavIcon({ path }: { path: string }): React.ReactElement {
 }
 
 function SidebarContent({ items }: { items: NavItem[] }): React.ReactElement {
+  const { user, tenant, role, logout } = useAuth();
+
   return (
     <>
-      <div className="flex h-16 items-center px-6">
+      <div className="flex h-16 shrink-0 items-center px-6">
         <span className="text-lg font-bold text-white">BI Platform</span>
       </div>
 
@@ -111,12 +113,14 @@ function SidebarContent({ items }: { items: NavItem[] }): React.ReactElement {
           Thứ tự tổ chức trước, workspace sau là thứ tự bao hàm thật của dữ liệu
           (tenant -> workspace -> project); đảo lại sẽ khiến người dùng đổi
           workspace rồi mới nhận ra mình đang ở sai tổ chức. */}
-      <div className="border-y border-slate-800 py-2">
+      <div className="shrink-0 border-y border-slate-800 py-2">
         <TenantSwitcher />
         <WorkspaceSwitcher />
       </div>
 
-      <nav className="space-y-1 px-3 py-3">
+      {/* CHỈ khu menu cuộn, không phải cả sidebar. Cho cả sidebar cuộn thì khối
+          tài khoản ở chân cũng trôi đi mất khi danh sách mục dài ra. */}
+      <nav className="scrollbar-dark min-h-0 flex-1 space-y-1 overflow-y-auto px-3 py-3">
         {items.map((item) => (
           <NavLink
             key={item.to}
@@ -137,12 +141,64 @@ function SidebarContent({ items }: { items: NavItem[] }): React.ReactElement {
           </NavLink>
         ))}
       </nav>
+
+      {/* Khối tài khoản ở CHÂN sidebar.
+          Trước đây nó nằm trên thanh ngang chiếm trọn 64px chiều cao của mọi
+          trang — để hiện một cái tên và một nút bấm mỗi phiên một lần. Dời xuống
+          đây thì bảng dữ liệu nhận thêm đúng 64px đó, và tài khoản về đúng chỗ
+          quen thuộc: góc dưới cùng bên trái. */}
+      <div className="shrink-0 border-t border-slate-800 p-3">
+        <Link
+          to="/profile"
+          className="flex items-center gap-3 rounded-lg px-2 py-2 transition-colors hover:bg-slate-800"
+        >
+          <span
+            aria-hidden="true"
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-brand-600 text-sm font-semibold text-white"
+          >
+            {user?.fullName?.trim().charAt(0).toUpperCase() ?? '?'}
+          </span>
+          {/* `min-w-0` để `truncate` bên trong có tác dụng: một flex item mặc
+              định không chịu hẹp hơn nội dung, nên thiếu nó thì tên dài đẩy rộng
+              cả khối thay vì bị cắt bằng dấu ba chấm. */}
+          <span className="min-w-0">
+            <span className="block truncate text-sm font-medium text-white">
+              {user?.fullName ?? '—'}
+            </span>
+            <span className="block truncate text-xs text-slate-400">
+              {tenant?.name} · {role ? ROLE_LABELS[role] : ''}
+            </span>
+          </span>
+        </Link>
+
+        <button
+          type="button"
+          onClick={() => void logout()}
+          className="mt-1 flex w-full items-center gap-3 rounded-lg px-2 py-2 text-sm font-medium text-slate-400 transition-colors hover:bg-slate-800 hover:text-white"
+        >
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.7"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className="h-5 w-5 shrink-0"
+            aria-hidden="true"
+          >
+            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" />
+          </svg>
+          Đăng xuất
+        </button>
+      </div>
     </>
   );
 }
 
 export function UserLayout(): React.ReactElement {
-  const { user, tenant, role, logout } = useAuth();
+  // Chỉ còn `tenant`: tên người dùng, vai trò và nút đăng xuất đã chuyển hẳn
+  // xuống chân sidebar, nên `SidebarContent` tự gọi `useAuth()` lấy chúng.
+  const { tenant } = useAuth();
   const permissions = usePermissions();
   const { current } = useWorkspace();
   const location = useLocation();
@@ -167,7 +223,10 @@ export function UserLayout(): React.ReactElement {
   );
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    // `h-screen overflow-hidden` chứ không `min-h-screen`: vỏ ngoài đứng yên,
+    // phần dài cuộn TRONG hộp của nó (xem `components/ui/Page.tsx`). Đây là mắt
+    // xích đầu của chuỗi chiều cao — đứt ở đây thì mọi `h-full` bên dưới vô nghĩa.
+    <div className="h-screen overflow-hidden bg-slate-50">
       <aside className="fixed inset-y-0 left-0 hidden w-64 flex-col bg-slate-900 md:flex">
         <SidebarContent items={items} />
       </aside>
@@ -186,14 +245,18 @@ export function UserLayout(): React.ReactElement {
         </div>
       )}
 
-      <div className="md:pl-64">
-        <header className="sticky top-0 z-30 flex h-16 items-center gap-3 border-b border-slate-200 bg-white px-4 sm:px-6">
+      <div className="flex h-full flex-col md:pl-64">
+        {/* Thanh ngang chỉ còn ở màn HẸP. Từ `md` trở lên sidebar hiện sẵn và đã
+            mang cả ngữ cảnh lẫn tài khoản, nên một thanh ngang trống rỗng chỉ
+            ăn mất 64px chiều cao của mọi trang. Dưới `md` thì sidebar nằm sau
+            nút menu, nên vẫn cần chỗ đặt nút đó và tên tổ chức đang mở. */}
+        <header className="z-30 flex h-14 shrink-0 items-center gap-3 border-b border-slate-200 bg-white px-4 md:hidden">
           <button
             type="button"
             onClick={() => setMobileOpen(true)}
             aria-label="Mở menu"
             aria-expanded={mobileOpen}
-            className="-ml-1 rounded-lg p-2 text-slate-600 hover:bg-slate-100 md:hidden"
+            className="-ml-1 rounded-lg p-2 text-slate-600 hover:bg-slate-100"
           >
             <svg
               viewBox="0 0 24 24"
@@ -208,40 +271,15 @@ export function UserLayout(): React.ReactElement {
             </svg>
           </button>
 
-          {/* Hai bộ chuyển đã dời xuống sidebar (§5.1). Topbar giữ lại phần
-              HIỂN THỊ ngữ cảnh đang mở, vì trên màn hẹp sidebar bị ẩn sau nút
-              hamburger — không có dòng này thì người dùng điện thoại không có
-              cách nào biết mình đang ở tổ chức nào. */}
-          <div className="min-w-0 md:hidden">
+          <div className="min-w-0">
             <p className="truncate text-sm font-semibold text-slate-900">{tenant?.name}</p>
             <p className="truncate text-xs text-slate-500">{current?.name ?? 'Chưa có workspace'}</p>
           </div>
-
-          <div className="ml-auto flex items-center gap-3">
-            <div className="hidden text-right sm:block">
-              <p className="truncate text-sm font-medium text-slate-900">{user?.fullName}</p>
-              <p className="truncate text-xs text-slate-500">
-                {tenant?.name} · {role ? ROLE_LABELS[role] : ''}
-              </p>
-            </div>
-            <Link
-              to="/profile"
-              aria-label="Hồ sơ cá nhân"
-              className="flex h-9 w-9 items-center justify-center rounded-full bg-brand-100 text-sm font-semibold text-brand-700 transition-colors hover:bg-brand-200"
-            >
-              {user?.fullName?.trim().charAt(0).toUpperCase() ?? '?'}
-            </Link>
-            <button
-              type="button"
-              onClick={() => void logout()}
-              className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-100"
-            >
-              Đăng xuất
-            </button>
-          </div>
         </header>
 
-        <main className="px-4 py-8 sm:px-6">
+        {/* `min-h-0` bắt buộc: thiếu nó thì flex item không chịu co nhỏ hơn nội
+            dung, `h-full` của trang nở ra bằng nội dung và cửa sổ cuộn lại. */}
+        <main className="min-h-0 flex-1 px-4 py-5 sm:px-6">
           <Outlet />
         </main>
       </div>

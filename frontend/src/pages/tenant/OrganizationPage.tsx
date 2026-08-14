@@ -1,6 +1,7 @@
 import { NavLink, Outlet } from 'react-router-dom';
 import { usePermissions, type PermissionFlag } from '../../auth/usePermissions';
 import { useAuth } from '../../auth/useAuth';
+import { Page, PageBody, PageHeader } from '../../components/ui/Page';
 
 /**
  * Khung "Quản lý tổ chức" — một trang, nhiều tab.
@@ -50,19 +51,12 @@ export default function OrganizationPage(): React.ReactElement {
   const tabs = TABS.filter((tab) => permissions[tab.needs]);
 
   return (
-    <div className="mx-auto max-w-6xl">
-      <header>
-        <h1 className="text-xl font-bold text-slate-900">Quản lý tổ chức</h1>
-        <p className="mt-1 text-sm text-slate-500">
-          Thông tin, kết nối, workspace, thành viên và quyền của{' '}
-          <strong className="font-semibold text-slate-700">{tenant?.name}</strong>.
-        </p>
-      </header>
-
-      {/* `border-b` chạy hết chiều ngang còn tab active đè lên bằng viền riêng —
-          đường kẻ liền mạch là thứ khiến thanh tab đọc ra là "cùng một trang,
-          nhiều mặt" thay vì ba nút rời nhau. */}
-      <nav className="mt-5 flex gap-1 border-b border-slate-200" aria-label="Mục quản lý">
+    <Page>
+      <PageHeader title="Quản lý tổ chức" description={tenant?.name}>
+        {/* `border-b` chạy hết chiều ngang còn tab active đè lên bằng viền riêng —
+            đường kẻ liền mạch là thứ khiến thanh tab đọc ra là "cùng một trang,
+            nhiều mặt" thay vì ba nút rời nhau. */}
+        <nav className="mt-4 flex gap-1 border-b border-slate-200" aria-label="Mục quản lý">
         {tabs.map((tab) => (
           <NavLink
             key={tab.to}
@@ -79,11 +73,12 @@ export default function OrganizationPage(): React.ReactElement {
             {tab.label}
           </NavLink>
         ))}
-      </nav>
+        </nav>
+      </PageHeader>
 
-      <div className="mt-6">
+      <PageBody scroll={false}>
         <Outlet />
-      </div>
-    </div>
+      </PageBody>
+    </Page>
   );
 }

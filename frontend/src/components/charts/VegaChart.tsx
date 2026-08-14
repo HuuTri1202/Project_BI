@@ -118,6 +118,13 @@ export function VegaChart<T extends object>({
  *
  * Dùng `sr-only` của Tailwind chứ không phải `display: none` — `display: none`
  * ẩn khỏi CẢ cây khả năng tiếp cận, tức là không giải quyết được gì.
+ *
+ * ⚠️ `sr-only` phải đặt trên một `<div>` BỌC NGOÀI, không đặt thẳng lên `<table>`.
+ * Với `display: table`, CSS coi `height`/`width` là kích thước TỐI THIỂU chứ
+ * không phải cố định, nên `sr-only` không co bảng lại: nó vẫn chiếm đúng chiều
+ * cao nội dung. Cộng với `position: absolute` không có tổ tiên định vị, bảng đó
+ * bám vào khối chứa gốc và kéo dài cả tài liệu — đo được 2208px vô hình trên
+ * trang Tổng quan. Trước đây không ai thấy vì cả trang vốn đã cuộn được.
  */
 function VisuallyHiddenTable<T extends object>({
   data,
@@ -131,26 +138,28 @@ function VisuallyHiddenTable<T extends object>({
   const columns = first ? Object.keys(first) : [];
 
   return (
-    <table className="sr-only">
-      <caption>{caption}</caption>
-      <thead>
-        <tr>
-          {columns.map((col) => (
-            <th key={col} scope="col">
-              {col}
-            </th>
-          ))}
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map((row, index) => (
-          <tr key={index}>
+    <div className="sr-only">
+      <table>
+        <caption>{caption}</caption>
+        <thead>
+          <tr>
             {columns.map((col) => (
-              <td key={col}>{String(row[col] ?? '')}</td>
+              <th key={col} scope="col">
+                {col}
+              </th>
             ))}
           </tr>
-        ))}
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          {rows.map((row, index) => (
+            <tr key={index}>
+              {columns.map((col) => (
+                <td key={col}>{String(row[col] ?? '')}</td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }

@@ -53,13 +53,20 @@ function NavIcon({ path }: { path: string }): React.ReactElement {
 }
 
 function SidebarContent(): React.ReactElement {
+  const { user, tenant, role, logout } = useAuth();
+
   return (
     <>
-      <div className="flex h-16 items-center px-6">
+      <div className="flex h-16 shrink-0 items-center px-6">
         <span className="text-lg font-bold text-white">BI Platform</span>
+        <span className="ml-2 rounded bg-slate-800 px-1.5 py-0.5 text-[10px] font-semibold tracking-wide text-slate-400 uppercase">
+          quản trị
+        </span>
       </div>
 
-      <nav className="space-y-1 px-3 py-2">
+      {/* CHỈ khu menu cuộn, không phải cả sidebar — khối tài khoản ở chân phải
+          đứng yên. */}
+      <nav className="scrollbar-dark min-h-0 flex-1 space-y-1 overflow-y-auto px-3 py-2">
         {NAV_ITEMS.map((item) =>
           item.to ? (
             <NavLink
@@ -92,12 +99,77 @@ function SidebarContent(): React.ReactElement {
           ),
         )}
       </nav>
+
+      {/* Tài khoản + đường về khu làm việc, đặt ở CHÂN sidebar thay vì trên thanh
+          ngang. Xem ghi chú cùng chỗ trong `UserLayout`. */}
+      <div className="shrink-0 border-t border-slate-800 p-3">
+        {/* Không có link này thì vào khu quản trị xong là kẹt: ở đây không có
+            đường nào dẫn ngược ra, chỉ còn cách gõ tay địa chỉ hoặc đăng xuất. */}
+        <Link
+          to="/home"
+          className="flex items-center gap-3 rounded-lg px-2 py-2 text-sm font-medium text-slate-300 transition-colors hover:bg-slate-800 hover:text-white"
+        >
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.7"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className="h-5 w-5 shrink-0"
+            aria-hidden="true"
+          >
+            <path d="M19 12H5m0 0 6-6m-6 6 6 6" />
+          </svg>
+          Khu làm việc
+        </Link>
+
+        <div className="mt-1 flex items-center gap-3 rounded-lg px-2 py-2">
+          <span
+            aria-hidden="true"
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-brand-600 text-sm font-semibold text-white"
+          >
+            {user?.fullName?.trim().charAt(0).toUpperCase() ?? '?'}
+          </span>
+          {/* `min-w-0` để `truncate` bên trong có tác dụng — xem `UserLayout`. */}
+          <span className="min-w-0">
+            <span className="block truncate text-sm font-medium text-white">
+              {user?.fullName ?? '—'}
+            </span>
+            <span className="block truncate text-xs text-slate-400">
+              {tenant?.name} · {role ? ROLE_LABELS[role] : ''}
+            </span>
+          </span>
+        </div>
+
+        <button
+          type="button"
+          onClick={() => void logout()}
+          className="mt-1 flex w-full items-center gap-3 rounded-lg px-2 py-2 text-sm font-medium text-slate-400 transition-colors hover:bg-slate-800 hover:text-white"
+        >
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.7"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className="h-5 w-5 shrink-0"
+            aria-hidden="true"
+          >
+            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" />
+          </svg>
+          Đăng xuất
+        </button>
+      </div>
     </>
   );
 }
 
 export function AdminLayout(): React.ReactElement {
-  const { user, tenant, role, logout } = useAuth();
+  // Chỉ còn `tenant`: phần tài khoản đã chuyển xuống chân sidebar, nơi
+  // `SidebarContent` tự gọi `useAuth()`.
+  const { tenant } = useAuth();
   const location = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
 
@@ -116,7 +188,9 @@ export function AdminLayout(): React.ReactElement {
   }, [mobileOpen]);
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    // `h-screen overflow-hidden`: vỏ ngoài đứng yên, phần dài cuộn trong hộp
+    // của nó. Cùng kiến trúc với `UserLayout` — xem `components/ui/Page.tsx`.
+    <div className="h-screen overflow-hidden bg-slate-50">
       {/* Sidebar cố định — chỉ hiện từ breakpoint md trở lên */}
       <aside className="fixed inset-y-0 left-0 hidden w-64 flex-col bg-slate-900 md:flex">
         <SidebarContent />
@@ -137,14 +211,16 @@ export function AdminLayout(): React.ReactElement {
         </div>
       )}
 
-      <div className="md:pl-64">
-        <header className="sticky top-0 z-30 flex h-16 items-center gap-4 border-b border-slate-200 bg-white px-4 sm:px-6">
+      <div className="flex h-full flex-col md:pl-64">
+        {/* Thanh ngang chỉ còn ở màn HẸP — xem ghi chú cùng chỗ trong
+            `UserLayout`. */}
+        <header className="z-30 flex h-14 shrink-0 items-center gap-3 border-b border-slate-200 bg-white px-4 md:hidden">
           <button
             type="button"
             onClick={() => setMobileOpen(true)}
             aria-label="Mở menu"
             aria-expanded={mobileOpen}
-            className="-ml-1 rounded-lg p-2 text-slate-600 hover:bg-slate-100 md:hidden"
+            className="-ml-1 rounded-lg p-2 text-slate-600 hover:bg-slate-100"
           >
             <svg
               viewBox="0 0 24 24"
@@ -165,51 +241,9 @@ export function AdminLayout(): React.ReactElement {
             </p>
             <p className="truncate text-xs text-slate-500">Trang quản trị</p>
           </div>
-
-          <div className="ml-auto flex items-center gap-3">
-            {/* Đường về khu làm việc. Không có nó thì vào đây xong là kẹt: khu
-                quản trị không có link nào dẫn ngược ra, và người dùng chỉ còn
-                cách gõ tay địa chỉ hoặc đăng xuất rồi đăng nhập lại. */}
-            <Link
-              to="/home"
-              className="hidden items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900 sm:flex"
-            >
-              <svg
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.8"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                className="h-4 w-4"
-                aria-hidden="true"
-              >
-                <path d="M19 12H5m0 0 6-6m-6 6 6 6" />
-              </svg>
-              Khu làm việc
-            </Link>
-
-            <div className="hidden text-right sm:block">
-              <p className="truncate text-sm font-medium text-slate-900">{user?.fullName}</p>
-              <p className="truncate text-xs text-slate-500">{role ? ROLE_LABELS[role] : ''}</p>
-            </div>
-            <span
-              aria-hidden="true"
-              className="flex h-9 w-9 items-center justify-center rounded-full bg-brand-100 text-sm font-semibold text-brand-700"
-            >
-              {user?.fullName?.trim().charAt(0).toUpperCase() ?? '?'}
-            </span>
-            <button
-              type="button"
-              onClick={() => void logout()}
-              className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-100"
-            >
-              Đăng xuất
-            </button>
-          </div>
         </header>
 
-        <main className="px-4 py-8 sm:px-6">
+        <main className="min-h-0 flex-1 px-4 py-5 sm:px-6">
           <Outlet />
         </main>
       </div>

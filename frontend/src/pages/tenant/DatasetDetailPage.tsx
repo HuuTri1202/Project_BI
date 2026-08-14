@@ -1,5 +1,6 @@
 import {
   CONNECTION_KIND_LABELS,
+  DATA_PAGE_SIZES,
   DATASET_SOURCE_LABELS,
   type DatasetCellValue,
   type DatasetColumnDto,
@@ -10,23 +11,29 @@ import { usePermissions } from '../../auth/usePermissions';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
+import { Page, PageBody, PageHeader } from '../../components/ui/Page';
+import { Pagination } from '../../components/ui/Pagination';
 import { TBody, TableWrap, Td, Th, THead, Tr } from '../../components/ui/Table';
 import { EmptyState, ErrorState, TableSkeleton } from '../../components/ui/states';
+import { LoadPanel } from '../../features/tenant/datasets/LoadPanel';
 import { RenameDatasetModal } from '../../features/tenant/datasets/RenameDatasetModal';
 import {
   useDataset,
   useDatasetPreview,
   useDeleteDataset,
+  useWarehouseSchema,
 } from '../../features/tenant/hooks';
 import { getApiError } from '../../services/apiClient';
 
 const LIST_PATH = '/datasets';
 
-type Tab = 'data' | 'schema';
+type Tab = 'data' | 'schema' | 'load';
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'data', label: 'Dữ liệu' },
   { id: 'schema', label: 'Cấu trúc' },
+  // Đứng CUỐI vì nó là việc người ta làm SAU khi đã xem dữ liệu và thấy nó đúng.
+  { id: 'load', label: 'Kho phân tích' },
 ];
 
 /**
@@ -73,75 +80,50 @@ export default function DatasetDetailPage(): React.ReactElement {
   const [tab, setTab] = useState<Tab>('data');
   const [renaming, setRenaming] = useState(false);
   const [deleting, setDeleting] = useState(false);
-  const [filter, setFilter] = useState('');
 
   const remove = useDeleteDataset();
 
-  const term = filter.trim().toLowerCase();
-  const columns = (data?.columns ?? []).filter(
-    (c) =>
-      term === '' ||
-      c.name.toLowerCase().includes(term) ||
-      c.dataType.toLowerCase().includes(term),
-  );
+  // Thông tin phụ gộp thành MỘT dòng thay vì dải bốn thẻ. Dải cũ chiếm gần 110px
+  // ở đầu trang để nói bốn con số mà người dùng liếc một lần rồi thôi — trong khi
+  // thứ họ vào đây để xem là bảng dữ liệu, và nó bị đẩy xuống dưới màn hình.
+  const meta =
+    data === undefined
+      ? []
+      : [
+          DATASET_SOURCE_LABELS[data.source],
+          data.source === 'connection'
+            ? `${data.sourceSchema}.${data.sourceTable}`
+            : (data.originalFilename ?? ''),
+          data.source === 'file' && data.sheetName !== null ? `sheet “${data.sheetName}”` : '',
+          data.source === 'connection' && data.connectionKind
+            ? CONNECTION_KIND_LABELS[data.connectionKind]
+            : '',
+          `${data.columnCount} cột`,
+          data.source === 'file'
+            ? `${data.rowCount.toLocaleString('vi-VN')} dòng${data.truncated ? ' (đã cắt bớt)' : ''}`
+            : data.syncedAt
+              ? `đồng bộ ${new Date(data.syncedAt).toLocaleDateString('vi-VN')}`
+              : '',
+        ].filter((s) => s !== '');
 
   return (
-    <div className="mx-auto max-w-6xl">
-      <nav aria-label="Đường dẫn" className="text-sm">
-        <Link to={LIST_PATH} className="text-brand-700 hover:underline">
-          Kho dữ liệu
-        </Link>
-        <span aria-hidden="true" className="mx-2 text-slate-300">
-          /
-        </span>
-        <span className="text-slate-500">{data?.name ?? '…'}</span>
-      </nav>
-
-      {validId === null && (
-        <div className="mt-4">
-          <ErrorState message="Địa chỉ không hợp lệ — không có tập dữ liệu nào ứng với đường dẫn này." />
-        </div>
-      )}
-
-      {validId !== null && isError && (
-        <div className="mt-4">
-          <ErrorState message={getApiError(error).message} />
-        </div>
-      )}
-
-      {validId !== null && isPending && !isError && (
-        <div className="mt-6">
-          <TableSkeleton rows={6} />
-        </div>
-      )}
-
-      {data && (
-        <>
-          <header className="mt-2 flex flex-wrap items-start justify-between gap-4">
-            <div>
-              <h1 className="text-xl font-bold text-slate-900">{data.name}</h1>
-              <p className="mt-1 text-sm text-slate-500">
-                {data.source === 'connection' ? (
-                  <>
-                    Ảnh chụp cấu trúc của bảng{' '}
-                    <code className="rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-600">
-                      {data.sourceSchema}.{data.sourceTable}
-                    </code>
-                    . Dữ liệu vẫn nằm nguyên trong CSDL nguồn.
-                  </>
-                ) : (
-                  <>
-                    Dữ liệu nhập từ file{' '}
-                    <code className="rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-600">
-                      {data.originalFilename}
-                    </code>
-                    {data.sheetName !== null && <> · sheet “{data.sheetName}”</>}.
-                  </>
-                )}
-              </p>
-            </div>
-
-            <div className="flex gap-2">
+    <Page>
+      <PageHeader
+        title={
+          <>
+            <Link to={LIST_PATH} className="font-normal text-brand-700 hover:underline">
+              Kho dữ liệu
+            </Link>
+            <span aria-hidden="true" className="mx-2 font-normal text-slate-300">
+              /
+            </span>
+            {data?.name ?? '…'}
+          </>
+        }
+        description={meta.length > 0 ? meta.join(' · ') : undefined}
+        actions={
+          data && (
+            <>
               {permissions.can('dataset', 'modify') && (
                 <Button onClick={() => setRenaming(true)}>Đổi tên</Button>
               )}
@@ -150,50 +132,12 @@ export default function DatasetDetailPage(): React.ReactElement {
                   <span className="text-red-600">Xoá</span>
                 </Button>
               )}
-            </div>
-          </header>
-
-          <dl className="mt-6 grid gap-px overflow-hidden rounded-xl border border-slate-200 bg-slate-200 sm:grid-cols-2 lg:grid-cols-4">
-            <Fact label="Nguồn">
-              <span className="text-slate-800">{DATASET_SOURCE_LABELS[data.source]}</span>
-              <span className="mt-0.5 block text-xs font-normal text-slate-500">
-                {data.source === 'connection'
-                  ? [
-                      data.connectionName,
-                      data.connectionKind ? CONNECTION_KIND_LABELS[data.connectionKind] : null,
-                    ]
-                      .filter(Boolean)
-                      .join(' · ')
-                  : (data.fileExt?.toUpperCase() ?? '')}
-              </span>
-            </Fact>
-            <Fact label={data.source === 'connection' ? 'Bảng nguồn' : 'File gốc'}>
-              <code className="text-sm text-slate-800">
-                {data.source === 'connection'
-                  ? `${data.sourceSchema}.${data.sourceTable}`
-                  : data.originalFilename}
-              </code>
-            </Fact>
-            <Fact label="Số cột">{data.columnCount}</Fact>
-            {/* Nguồn `connection` không có số dòng — nền tảng không giữ bản sao
-                nào, nên ô này nói "đồng bộ lần cuối" thay vì bịa ra một con số. */}
-            {data.source === 'file' ? (
-              <Fact label="Số dòng">
-                {data.rowCount.toLocaleString('vi-VN')}
-                {data.truncated && (
-                  <span className="mt-0.5 block text-xs font-normal text-amber-700">
-                    đã cắt bớt — file còn nhiều dòng hơn
-                  </span>
-                )}
-              </Fact>
-            ) : (
-              <Fact label="Đồng bộ lần cuối">
-                {data.syncedAt ? new Date(data.syncedAt).toLocaleString('vi-VN') : '—'}
-              </Fact>
-            )}
-          </dl>
-
-          <nav className="mt-7 flex gap-1 border-b border-slate-200" aria-label="Nội dung">
+            </>
+          )
+        }
+      >
+        {data && (
+          <nav className="mt-4 flex gap-1 border-b border-slate-200" aria-label="Nội dung">
             {TABS.map(({ id, label }) => (
               <button
                 key={id}
@@ -210,95 +154,186 @@ export default function DatasetDetailPage(): React.ReactElement {
               </button>
             ))}
           </nav>
+        )}
+      </PageHeader>
 
-          {tab === 'data' && <PreviewTab datasetId={data.id} />}
+      <PageBody scroll={false}>
+        {validId === null && (
+          <ErrorState message="Địa chỉ không hợp lệ — không có tập dữ liệu nào ứng với đường dẫn này." />
+        )}
+        {validId !== null && isError && <ErrorState message={getApiError(error).message} />}
+        {validId !== null && isPending && !isError && <TableSkeleton rows={6} />}
 
-          {tab === 'schema' && (
-            <section className="mt-6">
-              <div className="flex flex-wrap items-end justify-between gap-3">
-                <div>
-                  <h2 className="text-base font-semibold text-slate-900">Cấu trúc bảng</h2>
-                  <p className="mt-0.5 text-sm text-slate-500">
-                    {term === ''
-                      ? `${data.columns.length} cột, theo đúng thứ tự trong CSDL nguồn.`
-                      : `${columns.length} / ${data.columns.length} cột khớp “${filter.trim()}”.`}
-                  </p>
-                </div>
+        {data && (
+          <>
+            {tab === 'data' && <PreviewTab datasetId={data.id} />}
 
-                {/* Lọc phía client, không debounce: dữ liệu đã nằm sẵn trong bộ
-                    nhớ nên chờ 300ms rồi mới lọc chỉ làm ô gõ có cảm giác trễ. */}
-                <div className="min-w-[16rem]">
-                  <label htmlFor="column-filter" className="sr-only">
-                    Tìm cột
-                  </label>
-                  <input
-                    id="column-filter"
-                    type="search"
-                    value={filter}
-                    onChange={(e) => setFilter(e.target.value)}
-                    placeholder="Tìm theo tên cột hoặc kiểu dữ liệu…"
-                    className="block w-full rounded-lg border border-slate-300 bg-white px-3.5 py-2.5 text-slate-900 shadow-sm transition-colors outline-none placeholder:text-slate-400 focus:border-brand-500 focus:ring-2 focus:ring-brand-200"
-                  />
-                </div>
-              </div>
+            {/* Tách component để `useDatasetLoad` — hook duy nhất có polling —
+                chỉ chạy khi tab này mở. Gọi ở cha thì mọi người mở trang chi tiết
+                đều khởi động một vòng hỏi lại mỗi 2 giây. */}
+            {tab === 'load' && <LoadPanel datasetId={data.id} source={data.source} />}
 
-              <div className="mt-4">
-                {columns.length === 0 ? (
-                  <EmptyState
-                    title="Không có cột nào khớp"
-                    hint="Thử một từ khoá khác, hoặc xoá ô tìm kiếm để xem lại toàn bộ."
-                    action={<Button onClick={() => setFilter('')}>Xoá tìm kiếm</Button>}
-                  />
-                ) : (
-                  <TableWrap>
-                    <THead>
-                      <Tr>
-                        <Th>#</Th>
-                        <Th>Tên cột</Th>
-                        <Th>Kiểu dữ liệu</Th>
-                        <Th>Cho phép rỗng</Th>
-                      </Tr>
-                    </THead>
-                    <TBody>
-                      {columns.map((column) => (
-                        <ColumnRow key={column.name} column={column} />
-                      ))}
-                    </TBody>
-                  </TableWrap>
-                )}
-              </div>
-            </section>
+            {tab === 'schema' && (
+              <SchemaTab
+                datasetId={data.id}
+                loaded={data.loadStatus === 'loaded'}
+                sourceColumns={data.columns}
+              />
+            )}
+
+            <RenameDatasetModal dataset={renaming ? data : null} onClose={() => setRenaming(false)} />
+
+            <ConfirmDialog
+              open={deleting}
+              onClose={() => setDeleting(false)}
+              title="Xoá tập dữ liệu"
+              description={data.name}
+              confirmLabel="Xoá"
+              danger
+              loading={remove.isPending}
+              onConfirm={(onError) => {
+                remove.mutate(data.id, {
+                  // Về lại danh sách chứ không đứng lại trang này: thứ trang đang
+                  // mô tả vừa biến mất, nên ở lại chỉ còn một khung lỗi.
+                  onSuccess: () => void navigate(LIST_PATH),
+                  onError,
+                });
+              }}
+            >
+              Tập dữ liệu bị gỡ khỏi kho.{' '}
+              <strong>Dữ liệu trong CSDL nguồn không bị đụng tới</strong>.
+            </ConfirmDialog>
+          </>
+        )}
+      </PageBody>
+    </Page>
+  );
+}
+
+/**
+ * Tab "Cấu trúc" — kiểu cột như chúng THẬT SỰ nằm trong kho phân tích.
+ *
+ * ─── Vì sao đọc kho chứ không đọc cấu trúc nguồn ────────────────────────────
+ *
+ * Cấu trúc nguồn (`dataset_columns`) trả lời "file/bảng gốc trông thế nào". Đó
+ * là câu hỏi của lúc nhập dữ liệu, và nó đã được trả lời ở bước chốt cột.
+ *
+ * Từ đây trở đi mọi thứ dựng trên KHO: báo cáo tổng hợp bằng SQL trên `raw_*`,
+ * và §10 sẽ sinh mô hình Cube từ đúng những cột đó. Nên câu hỏi có giá trị là
+ * "cột này nằm trong kho dưới dạng gì" — `Nullable(DateTime64(3, 'UTC'))` chứ
+ * không phải `date`. Suy diễn từ kiểu nguồn thì có thể lệch mà không ai biết,
+ * đúng như lỗi cột ngày Excel: giao diện hiện `date` trong khi kho chứa `NULL`.
+ *
+ * Chưa nạp thì rơi về cấu trúc nguồn — nói rõ đang xem cái nào. Để trống một
+ * tab chỉ vì chưa nạp là lấy mất thông tin duy nhất đang có.
+ */
+function SchemaTab({
+  datasetId,
+  loaded,
+  sourceColumns,
+}: {
+  datasetId: number;
+  loaded: boolean;
+  sourceColumns: DatasetColumnDto[];
+}): React.ReactElement {
+  const [filter, setFilter] = useState('');
+  const { data, isPending, isError, error } = useWarehouseSchema(datasetId, loaded);
+
+  // Quy về MỘT hình dạng để bảng bên dưới chỉ có một nhánh vẽ. Hai nhánh JSX gần
+  // giống nhau là chỗ để một sửa đổi chỉ được áp vào một nửa.
+  const fromWarehouse = loaded && data !== undefined;
+  const rows: SchemaRow[] = fromWarehouse
+    ? data.columns.map((c) => ({
+        ordinal: c.ordinal,
+        name: c.name,
+        type: c.type,
+        nullable: c.nullable,
+      }))
+    : sourceColumns.map((c) => ({
+        ordinal: c.ordinal,
+        name: c.name,
+        type: c.dataType,
+        nullable: c.isNullable,
+      }));
+
+  const term = filter.trim().toLowerCase();
+  const shown = rows.filter(
+    (r) => term === '' || r.name.toLowerCase().includes(term) || r.type.toLowerCase().includes(term),
+  );
+
+  return (
+    <section className="flex min-h-0 flex-1 flex-col">
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-3">
+        <p className="text-sm text-slate-500">
+          {term === ''
+            ? `${rows.length} cột`
+            : `${shown.length} / ${rows.length} cột khớp “${filter.trim()}”`}
+          {fromWarehouse ? (
+            <>
+              {' · '}
+              <code className="rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-600">
+                {data.table}
+              </code>
+            </>
+          ) : (
+            ' · chưa nạp vào kho, đang hiện kiểu của nguồn'
           )}
+        </p>
 
-          <RenameDatasetModal
-            dataset={renaming ? data : null}
-            onClose={() => setRenaming(false)}
+        {/* Lọc phía client, không debounce: dữ liệu đã nằm sẵn trong bộ
+            nhớ nên chờ 300ms rồi mới lọc chỉ làm ô gõ có cảm giác trễ. */}
+        <div className="min-w-[16rem]">
+          <label htmlFor="column-filter" className="sr-only">
+            Tìm cột
+          </label>
+          <input
+            id="column-filter"
+            type="search"
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+            placeholder="Tìm cột…"
+            className="block w-full rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm text-slate-900 shadow-sm transition-colors outline-none placeholder:text-slate-400 focus:border-brand-500 focus:ring-2 focus:ring-brand-200"
           />
+        </div>
+      </div>
 
-          <ConfirmDialog
-            open={deleting}
-            onClose={() => setDeleting(false)}
-            title="Xoá tập dữ liệu"
-            description={data.name}
-            confirmLabel="Xoá"
-            danger
-            loading={remove.isPending}
-            onConfirm={(onError) => {
-              remove.mutate(data.id, {
-                // Về lại danh sách chứ không đứng lại trang này: thứ trang đang
-                // mô tả vừa biến mất, nên ở lại chỉ còn một khung lỗi.
-                onSuccess: () => void navigate(LIST_PATH),
-                onError,
-              });
-            }}
-          >
-            Tập dữ liệu bị gỡ khỏi kho.{' '}
-            <strong>Dữ liệu trong CSDL nguồn không bị đụng tới</strong> — đồng bộ lại bảng{' '}
-            <code className="text-xs">{data.sourceTable}</code> sẽ đưa nó trở lại đúng như cũ.
-          </ConfirmDialog>
-        </>
+      {/* Không nuốt lỗi: kho tắt thì bảng dưới đang hiện cấu trúc NGUỒN, và
+          người dùng phải biết vì sao nó không phải cái họ vừa yêu cầu. */}
+      {isError && (
+        <div className="mt-3 shrink-0">
+          <ErrorState message={getApiError(error).message} />
+        </div>
       )}
-    </div>
+
+      <div className="mt-3 flex min-h-0 flex-1 flex-col">
+        {loaded && isPending && <TableSkeleton rows={6} />}
+
+        {!(loaded && isPending) &&
+          (shown.length === 0 ? (
+            <EmptyState
+              title="Không có cột nào khớp"
+              hint="Thử một từ khoá khác, hoặc xoá ô tìm kiếm để xem lại toàn bộ."
+              action={<Button onClick={() => setFilter('')}>Xoá tìm kiếm</Button>}
+            />
+          ) : (
+            <TableWrap fill>
+              <THead>
+                <Tr>
+                  <Th>#</Th>
+                  <Th>Tên cột</Th>
+                  <Th>Kiểu dữ liệu</Th>
+                  <Th>Cho phép rỗng</Th>
+                </Tr>
+              </THead>
+              <TBody>
+                {shown.map((row) => (
+                  <ColumnRow key={row.name} row={row} />
+                ))}
+              </TBody>
+            </TableWrap>
+          ))}
+      </div>
+    </section>
   );
 }
 
@@ -312,26 +347,39 @@ export default function DatasetDetailPage(): React.ReactElement {
 function PreviewTab({ datasetId }: { datasetId: number }): React.ReactElement {
   const { data, isPending, isError, error, isFetching, refetch } = useDatasetPreview(datasetId);
 
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(DATA_PAGE_SIZES[0]);
+
+  // Phân trang phía CLIENT, khác hẳn bảng ở tab "Kho phân tích".
+  //
+  // Ở đây không có gì để phân trang phía máy chủ: mỗi lần gọi là một câu SELECT
+  // bắn sang CSDL của khách hàng, nên "trang 2" nghĩa là làm phiền máy chủ của
+  // họ thêm một lần cho cùng một ảnh chụp. Ảnh chụp đó đã nằm sẵn trong bộ nhớ
+  // trình duyệt — cắt trang tại chỗ là đủ, và nó giải quyết đúng vấn đề: không
+  // phải cuộn qua hàng trăm dòng rồi mất hàng tiêu đề.
+  const total = data?.rows.length ?? 0;
+  const totalPages = total === 0 ? 0 : Math.ceil(total / pageSize);
+  // Kẹp lại thay vì tin `page`: đổi cỡ trang có thể đẩy trang hiện tại ra ngoài
+  // phạm vi, và một bảng rỗng ở giữa dữ liệu trông y như lỗi.
+  const current = Math.min(page, Math.max(1, totalPages));
+  const offset = (current - 1) * pageSize;
+  const rows = (data?.rows ?? []).slice(offset, offset + pageSize);
+
   return (
-    <section className="mt-6">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h2 className="text-base font-semibold text-slate-900">Dữ liệu</h2>
-          {/* Câu này quan trọng hơn vẻ ngoài của nó. Người dùng nhìn một bảng có
-              dòng sẽ mặc định là hệ thống đã giữ dữ liệu; nói rõ ngay đây rằng
-              đó là ảnh chụp tức thời và bảng thật còn dài hơn. */}
-          <p className="mt-0.5 text-sm text-slate-500">
-            {data
-              ? `${data.rows.length} dòng đầu, đọc trực tiếp từ CSDL nguồn lúc mở trang. Hệ thống không giữ bản sao nào.`
-              : 'Đọc trực tiếp từ CSDL nguồn — hệ thống không giữ bản sao nào.'}
-          </p>
-        </div>
+    <section className="flex min-h-0 flex-1 flex-col">
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-3">
+        {/* Nói rõ đây là ảnh chụp, không phải toàn bộ bảng — nếu không, người
+            dùng thấy bảng có dòng sẽ tưởng hệ thống đã giữ hết dữ liệu. */}
+        <p className="text-sm text-slate-500">
+          {data ? `Ảnh chụp ${data.rows.length} dòng đầu từ nguồn` : 'Đọc trực tiếp từ nguồn'}
+          {data && data.rows.length === data.limit && ' · nguồn còn nhiều dòng hơn'}
+        </p>
         <Button onClick={() => void refetch()} loading={isFetching}>
           Tải lại
         </Button>
       </div>
 
-      <div className="mt-4">
+      <div className="mt-3 flex min-h-0 flex-1 flex-col">
         {isPending && <TableSkeleton rows={6} />}
         {isError && <ErrorState message={getApiError(error).message} />}
 
@@ -344,13 +392,13 @@ function PreviewTab({ datasetId }: { datasetId: number }): React.ReactElement {
 
         {data && data.rows.length > 0 && (
           <>
-            <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
+            <div className="min-h-0 overflow-auto rounded-xl border border-slate-200 bg-white">
               {/* `w-max` chứ không `w-full`: bảng 20 cột mà ép vừa bề ngang thì
                   mỗi cột còn vài chục pixel và mọi giá trị đều bị cắt. Cho cột
                   rộng theo nội dung rồi cuộn ngang — đúng cách mọi công cụ xem
                   bảng đều làm. */}
               <table className="w-max min-w-full border-collapse text-sm">
-                <thead className="border-b border-slate-200 bg-slate-50">
+                <thead className="sticky top-0 z-10 border-b border-slate-200 bg-slate-50">
                   <tr>
                     <th
                       scope="col"
@@ -370,13 +418,13 @@ function PreviewTab({ datasetId }: { datasetId: number }): React.ReactElement {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {data.rows.map((row, index) => (
+                  {rows.map((row, index) => (
                     // Chỉ số dòng làm key: bảng nguồn không đảm bảo có khoá
                     // chính, và danh sách này chỉ đọc, không sắp xếp lại, không
                     // thêm bớt phần tử — nên chỉ số là định danh ổn định ở đây.
-                    <tr key={index} className="hover:bg-slate-50/60">
+                    <tr key={offset + index} className="hover:bg-slate-50/60">
                       <td className="px-4 py-2.5 text-right tabular-nums text-slate-400">
-                        {index + 1}
+                        {offset + index + 1}
                       </td>
                       {row.map((value, cell) => (
                         <Cell key={data.columns[cell] ?? cell} value={value} />
@@ -387,12 +435,21 @@ function PreviewTab({ datasetId }: { datasetId: number }): React.ReactElement {
               </table>
             </div>
 
-            {data.rows.length === data.limit && (
-              <p className="mt-3 text-sm text-slate-500">
-                Chỉ hiện {data.limit} dòng đầu. Bảng nguồn có thể còn nhiều hơn — nền tảng này
-                không tải toàn bộ dữ liệu về.
-              </p>
-            )}
+            <div className="shrink-0">
+              <Pagination
+                page={current}
+                pageSize={pageSize}
+                total={total}
+                totalPages={totalPages}
+                onPageChange={setPage}
+                pageSizeOptions={DATA_PAGE_SIZES}
+                onPageSizeChange={(size) => {
+                  setPageSize(size);
+                  setPage(1);
+                }}
+                unit="dòng"
+              />
+            </div>
           </>
         )}
       </div>
@@ -432,46 +489,34 @@ function Cell({ value }: { value: DatasetCellValue }): React.ReactElement {
   );
 }
 
-/** Một ô trong dải thông tin tóm tắt. */
-function Fact({
-  label,
-  children,
-}: {
-  label: string;
-  children: React.ReactNode;
-}): React.ReactElement {
-  return (
-    <div className="bg-white px-4 py-3">
-      <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">{label}</dt>
-      <dd className="mt-1 text-sm font-medium text-slate-800">{children}</dd>
-    </div>
-  );
+/** Một dòng cấu trúc, đã quy về cùng hình dạng dù đến từ kho hay từ nguồn. */
+interface SchemaRow {
+  ordinal: number;
+  name: string;
+  type: string;
+  nullable: boolean;
 }
 
-function ColumnRow({ column }: { column: DatasetColumnDto }): React.ReactElement {
+function ColumnRow({ row }: { row: SchemaRow }): React.ReactElement {
   return (
     <Tr>
-      {/* Số thứ tự lấy từ CSDL nguồn, không phải chỉ số mảng: nó là thông tin
+      {/* Số thứ tự lấy từ bảng thật, không phải chỉ số mảng: nó là thông tin
           thật về bảng bên kia, và khi đang lọc thì chỉ số mảng còn nói sai. */}
       <Td>
-        <span className="text-slate-400">{column.ordinal}</span>
+        <span className="text-slate-400">{row.ordinal}</span>
       </Td>
       <Td>
-        <span className="font-medium text-slate-900">{column.name}</span>
+        <span className="font-medium text-slate-900">{row.name}</span>
       </Td>
       <Td>
         {/* `whitespace-nowrap` chứ không để tự xuống dòng: `decimal(10,2)` bị
             ngắt giữa dấu phẩy sẽ đọc ra hai kiểu khác nhau. */}
         <code className="whitespace-nowrap rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-600">
-          {column.dataType}
+          {row.type}
         </code>
       </Td>
       <Td>
-        {column.isNullable ? (
-          <Badge tone="neutral">NULL</Badge>
-        ) : (
-          <Badge tone="brand">NOT NULL</Badge>
-        )}
+        {row.nullable ? <Badge tone="neutral">NULL</Badge> : <Badge tone="brand">NOT NULL</Badge>}
       </Td>
     </Tr>
   );
