@@ -69,6 +69,86 @@
 }
 
 /*
+ * ─── Thanh cuộn ─────────────────────────────────────────────────────────────
+ *
+ * Từ khi vỏ ngoài không cuộn nữa (xem `components/ui/Page.tsx`), mọi thanh cuộn
+ * đều nằm TRONG một hộp — bảng dữ liệu, danh sách cột, thân trang. Thanh mặc
+ * định của Windows dày 17px và có nền xám đặc, nên nó cắt một dải sáng ngay
+ * cạnh viền bảng và trông như một cột rỗng thứ hai.
+ *
+ * Phải khai HAI lần vì hai họ trình duyệt đọc hai chuẩn khác nhau:
+ *   - `scrollbar-width` / `scrollbar-color`  -> Firefox, Chrome/Edge 121 trở lên
+ *   - `::-webkit-scrollbar*`                 -> Safari và Chromium đời cũ
+ *
+ * ⚠️ Có cả hai thì thuộc tính CHUẨN THẮNG, không phải khối `::-webkit-`. Đo trên
+ * Chrome hiện tại: hộp cuộn dày 12px — đúng cỡ "thin" của trình duyệt, không
+ * phải 10px khai ở dưới. Nên đừng chỉnh `width` bên dưới rồi chờ Chrome đổi
+ * theo; muốn đổi bề dày ở Chrome thì phải bỏ hẳn `scrollbar-width`.
+ *
+ * Giá trị dự phòng sau mỗi `var()` là có chủ đích: Tailwind v4 chỉ xuất ra biến
+ * của những màu ĐANG ĐƯỢC DÙNG ở đâu đó. Ngày nào đó gỡ class `text-slate-600`
+ * cuối cùng thì biến biến mất và thanh cuộn mất màu mà không ai biết.
+ *
+ * Đặt NGOÀI `@layer base`: mọi thứ trong `@layer` đều thua CSS không phân lớp,
+ * mà một vài thư viện (Uppy, vega-embed) tự chèn stylesheet lúc chạy.
+ */
+* {
+  scrollbar-width: thin;
+  /* thumb rồi mới tới track — đúng thứ tự của đặc tả, đảo lại là mất tác dụng. */
+  scrollbar-color: var(--color-slate-300, #cbd5e1) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+/* Nền TRONG SUỐT, không phải màu xám: thanh cuộn nằm sát viền bảng, một dải xám
+   đặc ở đó đọc ra như đường kẻ của bảng chứ không phải thanh cuộn. */
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background-color: var(--color-slate-300, #cbd5e1);
+  border-radius: 9999px;
+  /* Viền trong suốt + `background-clip: content-box` là cách duy nhất tạo được
+     khoảng đệm quanh con trượt: `padding` không có tác dụng trên phần tử này. */
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background-color: var(--color-slate-400, #94a3b8);
+}
+
+*::-webkit-scrollbar-thumb:active {
+  background-color: var(--color-slate-500, #64748b);
+}
+
+/* Ô vuông nơi thanh dọc gặp thanh ngang. Bỏ qua thì nó giữ nền xám mặc định và
+   thành một chấm bẩn ở góc mọi bảng cuộn được hai chiều. */
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/*
+ * Vùng cuộn trên nền TỐI (sidebar) cần con trượt sáng — con trượt slate-300 trên
+ * nền slate-900 gần như vô hình.
+ */
+.scrollbar-dark {
+  scrollbar-color: var(--color-slate-600, #475569) transparent;
+}
+
+.scrollbar-dark::-webkit-scrollbar-thumb {
+  background-color: var(--color-slate-600, #475569);
+}
+
+.scrollbar-dark::-webkit-scrollbar-thumb:hover {
+  background-color: var(--color-slate-500, #64748b);
+}
+
+/*
  * Sửa lỗi biểu đồ Vega rộng 0px.
  *
  * `vega-embed` tự chèn stylesheet của nó, trong đó có

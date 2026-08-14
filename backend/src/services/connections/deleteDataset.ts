@@ -1,5 +1,6 @@
 import { mysqlPool } from '../../config/mysql';
 import * as datasetsRepo from '../../repositories/datasets';
+import { dropDatasetTables } from '../ingest/dropTables';
 import { notFound } from '../../utils/httpError';
 
 /**
@@ -19,6 +20,41 @@ export async function deleteDataset(tenantId: number, id: number): Promise<void>
 
   const affected = await datasetsRepo.softDelete(mysqlPool, tenantId, id);
   if (affected === 0) throw notFound('Không tìm thấy tập dữ liệu này.');
+
+  await dropWarehouseTable(tenantId, id);
+}
+
+/**
+ * Trả lại chỗ trong kho phân tích (§9).
+ *
+ * Bảng `raw_*` là DẪN XUẤT chứ không phải bản gốc — nguồn để dựng lại nó
+ * (`dataset_rows`, file trong MinIO, hay chính CSDL khách hàng) đều sống sót qua
+ * lần xoá mềm này. Nên giữ lại bảng không bảo vệ được gì, chỉ chiếm đĩa: mỗi
+ * vòng xoá-rồi-tải-lại một file để lại một bản sao đầy đủ, vì tải file luôn sinh
+ * id MỚI (`uq_datasets_source` không chặn được các cột NULL của nguồn `file`).
+ *
+ * ─── Toàn bộ khối này KHÔNG ĐƯỢC ném ───────────────────────────────────────
+ *
+ * Dòng MySQL đã xoá mềm xong ở trên. Ném ra từ đây là trả lỗi cho một thao tác
+ * ĐÃ thành công, và người dùng bấm xoá lại sẽ nhận 404 — vừa sai vừa khó hiểu.
+ * Tệ hơn: nó buộc "xoá được một dòng trong MySQL" vào "ClickHouse phải đang
+ * sống", hai thứ vốn không liên quan.
+ *
+ * Nên đây là nỗ lực TỐT NHẤT CÓ THỂ, và `sweepOrphanTables` trong runner là lưới
+ * hứng — nó suy tên bảng từ id chứ không đọc `ch_table`, nên dọn được cả những
+ * bảng mà bước này bỏ lỡ.
+ *
+ * Dọn cờ TRƯỚC, drop SAU: nếu tiến trình chết giữa hai bước thì kết quả là một
+ * bảng mồ côi (janitor xử lý được), chứ không phải một bộ dữ liệu khoe "đã nạp
+ * 50.000 dòng" trỏ vào bảng đã biến mất (không ai xử lý được).
+ */
+async function dropWarehouseTable(tenantId: number, id: number): Promise<void> {
+  try {
+    await datasetsRepo.clearLoadState(mysqlPool, id);
+    await dropDatasetTables(tenantId, id);
+  } catch (err) {
+    console.error(`[ingest] không dọn được kho cho bộ dữ liệu ${id}:`, err);
+  }
 }
 
 /**

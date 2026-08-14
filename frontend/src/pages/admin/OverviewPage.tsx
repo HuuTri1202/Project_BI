@@ -1,6 +1,7 @@
 import type { PlatformOverviewDto } from '@bi/shared';
 import { lazy, Suspense } from 'react';
 import { Link } from 'react-router-dom';
+import { Page, PageBody, PageHeader } from '../../components/ui/Page';
 import { ErrorState } from '../../components/ui/states';
 import { useOverview } from '../../features/admin/hooks';
 import { getApiError } from '../../services/apiClient';
@@ -47,21 +48,16 @@ export default function OverviewPage(): React.ReactElement {
     data?.growth.some((p) => p.tenants > 0 || p.users > 0 || p.workspaces > 0) ?? false;
 
   return (
-    <div className="mx-auto max-w-6xl">
-      <header>
-        <h1 className="text-xl font-bold text-slate-900">Tổng quan hệ thống</h1>
-        <p className="mt-1 text-sm text-slate-500">
-          Số liệu trên toàn bộ nền tảng, gồm tất cả tổ chức.
-        </p>
-      </header>
+    <Page>
+      <PageHeader
+        title="Tổng quan hệ thống"
+        description="Số liệu trên toàn bộ nền tảng, gồm tất cả tổ chức."
+      />
 
-      {isError && (
-        <div className="mt-6">
-          <ErrorState message={getApiError(error).message} />
-        </div>
-      )}
+      <PageBody>
+        {isError && <ErrorState message={getApiError(error).message} />}
 
-      <div className="mt-6 grid gap-4 sm:grid-cols-3">
+      <div className="mt-4 grid gap-4 sm:grid-cols-3">
         {KPI_CARDS.map((card) => (
           <Link
             key={card.label}
@@ -118,7 +114,8 @@ export default function OverviewPage(): React.ReactElement {
           )}
         </div>
       </section>
-    </div>
+      </PageBody>
+    </Page>
   );
 }
 

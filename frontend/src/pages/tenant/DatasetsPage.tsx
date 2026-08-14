@@ -11,10 +11,12 @@ import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
 import { FilterSelect, ListToolbar } from '../../components/ui/ListToolbar';
+import { Page, PageBody, PageHeader } from '../../components/ui/Page';
 import { Pagination } from '../../components/ui/Pagination';
 import { SortableTh, TBody, Td, Th, THead, TableWrap, Tr } from '../../components/ui/Table';
 import { EmptyState, ErrorState, TableSkeleton } from '../../components/ui/states';
 import type { DatasetListQuery } from '../../features/tenant/api';
+import { LoadStatusBadge } from '../../features/tenant/datasets/LoadPanel';
 import { RenameDatasetModal } from '../../features/tenant/datasets/RenameDatasetModal';
 import { SyncTablesModal } from '../../features/tenant/datasets/SyncTablesModal';
 import { useConnections, useDatasets, useDeleteDataset } from '../../features/tenant/hooks';
@@ -90,27 +92,22 @@ export default function DatasetsPage(): React.ReactElement {
   }
 
   return (
-    <div className="mx-auto max-w-6xl">
-      <header className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h1 className="text-xl font-bold text-slate-900">Kho dữ liệu</h1>
-          <p className="mt-1 text-sm text-slate-500">
-            Mọi bộ dữ liệu dựng báo cáo được. Với bảng lấy từ CSDL, hệ thống chỉ lưu{' '}
-            <strong>cấu trúc</strong> — dữ liệu vẫn nằm nguyên trong CSDL nguồn; với file Excel/CSV
-            thì dữ liệu đã được nhập vào đây.
-          </p>
-        </div>
-        {/* Ẩn nút với viewer. Backend cũng chặn bằng 403, nhưng để nút bấm được
-            rồi mới báo lỗi là bày ra một cái bẫy không có lý do gì để tồn tại. */}
-        {permissions.can('dataset', 'modify') && (
-          <Button variant="primary" onClick={() => setSyncOpen(true)}>
-            Đồng bộ từ CSDL
-          </Button>
-        )}
-      </header>
-
-      <div className="mt-6">
-        <ListToolbar
+    <Page>
+      <PageHeader
+        title="Kho dữ liệu"
+        description="Mọi bộ dữ liệu dựng báo cáo được."
+        actions={
+          /* Ẩn nút với viewer. Backend cũng chặn bằng 403, nhưng để nút bấm được
+             rồi mới báo lỗi là bày ra một cái bẫy không có lý do gì để tồn tại. */
+          permissions.can('dataset', 'modify') ? (
+            <Button variant="primary" onClick={() => setSyncOpen(true)}>
+              Đồng bộ từ CSDL
+            </Button>
+          ) : undefined
+        }
+      >
+        <div className="mt-4">
+          <ListToolbar
           search={query.q}
           onSearch={(q) => update({ q })}
           placeholder="Tên bộ dữ liệu, tên bảng hoặc tên file…"
@@ -136,10 +133,11 @@ export default function DatasetsPage(): React.ReactElement {
               label: c.name,
             }))}
           />
-        </ListToolbar>
-      </div>
+          </ListToolbar>
+        </div>
+      </PageHeader>
 
-      <div className="mt-4">
+      <PageBody scroll={false}>
         {isError && <ErrorState message={getApiError(error).message} />}
         {isPending && <TableSkeleton />}
 
@@ -164,8 +162,12 @@ export default function DatasetsPage(): React.ReactElement {
         )}
 
         {data && data.items.length > 0 && (
-          <div className={isPlaceholderData ? 'opacity-60 transition-opacity' : ''}>
-            <TableWrap>
+          <div
+            className={`flex min-h-0 flex-1 flex-col ${
+              isPlaceholderData ? 'opacity-60 transition-opacity' : ''
+            }`}
+          >
+            <TableWrap fill>
               <THead>
                 <Tr>
                   <SortableTh sortKey="name" activeKey={query.sort} order={query.order} onSort={onSort}>
@@ -184,6 +186,11 @@ export default function DatasetsPage(): React.ReactElement {
                   <SortableTh sortKey="syncedAt" activeKey={query.sort} order={query.order} onSort={onSort}>
                     Cập nhật lần cuối
                   </SortableTh>
+                  {/* KHÔNG sắp xếp được: `load_status` là ENUM nên thứ tự sắp
+                      xếp của nó là thứ tự khai báo, không phải thứ tự có nghĩa
+                      với người đọc. Muốn lọc theo trạng thái nạp thì thêm một bộ
+                      lọc thật, đừng mượn cột sắp xếp. */}
+                  <Th>Kho phân tích</Th>
                   <Th align="right">Thao tác</Th>
                 </Tr>
               </THead>
@@ -265,6 +272,14 @@ export default function DatasetsPage(): React.ReactElement {
                           : '—'}
                       </span>
                     </Td>
+                    <Td>
+                      <LoadStatusBadge status={dataset.loadStatus} />
+                      {dataset.loadStatus === 'loaded' && (
+                        <div className="mt-0.5 text-xs tabular-nums text-slate-500">
+                          {dataset.loadedRowCount.toLocaleString('vi-VN')} dòng
+                        </div>
+                      )}
+                    </Td>
                     <Td align="right">
                       <div className="flex justify-end gap-1">
                         <Link
@@ -290,21 +305,22 @@ export default function DatasetsPage(): React.ReactElement {
               </TBody>
             </TableWrap>
 
-            <Pagination
-              page={data.page}
-              pageSize={data.pageSize}
-              total={data.total}
-              totalPages={data.totalPages}
-              onPageChange={(page) => update({ page })}
-            />
+            <div className="shrink-0">
+              <Pagination
+                page={data.page}
+                pageSize={data.pageSize}
+                total={data.total}
+                totalPages={data.totalPages}
+                onPageChange={(page) => update({ page })}
+              />
+            </div>
           </div>
         )}
-      </div>
 
-      <SyncTablesModal open={syncOpen} onClose={() => setSyncOpen(false)} />
-      <RenameDatasetModal dataset={renaming} onClose={() => setRenaming(null)} />
+        <SyncTablesModal open={syncOpen} onClose={() => setSyncOpen(false)} />
+        <RenameDatasetModal dataset={renaming} onClose={() => setRenaming(null)} />
 
-      <ConfirmDialog
+        <ConfirmDialog
         open={deleting !== null}
         onClose={() => setDeleting(null)}
         title="Xoá bộ dữ liệu"
@@ -322,7 +338,7 @@ export default function DatasetsPage(): React.ReactElement {
             trấn an người dùng bằng một điều không đúng. */}
         {deleting?.source === 'file' ? (
           <>
-            Bộ dữ liệu bị ẩn khỏi kho (xoá mềm) cùng toàn bộ dòng đã nhập. Còn báo cáo đang dùng nó
+            Bộ dữ liệu bị ẩn khỏi kho cùng toàn bộ dòng đã nhập. Còn báo cáo đang dùng nó
             thì hệ thống từ chối và cho bạn biết còn bao nhiêu — xoá những báo cáo đó trước.
           </>
         ) : (
@@ -332,7 +348,8 @@ export default function DatasetsPage(): React.ReactElement {
             lại đúng như cũ.
           </>
         )}
-      </ConfirmDialog>
-    </div>
+        </ConfirmDialog>
+      </PageBody>
+    </Page>
   );
 }

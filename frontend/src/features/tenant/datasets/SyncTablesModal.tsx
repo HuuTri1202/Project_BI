@@ -56,10 +56,22 @@ export function SyncTablesModal({
     setSelected(new Set(tables.data.filter((t) => t.imported).map(key)));
   }, [tables.data]);
 
+  const selectedConnection = connections?.find((c) => c.id === connectionId) ?? null;
+
+  /** Danh sách có bảng từ nhiều database không — quyết định có hiện tiền tố. */
+  const multiSchema = useMemo(
+    () => new Set((tables.data ?? []).map((t) => t.schema)).size > 1,
+    [tables.data],
+  );
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return tables.data ?? [];
-    return (tables.data ?? []).filter((t) => t.table.toLowerCase().includes(q));
+    // Tìm cả trong tên database: khi kết nối mở ra mọi database, "tìm bảng của
+    // qr_ordering" là cách lọc tự nhiên nhất mà người dùng sẽ thử đầu tiên.
+    return (tables.data ?? []).filter(
+      (t) => t.table.toLowerCase().includes(q) || t.schema.toLowerCase().includes(q),
+    );
   }, [tables.data, search]);
 
   function toggle(table: SourceTableDto): void {
@@ -200,7 +212,17 @@ export function SyncTablesModal({
                         checked={selected.has(key(table))}
                         onChange={() => toggle(table)}
                       />
-                      <span className="flex-1 text-sm text-slate-800">{table.table}</span>
+                      <span className="flex-1 text-sm text-slate-800">
+                        {/* Tên database chỉ hiện khi danh sách TRẢI NHIỀU nơi.
+                            Kết nối đã thu hẹp vào một database thì lặp lại tên
+                            đó ở cả trăm dòng là nhiễu thuần tuý; còn khi chọn
+                            "tất cả" thì hai bảng `orders` ở hai database trông y
+                            hệt nhau, và tích nhầm là đồng bộ nhầm nguồn. */}
+                        {multiSchema && (
+                          <span className="text-slate-400">{table.schema}.</span>
+                        )}
+                        {table.table}
+                      </span>
                       {table.imported && <Badge tone="neutral">Đã có</Badge>}
                     </label>
                   </li>
@@ -214,9 +236,31 @@ export function SyncTablesModal({
             </>
           )}
 
-          {tables.data?.length === 0 && (
+          {/* Câu này phải GỌI TÊN database, và đó không phải chuyện chữ nghĩa.
+              Nguyên nhân thường gặp nhất của danh sách rỗng là chọn nhầm CSDL
+              lúc tạo kết nối — ClickHouse mặc định là `default`, và `default`
+              thì rỗng trong gần như mọi cài đặt. Câu cũ chỉ nói "tài khoản kết
+              nối đọc được", tức là chỉ thẳng người dùng sang phía phân quyền và
+              để họ đi tìm một vấn đề không tồn tại. Nêu đúng tên CSDL và tên tài
+              khoản thì cả hai giả thuyết đều tự kiểm được ngay tại chỗ. */}
+          {tables.data?.length === 0 && selectedConnection && (
             <p className="text-sm text-slate-500">
-              CSDL này không có bảng nào mà tài khoản kết nối đọc được.
+              Tài khoản <strong>{selectedConnection.username}</strong> không thấy bảng nào{' '}
+              {selectedConnection.databaseName === '' ? (
+                // Đã mở ra mọi database mà vẫn rỗng thì tên CSDL không còn là
+                // nghi phạm nữa — chỉ còn quyền. Nói đúng một giả thuyết còn lại
+                // thay vì lặp lại cả hai.
+                <>
+                  trong <strong>bất kỳ database nào</strong> trên máy chủ này. Tài khoản cần quyền{' '}
+                  <code>SELECT</code> trên các bảng muốn lấy.
+                </>
+              ) : (
+                <>
+                  trong CSDL <strong>{selectedConnection.databaseName}</strong>. Kiểm tra xem đã
+                  chọn đúng CSDL chưa (sửa ở <strong>Quản lý tổ chức → Kết nối</strong>), hoặc tài
+                  khoản này còn thiếu quyền <code>SELECT</code>.
+                </>
+              )}
             </p>
           )}
         </div>

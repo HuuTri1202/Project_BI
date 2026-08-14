@@ -15,6 +15,11 @@ export async function resetDatabase(): Promise<void> {
   // thứ tự để ai đọc còn thấy được cây phụ thuộc.
   for (const table of [
     'reports',
+    // Sổ ghi chép của §9. `dataset_load_errors` trỏ vào `dataset_load_runs`, nên
+    // nó phải đứng trước — dữ liệu THẬT của §9 nằm bên ClickHouse, không có gì
+    // để TRUNCATE ở đây.
+    'dataset_load_errors',
+    'dataset_load_runs',
     // MỘT bộ `datasets` cho cả hai nguồn — file tải lên (§7) và bảng đồng bộ từ
     // CSDL khách hàng (§8). `dataset_rows` chỉ nguồn `file` dùng tới.
     'dataset_rows',

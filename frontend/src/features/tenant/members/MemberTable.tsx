@@ -35,7 +35,7 @@ export function MemberTable({
   onRemove,
 }: MemberTableProps): React.ReactElement {
   return (
-    <TableWrap>
+    <TableWrap fill>
       <THead>
         <Tr>
           <SortableTh sortKey="fullName" activeKey={sort} order={order} onSort={onSort}>

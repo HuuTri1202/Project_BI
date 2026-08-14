@@ -135,6 +135,10 @@ describe('bảng route §8 — mọi endpoint đều có guard', () => {
     ['get', '/api/v1/connections/prerequisites'],
     ['post', '/api/v1/connections'],
     ['post', '/api/v1/connections/test'],
+    // Hai đường liệt kê database cùng hạng với `/test`: chúng MỞ KẾT NỐI THẬT ra
+    // ngoài, nên gác bằng `connection:modify` chứ không phải quyền đọc.
+    ['post', '/api/v1/connections/databases'],
+    ['get', '/api/v1/connections/1/databases'],
     ['patch', '/api/v1/connections/1'],
     ['post', '/api/v1/connections/1/test'],
     ['delete', '/api/v1/connections/1'],
@@ -345,6 +349,129 @@ describe('kiểm tra kết nối (§8.3)', () => {
     const bad = await request(app).get('/api/v1/connections').set(bearer(f.tokenAlice));
     expect(bad.body[0].lastTestedAt).toBeNull();
     expect(typeof bad.body[0].lastTestError).toBe('string');
+  });
+});
+
+describe('chọn database (§8.2)', () => {
+  it('liệt kê được database THẬT kèm số bảng', async () => {
+    const res = await request(app)
+      .post('/api/v1/connections/databases')
+      .set(bearer(f.tokenAlice))
+      .send({ ...SOURCE, name: 'Thử' });
+
+    expect(res.status).toBe(200);
+
+    const found = (res.body as { name: string; tableCount: number }[]).find(
+      (d) => d.name === env.MYSQL_DATABASE,
+    );
+    expect(found).toBeDefined();
+    // Số bảng phải là số THẬT, không phải 0 hay undefined: đây là con số biến
+    // "chọn nhầm database" thành thứ nhìn thấy được ngay tại chỗ chọn.
+    expect(found?.tableCount).toBeGreaterThan(0);
+
+    // Schema hệ thống phải bị loại — không ai muốn đồng bộ `performance_schema`.
+    const names = (res.body as { name: string }[]).map((d) => d.name);
+    expect(names).not.toContain('information_schema');
+    expect(names).not.toContain('mysql');
+  });
+
+  it('KHÔNG tự lọc theo database đang chọn — kể cả khi tên đó sai bét', async () => {
+    // Đây là toàn bộ lý do endpoint này tồn tại: người dùng gõ sai tên database
+    // thì vẫn phải lấy được danh sách để chọn lại. Tự khoá vào cái đang chọn là
+    // hỏng đúng lúc cần nhất.
+    const res = await request(app)
+      .post('/api/v1/connections/databases')
+      .set(bearer(f.tokenAlice))
+      .send({ ...SOURCE, name: 'Thử', databaseName: 'khong_he_ton_tai' });
+
+    expect(res.status).toBe(200);
+    expect((res.body as unknown[]).length).toBeGreaterThan(0);
+  });
+
+  it('kết nối ĐÃ lưu liệt kê được mà không cần gửi lại mật khẩu', async () => {
+    const id = await makeConnection(f.tokenAlice);
+
+    const res = await request(app)
+      .get(`/api/v1/connections/${id}/databases`)
+      .set(bearer(f.tokenAlice));
+
+    expect(res.status).toBe(200);
+    expect((res.body as { name: string }[]).map((d) => d.name)).toContain(env.MYSQL_DATABASE);
+  });
+
+  it('kết nối của tổ chức khác -> 404, KHÔNG phải 403', async () => {
+    const id = await makeConnection(f.tokenAlice);
+
+    const res = await request(app)
+      .get(`/api/v1/connections/${id}/databases`)
+      .set(bearer(f.tokenCarol));
+
+    // 403 là xác nhận id đó có tồn tại — cùng luật với mọi endpoint khác.
+    expect(res.status).toBe(404);
+  });
+
+  it('không nối được -> 502, KHÁC hẳn `/test` trả 200 kèm ok:false', async () => {
+    const res = await request(app)
+      .post('/api/v1/connections/databases')
+      .set(bearer(f.tokenAlice))
+      .send({ ...SOURCE, name: 'Thử', port: 59999 });
+
+    // Một mảng rỗng vì lỗi mạng trông y hệt một máy chủ không có database nào.
+    // Phải là lỗi thật để giao diện không hiện một danh sách rỗng đáng tin.
+    expect(res.status).toBe(502);
+    expect(res.body.message).toMatch(/từ chối|cổng|thời gian chờ/i);
+  });
+});
+
+describe('database để trống = mọi database', () => {
+  it('lưu được kết nối không khai database', async () => {
+    const res = await request(app)
+      .post('/api/v1/connections')
+      .set(bearer(f.tokenAlice))
+      .send({ ...SOURCE, name: 'Mọi database', databaseName: '' });
+
+    expect(res.status).toBe(201);
+    expect(res.body.databaseName).toBe('');
+  });
+
+  it('kiểm tra kết nối vẫn xanh khi không khai database', async () => {
+    // mysql2 gửi chuỗi rỗng đi như `USE ''` và máy chủ từ chối bắt tay, nên phép
+    // quy đổi sang `undefined` trong `connectionOptions` là thứ bài này canh.
+    const res = await request(app)
+      .post('/api/v1/connections/test')
+      .set(bearer(f.tokenAlice))
+      .send({ ...SOURCE, name: 'Thử', databaseName: '' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.ok).toBe(true);
+  });
+
+  it('liệt kê bảng của NHIỀU database, không chỉ một', async () => {
+    const scoped = await makeConnection(f.tokenAlice, 'Một database');
+    const all = await request(app)
+      .post('/api/v1/connections')
+      .set(bearer(f.tokenAlice))
+      .send({ ...SOURCE, name: 'Mọi database', databaseName: '' });
+
+    const one = await request(app)
+      .get(`/api/v1/connections/${scoped}/tables`)
+      .set(bearer(f.tokenAlice));
+    const many = await request(app)
+      .get(`/api/v1/connections/${all.body.id}/tables`)
+      .set(bearer(f.tokenAlice));
+
+    expect(one.status).toBe(200);
+    expect(many.status).toBe(200);
+
+    // Kết nối thu hẹp chỉ thấy đúng một schema; kết nối mở thấy nhiều hơn.
+    const oneSchemas = new Set((one.body as { schema: string }[]).map((t) => t.schema));
+    const manySchemas = new Set((many.body as { schema: string }[]).map((t) => t.schema));
+
+    expect([...oneSchemas]).toEqual([env.MYSQL_DATABASE]);
+    expect(manySchemas.size).toBeGreaterThan(1);
+    expect(manySchemas).toContain(env.MYSQL_DATABASE);
+    // Và vẫn không được lôi schema hệ thống vào.
+    expect(manySchemas).not.toContain('information_schema');
   });
 });
 

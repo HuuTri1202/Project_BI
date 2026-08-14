@@ -115,11 +115,19 @@ fi
 # `minio-init` tạo bucket `bi-datasets` rồi tự thoát; không có nó thì mọi lần
 # PUT đều trả NoSuchBucket.
 #
-# Phần còn lại (ClickHouse, Cube, Kafka, dbt) vẫn nằm sau profile — xem cuối
-# script.
-$DC --profile data up -d mysql redis minio minio-init
+# ClickHouse vào nhóm LÕI kể từ mục §9 (nạp dữ liệu vào kho phân tích), cùng lý
+# do với MinIO: nó không còn là hạ tầng tuỳ chọn của một spike mà là nơi dữ liệu
+# thật sự nằm. Không bật thì nút "Nạp vào kho phân tích" báo lỗi ở mọi máy.
+#
+# ⚠️ Cái giá phải nói ra: thêm ~2GB RAM cho MỌI người, kể cả người chỉ sửa giao
+# diện. Lần đầu còn kéo ~1,5GB image. Máy chật thì tắt riêng nó bằng
+# `docker compose stop clickhouse` — phần còn lại của hệ thống vẫn chạy bình
+# thường, chỉ mất chức năng nạp.
+#
+# Phần còn lại (Cube, Kafka, dbt) vẫn nằm sau profile — xem cuối script.
+$DC --profile data up -d mysql redis minio minio-init clickhouse
 
-ok "Đã gửi lệnh khởi động MySQL + Redis + MinIO."
+ok "Đã gửi lệnh khởi động MySQL + Redis + MinIO + ClickHouse."
 
 # =============================================================================
 # BƯỚC 3: Chờ MySQL và Redis thực sự sẵn sàng
@@ -172,6 +180,9 @@ FAILED=false
 wait_for_health "bi-mysql" "MySQL" 180 || FAILED=true
 wait_for_health "bi-redis" "Redis" 60  || FAILED=true
 wait_for_health "bi-minio" "MinIO" 60  || FAILED=true
+# 120s chứ không 60: lần chạy ĐẦU TIÊN phải kéo ~1,5GB image trước khi container
+# tồn tại, và `start_period` của healthcheck còn thêm 30s nữa.
+wait_for_health "bi-clickhouse" "ClickHouse" 120 || FAILED=true
 
 if [ "$FAILED" = true ]; then
   echo
@@ -212,6 +223,12 @@ echo "    Host      : localhost:${REDIS_PORT}"
 echo "    Password  : ${REDIS_PASSWORD}"
 echo "    CLI       : docker exec -it bi-redis redis-cli -a ${REDIS_PASSWORD}"
 echo
+echo "  ${BOLD}ClickHouse${NC} (kho phân tích - §9)"
+echo "    HTTP      : localhost:${CLICKHOUSE_HTTP_PORT:-8123}"
+echo "    Database  : ${CLICKHOUSE_DB:-bi_analytics}"
+echo "    User      : ${CLICKHOUSE_USER:-bi_user} / ${CLICKHOUSE_PASSWORD:-clickhouse_password}"
+echo "    CLI       : docker exec -it bi-clickhouse clickhouse-client --user ${CLICKHOUSE_USER:-bi_user} --password ${CLICKHOUSE_PASSWORD:-clickhouse_password}"
+echo
 echo "  ${BOLD}Ứng dụng (sau khi chạy ở bước 5)${NC}"
 echo "    Backend   : http://localhost:4000"
 echo "    Health    : http://localhost:4000/health"
@@ -236,7 +253,6 @@ echo "    npm run dev:api           # chỉ backend"
 echo "    npm run dev:web           # chỉ frontend"
 echo
 echo "  ${BOLD}Bật thêm hạ tầng theo nhu cầu (profile)${NC}"
-echo "    ${DC} --profile data up -d      # + ClickHouse (MinIO đã chạy sẵn)"
 echo "    ${DC} --profile bi   up -d      # + Cube.js (kéo theo ClickHouse)"
 echo "    ${DC} --profile stream up -d    # + Kafka, Debezium Connect"
 echo "    ${DC} --profile tools  up -d    # + dbt"

@@ -254,7 +254,16 @@ const connectionFields = {
    * boolean gốc là đủ, và cái gì không phải boolean thì đáng bị từ chối thẳng.
    */
   useSsl: z.boolean().optional().default(false),
-  databaseName: z.string().trim().min(1, 'Vui lòng nhập tên database').max(255),
+  /**
+   * Rỗng = "mọi database", KHÔNG phải thiếu dữ liệu.
+   *
+   * Bỏ `.min(1)` là chủ ý. Trước đây trường này bắt buộc, và gõ sai một chữ
+   * (`defualt`) cho ra một kết nối lưu được, test xanh, nhưng hộp thoại Đồng bộ
+   * rỗng không rõ lý do — vì `test()` chỉ đọc phiên bản server chứ không đụng
+   * tới database. Giờ người dùng CHỌN từ danh sách máy chủ trả về, và "tất cả"
+   * là một lựa chọn hợp lệ trong danh sách đó.
+   */
+  databaseName: z.string().trim().max(255),
   username: z.string().trim().min(1, 'Vui lòng nhập tên đăng nhập').max(255),
 };
 
@@ -322,6 +331,9 @@ export const listDatasetsQuerySchema = paginationSchema.extend({
   sort: z.string().optional(),
   order: z.enum(['asc', 'desc']).default('desc'),
 });
+
+/** Dòng lỗi của lần nạp gần nhất (§9.8). Chỉ cần phân trang, không có bộ lọc. */
+export const listLoadErrorsQuerySchema = paginationSchema;
 
 export const renameDatasetBodySchema = z.object({
   name: z

@@ -4,12 +4,13 @@ import {
   CONNECTION_KINDS,
   type ConnectionDto,
   type ConnectionKind,
+  type DatabaseOptionDto,
   type TestConnectionResultDto,
 } from '@bi/shared';
 import { Fragment, useEffect, useState } from 'react';
 import { Badge } from '../../../components/ui/Badge';
 import { Button } from '../../../components/ui/Button';
-import { Field } from '../../../components/ui/Field';
+import { Field, SelectField } from '../../../components/ui/Field';
 import { getApiError } from '../../../services/apiClient';
 import * as api from '../api';
 import { useCreateConnection, usePrerequisites, useUpdateConnection } from '../hooks';
@@ -181,10 +182,11 @@ export function ConnectionWizard({
 
   const saving = create.isPending || update.isPending;
   // Khi SỬA, mật khẩu để trống nghĩa là giữ nguyên — hợp lệ. Khi TẠO thì bắt buộc.
+  // `databaseName` CỐ Ý không nằm trong danh sách này: rỗng nghĩa là "mọi
+  // database", một lựa chọn hợp lệ chứ không phải ô chưa điền.
   const filled =
     values.name.trim() !== '' &&
     values.host.trim() !== '' &&
-    values.databaseName.trim() !== '' &&
     values.username.trim() !== '' &&
     (isEdit || values.password !== '');
 
@@ -216,6 +218,7 @@ export function ConnectionWizard({
             values={values}
             fieldErrors={fieldErrors}
             isEdit={isEdit}
+            editingId={editing?.id ?? null}
             onKindChange={setKind}
             onChange={set}
           />
@@ -416,12 +419,14 @@ function StepDetails({
   values,
   fieldErrors,
   isEdit,
+  editingId,
   onKindChange,
   onChange,
 }: {
   values: api.ConnectionFormValues;
   fieldErrors: Record<string, string>;
   isEdit: boolean;
+  editingId: number | null;
   onKindChange: (kind: ConnectionKind) => void;
   onChange: <K extends keyof api.ConnectionFormValues>(
     key: K,
@@ -472,13 +477,6 @@ function StepDetails({
 
       <div className="grid gap-5 sm:grid-cols-2">
         <Field
-          label="Database"
-          placeholder={values.kind === 'clickhouse' ? 'vd: default' : 'Tên database'}
-          value={values.databaseName}
-          error={fieldErrors['databaseName']}
-          onChange={(e) => onChange('databaseName', e.target.value)}
-        />
-        <Field
           label="Tài khoản"
           placeholder="Tài khoản CSDL"
           autoComplete="off"
@@ -486,9 +484,6 @@ function StepDetails({
           error={fieldErrors['username']}
           onChange={(e) => onChange('username', e.target.value)}
         />
-      </div>
-
-      <div className="grid gap-5 sm:grid-cols-2">
         <Field
           label="Mật khẩu"
           type="password"
@@ -500,15 +495,169 @@ function StepDetails({
           error={fieldErrors['password']}
           onChange={(e) => onChange('password', e.target.value)}
         />
-        <Field
-          label="Tên kết nối"
-          placeholder="vd: CSDL bán hàng"
-          hint="Tên để bạn nhận ra nó trong danh sách."
-          value={values.name}
-          error={fieldErrors['name']}
-          onChange={(e) => onChange('name', e.target.value)}
-        />
       </div>
+
+      {/* Database đứng SAU tài khoản/mật khẩu, không còn ở trên như trước. Thứ
+          tự này là bắt buộc chứ không phải thẩm mỹ: bộ chọn bên dưới phải mở một
+          kết nối thật mới liệt kê được, mà muốn thế thì phải có đủ thông tin
+          đăng nhập trước đã. */}
+      <DatabasePicker
+        values={values}
+        isEdit={isEdit}
+        editingId={editingId}
+        error={fieldErrors['databaseName']}
+        onChange={(v) => onChange('databaseName', v)}
+      />
+
+      <Field
+        label="Tên kết nối"
+        placeholder="vd: CSDL bán hàng"
+        hint="Tên để bạn nhận ra nó trong danh sách."
+        value={values.name}
+        error={fieldErrors['name']}
+        onChange={(e) => onChange('name', e.target.value)}
+      />
+    </div>
+  );
+}
+
+/**
+ * Chọn database từ danh sách MÁY CHỦ TRẢ VỀ, thay cho ô gõ tay.
+ *
+ * ─── Vì sao đổi, và nó sửa đúng lỗi gì ──────────────────────────────────────
+ *
+ * Ô gõ tay có một chế độ hỏng mà không lớp kiểm tra nào bắt được: gõ `defualt`
+ * thay vì `default` cho ra một kết nối lưu được và test XANH — vì `test()` chỉ
+ * đọc phiên bản máy chủ, nó không đụng tới database. Lỗi chỉ lộ ra ở một màn
+ * hình khác, dưới dạng hộp thoại Đồng bộ rỗng, kèm một câu không hề nhắc tới
+ * database. Chọn từ danh sách thì tên sai không còn là trạng thái biểu diễn được.
+ *
+ * ─── Vì sao có nút, không tự nạp theo từng phím gõ ──────────────────────────
+ *
+ * Mỗi lần liệt kê là một kết nối THẬT tới máy chủ của khách hàng. Nạp theo phím
+ * gõ là hàng chục kết nối cho một lần điền form, và `connectionProbeLimit` sẽ
+ * chặn đúng lúc người dùng gõ xong ký tự cuối.
+ *
+ * ─── Vì sao vẫn giữ lối gõ tay ──────────────────────────────────────────────
+ *
+ * Một tài khoản bị khoá chặt hoàn toàn có thể `SELECT` được trên đúng một
+ * database mà không có quyền liệt kê toàn bộ. Bỏ hẳn ô gõ tay là khoá những
+ * người đó ra ngoài — mà họ lại chính là những khách hàng cẩn thận nhất.
+ */
+function DatabasePicker({
+  values,
+  isEdit,
+  editingId,
+  error,
+  onChange,
+}: {
+  values: api.ConnectionFormValues;
+  isEdit: boolean;
+  editingId: number | null;
+  error: string | undefined;
+  onChange: (value: string) => void;
+}): React.ReactElement {
+  const [options, setOptions] = useState<DatabaseOptionDto[] | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [manual, setManual] = useState(false);
+
+  // Đủ thông tin để MỞ được một kết nối. Khi sửa thì mật khẩu để trống là hợp lệ
+  // — đường `listSavedDatabases` dùng mật khẩu đã lưu.
+  const canProbe =
+    values.host.trim() !== '' &&
+    values.username.trim() !== '' &&
+    (isEdit || values.password !== '');
+
+  async function load(): Promise<void> {
+    setLoading(true);
+    setLoadError(null);
+    try {
+      // Khi sửa mà người dùng CHƯA gõ mật khẩu mới thì phải đi đường kết nối đã
+      // lưu — đường kia không có gì để đăng nhập.
+      const useSaved = isEdit && editingId !== null && values.password === '';
+      setOptions(
+        useSaved ? await api.listSavedDatabases(editingId) : await api.listDatabases(values),
+      );
+      setManual(false);
+    } catch (err) {
+      setLoadError(getApiError(err).message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  if (manual || options === null) {
+    return (
+      <div className="space-y-2">
+        <Field
+          label="Database"
+          placeholder="Để trống = mọi database"
+          hint="Bấm “Lấy danh sách” để chọn thay vì gõ — gõ sai một chữ thì kết nối vẫn lưu được nhưng không ra bảng nào."
+          value={values.databaseName}
+          error={error}
+          onChange={(e) => onChange(e.target.value)}
+        />
+        <div className="flex items-center gap-3">
+          <Button size="sm" onClick={() => void load()} loading={loading} disabled={!canProbe}>
+            Lấy danh sách
+          </Button>
+          {!canProbe && (
+            <span className="text-sm text-slate-500">
+              Điền máy chủ, tài khoản{isEdit ? '' : ' và mật khẩu'} trước.
+            </span>
+          )}
+        </div>
+        {loadError !== null && (
+          <p role="alert" className="text-sm text-red-700">
+            {loadError}
+          </p>
+        )}
+      </div>
+    );
+  }
+
+  // Giá trị đang giữ mà KHÔNG có trong danh sách vẫn phải xuất hiện — kết nối cũ
+  // có thể trỏ tới một database đã bị xoá, và lặng lẽ đổi nó sang cái khác khi
+  // người dùng chỉ định sửa cái tên là thay đổi thứ họ không hề chạm vào.
+  const missing =
+    values.databaseName !== '' && !options.some((o) => o.name === values.databaseName);
+
+  return (
+    <div className="space-y-2">
+      <SelectField
+        label="Database"
+        allowEmpty
+        value={values.databaseName}
+        error={error}
+        hint="Số bảng lấy trực tiếp từ máy chủ — một database hiện 0 bảng thì đồng bộ cũng sẽ không ra gì."
+        options={[
+          { value: '', label: 'Tất cả database' },
+          ...options.map((o) => ({
+            value: o.name,
+            label: `${o.name} · ${o.tableCount} bảng`,
+          })),
+          ...(missing ? [{ value: values.databaseName, label: `${values.databaseName} (không còn thấy)` }] : []),
+        ]}
+        onChange={(e) => onChange(e.target.value)}
+      />
+      <div className="flex items-center gap-3">
+        <Button size="sm" onClick={() => void load()} loading={loading}>
+          Tải lại
+        </Button>
+        <button
+          type="button"
+          onClick={() => setManual(true)}
+          className="text-sm text-brand-700 underline underline-offset-2 hover:text-brand-800"
+        >
+          Nhập tay
+        </button>
+      </div>
+      {loadError !== null && (
+        <p role="alert" className="text-sm text-red-700">
+          {loadError}
+        </p>
+      )}
     </div>
   );
 }
@@ -572,7 +721,7 @@ function StepVerify({
           ['Loại', CONNECTION_KIND_LABELS[values.kind]],
           ['Máy chủ', `${values.host}:${values.port}`],
           ['SSL/TLS', values.useSsl ? 'Bật' : 'Tắt'],
-          ['Database', values.databaseName],
+          ['Database', values.databaseName === '' ? 'Tất cả database' : values.databaseName],
           ['Tài khoản', values.username],
         ].map(([label, value]) => (
           <div key={label} className="flex justify-between gap-4 py-0.5">

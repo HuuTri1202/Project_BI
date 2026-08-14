@@ -5,6 +5,7 @@ import { useAuth } from '../auth/useAuth';
 import { usePermissions } from '../auth/usePermissions';
 import { ConfirmDialog } from '../components/ui/ConfirmDialog';
 import { Button } from '../components/ui/Button';
+import { Page, PageBody, PageHeader } from '../components/ui/Page';
 import { EmptyState, ErrorState, TableSkeleton } from '../components/ui/states';
 import { CreateReportMenu } from '../features/tenant/CreateReportMenu';
 import { ProjectFormModal } from '../features/tenant/ProjectFormModal';
@@ -85,35 +86,26 @@ export default function HomePage(): React.ReactElement {
   const projects = data?.projects ?? [];
 
   return (
-    <div className="mx-auto max-w-6xl">
-      <header className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h1 className="text-xl font-bold text-slate-900">
-            Xin chào, {user?.fullName ?? 'bạn'}
-          </h1>
-          <p className="mt-1 text-sm text-slate-500">
-            {current ? (
-              <>
-                Đang làm việc trong <span className="font-medium">{current.name}</span>
-              </>
-            ) : (
-              'Chưa chọn workspace'
+    <Page>
+      <PageHeader
+        title={`Xin chào, ${user?.fullName ?? 'bạn'}`}
+        description={current ? `Đang làm việc trong ${current.name}` : 'Chưa chọn workspace'}
+        actions={
+          <>
+            {/* §5.9 — viewer không tạo được báo cáo, nên nút cũng không hiện. Cùng
+                một ô quyền với nút "Tạo project" ngay bên cạnh: cả hai đều là tạo
+                nội dung, tách ra hai câu điều kiện riêng chỉ mời chúng lệch nhau. */}
+            {canEdit && <CreateReportMenu />}
+            {canEdit && (
+              <Button variant="primary" onClick={openCreate} disabled={!current}>
+                Tạo project
+              </Button>
             )}
-          </p>
-        </div>
+          </>
+        }
+      />
 
-        <div className="flex items-center gap-2">
-          {/* §5.9 — viewer không tạo được báo cáo, nên nút cũng không hiện. Cùng
-              một ô quyền với nút "Tạo project" ngay bên cạnh: cả hai đều là tạo
-              nội dung, tách ra hai câu điều kiện riêng chỉ mời chúng lệch nhau. */}
-          {canEdit && <CreateReportMenu />}
-          {canEdit && (
-            <Button variant="primary" onClick={openCreate} disabled={!current}>
-              Tạo project
-            </Button>
-          )}
-        </div>
-      </header>
+      <PageBody>
 
       {/* Đường vào console vận hành hệ thống.
           Hỏi `platformRole` (`users.role`), KHÔNG phải `role` (`memberships.role`):
@@ -130,12 +122,12 @@ export default function HomePage(): React.ReactElement {
       )}
       {/* Thẻ số. Trong lúc chờ để dấu gạch ngang chứ không phải số 0 — hiện 0
           rồi nhảy sang 12 khiến người ta tin vào con số 0 đó trong khoảnh khắc. */}
-      <div className="mt-6 grid gap-4 sm:grid-cols-2">
+      <div className="mt-4 grid gap-4 sm:grid-cols-2">
         <StatCard label="Project trong workspace" value={data?.stats.projects} />
         <StatCard label="Thành viên trong tổ chức" value={data?.stats.members} />
       </div>
 
-      <section className="mt-8">
+      <section className="mt-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-sm font-semibold text-slate-900">Project</h2>
           <ViewToggle value={view} onChange={changeView} />
@@ -191,17 +183,6 @@ export default function HomePage(): React.ReactElement {
         </div>
       </section>
 
-      <section className="mt-8">
-        <h2 className="text-sm font-semibold text-slate-900">Báo cáo gần đây</h2>
-        <div className="mt-4 rounded-xl border border-dashed border-slate-300 bg-white px-6 py-10 text-center">
-          <p className="text-sm font-medium text-slate-600">Chưa có trình soạn báo cáo</p>
-          <p className="mx-auto mt-1 max-w-md text-sm text-slate-500">
-            Phần tạo và xem báo cáo được xây ở bước sau. Khi có, những báo cáo bạn mở gần đây sẽ
-            hiện ở đây.
-          </p>
-        </div>
-      </section>
-
       <ProjectFormModal open={formOpen} onClose={() => setFormOpen(false)} project={editing} />
 
       <ConfirmDialog
@@ -215,8 +196,9 @@ export default function HomePage(): React.ReactElement {
       >
         Xoá <strong>{confirming?.name}</strong>? Dataset và báo cáo bên trong sẽ không truy cập
         được nữa.
-      </ConfirmDialog>
-    </div>
+        </ConfirmDialog>
+      </PageBody>
+    </Page>
   );
 }
 

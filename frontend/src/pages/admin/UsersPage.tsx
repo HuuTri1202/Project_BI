@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { useAuth } from '../../auth/useAuth';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
+import { Page, PageBody, PageHeader } from '../../components/ui/Page';
 import { Pagination } from '../../components/ui/Pagination';
 import { SortableTh, TBody, Td, Th, THead, TableWrap, Tr } from '../../components/ui/Table';
 import { EmptyState, ErrorState, TableSkeleton } from '../../components/ui/states';
@@ -81,16 +82,10 @@ export default function UsersPage(): React.ReactElement {
     query.q !== '' || query.status !== '' || query.tenantId !== '' || query.platformRole !== '';
 
   return (
-    <div className="mx-auto max-w-6xl">
-      <header>
-        <h1 className="text-xl font-bold text-slate-900">Quản lý người dùng</h1>
-        <p className="mt-1 text-sm text-slate-500">
-          Tất cả tài khoản trên nền tảng. Một người có thể thuộc nhiều tổ chức.
-        </p>
-      </header>
-
-      <div className="mt-6">
-        <ListToolbar
+    <Page>
+      <PageHeader title="Quản lý người dùng" description="Tất cả tài khoản trên nền tảng. Một người có thể thuộc nhiều tổ chức.">
+        <div className="mt-4">
+          <ListToolbar
           search={query.q}
           onSearch={(q) => update({ q })}
           placeholder="Họ tên hoặc email…"
@@ -116,10 +111,11 @@ export default function UsersPage(): React.ReactElement {
             allLabel="Tất cả trạng thái"
             options={STATUS_OPTIONS}
           />
-        </ListToolbar>
-      </div>
+          </ListToolbar>
+        </div>
+      </PageHeader>
 
-      <div className="mt-4">
+      <PageBody scroll={false}>
         {isPending && <TableSkeleton />}
         {isError && <ErrorState message={getApiError(error).message} />}
 
@@ -132,8 +128,12 @@ export default function UsersPage(): React.ReactElement {
         )}
 
         {data && data.items.length > 0 && (
-          <div className={isPlaceholderData ? 'opacity-60 transition-opacity' : ''}>
-            <TableWrap>
+          <div
+            className={`flex min-h-0 flex-1 flex-col ${
+              isPlaceholderData ? 'opacity-60 transition-opacity' : ''
+            }`}
+          >
+            <TableWrap fill>
               <THead>
                 <Tr>
                   <SortableTh sortKey="fullName" activeKey={query.sort} order={query.order} onSort={onSort}>
@@ -217,18 +217,19 @@ export default function UsersPage(): React.ReactElement {
               </TBody>
             </TableWrap>
 
-            <Pagination
-              page={data.page}
-              pageSize={data.pageSize}
-              total={data.total}
-              totalPages={data.totalPages}
-              onPageChange={(page) => update({ page })}
-            />
+            <div className="shrink-0">
+              <Pagination
+                page={data.page}
+                pageSize={data.pageSize}
+                total={data.total}
+                totalPages={data.totalPages}
+                onPageChange={(page) => update({ page })}
+              />
+            </div>
           </div>
         )}
-      </div>
 
-      <ConfirmDialog
+        <ConfirmDialog
         open={lockTarget !== null}
         onClose={() => setLockTarget(null)}
         title={lockTarget?.isActive ? 'Khoá tài khoản' : 'Mở khoá tài khoản'}
@@ -267,10 +268,11 @@ export default function UsersPage(): React.ReactElement {
           remove.mutate(deleteTarget.id, { onSuccess: () => setDeleteTarget(null), onError });
         }}
       >
-        Tài khoản bị xoá mềm: biến mất khỏi mọi tổ chức và không đăng nhập được nữa.{' '}
+        Tài khoản biến mất khỏi mọi tổ chức và không đăng nhập được nữa.{' '}
         <strong>Email vẫn bị giữ chỗ</strong> — không đăng ký lại bằng email đó được, để người mới
         không thừa hưởng dấu vết của người cũ.
       </ConfirmDialog>
-    </div>
+      </PageBody>
+    </Page>
   );
 }

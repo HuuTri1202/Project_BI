@@ -122,8 +122,8 @@ export default function MembersPage(): React.ReactElement {
   }
 
   return (
-    <div>
-      <div className="flex flex-wrap items-start justify-between gap-4">
+    <div className="flex h-full flex-col">
+      <div className="flex shrink-0 flex-wrap items-start justify-between gap-4">
         <p className="text-sm text-slate-500">
           Người dùng trong tổ chức của bạn và vai trò của họ.
         </p>
@@ -136,12 +136,12 @@ export default function MembersPage(): React.ReactElement {
           đây là bản sao duy nhất và nó phải ở lại tới khi admin tự tay xác nhận
           đã gửi đi. */}
       {issue && (
-        <div className="mt-5">
+        <div className="mt-4 shrink-0">
           <TempPasswordPanel issue={issue} onDismiss={dismissIssue} />
         </div>
       )}
 
-      <div className="mt-5">
+      <div className="mt-4 shrink-0">
         <ListToolbar
           search={query.q}
           onSearch={(value) => update({ q: value })}
@@ -170,7 +170,7 @@ export default function MembersPage(): React.ReactElement {
         </ListToolbar>
       </div>
 
-      <div className="mt-5">
+      <div className="mt-4 flex min-h-0 flex-1 flex-col">
         {isError && <ErrorState message={getApiError(error).message} />}
         {isPending && <TableSkeleton />}
 
@@ -207,13 +207,15 @@ export default function MembersPage(): React.ReactElement {
               onResetPassword={setResettingPassword}
               onRemove={setRemoving}
             />
-            <Pagination
-              page={data.page}
-              pageSize={data.pageSize}
-              total={data.total}
-              totalPages={data.totalPages}
-              onPageChange={(page) => update({ page })}
-            />
+            <div className="shrink-0">
+              <Pagination
+                page={data.page}
+                pageSize={data.pageSize}
+                total={data.total}
+                totalPages={data.totalPages}
+                onPageChange={(page) => update({ page })}
+              />
+            </div>
           </>
         )}
       </div>

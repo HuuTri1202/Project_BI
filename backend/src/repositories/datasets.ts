@@ -2,6 +2,7 @@ import type {
   ConnectionKind,
   DatasetColumnDto,
   DatasetDto,
+  DatasetLoadStatus,
   DatasetSource,
   DatasetStatus,
   FieldRole,
@@ -55,6 +56,10 @@ interface DatasetRow extends RowDataPacket {
   error_message: string | null;
   row_count: number;
   truncated: number;
+  // §9 — kho phân tích
+  load_status: DatasetLoadStatus;
+  loaded_row_count: number;
+  loaded_at: Date | null;
 }
 
 const SELECT_LIST = `
@@ -62,7 +67,8 @@ const SELECT_LIST = `
          d.source_schema, d.source_table, d.synced_at, d.connection_id,
          c.name AS connection_name, c.kind AS connection_kind,
          d.original_filename, d.file_ext, d.file_size_bytes, d.sheet_name,
-         d.status, d.error_message, d.row_count, d.truncated
+         d.status, d.error_message, d.row_count, d.truncated,
+         d.load_status, d.loaded_row_count, d.loaded_at
     FROM datasets d
     LEFT JOIN connections c ON c.id = d.connection_id AND c.tenant_id = d.tenant_id`;
 
@@ -90,9 +96,13 @@ function toDto(row: DatasetRow): DatasetDto {
     rowCount: Number(row.row_count),
     truncated: row.truncated === 1,
 
-    // Luôn 0 cho tới Section 09 — chưa có bảng `datamodels` để đếm. Xem ghi chú
-    // trong `DatasetDto`.
+    // Luôn 0 cho tới khi có bảng `datamodels` để đếm (§10). Xem ghi chú trong
+    // `DatasetDto`.
     datamodelCount: 0,
+
+    loadStatus: row.load_status,
+    loadedRowCount: Number(row.loaded_row_count),
+    loadedAt: row.loaded_at?.toISOString() ?? null,
   };
 }
 
@@ -578,4 +588,119 @@ export async function readRows(
     const data = row['data'];
     return (typeof data === 'string' ? JSON.parse(data) : data) as Record<string, unknown>;
   });
+}
+
+/**
+ * Đọc dòng theo LÔ để nạp vào kho phân tích (§9.5).
+ *
+ * ─── Vì sao quét theo khoá chứ không `OFFSET` ───────────────────────────────
+ *
+ * `(dataset_id, row_index)` là khoá chính GHÉP, và với InnoDB khoá chính cũng
+ * chính là khoá gom cụm — dữ liệu nằm SẴN theo thứ tự đó trên đĩa. Nên mỗi lô là
+ * một lần định vị B-tree rồi đọc tuần tự.
+ *
+ * `OFFSET` thì quét lại từ đầu ở mỗi lô: nạp 50.000 dòng theo lô 5.000 sẽ đọc
+ * tổng cộng khoảng 275.000 dòng thay vì 50.000. Cùng lý do đã ghi ở
+ * `Driver.readAllRows`, chỉ khác là ở đây ta CÓ khoá để quét nên không cần tới
+ * stream.
+ *
+ * Không giữ transaction, và không cần: `dataset_rows` là bất biến sau khi
+ * `commit.ts` ghi xong. Giữ một transaction suốt cả lần nạp là chiếm một trong
+ * mười connection của pool trong nhiều phút.
+ *
+ * Trả kèm `rowIndex` vì §9.8 cần nói được "dòng nào" — và với nguồn `file` thì
+ * con số đó khớp đúng số dòng người dùng thấy trong Excel (trừ hàng tiêu đề).
+ */
+export async function readRowsAfter(
+  db: Db,
+  datasetId: number,
+  afterRowIndex: number,
+  limit: number,
+): Promise<{ rowIndex: number; data: Record<string, unknown> }[]> {
+  const [rows] = await db.query<RowDataPacket[]>(
+    `SELECT row_index, data FROM dataset_rows
+      WHERE dataset_id = ? AND row_index > ?
+      ORDER BY row_index ASC LIMIT ?`,
+    [datasetId, afterRowIndex, limit],
+  );
+  return rows.map((row) => {
+    const data = row['data'];
+    return {
+      rowIndex: Number(row['row_index']),
+      data: (typeof data === 'string' ? JSON.parse(data) : data) as Record<string, unknown>,
+    };
+  });
+}
+
+// ─── Trạng thái nạp vào kho phân tích (§9) ───────────────────────────────────
+
+/**
+ * Thông tin tối thiểu để chạy một lần nạp.
+ *
+ * Tách khỏi `DatasetDto` vì đây là thứ chỉ tầng nạp cần: `sourceSchema`/
+ * `sourceTable` cho nguồn `connection`, `connectionId` để lấy bí mật. DTO thì đi
+ * ra giao diện và không nên mang theo những trường này dưới dạng bắt buộc.
+ */
+export async function markLoadStatus(
+  db: Db,
+  datasetId: number,
+  status: 'idle' | 'queued' | 'running' | 'loaded' | 'failed',
+  loaded?: { chTable: string; rowCount: number },
+): Promise<void> {
+  if (loaded) {
+    await db.query<ResultSetHeader>(
+      `UPDATE datasets
+          SET load_status = ?, ch_table = ?, loaded_row_count = ?,
+              loaded_at = CURRENT_TIMESTAMP(3)
+        WHERE id = ?`,
+      [status, loaded.chTable, loaded.rowCount, datasetId],
+    );
+    return;
+  }
+  await db.query<ResultSetHeader>('UPDATE datasets SET load_status = ? WHERE id = ?', [
+    status,
+    datasetId,
+  ]);
+}
+
+/**
+ * Xoá sạch dấu vết lần nạp — gọi khi bảng trong kho đã bị (hoặc sắp bị) drop.
+ *
+ * Không gộp vào `markLoadStatus('idle')` được: hàm đó cố ý KHÔNG đụng tới
+ * `ch_table`/`loaded_row_count` để trạng thái `queued`/`running` còn hiện được số
+ * dòng của lần nạp trước. Ở đây thì ngược lại — để nguyên chúng nghĩa là một bộ
+ * dữ liệu hồi sinh sẽ khoe "Đã nạp 50.000 dòng" trỏ tới một bảng không còn tồn
+ * tại. Con số sai còn tệ hơn không có con số nào.
+ */
+export async function clearLoadState(db: Db, datasetId: number): Promise<void> {
+  await db.query<ResultSetHeader>(
+    `UPDATE datasets
+        SET load_status = 'idle', ch_table = NULL, loaded_row_count = 0, loaded_at = NULL
+      WHERE id = ?`,
+    [datasetId],
+  );
+}
+
+/**
+ * Mọi id bộ dữ liệu người dùng CÒN THẤY ĐƯỢC — nguồn sự thật của janitor §9.
+ *
+ * Điều kiện phải khớp TỪNG CHỮ với `where()` ở đầu file, kể cả
+ * `c.deleted_at IS NULL`: xoá một kết nối làm mọi bộ dữ liệu của nó khuất khỏi
+ * giao diện mà `datasets.deleted_at` vẫn NULL. Bỏ vế đó thì janitor coi chúng là
+ * còn sống và bảng của chúng nằm lại vĩnh viễn — đúng cái nó sinh ra để dọn.
+ * Với nguồn `file` thì `LEFT JOIN` không khớp dòng nào nên `c.deleted_at` là
+ * NULL, và điều kiện tự đúng.
+ *
+ * Không lọc theo `tenant_id`: janitor là tác vụ của toàn hệ thống, không chạy
+ * dưới danh nghĩa tổ chức nào. Đây là NGOẠI LỆ duy nhất của quy ước "mọi hàm
+ * repository nhận `tenantId` đầu tiên", và nó an toàn vì hàm chỉ TRẢ VỀ ID —
+ * không dữ liệu nào của tổ chức này đi sang tổ chức khác.
+ */
+export async function listLiveIds(db: Db): Promise<Set<number>> {
+  const [rows] = await db.query<RowDataPacket[]>(
+    `SELECT d.id FROM datasets d
+       LEFT JOIN connections c ON c.id = d.connection_id AND c.tenant_id = d.tenant_id
+      WHERE d.deleted_at IS NULL AND c.deleted_at IS NULL`,
+  );
+  return new Set(rows.map((r) => Number(r['id'])));
 }

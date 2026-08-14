@@ -5,6 +5,9 @@ import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import { createApp } from '../src/app';
 import { closeMysql, mysqlPool } from '../src/config/mysql';
 import { closeRedis } from '../src/config/redis';
+import * as loadsRepo from '../src/repositories/datasetLoads';
+import * as datasetsRepo from '../src/repositories/datasets';
+import { loadDataset } from '../src/services/ingest/loadDataset';
 import { memoryStorage } from '../src/storage/memoryStorage';
 import { resetDatabase } from './helpers/db';
 import { bearer, makeMembership, makeTenant, makeUser, makeWorkspace, signTokenFor } from './helpers/fixtures';
@@ -558,7 +561,14 @@ describe('trần số dòng', () => {
       .set(bearer(f.tokenAdminA));
 
     expect(analyzed.body.truncated).toBe(true);
-    expect(analyzed.body.sheets[0].rowCount).toBe(100);
+    // `rowCount` là số dòng THẬT trong file (150), không phải số sẽ nạp (100).
+    //
+    // Ý nghĩa này đổi cùng lúc với việc bỏ nút thắt `dataset_rows`, và đổi có
+    // chủ đích: giờ có HAI con số khác nhau và người dùng cần cả hai —
+    // `rowCount` trả lời "file của tôi có bao nhiêu dòng", `loadedRowCount` trả
+    // lời "bao nhiêu dòng đang truy vấn được". Trước đây chúng luôn bằng nhau
+    // nên một con số là đủ; giờ thì không.
+    expect(analyzed.body.sheets[0].rowCount).toBe(150);
 
     await commitSheets(f.tokenAdminA, datasetId, [analyzed.body.sheets[0].name], 'Bị cắt');
 
@@ -566,7 +576,9 @@ describe('trần số dòng', () => {
       .get(`/api/v1/datasets/${datasetId}`)
       .set(bearer(f.tokenAdminA));
 
-    expect(res.body.rowCount).toBe(100);
+    expect(res.body.rowCount).toBe(150);
+    // Cờ này là thứ giữ cho con số trên khỏi nói dối: 150 dòng trong file, và
+    // người dùng được báo rằng không phải tất cả sẽ vào kho.
     expect(res.body.truncated).toBe(true);
   });
 
@@ -832,33 +844,28 @@ describe('§7.6 báo cáo được tạo RỖNG', () => {
     expect(res.body.error).toBe('ReportNotConfigured');
   });
 
-  it('đầu-cuối: dựng biểu đồ rồi mới có dữ liệu', async () => {
-    // Bàn xuất hiện hai lần (1000 + 700).
+  it('bộ dữ liệu CHƯA vào kho phân tích -> 409, không phải biểu đồ rỗng', async () => {
+    // Từ khi §7.6 gom nhóm bằng ClickHouse, đây là trạng thái mọi báo cáo trên
+    // file vừa tải lên đi qua trong vài giây đầu.
+    //
+    // 409 chứ KHÔNG phải vẽ tạm từ `dataset_rows`: bảng đó giờ chỉ giữ 1.000
+    // dòng mẫu, nên một biểu đồ dựng trên nó sẽ trông hoàn toàn hợp lý mà sai số
+    // liệu — và không ai có cách nào nhận ra.
     const datasetId = await uploadAndCommit(f.tokenAdminA);
     const reportId = await createReport(f.tokenAdminA, datasetId);
 
-    const configured = await configureReport(f.tokenAdminA, reportId, {
+    await configureReport(f.tokenAdminA, reportId, {
       name: 'Doanh thu theo sản phẩm',
       chartType: 'bar',
       config: { dimension: 'San pham', measure: 'Doanh thu', aggregate: 'sum', limit: 20 },
     });
-    expect(configured.status, JSON.stringify(configured.body)).toBe(200);
-    expect(configured.body.chartType).toBe('bar');
 
     const res = await request(app)
       .get(`/api/v1/reports/${reportId}/data`)
       .set(bearer(f.tokenAdminA));
 
-    expect(res.status).toBe(200);
-    const byLabel = Object.fromEntries(
-      res.body.rows.map((r: { label: string; value: number }) => [r.label, r.value]),
-    );
-    expect(byLabel['Bàn']).toBe(1700);
-    expect(byLabel['Ghế']).toBe(500);
-    expect(byLabel['Tủ']).toBe(1200);
-
-    // Nhãn trục nói bằng ngôn ngữ người dùng, không phải tên cột kỹ thuật.
-    expect(res.body.measureLabel).toContain('Doanh thu');
+    expect(res.status).toBe(409);
+    expect(res.body.error).toBe('DatasetNotLoaded');
   });
 
   it('cấu hình trỏ vào cột không tồn tại -> 400', async () => {
@@ -928,27 +935,6 @@ describe('§7.6 báo cáo được tạo RỖNG', () => {
     ).toBe(204);
   });
 
-  it('phép đếm không cần cột đo', async () => {
-    const datasetId = await uploadAndCommit(f.tokenAdminA);
-    const reportId = await createReport(f.tokenAdminA, datasetId);
-
-    const configured = await configureReport(f.tokenAdminA, reportId, {
-      name: 'Số dòng theo khu vực',
-      chartType: 'pie',
-      config: { dimension: 'Khu vuc', measure: null, aggregate: 'count', limit: 20 },
-    });
-    expect(configured.status, JSON.stringify(configured.body)).toBe(200);
-
-    const data = await request(app)
-      .get(`/api/v1/reports/${reportId}/data`)
-      .set(bearer(f.tokenAdminA));
-
-    const byLabel = Object.fromEntries(
-      data.body.rows.map((r: { label: string; value: number }) => [r.label, r.value]),
-    );
-    expect(byLabel['Hà Nội']).toBe(2);
-    expect(data.body.measureLabel).toBe('Số dòng');
-  });
 
   it('bộ dữ liệu bị xoá mềm thì báo cáo của nó biến khỏi danh sách', async () => {
     const datasetId = await uploadAndCommit(f.tokenAdminA);
@@ -967,5 +953,97 @@ describe('§7.6 báo cáo được tạo RỖNG', () => {
 
     expect(res.body.total).toBe(0);
     expect(reportId).toBeGreaterThan(0);
+  });
+});
+
+/**
+ * §7.6 với kho phân tích THẬT.
+ *
+ * Từ khi bỏ nút thắt `dataset_rows`, việc gom nhóm chạy bằng ClickHouse — nên
+ * những con số trên biểu đồ không kiểm được nếu thiếu container. Tách ra sau một
+ * cổng khai TƯỜNG MINH thay vì "thử ping rồi lặng lẽ skip": skip ngầm thì một
+ * lần chạy bỏ qua đúng phần quan trọng nhất vẫn hiện màu xanh.
+ *
+ * Tầng luôn chạy ở trên đã canh phần guard (409 khi chưa nạp, 400 khi cột sai).
+ */
+describe.skipIf(process.env['INGEST_CH_TESTS'] !== '1')('§7.6 số liệu từ kho phân tích', () => {
+  /** Tải file, chốt, rồi nạp thật vào ClickHouse — trả về id báo cáo đã dựng. */
+  async function readyReport(config: Record<string, unknown>): Promise<number> {
+    const datasetId = await uploadAndCommit(f.tokenAdminA);
+
+    const runId = await loadsRepo.enqueue(mysqlPool, f.tenantA, datasetId, f.adminA);
+    const outcome = await loadDataset(runId, f.tenantA, datasetId);
+    await datasetsRepo.markLoadStatus(mysqlPool, datasetId, 'loaded', {
+      chTable: outcome.chTable,
+      rowCount: outcome.rowsLoaded,
+    });
+
+    const reportId = await createReport(f.tokenAdminA, datasetId);
+    const configured = await configureReport(f.tokenAdminA, reportId, {
+      name: 'Báo cáo',
+      chartType: 'bar',
+      config,
+    });
+    expect(configured.status, JSON.stringify(configured.body)).toBe(200);
+    return reportId;
+  }
+
+  async function fetchData(reportId: number): Promise<Record<string, number>> {
+    const res = await request(app)
+      .get(`/api/v1/reports/${reportId}/data`)
+      .set(bearer(f.tokenAdminA));
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    lastBody = res.body;
+    return Object.fromEntries(
+      res.body.rows.map((r: { label: string; value: number }) => [r.label, r.value]),
+    );
+  }
+
+  let lastBody: { measureLabel: string; dimensionLabel: string; grouped: boolean };
+
+  it('tổng theo chiều ra đúng số — Bàn xuất hiện hai lần', async () => {
+    const reportId = await readyReport({
+      dimension: 'San pham',
+      measure: 'Doanh thu',
+      aggregate: 'sum',
+      limit: 20,
+    });
+
+    const byLabel = await fetchData(reportId);
+    expect(byLabel['Bàn']).toBe(1700);
+    expect(byLabel['Ghế']).toBe(500);
+    expect(byLabel['Tủ']).toBe(1200);
+
+    // Nhãn trục nói bằng ngôn ngữ người dùng, không phải tên cột kỹ thuật.
+    expect(lastBody.measureLabel).toContain('Doanh thu');
+  });
+
+  it('phép đếm không cần cột đo, và đếm DÒNG chứ không đếm ô có giá trị', async () => {
+    const reportId = await readyReport({
+      dimension: 'Khu vuc',
+      measure: null,
+      aggregate: 'count',
+      limit: 20,
+    });
+
+    const byLabel = await fetchData(reportId);
+    expect(byLabel['Hà Nội']).toBe(2);
+    expect(lastBody.measureLabel).toBe('Số dòng');
+  });
+
+  it('vượt `limit` thì gộp phần dư vào "Khác" và bật cờ `grouped`', async () => {
+    // Bốn dòng, ba sản phẩm. `limit` = 2 -> hiện 2 nhóm lớn nhất + "Khác".
+    const reportId = await readyReport({
+      dimension: 'San pham',
+      measure: 'Doanh thu',
+      aggregate: 'sum',
+      limit: 2,
+    });
+
+    const byLabel = await fetchData(reportId);
+    expect(lastBody.grouped).toBe(true);
+    // Tổng phải BẢO TOÀN: 1700 + 1200 + 500 = 3400, không mất dòng nào vào hư vô.
+    expect(Object.values(byLabel).reduce((a, b) => a + b, 0)).toBe(3400);
+    expect(byLabel['Khác']).toBe(500);
   });
 });

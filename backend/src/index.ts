@@ -1,9 +1,11 @@
 import type { Server } from 'node:http';
 import { createApp } from './app';
+import { closeClickhouse } from './config/clickhouse';
 import { env } from './config/env';
 import { closeMysql } from './config/mysql';
 import { closeRedis } from './config/redis';
 import { runMigrations } from './db/migrate';
+import { startIngestRunner, stopIngestRunner } from './services/ingest/runner';
 
 let server: Server | undefined;
 
@@ -21,6 +23,12 @@ async function start(): Promise<void> {
   // và đổ ra hơn hai chục dòng stack trace của node:net — trong đó không dòng
   // nào nói được việc cần làm. Bắt lấy để đổi thành một câu.
   server.on('error', onListenError);
+
+  // Vòng lặp nạp (§9.6) khởi động SAU khi cổng đã mở, và thứ tự đó có chủ ý: nó
+  // chạm ClickHouse, mà ClickHouse hoàn toàn có thể chưa chạy trên máy của người
+  // đang làm phần giao diện. Đặt trước `listen` thì máy đó không mở nổi cổng
+  // 4000 vì một thứ họ không dùng tới. Vòng lặp tự nuốt lỗi kết nối và ghi log.
+  startIngestRunner();
 }
 
 /**
@@ -63,7 +71,11 @@ async function shutdown(signal: NodeJS.Signals): Promise<void> {
     console.log('[server] HTTP server closed');
   });
 
-  const results = await Promise.allSettled([closeMysql(), closeRedis()]);
+  // TRƯỚC `closeMysql`, không phải sau: vòng lặp nạp đang giữ connection từ
+  // chính pool đó. Xem `stopIngestRunner`.
+  await stopIngestRunner();
+
+  const results = await Promise.allSettled([closeMysql(), closeRedis(), closeClickhouse()]);
   for (const result of results) {
     if (result.status === 'rejected') {
       console.error('[server] lỗi khi đóng kết nối:', result.reason);

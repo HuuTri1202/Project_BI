@@ -9,18 +9,47 @@ import type { ReactNode, ThHTMLAttributes } from 'react';
  * tầng trừu tượng phải bảo trì. Hai bảng trong khu quản trị chưa đủ để đánh đổi.
  */
 
-export function TableWrap({ children }: { children: ReactNode }): React.ReactElement {
+export function TableWrap({
+  children,
+  /**
+   * Cho bảng cuộn DỌC bên trong thay vì đẩy dài cả trang.
+   *
+   * `min-h-0` mà KHÔNG `flex-1`, và khác biệt đó nhìn thấy được: `flex-1` bắt
+   * hộp căng hết chiều cao, nên bảng ba dòng để lại một mảng trắng mênh mông
+   * tới tận đáy màn hình. Chỉ `min-h-0` thì hộp cao bằng nội dung, và chỉ co lại
+   * (rồi sinh thanh cuộn riêng) khi nội dung vượt quá chỗ còn trống.
+   *
+   * Cần cha là một flex column có `min-h-0` — xem `PageBody`.
+   */
+  fill = false,
+}: {
+  children: ReactNode;
+  fill?: boolean;
+}): React.ReactElement {
   return (
-    // overflow-x-auto: bảng có 6 cột không vừa màn hình điện thoại, cho cuộn
-    // ngang trong khung thay vì để cả trang bị đẩy rộng ra.
-    <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
+    // overflow-auto: bảng có 6 cột không vừa màn hình điện thoại, cho cuộn
+    // trong khung thay vì để cả trang bị đẩy rộng ra.
+    <div
+      className={`overflow-auto rounded-xl border border-slate-200 bg-white ${
+        fill ? 'min-h-0' : ''
+      }`}
+    >
       <table className="w-full min-w-[52rem] border-collapse text-sm">{children}</table>
     </div>
   );
 }
 
+/**
+ * `sticky top-0`: hàng tiêu đề đứng yên khi cuộn trong hộp.
+ *
+ * Không có nó, cuộn tới dòng thứ 60 là mất tên cột và người dùng phải cuộn
+ * ngược lên để nhớ cột nào là cột nào. `bg-slate-50` phải đục — nền trong suốt
+ * thì các dòng chạy XUYÊN QUA chữ tiêu đề.
+ */
 export function THead({ children }: { children: ReactNode }): React.ReactElement {
-  return <thead className="border-b border-slate-200 bg-slate-50">{children}</thead>;
+  return (
+    <thead className="sticky top-0 z-10 border-b border-slate-200 bg-slate-50">{children}</thead>
+  );
 }
 
 export function TBody({ children }: { children: ReactNode }): React.ReactElement {

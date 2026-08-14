@@ -4,13 +4,18 @@ import type {
   ConnectionPrerequisitesDto,
   DatasetDetailDto,
   DatasetDto,
+  DatasetLoadDto,
+  DatasetLoadErrorDto,
   DatasetPreviewDto,
   PageResult,
   ProjectDto,
   SourceTableDto,
   TenantDto,
   TenantRole,
+  WarehousePageDto,
+  WarehouseSchemaDto,
 } from '@bi/shared';
+import { LOAD_STATUSES_LIVE } from '@bi/shared';
 import {
   keepPreviousData,
   useMutation,
@@ -266,6 +271,133 @@ export function useDatasetPreview(id: number | null): UseQueryResult<DatasetPrev
     // Không thử lại: lỗi ở đây gần như luôn là lỗi phía CSDL nguồn (mất quyền,
     // bảng đã xoá, máy chủ không tới được), và thử lại chỉ nhân số kết nối mở ra
     // máy chủ của khách hàng lên trong khi kết quả không đổi.
+    retry: false,
+  });
+}
+
+// ─── Nạp vào kho phân tích ClickHouse (§9) ───────────────────────────────────
+
+/**
+ * Tiến độ lần nạp gần nhất, tự hỏi lại trong lúc còn chạy.
+ *
+ * ─── `refetchInterval` nhận HÀM, và đó là cả điểm mấu chốt ──────────────────
+ *
+ * Đây là chỗ đầu tiên trong dự án dùng polling, nên phải nói rõ vì sao nó bắt
+ * buộc tự tắt: một hằng số `refetchInterval: 2000` sẽ gõ cửa server hai giây một
+ * lần MÃI MÃI — kể cả khi lần nạp đã xong từ nửa tiếng trước và người dùng để
+ * tab mở qua đêm. Với vài tab như vậy thì đó là tải thật lên một pool chỉ có 10
+ * connection.
+ *
+ * Dạng hàm được react-query gọi lại sau MỖI lần fetch với dữ liệu mới nhất. Trả
+ * `false` là dừng hẳn — không cần cờ, không cần `useEffect`, và không có đường
+ * nào để quên tắt.
+ */
+export function useDatasetLoad(id: number | null): UseQueryResult<DatasetLoadDto> {
+  return useQuery({
+    queryKey: tenantKeys.datasetLoad(id),
+    queryFn: () => api.fetchLoad(id as number),
+    enabled: id !== null,
+    refetchInterval: (query) => {
+      const status = query.state.data?.datasetStatus;
+      return status !== undefined && LOAD_STATUSES_LIVE.includes(status) ? 2_000 : false;
+    },
+    // Vẫn hỏi khi tab chạy nền: bấm "Nạp lại" rồi chuyển sang tab khác làm việc
+    // là hành vi bình thường, và không có dòng này thì lúc quay lại, tiến độ vẫn
+    // đứng nguyên chỗ cũ cho tới lần focus tiếp theo.
+    refetchIntervalInBackground: true,
+    // Ghi đè `staleTime` mặc định của queryClient. Không phải để cho
+    // `refetchInterval` chạy — nó chạy bất kể staleTime — mà để lần quay lại
+    // trang không hiện một trạng thái đã cũ rồi báo "đang chạy" cho một việc đã
+    // xong.
+    staleTime: 0,
+  });
+}
+
+/**
+ * Bấm nạp / nạp lại.
+ *
+ * `invalidate` cả `datasetLoad` lẫn `datasets()`: badge ở trang danh sách đọc từ
+ * `DatasetDto.loadStatus`, nên chỉ làm mới một chỗ sẽ để trang kia hiện "Chưa
+ * nạp" cho một việc người dùng vừa tự tay bấm.
+ */
+export function useStartLoad(id: number | null): UseMutationResult<DatasetLoadDto, unknown, void> {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.startLoad(id as number),
+    onSuccess: async (data) => {
+      queryClient.setQueryData(tenantKeys.datasetLoad(id), data);
+      await queryClient.invalidateQueries({ queryKey: tenantKeys.datasets() });
+    },
+  });
+}
+
+/**
+ * Những ô không ép được kiểu (§9.8).
+ *
+ * `enabled` gồm cả `hasErrors`: bảng lỗi chỉ tồn tại khi có lỗi, nên không bắn
+ * một request để nhận về danh sách rỗng ở mọi lần mở trang chi tiết.
+ */
+export function useDatasetLoadErrors(
+  id: number | null,
+  query: { page: number; pageSize: number },
+  hasErrors: boolean,
+): UseQueryResult<PageResult<DatasetLoadErrorDto>> {
+  return useQuery({
+    queryKey: tenantKeys.datasetLoadErrors(id, query),
+    queryFn: () => api.fetchLoadErrors(id as number, query),
+    enabled: id !== null && hasErrors,
+    placeholderData: keepPreviousData,
+  });
+}
+
+/**
+ * Dữ liệu ĐÃ NẠP trong kho — dùng để đối chiếu với tab "Dữ liệu".
+ *
+ * `enabled` chỉ khi đã nạp xong: gọi lúc chưa nạp thì backend trả 409, và một
+ * lỗi đỏ hiện ra ở màn hình chưa làm gì sai là thứ dạy người dùng bỏ qua mọi
+ * thông báo lỗi sau đó.
+ *
+ * Khác `useDatasetPreview`: cái kia đọc CSDL khách hàng nên phải dè dặt
+ * (`staleTime` 60 giây, không `refetchOnWindowFocus`). Cái này đọc kho của chính
+ * ta, rẻ, nên để mặc định.
+ */
+export function useWarehousePreview(
+  id: number | null,
+  loaded: boolean,
+  query: { page: number; pageSize: number },
+): UseQueryResult<WarehousePageDto> {
+  return useQuery({
+    queryKey: tenantKeys.warehousePreview(id, query),
+    queryFn: () => api.fetchWarehousePreview(id as number, query),
+    enabled: id !== null && loaded,
+    retry: false,
+    // Giữ trang cũ hiện trong lúc tải trang mới. Không có nó, mỗi lần bấm "Sau"
+    // bảng biến thành khung xương rồi hiện lại — màn hình nhấp nháy đúng lúc
+    // người ta đang dò một giá trị.
+    placeholderData: keepPreviousData,
+    // `staleTime: 0` chứ không để mặc định 30 giây, và nó là thứ làm nút "Nạp
+    // lại" trung thực: trong lúc nạp lại, `loaded` thành false nên query tắt
+    // nhưng vẫn GIỮ dữ liệu cũ trong cache. Lúc nạp xong query bật lại — với
+    // staleTime mặc định nó sẽ hiện y nguyên bảng CŨ thêm 30 giây nữa, đúng
+    // khoảnh khắc người dùng đang nhìn để kiểm tra xem lần nạp có ăn không.
+    staleTime: 0,
+  });
+}
+
+/**
+ * Cấu trúc bảng trong kho — kiểu ClickHouse THẬT.
+ *
+ * Cùng `enabled` với `useWarehousePreview` và cùng lý do: chưa nạp thì backend
+ * trả 409, và tab "Cấu trúc" phải rơi về cấu trúc nguồn chứ không hiện lỗi đỏ.
+ */
+export function useWarehouseSchema(
+  id: number | null,
+  loaded: boolean,
+): UseQueryResult<WarehouseSchemaDto> {
+  return useQuery({
+    queryKey: tenantKeys.warehouseSchema(id),
+    queryFn: () => api.fetchWarehouseSchema(id as number),
+    enabled: id !== null && loaded,
     retry: false,
   });
 }

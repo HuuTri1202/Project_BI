@@ -1,4 +1,9 @@
-import { CHART_TYPE_LABELS, type ChartType, type ReportDataDto } from '@bi/shared';
+import {
+  CHART_TYPE_LABELS,
+  REPORT_ERROR_CODES,
+  type ChartType,
+  type ReportDataDto,
+} from '@bi/shared';
 import { useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import type { TopLevelSpec } from 'vega-lite';
@@ -6,6 +11,7 @@ import { usePermissions } from '../auth/usePermissions';
 import { VegaChart } from '../components/charts/VegaChart';
 import { Badge } from '../components/ui/Badge';
 import { Button } from '../components/ui/Button';
+import { Page, PageBody, PageHeader } from '../components/ui/Page';
 import { ConfirmDialog } from '../components/ui/ConfirmDialog';
 import { TBody, Td, Th, THead, TableWrap, Tr } from '../components/ui/Table';
 import { ErrorState, TableSkeleton } from '../components/ui/states';
@@ -57,6 +63,14 @@ export default function ReportPage(): React.ReactElement {
   );
 
   /**
+   * Bộ dữ liệu chưa vào kho phân tích — trạng thái bình thường, không phải lỗi.
+   *
+   * Phải khai SAU `data`, và đó là lý do nó không nằm cạnh `notConfigured`.
+   */
+  const notLoaded =
+    data.isError && getApiError(data.error).error === REPORT_ERROR_CODES.DATASET_NOT_LOADED;
+
+  /**
    * Spec được `useMemo`: `VegaChart` dựng lại toàn bộ view mỗi khi tham chiếu
    * `spec` đổi, nên một object literal trong JSX sẽ tạo lại biểu đồ sau MỖI lần
    * render — nhấp nháy liên tục và rò bộ nhớ.
@@ -71,47 +85,61 @@ export default function ReportPage(): React.ReactElement {
   }
 
   return (
-    <div className="mx-auto max-w-5xl">
-      <nav className="mb-4 text-sm">
-        <Link to="/" className="text-slate-500 hover:text-slate-700">
-          ← Trang chủ
-        </Link>
-      </nav>
-
-      <header className="flex flex-wrap items-start justify-between gap-4">
-        <div className="min-w-0">
-          <h1 className="text-xl font-bold text-slate-900">
+    <Page width="5xl">
+      <PageHeader
+        title={
+          <>
+            <Link to="/" className="font-normal text-brand-700 hover:underline">
+              Trang chủ
+            </Link>
+            <span aria-hidden="true" className="mx-2 font-normal text-slate-300">
+              /
+            </span>
             {report.data?.name ?? 'Đang tải…'}
-          </h1>
-          {report.data && (
-            <p className="mt-1 flex flex-wrap items-center gap-2 text-sm text-slate-500">
+          </>
+        }
+        description={
+          report.data ? (
+            <span className="flex flex-wrap items-center gap-2">
               {report.data.chartType === null ? (
                 <Badge tone="warning">Chưa có biểu đồ</Badge>
               ) : (
                 <Badge tone="neutral">{CHART_TYPE_LABELS[report.data.chartType]}</Badge>
               )}
-              <span>
-                Dữ liệu từ <span className="font-medium">{report.data.datasetName}</span>
-              </span>
+              <span>{report.data.datasetName}</span>
               <span>· {report.data.creatorName ?? 'Không rõ'}</span>
-            </p>
-          )}
-        </div>
+            </span>
+          ) : undefined
+        }
+        actions={
+          permissions.can('report', 'delete') && report.data ? (
+            <Button variant="ghost" onClick={() => setConfirming(true)}>
+              <span className="text-red-600">Xoá báo cáo</span>
+            </Button>
+          ) : undefined
+        }
+      />
 
-        {permissions.can('report', 'delete') && report.data && (
-          <Button variant="ghost" onClick={() => setConfirming(true)}>
-            <span className="text-red-600">Xoá báo cáo</span>
-          </Button>
-        )}
-      </header>
-
-      <section className="mt-6 rounded-xl border border-slate-200 bg-white p-5">
+      <PageBody>
+      <section className="rounded-xl border border-slate-200 bg-white p-5">
         {/* Báo cáo vừa được wizard tạo: chưa có biểu đồ, và đó là trạng thái
             bình thường. Nói rõ bước tiếp theo thay vì để một khung trống. */}
         {notConfigured && <NotConfigured datasetName={report.data?.datasetName ?? ''} />}
 
         {!notConfigured && data.isPending && <TableSkeleton rows={4} />}
-        {!notConfigured && data.isError && (
+
+        {/* Bộ dữ liệu chưa vào kho phân tích — trạng thái BÌNH THƯỜNG kéo dài
+            vài giây sau khi tải file lên, không phải sự cố. Hộp đỏ ở đây dạy
+            người dùng rằng hệ thống hay hỏng vặt, đúng cái bẫy mà khối
+            `notConfigured` ngay trên đã tránh. Hook tự hỏi lại mỗi 3 giây nên
+            biểu đồ tự hiện, không cần F5. */}
+        {!notConfigured && notLoaded && (
+          <p className="py-10 text-center text-sm text-slate-500">
+            Đang nạp bộ dữ liệu vào kho phân tích… biểu đồ sẽ tự hiện khi xong.
+          </p>
+        )}
+
+        {!notConfigured && !notLoaded && data.isError && (
           <ErrorState message={getApiError(data.error).message} />
         )}
 
@@ -176,9 +204,10 @@ export default function ReportPage(): React.ReactElement {
         }}
       >
         Xoá <strong>{report.data?.name}</strong>? Bộ dữ liệu vẫn giữ nguyên, bạn dựng lại báo cáo
-        khác từ nó được.
-      </ConfirmDialog>
-    </div>
+          khác từ nó được.
+        </ConfirmDialog>
+      </PageBody>
+    </Page>
   );
 }
 
@@ -206,9 +235,8 @@ function NotConfigured({ datasetName }: { datasetName: string }): React.ReactEle
       </svg>
       <p className="mt-3 text-sm font-medium text-slate-700">Báo cáo chưa có biểu đồ</p>
       <p className="mx-auto mt-1 max-w-md text-sm text-slate-500">
-        Bộ dữ liệu <span className="font-medium text-slate-700">{datasetName}</span> đã sẵn sàng.
-        Trình dựng biểu đồ sẽ được bổ sung ở bước sau — khi có, bạn kéo thả cột vào đây để tạo
-        biểu đồ.
+        Bộ dữ liệu <span className="font-medium text-slate-700">{datasetName}</span> đã sẵn sàng
+        nhưng chưa chọn cột để vẽ.
       </p>
     </div>
   );
