@@ -1,11 +1,11 @@
 import type { PermissionFlag } from '../auth/usePermissions';
 import { useEffect, useState } from 'react';
-import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
+import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { usePermissions } from '../auth/usePermissions';
+import { AccountMenu } from '../components/ui/AccountMenu';
 import { useAuth } from '../auth/useAuth';
 import { TenantSwitcher } from '../features/tenant/TenantSwitcher';
 import { WorkspaceSwitcher } from '../features/tenant/WorkspaceSwitcher';
-import { ROLE_LABELS } from '../types/auth';
 import { useWorkspace } from '../workspace/useWorkspace';
 
 /**
@@ -46,11 +46,6 @@ const NAV_ITEMS: NavItem[] = [
     to: '/home',
     exact: true,
     icon: 'M3 11.5 12 4l9 7.5M5.5 10V20h13V10',
-  },
-  {
-    label: 'Hồ sơ cá nhân',
-    to: '/profile',
-    icon: 'M16 20v-2a4 4 0 0 0-8 0v2M12 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z',
   },
   /*
    * §7.8 + §8.5 — MỘT mục cho cả hai nguồn dữ liệu.
@@ -100,9 +95,13 @@ function NavIcon({ path }: { path: string }): React.ReactElement {
   );
 }
 
-function SidebarContent({ items }: { items: NavItem[] }): React.ReactElement {
-  const { user, tenant, role, logout } = useAuth();
-
+function SidebarContent({
+  items,
+  onNavigate,
+}: {
+  items: NavItem[];
+  onNavigate?: () => void;
+}): React.ReactElement {
   return (
     <>
       <div className="flex h-16 shrink-0 items-center px-6">
@@ -148,49 +147,9 @@ function SidebarContent({ items }: { items: NavItem[] }): React.ReactElement {
           đây thì bảng dữ liệu nhận thêm đúng 64px đó, và tài khoản về đúng chỗ
           quen thuộc: góc dưới cùng bên trái. */}
       <div className="shrink-0 border-t border-slate-800 p-3">
-        <Link
-          to="/profile"
-          className="flex items-center gap-3 rounded-lg px-2 py-2 transition-colors hover:bg-slate-800"
-        >
-          <span
-            aria-hidden="true"
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-brand-600 text-sm font-semibold text-white"
-          >
-            {user?.fullName?.trim().charAt(0).toUpperCase() ?? '?'}
-          </span>
-          {/* `min-w-0` để `truncate` bên trong có tác dụng: một flex item mặc
-              định không chịu hẹp hơn nội dung, nên thiếu nó thì tên dài đẩy rộng
-              cả khối thay vì bị cắt bằng dấu ba chấm. */}
-          <span className="min-w-0">
-            <span className="block truncate text-sm font-medium text-white">
-              {user?.fullName ?? '—'}
-            </span>
-            <span className="block truncate text-xs text-slate-400">
-              {tenant?.name} · {role ? ROLE_LABELS[role] : ''}
-            </span>
-          </span>
-        </Link>
-
-        <button
-          type="button"
-          onClick={() => void logout()}
-          className="mt-1 flex w-full items-center gap-3 rounded-lg px-2 py-2 text-sm font-medium text-slate-400 transition-colors hover:bg-slate-800 hover:text-white"
-        >
-          <svg
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.7"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            className="h-5 w-5 shrink-0"
-            aria-hidden="true"
-          >
-            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" />
-          </svg>
-          Đăng xuất
-        </button>
+        <AccountMenu onNavigate={onNavigate} />
       </div>
+
     </>
   );
 }
@@ -240,7 +199,7 @@ export function UserLayout(): React.ReactElement {
             className="absolute inset-0 bg-slate-900/60"
           />
           <aside className="absolute inset-y-0 left-0 flex w-64 flex-col bg-slate-900">
-            <SidebarContent items={items} />
+            <SidebarContent items={items} onNavigate={() => setMobileOpen(false)} />
           </aside>
         </div>
       )}

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../auth/useAuth';
-import { ROLE_LABELS } from '../types/auth';
+import { AccountMenu } from '../components/ui/AccountMenu';
 
 /**
  * Khung trang quản trị — §3.1: sidebar + topbar.
@@ -52,9 +52,7 @@ function NavIcon({ path }: { path: string }): React.ReactElement {
   );
 }
 
-function SidebarContent(): React.ReactElement {
-  const { user, tenant, role, logout } = useAuth();
-
+function SidebarContent({ onNavigate }: { onNavigate?: () => void }): React.ReactElement {
   return (
     <>
       <div className="flex h-16 shrink-0 items-center px-6">
@@ -103,8 +101,9 @@ function SidebarContent(): React.ReactElement {
       {/* Tài khoản + đường về khu làm việc, đặt ở CHÂN sidebar thay vì trên thanh
           ngang. Xem ghi chú cùng chỗ trong `UserLayout`. */}
       <div className="shrink-0 border-t border-slate-800 p-3">
-        {/* Không có link này thì vào khu quản trị xong là kẹt: ở đây không có
-            đường nào dẫn ngược ra, chỉ còn cách gõ tay địa chỉ hoặc đăng xuất. */}
+        {/* "Khu làm việc" ở NGOÀI menu tài khoản, vì nó là điều hướng chứ không
+            phải thao tác tài khoản — và không có nó thì vào khu quản trị xong là
+            kẹt: ở đây không có đường nào dẫn ngược ra. */}
         <Link
           to="/home"
           className="flex items-center gap-3 rounded-lg px-2 py-2 text-sm font-medium text-slate-300 transition-colors hover:bg-slate-800 hover:text-white"
@@ -124,44 +123,11 @@ function SidebarContent(): React.ReactElement {
           Khu làm việc
         </Link>
 
-        <div className="mt-1 flex items-center gap-3 rounded-lg px-2 py-2">
-          <span
-            aria-hidden="true"
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-brand-600 text-sm font-semibold text-white"
-          >
-            {user?.fullName?.trim().charAt(0).toUpperCase() ?? '?'}
-          </span>
-          {/* `min-w-0` để `truncate` bên trong có tác dụng — xem `UserLayout`. */}
-          <span className="min-w-0">
-            <span className="block truncate text-sm font-medium text-white">
-              {user?.fullName ?? '—'}
-            </span>
-            <span className="block truncate text-xs text-slate-400">
-              {tenant?.name} · {role ? ROLE_LABELS[role] : ''}
-            </span>
-          </span>
+        <div className="mt-1">
+          <AccountMenu onNavigate={onNavigate} />
         </div>
-
-        <button
-          type="button"
-          onClick={() => void logout()}
-          className="mt-1 flex w-full items-center gap-3 rounded-lg px-2 py-2 text-sm font-medium text-slate-400 transition-colors hover:bg-slate-800 hover:text-white"
-        >
-          <svg
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.7"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            className="h-5 w-5 shrink-0"
-            aria-hidden="true"
-          >
-            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" />
-          </svg>
-          Đăng xuất
-        </button>
       </div>
+
     </>
   );
 }
@@ -206,7 +172,7 @@ export function AdminLayout(): React.ReactElement {
             className="absolute inset-0 bg-slate-900/60"
           />
           <aside className="absolute inset-y-0 left-0 flex w-64 flex-col bg-slate-900">
-            <SidebarContent />
+            <SidebarContent onNavigate={() => setMobileOpen(false)} />
           </aside>
         </div>
       )}
