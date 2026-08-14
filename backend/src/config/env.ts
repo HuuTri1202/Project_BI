@@ -171,7 +171,13 @@ function loadEnv(): Env {
         '[env] Cấu hình môi trường không hợp lệ:',
         details,
         '',
-        'Khắc phục: cp .env.example .env  rồi điền giá trị (xem README.md).',
+        // TUYỆT ĐỐI không khuyên `cp .env.example .env` ở đây. Nguyên nhân phổ
+        // biến nhất của thông báo này là `.env` ĐÃ CÓ nhưng thiếu biến mà một
+        // nhánh vừa merge thêm vào — và chép đè lên nó sẽ xoá mất
+        // CONNECTION_ENCRYPTION_KEY, khiến mọi mật khẩu kết nối đã lưu vĩnh viễn
+        // không giải mã được. `npm run setup` chỉ BỔ SUNG biến còn thiếu.
+        'Khắc phục: chạy  npm run setup  ở thư mục gốc — lệnh này bổ sung biến',
+        'còn thiếu vào .env và KHÔNG đụng tới giá trị bạn đã đặt.',
       ].join('\n'),
     );
     process.exit(1);

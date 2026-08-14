@@ -38,12 +38,17 @@ const GENERATED_SECRETS = [
  *
  * Khớp theo `^KEY=` ở đầu dòng nên chú thích phía trên biến (kể cả dòng có chứa
  * tên biến đó) không bị đụng tới.
+ *
+ * `only` giới hạn phạm vi, và nó BẮT BUỘC phải có ở nhánh bổ sung biến thiếu:
+ * sinh lại `CONNECTION_ENCRYPTION_KEY` cho một file đã dùng nghĩa là mọi mật
+ * khẩu kết nối đã lưu không giải mã được nữa, và không có đường khôi phục.
  */
-function fillSecrets(path) {
+function fillSecrets(path, only = null) {
   let text = readFileSync(path, 'utf8');
   const filled = [];
 
   for (const { key, bytes, encoding } of GENERATED_SECRETS) {
+    if (only !== null && !only.has(key)) continue;
     const pattern = new RegExp(`^${key}=.*$`, 'm');
     if (!pattern.test(text)) continue;
     text = text.replace(pattern, `${key}=${randomBytes(bytes).toString(encoding)}`);
@@ -54,6 +59,55 @@ function fillSecrets(path) {
     writeFileSync(path, text);
     console.log(`[setup]   ↳ đã sinh bí mật ngẫu nhiên: ${filled.join(', ')}`);
   }
+}
+
+/** Mọi tên biến khai ở đầu dòng trong một file .env. */
+function keysIn(text) {
+  return new Set([...text.matchAll(/^([A-Z0-9_]+)=/gm)].map((m) => m[1]));
+}
+
+/**
+ * Bổ sung vào `.env` đã có những biến MỚI xuất hiện trong `.env.example`.
+ *
+ * ─── Vì sao cần ─────────────────────────────────────────────────────────────
+ *
+ * `.env` không nằm trong Git, nên nó đứng yên trong khi `.env.example` đi tiếp
+ * cùng mã nguồn. Mỗi lần một nhánh thêm biến bắt buộc (mục §7 thêm bốn biến S3
+ * chẳng hạn), người đã có `.env` từ trước sẽ `git pull` xong rồi gặp backend
+ * chết ngay lúc boot — mà triệu chứng ở giao diện lại là "đăng nhập lỗi", cách
+ * xa nguyên nhân thật vài tầng.
+ *
+ * ─── Luật ───────────────────────────────────────────────────────────────────
+ *
+ * CHỈ THÊM, không bao giờ sửa và không bao giờ xoá. Biến đã có trong `.env` giữ
+ * nguyên giá trị dù `.env.example` có ghi khác — đó là chỗ người dùng để cấu
+ * hình riêng của máy mình (đổi cổng vì bị trùng, mật khẩu khác…), và ghi đè lên
+ * nó là làm hỏng đúng thứ file này sinh ra để giữ.
+ */
+function addMissingKeys(src, dest) {
+  const example = readFileSync(src, 'utf8');
+  const current = readFileSync(dest, 'utf8');
+
+  const have = keysIn(current);
+  const missing = [...keysIn(example)].filter((key) => !have.has(key));
+  if (missing.length === 0) return [];
+
+  const lines = missing.map(
+    (key) => new RegExp(`^${key}=.*$`, 'm').exec(example)?.[0] ?? `${key}=`,
+  );
+
+  writeFileSync(
+    dest,
+    `${current.replace(/\s*$/, '')}\n\n` +
+      `# ─── Biến mới, thêm tự động bởi \`npm run setup\` ───\n` +
+      `# Giá trị lấy từ .env.example. Kiểm lại nếu máy bạn dùng cấu hình riêng.\n` +
+      `${lines.join('\n')}\n`,
+  );
+
+  console.log(`[setup]   ↳ đã bổ sung ${missing.length} biến mới: ${missing.join(', ')}`);
+  // Chỉ sinh bí mật cho những biến VỪA thêm — xem ghi chú của `fillSecrets`.
+  fillSecrets(dest, new Set(missing));
+  return missing;
 }
 
 /** [file mẫu, file đích] */
@@ -76,6 +130,8 @@ for (const [from, to] of pairs) {
   }
   if (existsSync(dest)) {
     console.log(`[setup] = giữ nguyên ${to} (đã có)`);
+    // File đã có KHÔNG bị ghi đè, nhưng vẫn được đối chiếu để bổ sung biến mới.
+    addMissingKeys(src, dest);
     kept++;
     continue;
   }

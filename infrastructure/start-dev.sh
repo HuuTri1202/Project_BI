@@ -104,11 +104,22 @@ if [ "$RECREATE" = true ]; then
 fi
 
 # -d = detached: containers chạy nền, script tiếp tục chạy.
-# Chỉ khởi động service lõi. Hạ tầng còn lại (MinIO, ClickHouse, Cube, Kafka,
-# dbt) nằm sau profile, bật riêng khi cần — xem cuối script.
-$DC up -d mysql redis
+#
+# MinIO nằm trong nhóm LÕI kể từ khi mục §7 (tải file lên) vào nhánh main, dù nó
+# vẫn khai `profiles: ["data"]` trong compose. Lý do phải bật mặc định: trình
+# duyệt PUT file THẲNG lên MinIO bằng URL ký sẵn, nên khi MinIO không chạy thì
+# backend vẫn trả 201 cho bước ký URL và log của nó sạch bong — còn người dùng
+# thì nhận "Có lỗi không xác định". Triệu chứng nằm cách nguyên nhân đúng một
+# tiến trình, và không có gì trong log dẫn được từ bên này sang bên kia.
+#
+# `minio-init` tạo bucket `bi-datasets` rồi tự thoát; không có nó thì mọi lần
+# PUT đều trả NoSuchBucket.
+#
+# Phần còn lại (ClickHouse, Cube, Kafka, dbt) vẫn nằm sau profile — xem cuối
+# script.
+$DC --profile data up -d mysql redis minio minio-init
 
-ok "Đã gửi lệnh khởi động MySQL + Redis."
+ok "Đã gửi lệnh khởi động MySQL + Redis + MinIO."
 
 # =============================================================================
 # BƯỚC 3: Chờ MySQL và Redis thực sự sẵn sàng
@@ -160,6 +171,7 @@ wait_for_health() {
 FAILED=false
 wait_for_health "bi-mysql" "MySQL" 180 || FAILED=true
 wait_for_health "bi-redis" "Redis" 60  || FAILED=true
+wait_for_health "bi-minio" "MinIO" 60  || FAILED=true
 
 if [ "$FAILED" = true ]; then
   echo
@@ -224,7 +236,7 @@ echo "    npm run dev:api           # chỉ backend"
 echo "    npm run dev:web           # chỉ frontend"
 echo
 echo "  ${BOLD}Bật thêm hạ tầng theo nhu cầu (profile)${NC}"
-echo "    ${DC} --profile data up -d      # + MinIO, ClickHouse"
+echo "    ${DC} --profile data up -d      # + ClickHouse (MinIO đã chạy sẵn)"
 echo "    ${DC} --profile bi   up -d      # + Cube.js (kéo theo ClickHouse)"
 echo "    ${DC} --profile stream up -d    # + Kafka, Debezium Connect"
 echo "    ${DC} --profile tools  up -d    # + dbt"

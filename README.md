@@ -66,9 +66,12 @@ npm run infra:up
 npm run dev
 ```
 
-- `infra:up` kiểm tra Docker → khởi động MySQL + Redis → chờ tới khi **thật sự**
-  healthy (không chỉ "đã start") → in thông tin kết nối. Lần đầu mất khoảng
-  **1–2 phút** vì MySQL phải khởi tạo data directory.
+- `infra:up` kiểm tra Docker → khởi động **MySQL + Redis + MinIO** → chờ tới khi
+  **thật sự** healthy (không chỉ "đã start") → in thông tin kết nối. Lần đầu mất
+  khoảng **1–2 phút** vì MySQL phải khởi tạo data directory.
+  MinIO nằm trong nhóm lõi vì mục §7 tải file lên cần nó: trình duyệt PUT file
+  **thẳng** lên MinIO bằng URL ký sẵn, nên MinIO tắt thì backend vẫn trả `201`
+  cho bước ký URL và log sạch bong, còn người dùng nhận "Có lỗi không xác định".
 - `dev` chạy song song backend và frontend, log gắn nhãn `[api]` / `[web]` theo
   màu. **Ctrl+C tắt cả hai.**
 
@@ -463,7 +466,9 @@ Casbin và query proxy giờ đã có `sub` để làm việc: `req.auth` mang
 | Triệu chứng                                                      | Nguyên nhân & cách xử lý                                                                                                                                                               |
 | ---------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `$'\r': command not found` khi chạy `.sh`                        | File bị CRLF. `git rm --cached -r . && git reset --hard`                                                                                                                               |
-| Backend thoát ngay, in `[env] Cấu hình môi trường không hợp lệ`  | Thiếu biến trong `.env`. Đối chiếu với `.env.example`                                                                                                                                  |
+| Backend thoát ngay, in `[env] Cấu hình môi trường không hợp lệ`  | `.env` thiếu biến mà một nhánh vừa merge thêm vào. Chạy `npm run setup` — nó bổ sung biến mới và **không** đụng giá trị đang có                                                         |
+| Đăng nhập/đăng ký báo "Có lỗi không xác định. Vui lòng thử lại." | Backend không chạy nên request không tới đâu cả. Xem log terminal `[api]`; hay gặp nhất là dòng `[env] Cấu hình môi trường không hợp lệ` ở trên                                        |
+| Tải file lên thất bại, nhưng log `[api]` chỉ thấy `POST /datasets/uploads 201` | MinIO không chạy. Backend chỉ **ký URL** — trình duyệt mới là bên PUT file, nên lỗi không lọt vào log backend. `npm run infra:up`, hoặc kiểm bằng `docker ps \| grep bi-minio` |
 | `/health/ready` trả 503                                          | Container chưa chạy hoặc sai password. `docker compose ps`                                                                                                                             |
 | Cube báo `ECONNREFUSED` tới ClickHouse                           | Mount cả thư mục `config.d` dạng `:ro` chặn image ghi `docker_related_config.xml`, ClickHouse chỉ nghe `127.0.0.1`. Compose đã mount từng file — đừng đổi lại                          |
 | Kafka client trên host timeout                                   | Phải dùng `localhost:29092` (listener `PLAINTEXT_HOST`), không phải 9092                                                                                                               |
