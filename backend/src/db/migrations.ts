@@ -887,4 +887,259 @@ export const migrations: readonly Migration[] = [
       // sách phình ra mà không đổi ai làm được gì.
     ],
   },
+
+  {
+    id: 10,
+    name: 'datamodel_core',
+    statements: [
+      // ═══ §10 Mô hình dữ liệu & Quan hệ ═══════════════════════════════════
+      //
+      // §9 đưa MỌI bộ dữ liệu vào một bảng `raw_t{tenant}_d{dataset}` trong
+      // ClickHouse. Nhưng những bảng đó là dữ liệu THÔ: cột tên `SL_BAN`, kiểu
+      // `Nullable(Float64)`, và không có gì nói cho máy biết cột nào để NHÓM,
+      // cột nào để ĐO, hay hai bảng nối nhau bằng khoá nào.
+      //
+      // Những bảng dưới đây là TẦNG NGỮ NGHĨA đó. Chúng không chứa một dòng dữ
+      // liệu nghiệp vụ nào — chỉ chứa lời mô tả về dữ liệu nằm ở ClickHouse.
+      // Express đọc chúng để SINH RA file cube schema cho Cube.js (ADR-08).
+      //
+      // Ranh giới phải giữ cho rõ, cùng tinh thần với ghi chú ở migration 9:
+      // ngày nào có người thêm cột "dữ liệu" vào đây thì hệ thống có hai nguồn
+      // sự thật, và không ai biết nguồn nào đúng.
+      //
+      // ─── Xoá mềm hay xoá cứng: KHÔNG đồng nhất, và đó là chủ ý ───────────
+      //
+      //   xoá mềm   datamodels, datamodel_measures, datamodel_relationships
+      //   xoá cứng  datamodel_datasets, datamodel_columns
+      //
+      // Ranh giới là: thứ NGƯỜI DÙNG ĐẶT TÊN và có thể muốn lấy lại thì xoá
+      // mềm; dòng NỐI mà cả mục đích tồn tại là để cascade thì xoá cứng. Gỡ một
+      // bộ dữ liệu khỏi mô hình PHẢI kéo theo cột và thước đo của nó — xoá mềm ở
+      // đó chỉ để lại rác mà bộ sinh schema vẫn đem đi sinh.
+      //
+      // Ghi ra đây vì đây là chỗ người đọc sẽ thấy sự khác nhau và tưởng là sơ
+      // suất.
+
+      // ─── datamodels ──────────────────────────────────────────────────────
+      //
+      // Thuộc về WORKSPACE chứ không phải cả tổ chức: một mô hình là cách một
+      // nhóm nhìn dữ liệu của họ, và hai phòng ban nhìn cùng một bảng theo hai
+      // cách khác nhau là chuyện bình thường.
+      `CREATE TABLE IF NOT EXISTS datamodels (
+        id           BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+        tenant_id    BIGINT UNSIGNED NOT NULL,
+        workspace_id BIGINT UNSIGNED NOT NULL,
+        name         VARCHAR(255) NOT NULL,
+        description  VARCHAR(500) NULL,
+        created_by   BIGINT UNSIGNED NULL,
+        deleted_at   DATETIME(3) NULL,
+        created_at   DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+        updated_at   DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3)
+                                  ON UPDATE CURRENT_TIMESTAMP(3),
+        PRIMARY KEY (id),
+        KEY idx_datamodels_tenant_deleted (tenant_id, deleted_at),
+        KEY idx_datamodels_workspace (tenant_id, workspace_id, deleted_at),
+        CONSTRAINT fk_datamodels_workspace FOREIGN KEY (tenant_id, workspace_id)
+          REFERENCES workspaces (tenant_id, id) ON DELETE CASCADE,
+        CONSTRAINT fk_datamodels_creator FOREIGN KEY (created_by)
+          REFERENCES users (id) ON DELETE SET NULL
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+
+      // Điều kiện để làm ĐÍCH của khoá ngoại ghép — cùng lý do đã ghi ở
+      // migration 9 khi `datasets` phải thêm chỉ số này. `id` đã là khoá chính
+      // nên đây không thêm ràng buộc thật nào, nó chỉ khai với InnoDB rằng cặp
+      // (tenant_id, id) là duy nhất để cặp đó được tham chiếu.
+      `ALTER TABLE datamodels ADD UNIQUE KEY uq_datamodels_tenant_id (tenant_id, id)`,
+
+      // ─── datamodel_datasets: một mô hình gom NHIỀU bộ dữ liệu ────────────
+      //
+      // Nhiều chứ không phải một, và đó là điều kiện để tab Quan hệ có nghĩa:
+      // JOIN cần ít nhất hai bảng.
+      //
+      // XOÁ CỨNG, không `deleted_at` — khác hẳn `datamodels` ngay trên. Đây là
+      // dòng NỐI, không phải tài liệu người dùng đặt tên. Gỡ một bộ dữ liệu khỏi
+      // mô hình PHẢI kéo theo cột, thước đo và quan hệ trỏ vào nó; xoá mềm sẽ để
+      // lại những thước đo mồ côi mà bộ sinh schema vẫn đem đi sinh, trỏ vào một
+      // cube không còn tồn tại.
+      //
+      // `canvas_x/y` nằm ngay đây chứ không ở bảng riêng: một thẻ trên canvas
+      // ĐÚNG BẰNG một dòng ở đây, nên canvas lấy node và vị trí trong một truy
+      // vấn. Kéo thẻ chỉ ghi hai cột INT và cố ý KHÔNG đụng `updated_at` của
+      // `datamodels` — di chuyển một cái hộp không phải thay đổi ngữ nghĩa, và
+      // nó không được làm Cube biên dịch lại schema.
+      `CREATE TABLE IF NOT EXISTS datamodel_datasets (
+        id           BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+        tenant_id    BIGINT UNSIGNED NOT NULL,
+        datamodel_id BIGINT UNSIGNED NOT NULL,
+        dataset_id   BIGINT UNSIGNED NOT NULL,
+        canvas_x     INT NOT NULL DEFAULT 0,
+        canvas_y     INT NOT NULL DEFAULT 0,
+        created_at   DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+        PRIMARY KEY (id),
+        UNIQUE KEY uq_datamodel_datasets (datamodel_id, dataset_id),
+        UNIQUE KEY uq_datamodel_datasets_tenant_id (tenant_id, id),
+        CONSTRAINT fk_dmd_datamodel FOREIGN KEY (tenant_id, datamodel_id)
+          REFERENCES datamodels (tenant_id, id) ON DELETE CASCADE,
+        CONSTRAINT fk_dmd_dataset FOREIGN KEY (tenant_id, dataset_id)
+          REFERENCES datasets (tenant_id, id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+
+      // ─── datamodel_columns: ngữ nghĩa từng cột (§10.3) ───────────────────
+      //
+      // Vì sao KHÔNG nhét vào `dataset_columns`: bảng đó mô tả NGUỒN và dùng
+      // chung cho mọi mô hình. Ngữ nghĩa thì thuộc về MÔ HÌNH — cùng một cột
+      // `SL_BAN` có thể là thước đo trong mô hình bán hàng và là chiều trong mô
+      // hình tồn kho. Nhét chung là bắt hai mô hình ghi đè lên nhau.
+      //
+      // `role` có BA giá trị, không phải hai cộng một cờ `included`:
+      //   dimension  cột để nhóm
+      //   measure    cột để đo
+      //   hidden     không hiện ở bất kỳ bộ chọn nào
+      // `hidden` phục vụ hai việc cùng lúc — `_row_index` (cột hệ thống, không
+      // bao giờ được lọt vào bộ chọn) và cột người dùng chủ động bỏ. Hai việc
+      // đó có cùng một hệ quả nên không đáng hai cột.
+      //
+      // `ch_type` là ẢNH CHỤP kiểu lúc phân loại, KHÔNG phải nguồn sự thật —
+      // `system.columns` mới là nguồn. Nó tồn tại để phát hiện LỆCH: nạp lại bộ
+      // dữ liệu có thể biến `Int64` thành `String`, và khi đó tab Schemas nói
+      // được "kiểu cột đã đổi" thay vì lặng lẽ `sum()` trên văn bản. Tuyệt đối
+      // không đọc cột này để dựng SQL.
+      `CREATE TABLE IF NOT EXISTS datamodel_columns (
+        id                   BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+        tenant_id            BIGINT UNSIGNED NOT NULL,
+        datamodel_dataset_id BIGINT UNSIGNED NOT NULL,
+        column_name          VARCHAR(255) NOT NULL,
+        alias                VARCHAR(255) NULL,
+        role                 ENUM('dimension','measure','hidden') NOT NULL,
+        ch_type              VARCHAR(255) NOT NULL,
+        ordinal              INT UNSIGNED NOT NULL,
+        created_at           DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+        updated_at           DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3)
+                                          ON UPDATE CURRENT_TIMESTAMP(3),
+        PRIMARY KEY (id),
+        UNIQUE KEY uq_datamodel_columns (datamodel_dataset_id, column_name),
+        UNIQUE KEY uq_datamodel_columns_tenant_id (tenant_id, id),
+        KEY idx_datamodel_columns_order (datamodel_dataset_id, ordinal),
+        CONSTRAINT fk_dmc_dataset FOREIGN KEY (tenant_id, datamodel_dataset_id)
+          REFERENCES datamodel_datasets (tenant_id, id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+
+      // ─── datamodel_measures: thước đo do NGƯỜI DÙNG định nghĩa (§10.6) ───
+      //
+      // Khác `datamodel_columns.role='measure'`: cái kia nói "cột này là số, đo
+      // được"; cái này là một thước đo có TÊN và có PHÉP TÍNH — "Tổng doanh thu"
+      // = SUM(Doanh_thu). Một cột đẻ ra được nhiều thước đo (tổng, trung bình,
+      // lớn nhất) nên đây bắt buộc là bảng riêng.
+      //
+      // `datamodel_column_id` cho phép NULL, và nó null CHÍNH XÁC khi
+      // `agg = 'count'` — đếm dòng thì không có cột nào để đếm, đúng nghĩa mà
+      // `aggregateWarehouse.ts` đã dùng cho `count`. Ràng buộc này cưỡng chế ở
+      // tầng service chứ không bằng CHECK: MySQL 8 có hỗ trợ CHECK nhưng thông
+      // báo lỗi của nó không dịch được sang một câu tiếng Việt dùng được.
+      //
+      // Trỏ bằng ID CỘT chứ không phải tên cột: đổi alias không làm hỏng thước
+      // đo, và không thể định nghĩa thước đo trên một cột không nằm trong mô
+      // hình — chính database từ chối.
+      //
+      // UNIQUE (datamodel_id, name): tên thước đo trở thành ĐỊNH DANH trong file
+      // cube, nên trùng tên nghĩa là thước đo sau đè thước đo trước và một cái
+      // biến mất trong im lặng — đúng lỗi mà `commit.ts` đã phải xử lý với tên
+      // cột trùng trong file Excel.
+      //
+      // Xoá MỀM (khác `datamodel_columns` ngay trên, và đây là chủ ý): thước đo
+      // là thứ người dùng đặt tên và một báo cáo sẽ trỏ tới id của nó. Xoá cứng
+      // để lại một id treo mà không có cách nào nói "thước đo này đã bị xoá".
+      `CREATE TABLE IF NOT EXISTS datamodel_measures (
+        id                   BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+        tenant_id            BIGINT UNSIGNED NOT NULL,
+        datamodel_id         BIGINT UNSIGNED NOT NULL,
+        datamodel_dataset_id BIGINT UNSIGNED NOT NULL,
+        datamodel_column_id  BIGINT UNSIGNED NULL,
+        name                 VARCHAR(255) NOT NULL,
+        agg                  ENUM('sum','avg','count','min','max') NOT NULL,
+        created_by           BIGINT UNSIGNED NULL,
+        deleted_at           DATETIME(3) NULL,
+        created_at           DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+        updated_at           DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3)
+                                          ON UPDATE CURRENT_TIMESTAMP(3),
+        PRIMARY KEY (id),
+        UNIQUE KEY uq_datamodel_measures (datamodel_id, name),
+        KEY idx_datamodel_measures_model (datamodel_id, deleted_at),
+        CONSTRAINT fk_dmm_datamodel FOREIGN KEY (tenant_id, datamodel_id)
+          REFERENCES datamodels (tenant_id, id) ON DELETE CASCADE,
+        CONSTRAINT fk_dmm_dataset FOREIGN KEY (tenant_id, datamodel_dataset_id)
+          REFERENCES datamodel_datasets (tenant_id, id) ON DELETE CASCADE,
+        CONSTRAINT fk_dmm_column FOREIGN KEY (tenant_id, datamodel_column_id)
+          REFERENCES datamodel_columns (tenant_id, id) ON DELETE CASCADE,
+        CONSTRAINT fk_dmm_creator FOREIGN KEY (created_by)
+          REFERENCES users (id) ON DELETE SET NULL
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+
+      // ─── datamodel_relationships (§10.4, §10.5) ──────────────────────────
+      //
+      // Trỏ tới `datamodel_datasets` chứ không tới `datasets`: một quan hệ chỉ
+      // có nghĩa BÊN TRONG một mô hình, và ràng buộc này khiến việc nối sang một
+      // bộ dữ liệu chưa được thêm vào mô hình trở thành bất khả thi ở tầng
+      // database — không phụ thuộc vào việc mọi câu kiểm ở tầng ứng dụng đều nhớ.
+      //
+      // Khoá nối là ID CỘT, không phải TÊN cột. Ba hệ quả, đều mong muốn: đổi
+      // alias không làm mồ côi quan hệ; KHÔNG THỂ nối vào một cột không nằm
+      // trong mô hình (database từ chối, không phụ thuộc vào việc tầng ứng dụng
+      // nhớ kiểm); và gỡ một bộ dữ liệu khỏi mô hình tự động kéo theo quan hệ
+      // của nó.
+      //
+      // Hướng quan hệ NẰM Ở `kind`, và nó quyết định Cube sinh JOIN kiểu gì.
+      // Đặt sai thì số vẫn ra, chỉ là sai — nên giao diện phải giải thích, không
+      // chỉ đưa một ô chọn.
+      //
+      // KHÔNG có `many_to_many`: Cube cần một bảng trung gian cho quan hệ đó, và
+      // sinh join nhiều-nhiều không có bảng cầu nối cho ra tổng bị NHÂN LÊN
+      // trong im lặng. ENUM nối thêm giá trị vào cuối là thao tác tức thời, nên
+      // khi nào có bảng cầu nối thật thì thêm, không phải dự trữ trước.
+      //
+      // KHÔNG có UNIQUE trên bộ khoá: xoá mềm sẽ khiến việc tạo lại đúng quan hệ
+      // vừa xoá bị chặn. Trùng lặp bắt ở tầng service kèm thông báo tiếng Việt.
+      `CREATE TABLE IF NOT EXISTS datamodel_relationships (
+        id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+        tenant_id       BIGINT UNSIGNED NOT NULL,
+        datamodel_id    BIGINT UNSIGNED NOT NULL,
+        left_id         BIGINT UNSIGNED NOT NULL,
+        left_column_id  BIGINT UNSIGNED NOT NULL,
+        right_id        BIGINT UNSIGNED NOT NULL,
+        right_column_id BIGINT UNSIGNED NOT NULL,
+        kind            ENUM('one_to_many','many_to_one','one_to_one') NOT NULL,
+        created_by      BIGINT UNSIGNED NULL,
+        deleted_at      DATETIME(3) NULL,
+        created_at      DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+        updated_at      DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3)
+                                     ON UPDATE CURRENT_TIMESTAMP(3),
+        PRIMARY KEY (id),
+        KEY idx_datamodel_rel_model (datamodel_id, deleted_at),
+        CONSTRAINT fk_dmr_datamodel FOREIGN KEY (tenant_id, datamodel_id)
+          REFERENCES datamodels (tenant_id, id) ON DELETE CASCADE,
+        CONSTRAINT fk_dmr_left FOREIGN KEY (tenant_id, left_id)
+          REFERENCES datamodel_datasets (tenant_id, id) ON DELETE CASCADE,
+        CONSTRAINT fk_dmr_right FOREIGN KEY (tenant_id, right_id)
+          REFERENCES datamodel_datasets (tenant_id, id) ON DELETE CASCADE,
+        CONSTRAINT fk_dmr_left_col FOREIGN KEY (tenant_id, left_column_id)
+          REFERENCES datamodel_columns (tenant_id, id) ON DELETE CASCADE,
+        CONSTRAINT fk_dmr_right_col FOREIGN KEY (tenant_id, right_column_id)
+          REFERENCES datamodel_columns (tenant_id, id) ON DELETE CASCADE,
+        CONSTRAINT fk_dmr_creator FOREIGN KEY (created_by)
+          REFERENCES users (id) ON DELETE SET NULL
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+
+      // ─── Quyền xoá mô hình dữ liệu ───────────────────────────────────────
+      //
+      // Migration 4 cố ý KHÔNG gieo `datamodel:delete`, với lý do ghi trong
+      // `DEFAULT_POLICY`: cấp một quyền trước khi có endpoint để áp dụng là cách
+      // policy lệch dần khỏi thực tế. §10 tạo ra endpoint đó, nên giờ mới gieo.
+      //
+      // ⚠️ `shared/src/rbac.ts` phải thêm đúng một dòng tương ứng — có một bài
+      // test đối chiếu `COUNT(*) WHERE ptype='p'` với `DEFAULT_POLICY.length`,
+      // và nó sẽ đỏ nếu chỉ sửa một bên. Đó chính là việc của bài test đó.
+      `INSERT IGNORE INTO casbin_rule (ptype, v0, v1, v2, v3) VALUES
+         ('p', 'creator', '*', 'datamodel', 'delete')`,
+    ],
+  },
 ];

@@ -60,6 +60,8 @@ interface DatasetRow extends RowDataPacket {
   load_status: DatasetLoadStatus;
   loaded_row_count: number;
   loaded_at: Date | null;
+  datamodel_count: number | null;
+  datamodel_id: number | null;
 }
 
 const SELECT_LIST = `
@@ -68,7 +70,16 @@ const SELECT_LIST = `
          c.name AS connection_name, c.kind AS connection_kind,
          d.original_filename, d.file_ext, d.file_size_bytes, d.sheet_name,
          d.status, d.error_message, d.row_count, d.truncated,
-         d.load_status, d.loaded_row_count, d.loaded_at
+         d.load_status, d.loaded_row_count, d.loaded_at,
+         (SELECT COUNT(*) FROM datamodel_datasets x
+            JOIN datamodels m ON m.id = x.datamodel_id AND m.deleted_at IS NULL
+           WHERE x.dataset_id = d.id) AS datamodel_count,
+         -- Mô hình CŨ NHẤT: thường chính là cái §10 tự tạo ngay sau khi nạp
+         -- xong, nên bấm vào bộ dữ liệu là về đúng mô hình của riêng nó thay vì
+         -- rơi vào một mô hình nhiều bảng người dùng dựng sau đó.
+         (SELECT MIN(x.datamodel_id) FROM datamodel_datasets x
+            JOIN datamodels m ON m.id = x.datamodel_id AND m.deleted_at IS NULL
+           WHERE x.dataset_id = d.id) AS datamodel_id
     FROM datasets d
     LEFT JOIN connections c ON c.id = d.connection_id AND c.tenant_id = d.tenant_id`;
 
@@ -96,9 +107,10 @@ function toDto(row: DatasetRow): DatasetDto {
     rowCount: Number(row.row_count),
     truncated: row.truncated === 1,
 
-    // Luôn 0 cho tới khi có bảng `datamodels` để đếm (§10). Xem ghi chú trong
-    // `DatasetDto`.
-    datamodelCount: 0,
+    datamodelCount: Number(row.datamodel_count ?? 0),
+    datamodelId: row.datamodel_id === null || row.datamodel_id === undefined
+      ? null
+      : Number(row.datamodel_id),
 
     loadStatus: row.load_status,
     loadedRowCount: Number(row.loaded_row_count),
@@ -139,6 +151,13 @@ export interface DatasetFilter {
   workspaceId?: number | undefined;
   source?: DatasetSource | undefined;
   status?: DatasetStatus | undefined;
+  /**
+   * Trạng thái NẠP VÀO KHO (§9) — khác hẳn `status` ngay trên.
+   *
+   * Bộ chọn bộ dữ liệu của §10.2 lọc `loaded`: bộ chưa nạp thì chưa có bảng nào
+   * trong ClickHouse, nên không có cấu trúc nào để dựng mô hình lên.
+   */
+  loadStatus?: DatasetLoadStatus | undefined;
   sort: DatasetSortKey;
   order: 'asc' | 'desc';
   page: number;
@@ -165,6 +184,10 @@ function where(tenantId: number, filter: DatasetFilter): { sql: string; params: 
   if (filter.source !== undefined) {
     conditions.push('d.source = ?');
     params.push(filter.source);
+  }
+  if (filter.loadStatus !== undefined) {
+    conditions.push('d.load_status = ?');
+    params.push(filter.loadStatus);
   }
 
   // Mặc định CHỈ lấy `ready`. Bản ghi `pending` là rác của những lần đóng wizard
@@ -479,6 +502,26 @@ export async function findStorageKey(
   const row = rows[0];
   if (!row || row['s3_key'] === null) return null;
   return { key: String(row['s3_key']), ext: row['file_ext'] as FileExt };
+}
+
+/**
+ * Ai tạo ra bộ dữ liệu này.
+ *
+ * KHÔNG nằm trong `DatasetDto`: không màn hình nào hiện nó, và một trường chỉ
+ * để phục vụ một tác vụ nền thì không đáng đi ra tận API. `null` khi người tạo
+ * đã bị xoá khỏi hệ thống — `created_by` là `ON DELETE SET NULL`.
+ */
+export async function findCreatorId(
+  db: Db,
+  tenantId: number,
+  id: number,
+): Promise<number | null> {
+  const [rows] = await db.query<RowDataPacket[]>(
+    'SELECT created_by FROM datasets WHERE tenant_id = ? AND id = ? LIMIT 1',
+    [tenantId, id],
+  );
+  const value = rows[0]?.['created_by'];
+  return value === null || value === undefined ? null : Number(value);
 }
 
 export async function markReady(

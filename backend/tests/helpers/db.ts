@@ -15,6 +15,14 @@ export async function resetDatabase(): Promise<void> {
   // thứ tự để ai đọc còn thấy được cây phụ thuộc.
   for (const table of [
     'reports',
+    // §10 — tầng ngữ nghĩa. Quan hệ trỏ vào cột, cột trỏ vào thành phần, thành
+    // phần trỏ vào cả mô hình lẫn bộ dữ liệu — nên khối này phải nằm trước
+    // `datasets`.
+    'datamodel_relationships',
+    'datamodel_measures',
+    'datamodel_columns',
+    'datamodel_datasets',
+    'datamodels',
     // Sổ ghi chép của §9. `dataset_load_errors` trỏ vào `dataset_load_runs`, nên
     // nó phải đứng trước — dữ liệu THẬT của §9 nằm bên ClickHouse, không có gì
     // để TRUNCATE ở đây.

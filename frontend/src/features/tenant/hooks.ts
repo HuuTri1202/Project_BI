@@ -235,11 +235,49 @@ export function useSyncTables() {
 
 // ─── Kho dữ liệu (§8.5) ──────────────────────────────────────────────────────
 
-export function useDatasets(query: api.DatasetListQuery): UseQueryResult<PageResult<DatasetDto>> {
+/**
+ * Danh sách bộ dữ liệu.
+ *
+ * `pollWhileLoading` bật cơ chế hỏi lại khi CÒN bộ nào đang `queued`/`running`.
+ *
+ * ─── Vì sao cần, và nó được phát hiện thế nào ───────────────────────────────
+ *
+ * Nạp một file 51.000 dòng mất vài chục giây. Người dùng tải file xong, sang
+ * ngay trang Mô hình dữ liệu, mở hộp thoại tạo — và thấy bộ dữ liệu của mình ở
+ * trạng thái "Đang chờ", không tích được. Dưới nền việc nạp xong sau đó vài
+ * giây, nhưng danh sách đã đọc một lần rồi GIỮ NGUYÊN, nên màn hình đứng im
+ * vĩnh viễn và người dùng kết luận là hỏng.
+ *
+ * `LoadPanel` của §9 đã giải đúng bài này bằng `refetchInterval`; chỗ này chỉ
+ * là quên áp dụng cùng cách. Mặc định TẮT: trang Kho dữ liệu không cần hỏi lại
+ * liên tục, và một danh sách tự làm mới sau lưng người đang đọc thì gây rối.
+ *
+ * ⚠️ Hỏi lại VÔ ĐIỀU KIỆN khi bật, không phải chỉ khi thấy có bộ đang nạp.
+ * Bản đầu chỉ hỏi khi `items.some(đang nạp)` và nó SAI theo cách rất dễ bỏ sót:
+ * lúc hộp thoại vừa mở, danh sách còn RỖNG — không có bộ nào đang nạp, nên nó
+ * kết luận "chẳng có gì để chờ" rồi im lặng vĩnh viễn. Bộ dữ liệu tải lên sau
+ * đó không bao giờ xuất hiện. Danh sách rỗng và danh sách đã xong trông giống
+ * hệt nhau với một điều kiện như thế.
+ *
+ * Đổi lại: một request mỗi 3 giây trong lúc hộp thoại mở. Người dùng đang ngồi
+ * nhìn nó, nên đó là lúc duy nhất chi phí ấy đáng.
+ */
+export function useDatasets(
+  query: api.DatasetListQuery,
+  pollWhileOpen = false,
+): UseQueryResult<PageResult<DatasetDto>> {
   return useQuery({
     queryKey: tenantKeys.datasetList(query),
     queryFn: () => api.fetchDatasets(query),
     placeholderData: keepPreviousData,
+    refetchInterval: (q) => {
+      if (!pollWhileOpen) return false;
+      // Nhanh hơn khi biết chắc có thứ đang chuyển động, để thanh trạng thái
+      // không lệch quá xa thực tế.
+      const items = q.state.data?.items ?? [];
+      return items.some((d) => LOAD_STATUSES_LIVE.includes(d.loadStatus)) ? 2_000 : 3_000;
+    },
+    refetchIntervalInBackground: true,
   });
 }
 

@@ -183,6 +183,7 @@ export default function DatasetsPage(): React.ReactElement {
                   <SortableTh sortKey="rowCount" activeKey={query.sort} order={query.order} onSort={onSort}>
                     Số dòng
                   </SortableTh>
+                  <Th>Mô hình dữ liệu</Th>
                   <SortableTh sortKey="syncedAt" activeKey={query.sort} order={query.order} onSort={onSort}>
                     Cập nhật lần cuối
                   </SortableTh>
@@ -263,6 +264,29 @@ export default function DatasetsPage(): React.ReactElement {
                         </>
                       ) : (
                         <span className="text-slate-400">—</span>
+                      )}
+                    </Td>
+                    {/* §10 tự tạo một mô hình ngay sau khi bộ dữ liệu nạp xong,
+                        nên ô này gần như luôn là một liên kết. Chưa có nghĩa là
+                        bộ dữ liệu chưa được nạp vào kho — nói ra lý do thay vì
+                        để một ô trống. */}
+                    <Td>
+                      {dataset.datamodelId !== null ? (
+                        <Link
+                          to={`/datamodels/${dataset.datamodelId}`}
+                          className="font-medium text-brand-700 hover:underline"
+                        >
+                          Mở mô hình
+                          {dataset.datamodelCount > 1 && (
+                            <span className="ml-1 text-xs font-normal text-slate-500">
+                              (+{dataset.datamodelCount - 1})
+                            </span>
+                          )}
+                        </Link>
+                      ) : (
+                        <span className="text-xs text-slate-400">
+                          {dataset.loadStatus === 'loaded' ? 'chưa có' : 'chờ nạp xong'}
+                        </span>
                       )}
                     </Td>
                     <Td>
