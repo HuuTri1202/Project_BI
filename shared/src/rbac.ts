@@ -119,14 +119,17 @@ export const DEFAULT_POLICY: readonly PolicyRule[] = [
   // nghĩa là mỗi lần tải nhầm file là một bản ghi rác nằm lại vĩnh viễn và phải
   // đi nhờ Admin.
   //
-  // `datamodel` và `chart` vẫn KHÔNG có `delete`: chúng chưa có endpoint nào, và
-  // cấp một quyền trước khi có thứ để áp dụng là cách policy lệch dần khỏi thực
-  // tế mà không ai nhận ra.
+  // `datamodel` nhận `delete` từ §10, khi nó có endpoint thật. Trước đó nó cố ý
+  // không có — cấp một quyền trước khi có thứ để áp dụng là cách policy lệch dần
+  // khỏi thực tế mà không ai nhận ra.
+  //
+  // `chart` vẫn KHÔNG có `delete`, vì lý do đó vẫn còn đúng với nó.
   { role: 'creator', resource: 'dataset', action: 'read' },
   { role: 'creator', resource: 'dataset', action: 'modify' },
   { role: 'creator', resource: 'dataset', action: 'delete' },
   { role: 'creator', resource: 'datamodel', action: 'read' },
   { role: 'creator', resource: 'datamodel', action: 'modify' },
+  { role: 'creator', resource: 'datamodel', action: 'delete' },
   { role: 'creator', resource: 'report', action: 'read' },
   { role: 'creator', resource: 'report', action: 'modify' },
   { role: 'creator', resource: 'report', action: 'delete' },

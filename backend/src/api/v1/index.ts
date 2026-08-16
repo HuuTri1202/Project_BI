@@ -5,6 +5,9 @@ import {
   WORKSPACE_ERROR_CODES,
   type ConnectionPrerequisitesDto,
   type CreateUploadResultDto,
+  type DataModelColumnDto,
+  type DataModelDetailDto,
+  type DataModelDto,
   type DatasetColumnDto,
   type DatasetDetailDto,
   type FileExt,
@@ -29,6 +32,7 @@ import { requireFreshMembership } from '../../middleware/requireFreshMembership'
 import * as adminMembersRepo from '../../repositories/adminMembers';
 import * as adminWorkspacesRepo from '../../repositories/adminWorkspaces';
 import * as connectionsRepo from '../../repositories/connections';
+import * as datamodelsRepo from '../../repositories/datamodels';
 import * as datasetsRepo from '../../repositories/datasets';
 import type { Db } from '../../repositories/db';
 import * as membershipsRepo from '../../repositories/memberships';
@@ -59,6 +63,13 @@ import {
   queueLoad,
   warehouseSchema,
 } from '../../services/ingest/loadService';
+import { chTableName } from '../../services/ingest/buildDdl';
+import { cubeTypeOf } from '../../services/datamodel/classifyColumn';
+import { addDatasets, createDataModel } from '../../services/datamodel/createDataModel';
+import { pingCube } from '../../services/datamodel/cubeClient';
+import { regenerateTenant } from '../../services/datamodel/cubeSchemaService';
+import { explorerFields, runExplorerQuery } from '../../services/datamodel/explorer';
+import { createRelationship } from '../../services/datamodel/relationships';
 import { aggregateInWarehouse } from '../../services/dataset/aggregateWarehouse';
 import { analyzeDataset, clearAnalyzeCache } from '../../services/dataset/analyze';
 import { commitDatasets } from '../../services/dataset/commit';
@@ -73,25 +84,35 @@ import { asyncHandler } from '../../utils/asyncHandler';
 import { badRequest, HttpError, notFound } from '../../utils/httpError';
 import { buildPageResult, paginationSchema, resolveSortColumn } from '../../utils/pagination';
 import {
+  addDatasetsBodySchema,
   commitDatasetsBodySchema,
   createConnectionBodySchema,
+  createDataModelBodySchema,
+  createMeasureBodySchema,
   createMemberBodySchema,
   createProjectBodySchema,
+  createRelationshipBodySchema,
   createReportBodySchema,
   createUploadBodySchema,
   createWorkspaceBodySchema,
+  explorerQueryBodySchema,
   homeQuerySchema,
   idParamSchema,
+  listDataModelsQuerySchema,
   listDatasetsQuerySchema,
   listLoadErrorsQuerySchema,
   listMembersQuerySchema,
   listProjectsQuerySchema,
   listReportsQuerySchema,
   renameDatasetBodySchema,
+  saveLayoutBodySchema,
+  saveSchemaBodySchema,
   setActiveBodySchema,
   syncBodySchema,
   testConnectionBodySchema,
   updateConnectionBodySchema,
+  updateDataModelBodySchema,
+  updateMeasureBodySchema,
   updateProjectBodySchema,
   updateReportBodySchema,
   updateRoleBodySchema,
@@ -517,6 +538,61 @@ async function readDatasetDetail(tenantId: number, id: number): Promise<DatasetD
   const dataset = await datasetsRepo.findOne(mysqlPool, tenantId, id);
   if (!dataset) throw notFound('Không tìm thấy bộ dữ liệu này.');
   return { ...dataset, columns: await datasetsRepo.listColumns(mysqlPool, id) };
+}
+
+/**
+ * Mô hình dữ liệu đầy đủ — bảng, cột, thước đo, quan hệ (§10).
+ *
+ * MỘT payload cho cả bốn tab thay vì bốn endpoint. Ba trong bốn tab cần biết
+ * danh sách bảng và cột (Schemas hiện chúng, Quan hệ vẽ chúng, Thước đo chọn
+ * trong chúng), nên tách ra chỉ khiến mỗi lần đổi tab là một vòng mạng cho dữ
+ * liệu vừa tải xong. Bốn truy vấn ở đây đều là dò chỉ mục.
+ *
+ * `chType` trả về là giá trị ĐÃ LƯU, không phải giá trị đọc lại từ ClickHouse.
+ * Route `/schema` mới là nơi đối chiếu hai bên và báo cột nào đã đổi kiểu — mở
+ * một tab không đáng một vòng gọi sang ClickHouse cho mỗi bảng.
+ */
+async function readDataModelDetail(tenantId: number, id: number): Promise<DataModelDetailDto> {
+  const model = await requireDataModel(tenantId, id);
+
+  const [datasetRows, columnRows, measures, relationships] = await Promise.all([
+    datamodelsRepo.listDatasets(mysqlPool, tenantId, id),
+    datamodelsRepo.listColumns(mysqlPool, tenantId, id),
+    datamodelsRepo.listMeasures(mysqlPool, tenantId, id),
+    datamodelsRepo.listRelationships(mysqlPool, tenantId, id),
+  ]);
+
+  const columnsByDataset = new Map<number, DataModelColumnDto[]>();
+  for (const row of columnRows) {
+    const list = columnsByDataset.get(row.datamodel_dataset_id) ?? [];
+    list.push({
+      id: Number(row.id),
+      columnName: row.column_name,
+      alias: row.alias,
+      role: row.role,
+      chType: row.ch_type,
+      cubeType: cubeTypeOf(row.ch_type),
+      ordinal: Number(row.ordinal),
+      // Chỉ `/schema` mới trả lời được câu này, vì nó đòi đọc lại ClickHouse.
+      typeChanged: false,
+    });
+    columnsByDataset.set(row.datamodel_dataset_id, list);
+  }
+
+  return {
+    ...model,
+    datasets: datasetRows.map((row) => ({
+      id: Number(row.id),
+      datasetId: Number(row.dataset_id),
+      datasetName: row.dataset_name,
+      chTable: chTableName(tenantId, Number(row.dataset_id)),
+      canvasX: Number(row.canvas_x),
+      canvasY: Number(row.canvas_y),
+      columns: columnsByDataset.get(Number(row.id)) ?? [],
+    })),
+    measures,
+    relationships,
+  };
 }
 
 // ─── §7.6 Báo cáo ────────────────────────────────────────────────────────────
@@ -1464,6 +1540,552 @@ v1Router.delete(
     // Một file nhiều sheet còn sinh ra nhiều dataset trỏ chung một object.
     await clearAnalyzeCache(id);
     res.status(204).end();
+  }),
+);
+
+// ─── §10 Mô hình dữ liệu ─────────────────────────────────────────────────────
+//
+// Tầng ngữ nghĩa dựng trên kho §9: mô hình không chứa dữ liệu, chỉ chứa lời mô
+// tả về những bảng `raw_*` đã nằm sẵn trong ClickHouse. Express đọc mô tả đó để
+// SINH RA file cube schema cho Cube.js.
+//
+// Không route nào ở đây gọi Cube — kể cả route ghi. Sinh file chỉ là ghi đĩa,
+// nên người dùng dựng được cả một mô hình khi Cube đang tắt, và nó sẽ chạy ngay
+// lúc họ bật Cube lên. Chỉ Explorer (§10.7) mới thật sự cần Cube đang sống.
+
+/**
+ * Chốt rằng mô hình tồn tại và thuộc tổ chức người gọi.
+ *
+ * 404 chứ không 403 cho id của tổ chức khác — cùng quy ước với phần còn lại của
+ * router: `findOne` đã lọc `tenant_id` nên id lạ cho ra `null`, và 403 sẽ xác
+ * nhận rằng id đó có tồn tại.
+ */
+async function requireDataModel(tenantId: number, id: number): Promise<DataModelDto> {
+  const found = await datamodelsRepo.findOne(mysqlPool, tenantId, id);
+  if (!found) throw notFound('Không tìm thấy mô hình dữ liệu này.');
+  return found;
+}
+
+v1Router.get(
+  '/datamodels',
+  authorize('datamodel', 'read'),
+  asyncHandler(async (req, res) => {
+    const { tenantId } = requireAuth(req);
+    const query = listDataModelsQuerySchema.parse(req.query);
+
+    const sort = resolveSortColumn(query.sort, datamodelsRepo.DATAMODEL_SORT_KEYS, 'updatedAt');
+    if (sort === null) {
+      throw badRequest('Cột sắp xếp không hợp lệ.', {
+        sort: `Chỉ nhận: ${datamodelsRepo.DATAMODEL_SORT_KEYS.join(', ')}`,
+      });
+    }
+
+    const workspace = await resolveWorkspace(mysqlPool, tenantId, query.workspaceId);
+
+    const filter: datamodelsRepo.DataModelFilter = {
+      workspaceId: workspace.id,
+      search: query.q,
+      sort,
+      order: query.order,
+      page: query.page,
+      pageSize: query.pageSize,
+    };
+
+    const total = await datamodelsRepo.count(mysqlPool, tenantId, filter);
+    const items = total === 0 ? [] : await datamodelsRepo.list(mysqlPool, tenantId, filter);
+    res.json(buildPageResult(items, total, query.page, query.pageSize));
+  }),
+);
+
+/**
+ * §10.2 — tạo mô hình từ một hoặc nhiều bộ dữ liệu.
+ *
+ * Cấu trúc cột đọc từ CLICKHOUSE chứ không suy từ `dataset_columns`: bảng đó mô
+ * tả NGUỒN, còn mô hình dựng trên KHO, và hai thứ đó không giống nhau. Xem
+ * `createDataModel.ts`.
+ */
+v1Router.post(
+  '/datamodels',
+  authorize('datamodel', 'modify'),
+  asyncHandler(async (req, res) => {
+    const auth = requireAuth(req);
+    const body = createDataModelBodySchema.parse(req.body);
+
+    const workspace = await resolveWorkspace(mysqlPool, auth.tenantId, body.workspaceId);
+
+    // Trùng id trong danh sách gửi lên sẽ đâm vào UNIQUE (datamodel_id,
+    // dataset_id) và cho ra lỗi 500 khó hiểu. Lọc trước, im lặng — người dùng
+    // tích hai lần cùng một ô là chuyện của giao diện, không đáng một thông báo.
+    const datasetIds = [...new Set(body.datasetIds)];
+
+    const id = await createDataModel({
+      tenantId: auth.tenantId,
+      workspaceId: workspace.id,
+      name: body.name,
+      description: body.description ?? null,
+      datasetIds,
+      createdBy: auth.userId,
+    });
+
+    // SAU khi transaction đã commit, không phải bên trong — file trên đĩa mà bị
+    // rollback thì Cube đọc một mô hình database không có.
+    await regenerateTenant(auth.tenantId);
+
+    res.status(201).json(await datamodelsRepo.findOne(mysqlPool, auth.tenantId, id));
+  }),
+);
+
+v1Router.get(
+  '/datamodels/:id',
+  authorize('datamodel', 'read'),
+  asyncHandler(async (req, res) => {
+    const { tenantId } = requireAuth(req);
+    const { id } = idParamSchema.parse(req.params);
+    res.json(await readDataModelDetail(tenantId, id));
+  }),
+);
+
+v1Router.patch(
+  '/datamodels/:id',
+  authorize('datamodel', 'modify'),
+  asyncHandler(async (req, res) => {
+    const { tenantId } = requireAuth(req);
+    const { id } = idParamSchema.parse(req.params);
+    const body = updateDataModelBodySchema.parse(req.body);
+
+    const affected = await datamodelsRepo.update(mysqlPool, tenantId, id, {
+      name: body.name,
+      description: body.description ?? null,
+    });
+    if (affected === 0) throw notFound('Không tìm thấy mô hình dữ liệu này.');
+
+    // Đổi tên cũng phải sinh lại: tên bảng và alias đi vào `title:` của file cube.
+    await regenerateTenant(tenantId);
+
+    res.json(await datamodelsRepo.findOne(mysqlPool, tenantId, id));
+  }),
+);
+
+v1Router.delete(
+  '/datamodels/:id',
+  authorize('datamodel', 'delete'),
+  asyncHandler(async (req, res) => {
+    const { tenantId } = requireAuth(req);
+    const { id } = idParamSchema.parse(req.params);
+
+    const affected = await datamodelsRepo.softDelete(mysqlPool, tenantId, id);
+    if (affected === 0) throw notFound('Không tìm thấy mô hình dữ liệu này.');
+
+    // `regenerateTenant` làm việc theo lối đối chiếu, nên file của mô hình vừa
+    // xoá biến mất mà không cần một đường xoá file riêng để mà quên gọi.
+    await regenerateTenant(tenantId);
+
+    res.status(204).end();
+  }),
+);
+
+v1Router.post(
+  '/datamodels/:id/datasets',
+  authorize('datamodel', 'modify'),
+  asyncHandler(async (req, res) => {
+    const auth = requireAuth(req);
+    const { id } = idParamSchema.parse(req.params);
+    const body = addDatasetsBodySchema.parse(req.body);
+
+    await requireDataModel(auth.tenantId, id);
+    await addDatasets(auth.tenantId, id, [...new Set(body.datasetIds)], auth.userId);
+    await regenerateTenant(auth.tenantId);
+
+    res.json(await readDataModelDetail(auth.tenantId, id));
+  }),
+);
+
+v1Router.delete(
+  '/datamodels/:id/datasets/:refId',
+  authorize('datamodel', 'modify'),
+  asyncHandler(async (req, res) => {
+    const { tenantId } = requireAuth(req);
+    const { id } = idParamSchema.parse(req.params);
+    const refId = Number(req.params['refId']);
+    if (!Number.isInteger(refId) || refId <= 0) throw badRequest('Mã không hợp lệ.');
+
+    await requireDataModel(tenantId, id);
+
+    // Xoá CỨNG: cascade kéo theo cột, thước đo và quan hệ trỏ vào bộ dữ liệu
+    // này. Xoá mềm sẽ để lại thước đo mồ côi mà bộ sinh schema vẫn đem đi sinh,
+    // trỏ vào một cube không còn tồn tại.
+    const affected = await datamodelsRepo.removeDataset(mysqlPool, tenantId, refId);
+    if (affected === 0) throw notFound('Bộ dữ liệu này không có trong mô hình.');
+
+    await datamodelsRepo.touch(mysqlPool, tenantId, id);
+    await regenerateTenant(tenantId);
+    res.status(204).end();
+  }),
+);
+
+/**
+ * Vị trí thẻ trên canvas.
+ *
+ * CỐ Ý không gọi `touch`: kéo một cái hộp không phải thay đổi ngữ nghĩa, và bắt
+ * Cube biên dịch lại schema vì chuyện đó là phí. Đây là route ghi DUY NHẤT của
+ * §10 không đụng tới `updated_at`.
+ */
+v1Router.patch(
+  '/datamodels/:id/layout',
+  authorize('datamodel', 'modify'),
+  asyncHandler(async (req, res) => {
+    const { tenantId } = requireAuth(req);
+    const { id } = idParamSchema.parse(req.params);
+    const body = saveLayoutBodySchema.parse(req.body);
+
+    await requireDataModel(tenantId, id);
+    await datamodelsRepo.saveLayout(mysqlPool, tenantId, body.positions);
+    res.status(204).end();
+  }),
+);
+
+/**
+ * §10.3 — cấu trúc THẬT của kho, đối chiếu với những gì mô hình đang khai.
+ *
+ * Đọc lại `system.columns` cho từng bảng thay vì tin `ch_type` đã lưu. Nạp lại
+ * một bộ dữ liệu có thể biến `Int64` thành `String`, và khi đó một thước đo
+ * `sum()` dựng trên cột đó đang chạy trên văn bản — giao diện phải nói ra chứ
+ * không để người dùng tự phát hiện qua một con số lạ.
+ *
+ * Đây là route DUY NHẤT của §10 gọi sang ClickHouse cho mỗi bảng, nên nó nằm
+ * riêng chứ không gộp vào `GET /datamodels/:id` vốn được gọi mỗi lần đổi tab.
+ */
+v1Router.get(
+  '/datamodels/:id/schema',
+  authorize('datamodel', 'read'),
+  asyncHandler(async (req, res) => {
+    const { tenantId } = requireAuth(req);
+    const { id } = idParamSchema.parse(req.params);
+    res.json(await readModelSchema(tenantId, id));
+  }),
+);
+
+v1Router.patch(
+  '/datamodels/:id/schema',
+  authorize('datamodel', 'modify'),
+  asyncHandler(async (req, res) => {
+    const { tenantId } = requireAuth(req);
+    const { id } = idParamSchema.parse(req.params);
+    const body = saveSchemaBodySchema.parse(req.body);
+
+    await requireDataModel(tenantId, id);
+
+    for (const column of body.columns) {
+      const affected = await datamodelsRepo.updateColumn(mysqlPool, tenantId, id, {
+        columnId: column.columnId,
+        // Alias trùng tên cột gốc thì lưu `null`: giữ `null` nghĩa là cột đổi
+        // tên ở nguồn sẽ kéo theo nhãn hiển thị, thay vì đóng băng một bản chép.
+        alias: column.alias === null || column.alias === '' ? null : column.alias,
+        role: column.role,
+      });
+      // Id không thuộc mô hình này -> 0 dòng. Từ chối cả lô thay vì lưu một
+      // phần: người dùng bấm Lưu một lần và phải nhận một kết quả duy nhất.
+      if (affected === 0) throw badRequest('Có cột không thuộc mô hình này.');
+    }
+
+    await datamodelsRepo.touch(mysqlPool, tenantId, id);
+    await regenerateTenant(tenantId);
+
+    res.json(await readModelSchema(tenantId, id));
+  }),
+);
+
+// ─── §10.6 Thước đo ──────────────────────────────────────────────────────────
+
+v1Router.get(
+  '/datamodels/:id/measures',
+  authorize('datamodel', 'read'),
+  asyncHandler(async (req, res) => {
+    const { tenantId } = requireAuth(req);
+    const { id } = idParamSchema.parse(req.params);
+    await requireDataModel(tenantId, id);
+    res.json(await datamodelsRepo.listMeasures(mysqlPool, tenantId, id));
+  }),
+);
+
+/**
+ * `count` là đếm DÒNG, nên nó KHÔNG có cột.
+ *
+ * Ràng buộc này cưỡng chế ở đây chứ không bằng CHECK trong database: MySQL 8 có
+ * hỗ trợ CHECK nhưng thông báo lỗi của nó không dịch được sang một câu người
+ * dùng đọc hiểu.
+ */
+function validateMeasure(agg: string, columnId: number | undefined): number | null {
+  if (agg === 'count') {
+    if (columnId !== undefined) {
+      throw badRequest('Phép đếm dòng không cần chọn cột.', {
+        columnId: 'Bỏ trống khi phép tính là "Đếm dòng"',
+      });
+    }
+    return null;
+  }
+
+  if (columnId === undefined) {
+    throw badRequest('Hãy chọn cột để đo.', {
+      columnId: 'Bắt buộc khi phép tính không phải "Đếm dòng"',
+    });
+  }
+  return columnId;
+}
+
+v1Router.post(
+  '/datamodels/:id/measures',
+  authorize('datamodel', 'modify'),
+  asyncHandler(async (req, res) => {
+    const auth = requireAuth(req);
+    const { id } = idParamSchema.parse(req.params);
+    const body = createMeasureBodySchema.parse(req.body);
+
+    await requireDataModel(auth.tenantId, id);
+    const columnId = validateMeasure(body.agg, body.columnId);
+
+    try {
+      const measureId = await datamodelsRepo.createMeasure(mysqlPool, auth.tenantId, {
+        dataModelId: id,
+        datamodelDatasetId: body.datamodelDatasetId,
+        columnId,
+        name: body.name,
+        agg: body.agg,
+        createdBy: auth.userId,
+      });
+      await datamodelsRepo.touch(mysqlPool, auth.tenantId, id);
+      await regenerateTenant(auth.tenantId);
+
+      const created = (await datamodelsRepo.listMeasures(mysqlPool, auth.tenantId, id)).find(
+        (m) => m.id === measureId,
+      );
+      res.status(201).json(created);
+    } catch (err) {
+      throw asDuplicateMeasureName(err);
+    }
+  }),
+);
+
+v1Router.patch(
+  '/datamodels/:id/measures/:measureId',
+  authorize('datamodel', 'modify'),
+  asyncHandler(async (req, res) => {
+    const { tenantId } = requireAuth(req);
+    const { id } = idParamSchema.parse(req.params);
+    const measureId = Number(req.params['measureId']);
+    if (!Number.isInteger(measureId) || measureId <= 0) throw badRequest('Mã không hợp lệ.');
+
+    const body = updateMeasureBodySchema.parse(req.body);
+    await requireDataModel(tenantId, id);
+    const columnId = validateMeasure(body.agg, body.columnId);
+
+    try {
+      const affected = await datamodelsRepo.updateMeasure(mysqlPool, tenantId, id, measureId, {
+        name: body.name,
+        agg: body.agg,
+        columnId,
+      });
+      if (affected === 0) throw notFound('Không tìm thấy thước đo này.');
+
+      await datamodelsRepo.touch(mysqlPool, tenantId, id);
+      await regenerateTenant(tenantId);
+
+      res.json(
+        (await datamodelsRepo.listMeasures(mysqlPool, tenantId, id)).find((m) => m.id === measureId),
+      );
+    } catch (err) {
+      throw asDuplicateMeasureName(err);
+    }
+  }),
+);
+
+v1Router.delete(
+  '/datamodels/:id/measures/:measureId',
+  authorize('datamodel', 'modify'),
+  asyncHandler(async (req, res) => {
+    const { tenantId } = requireAuth(req);
+    const { id } = idParamSchema.parse(req.params);
+    const measureId = Number(req.params['measureId']);
+    if (!Number.isInteger(measureId) || measureId <= 0) throw badRequest('Mã không hợp lệ.');
+
+    await requireDataModel(tenantId, id);
+    const affected = await datamodelsRepo.softDeleteMeasure(mysqlPool, tenantId, id, measureId);
+    if (affected === 0) throw notFound('Không tìm thấy thước đo này.');
+
+    await datamodelsRepo.touch(mysqlPool, tenantId, id);
+    await regenerateTenant(tenantId);
+    res.status(204).end();
+  }),
+);
+
+// ─── §10.4, §10.5 Quan hệ ────────────────────────────────────────────────────
+
+v1Router.get(
+  '/datamodels/:id/relationships',
+  authorize('datamodel', 'read'),
+  asyncHandler(async (req, res) => {
+    const { tenantId } = requireAuth(req);
+    const { id } = idParamSchema.parse(req.params);
+    await requireDataModel(tenantId, id);
+    res.json(await datamodelsRepo.listRelationships(mysqlPool, tenantId, id));
+  }),
+);
+
+v1Router.post(
+  '/datamodels/:id/relationships',
+  authorize('datamodel', 'modify'),
+  asyncHandler(async (req, res) => {
+    const auth = requireAuth(req);
+    const { id } = idParamSchema.parse(req.params);
+    const body = createRelationshipBodySchema.parse(req.body);
+
+    await requireDataModel(auth.tenantId, id);
+    const result = await createRelationship(auth.tenantId, id, auth.userId, body);
+    await regenerateTenant(auth.tenantId);
+
+    // Trả kèm CẢNH BÁO chứ không chỉ bản ghi: khoá trùng ở phía "một" làm mọi
+    // phép tổng sau khi nối lớn hơn sự thật, và không ai phát hiện được điều đó
+    // từ con số. Giao diện phải hiện nó ngay lúc lưu.
+    res.status(201).json(result);
+  }),
+);
+
+v1Router.delete(
+  '/datamodels/:id/relationships/:relId',
+  authorize('datamodel', 'modify'),
+  asyncHandler(async (req, res) => {
+    const { tenantId } = requireAuth(req);
+    const { id } = idParamSchema.parse(req.params);
+    const relId = Number(req.params['relId']);
+    if (!Number.isInteger(relId) || relId <= 0) throw badRequest('Mã không hợp lệ.');
+
+    await requireDataModel(tenantId, id);
+    const affected = await datamodelsRepo.softDeleteRelationship(mysqlPool, tenantId, id, relId);
+    if (affected === 0) throw notFound('Không tìm thấy quan hệ này.');
+
+    await datamodelsRepo.touch(mysqlPool, tenantId, id);
+    await regenerateTenant(tenantId);
+    res.status(204).end();
+  }),
+);
+
+/**
+ * Trùng tên thước đo trong cùng mô hình -> 409 gắn đúng ô `name`.
+ *
+ * Bắt ở ràng buộc UNIQUE chứ không SELECT kiểm trước — cùng lý do với
+ * `asDuplicateName` của kết nối: giữa SELECT và INSERT luôn có khe hở cho hai
+ * request đồng thời.
+ */
+function asDuplicateMeasureName(err: unknown): unknown {
+  if (
+    typeof err === 'object' &&
+    err !== null &&
+    (err as { code?: string }).code === 'ER_DUP_ENTRY' &&
+    String((err as { message?: string }).message ?? '').includes('uq_datamodel_measures')
+  ) {
+    return new HttpError(409, 'DuplicateName', 'Mô hình đã có một thước đo trùng tên.', {
+      name: 'Tên này đã được dùng',
+    });
+  }
+  return err;
+}
+
+/**
+ * Mô hình kèm cấu trúc ĐỌC LẠI từ ClickHouse — §10.3.
+ *
+ * Khác `readDataModelDetail` ở đúng một chỗ, và đó là chỗ quan trọng: hàm này
+ * hỏi kho, còn hàm kia đọc `ch_type` đã lưu. So hai bên là cách duy nhất phát
+ * hiện một bộ dữ liệu được nạp lại đã làm đổi kiểu cột — và khi kiểu đổi thì
+ * một thước đo `sum()` có thể đang chạy trên văn bản.
+ *
+ * Kiểu mới được ĐỒNG BỘ vào `ch_type` ngay tại đây, nên lần mở sau không còn
+ * báo lệch nữa. Người dùng thấy cảnh báo đúng một lần, ở đúng lúc nó có nghĩa.
+ */
+async function readModelSchema(tenantId: number, id: number): Promise<DataModelDetailDto> {
+  const detail = await readDataModelDetail(tenantId, id);
+
+  for (const dataset of detail.datasets) {
+    let live;
+    try {
+      live = await warehouseSchema(tenantId, dataset.datasetId);
+    } catch {
+      // Bảng chưa nạp hoặc kho đang tắt. Không làm hỏng cả trang vì một bảng —
+      // giữ nguyên thông tin đã lưu và đi tiếp.
+      continue;
+    }
+
+    const liveTypes = new Map(live.columns.map((c) => [c.name, c.type]));
+
+    for (const column of dataset.columns) {
+      const actual = liveTypes.get(column.columnName);
+      if (actual === undefined || actual === column.chType) continue;
+
+      column.typeChanged = true;
+      column.chType = actual;
+      column.cubeType = cubeTypeOf(actual);
+      await datamodelsRepo.syncColumnType(mysqlPool, tenantId, column.id, actual);
+    }
+  }
+
+  return detail;
+}
+
+/** Bộ chọn của Explorer — §10.7. Một request thay cho việc ghép hai nguồn. */
+v1Router.get(
+  '/datamodels/:id/fields',
+  authorize('datamodel', 'read'),
+  asyncHandler(async (req, res) => {
+    const { tenantId } = requireAuth(req);
+    const { id } = idParamSchema.parse(req.params);
+    res.json(await explorerFields(tenantId, id));
+  }),
+);
+
+/**
+ * Cube.js có đang chạy không — §10.7.
+ *
+ * Tách khỏi truy vấn để tab Explorer nói được "chạy lệnh này" NGAY khi mở, thay
+ * vì bắt người dùng chọn trường rồi bấm Chạy mới biết Cube đang tắt.
+ *
+ * Ba tab còn lại (Schemas, Quan hệ, Thước đo) KHÔNG cần Cube — chúng chỉ đọc
+ * MySQL và ClickHouse. Giao diện phải nói ra điều đó, vì "cái gì vẫn dùng được"
+ * đáng giá đúng bằng "lệnh nào phải chạy".
+ */
+v1Router.get(
+  '/datamodels/:id/explorer-status',
+  authorize('datamodel', 'read'),
+  asyncHandler(async (req, res) => {
+    const { tenantId } = requireAuth(req);
+    const { id } = idParamSchema.parse(req.params);
+    await requireDataModel(tenantId, id);
+
+    res.json({
+      cubeReady: await pingCube(),
+      command: 'npm run infra:up:bi',
+    });
+  }),
+);
+
+/**
+ * §10.7 — truy vấn qua Cube.js.
+ *
+ * `datamodel:read`, không phải `modify`: hỏi dữ liệu là việc của người phân
+ * tích, mà `viewer` chính là vai trò đó. Gác bằng `modify` sẽ khiến người được
+ * mời vào để ĐỌC báo cáo lại không tự khám phá được dữ liệu nằm dưới nó.
+ *
+ * Đặt dưới `/datamodels/:id/` chứ không phải `POST /v1/query` ở gốc như README
+ * dự kiến: mọi truy vấn đều thuộc về đúng một mô hình, và có `:id` trên đường
+ * dẫn nghĩa là quyền sở hữu được kiểm trước khi đọc body.
+ */
+v1Router.post(
+  '/datamodels/:id/query',
+  authorize('datamodel', 'read'),
+  asyncHandler(async (req, res) => {
+    const auth = requireAuth(req);
+    const { id } = idParamSchema.parse(req.params);
+    const body = explorerQueryBodySchema.parse(req.body);
+
+    res.json(await runExplorerQuery(auth.tenantId, auth.userId, id, body));
   }),
 );
 

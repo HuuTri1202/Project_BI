@@ -172,6 +172,32 @@ const envSchema = z.object({
   CLICKHOUSE_USER: z.string().min(1),
   CLICKHOUSE_PASSWORD: z.string().min(1),
 
+  // --- Tầng ngữ nghĩa Cube.js (§10) ---
+  //
+  // `CUBEJS_API_SECRET` PHẢI khớp giá trị cùng tên trong `infrastructure/.env`.
+  // Lệch nhau thì Cube trả 403 cho mọi truy vấn, và thông báo của nó không nói
+  // được vì sao — nên ràng buộc này ghi ngay cạnh biến ở `.env.example`.
+  //
+  // Trần 16 ký tự: đây là khoá ký JWT, và một chuỗi ngắn hơn thế thì việc ký
+  // không còn nghĩa gì.
+  CUBEJS_API_SECRET: z.string().min(16),
+  CUBEJS_URL: z.string().url().default('http://localhost:4100'),
+
+  /**
+   * Nơi Express GHI file cube schema, và Cube ĐỌC chúng.
+   *
+   * Trỏ vào `infrastructure/cube/model/tenants` — thư mục đã được
+   * `docker-compose.yml` mount `./cube:/cube/conf`, nên file ghi trên host thấy
+   * được trong container.
+   *
+   * Có mặc định tương đối vì `process.cwd()` là `backend/` với cả `npm run dev`
+   * lẫn `npm --workspace backend run ...`. Nó KHÔNG đúng khi chạy
+   * `node backend/dist/index.js` từ thư mục gốc — và đó chính là lý do biến này
+   * tồn tại, thay vì suy từ `__dirname` (vốn khác nhau giữa `src/` chạy bằng
+   * tsx và `dist/` chạy bằng node, nên sẽ sai ở đúng một trong hai).
+   */
+  CUBE_SCHEMA_DIR: z.string().min(1).default('../infrastructure/cube/model/tenants'),
+
   // --- Seed tài khoản quản trị đầu tiên (§2.7) ---
   // Đều có giá trị mặc định nên KHÔNG bắt buộc khai trong .env; chỉ script
   // seed đọc tới.

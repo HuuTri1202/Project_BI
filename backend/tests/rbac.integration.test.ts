@@ -112,7 +112,13 @@ describe('§6.3 policy trong database khớp bảng nguồn', () => {
     const [rows] = await mysqlPool.query<RowDataPacket[]>(
       "SELECT COUNT(*) AS total FROM casbin_rule WHERE ptype = 'p'",
     );
-    // 1 dòng admin (*,*) + 13 dòng creator + 7 dòng viewer = 21.
+    // 1 dòng admin (*,*) + 16 dòng creator + 7 dòng viewer = 24.
+    // (§10 thêm `creator datamodel:delete` khi mô hình dữ liệu có endpoint xoá.)
+    //
+    // Con số này ĐÃ TỪNG lỗi thời — chú thích cũ ghi 13 creator trong khi thực
+    // tế đã là 15 sau migration 8. Phép so ở dưới vẫn đúng vì nó đối chiếu hai
+    // nguồn thật, nhưng chú thích sai thì người đọc tin vào một con số không có
+    // ai kiểm. Đếm lại bằng `GROUP BY v0` khi sửa, đừng cộng nhẩm.
     // Số này khớp `DEFAULT_POLICY` vì hai bên là hai bản chép tay của cùng một
     // ma trận; lệch nhau nghĩa là ai đó sửa một bên mà quên bên kia.
     expect(Number(rows[0]?.['total'])).toBe(DEFAULT_POLICY.length);
@@ -178,10 +184,12 @@ describe('§6.8 GET /v1/permissions', () => {
     // nằm lại vĩnh viễn và phải đi nhờ Admin.
     expect(res.body.report.sort()).toEqual(['delete', 'modify', 'read']);
     expect(res.body.dataset.sort()).toEqual(['delete', 'modify', 'read']);
-    // `datamodel` và `chart` cố ý KHÔNG có `delete`: chúng chưa có endpoint nào,
-    // và cấp quyền trước khi có thứ để áp dụng là cách policy lệch dần khỏi thực
-    // tế mà không ai nhận ra.
-    expect(res.body.datamodel.sort()).toEqual(['modify', 'read']);
+    // `datamodel` nhận `delete` từ §10, khi mô hình dữ liệu có endpoint xoá thật.
+    expect(res.body.datamodel.sort()).toEqual(['delete', 'modify', 'read']);
+    // `chart` vẫn cố ý KHÔNG có `delete`: nó chưa có endpoint nào, và cấp quyền
+    // trước khi có thứ để áp dụng là cách policy lệch dần khỏi thực tế mà không
+    // ai nhận ra. Đây chính là ca giữ cho luật đó còn hiệu lực.
+    expect(res.body.chart.sort()).toEqual(['modify', 'read']);
     expect(res.body.member).toEqual(['read']);
     expect(res.body.workspace).toEqual(['read']);
   });

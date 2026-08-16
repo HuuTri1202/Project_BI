@@ -15,6 +15,11 @@ import TenantsPage from './pages/admin/TenantsPage';
 import UsersPage from './pages/admin/UsersPage';
 import WorkspacesPage from './pages/admin/WorkspacesPage';
 import ConnectionFormPage from './pages/tenant/ConnectionFormPage';
+import DataModelPage from './pages/tenant/DataModelPage';
+import ExplorerTab from './pages/tenant/datamodel/ExplorerTab';
+import MeasuresTab from './pages/tenant/datamodel/MeasuresTab';
+import RelationshipTab from './pages/tenant/datamodel/RelationshipTab';
+import SchemasTab from './pages/tenant/datamodel/SchemasTab';
 import ConnectionsPage from './pages/tenant/ConnectionsPage';
 import DatasetDetailPage from './pages/tenant/DatasetDetailPage';
 import DatasetsPage from './pages/tenant/DatasetsPage';
@@ -52,6 +57,22 @@ import { WorkspaceProvider } from './workspace/WorkspaceProvider';
  * vite.config.ts proxy `/health` thẳng sang Express nên đường dẫn đó không bao
  * giờ tới được SPA.
  */
+/**
+ * Bốn tab thật của trang Mô hình dữ liệu (§10).
+ *
+ * Trả về một MẢNG `<Route>` để khai đúng một lần rồi dùng cho cả hai nhánh
+ * `/datamodels` và `/datamodels/:id`. Chép tay hai lần là hai chỗ để quên khi
+ * thêm tab thứ năm.
+ */
+function dataModelTabs(): React.ReactElement[] {
+  return [
+    <Route key="schemas" index element={<SchemasTab />} />,
+    <Route key="relationship" path="relationship" element={<RelationshipTab />} />,
+    <Route key="measures" path="measures" element={<MeasuresTab />} />,
+    <Route key="explorer" path="explorer" element={<ExplorerTab />} />,
+  ];
+}
+
 export default function App(): React.ReactElement {
   return (
     <Routes>
@@ -99,6 +120,28 @@ export default function App(): React.ReactElement {
               cột, và cột "Kiểu dữ liệu" bị cắt cụt trong khung 32rem thì trang
               xem schema mất đúng thứ nó sinh ra để hiện. */}
           <Route path="/datasets/:id" element={<DatasetDetailPage />} />
+
+          {/* §10 — mô hình dữ liệu. Cũng KHÔNG bọc `TenantAdminRoute`: mọi vai
+              trò kể cả viewer đều có `datamodel:read` trong ma trận mặc định,
+              cùng lý do với `/datasets`. Nút ghi ẩn theo
+              `permissions.can('datamodel','modify')`, và backend vẫn chặn bằng
+              `authorize()`.
+
+              Tab là ROUTE THẬT — xem `DataModelPage`. Năm tab chưa xây KHÔNG có
+              route: chúng render `<span aria-disabled>` chứ không phải
+              `NavLink`, nên không có đường nào bấm vào rồi rơi vào 404. */}
+          {/* Hai nhánh cùng một component: `/datamodels` mở mô hình cập nhật
+              gần nhất, `/datamodels/:id` mở đúng một mô hình để chia sẻ link
+              được. KHÔNG có trang danh sách chắn phía trước — §10.1 mô tả trang
+              DataModel đã có sẵn breadcrumb, hai nút và thanh tab, tức là mở ra
+              là đã ở trong một mô hình. Đổi mô hình bằng ô chọn trên breadcrumb. */}
+          <Route path="/datamodels" element={<DataModelPage />}>
+            {dataModelTabs()}
+          </Route>
+          <Route path="/datamodels/:id" element={<DataModelPage />}>
+            {dataModelTabs()}
+          </Route>
+
           <Route path="/reports/:id" element={<ReportPage />} />
 
           {/* ─── Quản lý tổ chức: một trang, ba tab ─────────────────────────

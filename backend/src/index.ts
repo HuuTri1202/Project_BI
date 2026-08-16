@@ -5,6 +5,8 @@ import { env } from './config/env';
 import { closeMysql } from './config/mysql';
 import { closeRedis } from './config/redis';
 import { runMigrations } from './db/migrate';
+import { regenerateAllTenants } from './services/datamodel/cubeSchemaService';
+import { checkSchemaDir } from './services/datamodel/cubeSchemaStore';
 import { startIngestRunner, stopIngestRunner } from './services/ingest/runner';
 
 let server: Server | undefined;
@@ -29,6 +31,14 @@ async function start(): Promise<void> {
   // đang làm phần giao diện. Đặt trước `listen` thì máy đó không mở nổi cổng
   // 4000 vì một thứ họ không dùng tới. Vòng lặp tự nuốt lỗi kết nối và ghi log.
   startIngestRunner();
+
+  // Cube schema (§10) dựng lại từ database, cùng lý do đặt sau `listen`.
+  //
+  // Thư mục file cube nằm trong `.gitignore`, nên một lần `git clean` là mất
+  // sạch trong khi database vẫn còn nguyên mô hình. Sinh lại lúc boot khép kín
+  // khoảng lệch đó mà không ai phải nhớ làm gì. Cả hai hàm tự nuốt lỗi.
+  await checkSchemaDir();
+  void regenerateAllTenants();
 }
 
 /**

@@ -225,14 +225,20 @@ export interface DatasetDto {
    */
   truncated: boolean;
 
-  /**
-   * Số mô hình dữ liệu đang dùng dataset này.
-   *
-   * LUÔN bằng 0 cho tới Section 09 — bảng `datamodels` chưa tồn tại. Giữ trường
-   * này ngay từ bây giờ để lúc có mô hình thật thì giao diện không phải đổi
-   * hợp đồng API.
-   */
+  /** Số mô hình dữ liệu (§10) đang dùng bộ dữ liệu này. */
   datamodelCount: number;
+  /**
+   * Mô hình để MỞ khi người dùng bấm vào bộ dữ liệu này.
+   *
+   * Là mô hình cũ nhất trong số những mô hình chứa nó — thường chính là cái §10
+   * tự tạo ngay sau khi nạp xong. `null` khi chưa có mô hình nào, thường vì bộ
+   * dữ liệu chưa được nạp vào kho.
+   *
+   * Một bộ dữ liệu nằm được trong NHIỀU mô hình (một cái riêng nó, vài cái nhiều
+   * bảng do người dùng dựng), nên `datamodelCount` và trường này trả lời hai câu
+   * khác nhau: "có bao nhiêu" và "bấm vào thì đi đâu".
+   */
+  datamodelId: number | null;
 
   /* ─── Kho phân tích ClickHouse (§9) ────────────────────────────────────── */
   /**

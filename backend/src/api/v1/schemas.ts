@@ -1,10 +1,17 @@
 import {
   AGGREGATES,
   CHART_TYPES,
+  COLUMN_ROLES,
+  DATAMODEL_NAME_MAX,
   DATASET_NAME_MAX,
   DATASET_SOURCES,
   DATASET_STATUSES,
+  LOAD_STATUSES,
+  MEASURE_AGGS,
+  MEASURE_NAME_MAX,
+  RELATIONSHIP_KINDS,
   REPORT_NAME_MAX,
+  TIME_GRANULARITIES,
   companyNameRule,
   emailRule,
   fullNameRule,
@@ -328,9 +335,129 @@ export const listDatasetsQuerySchema = paginationSchema.extend({
   source: z.enum(DATASET_SOURCES).optional(),
   connectionId: z.coerce.number().int().positive().optional(),
   status: z.enum(DATASET_STATUSES).optional(),
+  /**
+   * Lọc theo trạng thái NẠP VÀO KHO (§9), khác hẳn `status` ở trên vốn nói về
+   * việc phân tích file (§7). Bộ chọn bộ dữ liệu của §10.2 dùng nó để chỉ chào
+   * những bộ đã `loaded` — bộ chưa nạp thì chưa có bảng nào trong ClickHouse để
+   * dựng mô hình lên.
+   */
+  loadStatus: z.enum(LOAD_STATUSES).optional(),
   sort: z.string().optional(),
   order: z.enum(['asc', 'desc']).default('desc'),
 });
+
+// ─── Mô hình dữ liệu (§10) ───────────────────────────────────────────────────
+
+export const listDataModelsQuerySchema = paginationSchema.extend({
+  q: z.string().trim().max(100).optional(),
+  workspaceId: z.coerce.number().int().positive().optional(),
+  sort: z.string().optional(),
+  order: z.enum(['asc', 'desc']).default('desc'),
+});
+
+const dataModelName = z
+  .string()
+  .trim()
+  .min(1, 'Tên mô hình không được để trống')
+  .max(DATAMODEL_NAME_MAX);
+
+/**
+ * Trần 20 bộ dữ liệu mỗi mô hình.
+ *
+ * Không phải con số tuỳ tiện: mỗi bộ là một cube trong file schema, và Cube
+ * biên dịch lại cả ngữ cảnh mỗi lần mô hình đổi. Quan trọng hơn, một mô hình 20
+ * bảng đã vượt xa thứ canvas quan hệ hiện được cho người đọc hiểu.
+ */
+export const createDataModelBodySchema = z.object({
+  workspaceId: z.coerce.number().int().positive().optional(),
+  name: dataModelName,
+  description: z.string().trim().max(500).optional(),
+  datasetIds: z
+    .array(z.coerce.number().int().positive())
+    .min(1, 'Hãy chọn ít nhất một bộ dữ liệu')
+    .max(20, 'Mỗi mô hình nhận tối đa 20 bộ dữ liệu'),
+});
+
+export const updateDataModelBodySchema = z.object({
+  name: dataModelName,
+  description: z.string().trim().max(500).nullable().optional(),
+});
+
+export const addDatasetsBodySchema = z.object({
+  datasetIds: z.array(z.coerce.number().int().positive()).min(1).max(20),
+});
+
+export const saveSchemaBodySchema = z.object({
+  columns: z
+    .array(
+      z.object({
+        columnId: z.coerce.number().int().positive(),
+        alias: z.string().trim().max(255).nullable(),
+        role: z.enum(COLUMN_ROLES),
+      }),
+    )
+    .min(1)
+    .max(500),
+});
+
+export const saveLayoutBodySchema = z.object({
+  positions: z
+    .array(
+      z.object({
+        id: z.coerce.number().int().positive(),
+        // Toạ độ âm hợp lệ: người dùng kéo thẻ ra ngoài mép trái là chuyện
+        // thường, và ép về 0 sẽ dồn mọi thẻ vào một chỗ. Trần để chặn một giá
+        // trị vô lý đẩy thẻ ra khỏi tầm nhìn vĩnh viễn.
+        x: z.coerce.number().int().min(-10_000).max(10_000),
+        y: z.coerce.number().int().min(-10_000).max(10_000),
+      }),
+    )
+    .max(50),
+});
+
+export const createMeasureBodySchema = z.object({
+  datamodelDatasetId: z.coerce.number().int().positive(),
+  name: z.string().trim().min(1, 'Tên thước đo không được để trống').max(MEASURE_NAME_MAX),
+  agg: z.enum(MEASURE_AGGS),
+  columnId: z.coerce.number().int().positive().optional(),
+});
+
+export const updateMeasureBodySchema = createMeasureBodySchema.omit({
+  datamodelDatasetId: true,
+});
+
+export const createRelationshipBodySchema = z.object({
+  leftId: z.coerce.number().int().positive(),
+  leftColumnId: z.coerce.number().int().positive(),
+  rightId: z.coerce.number().int().positive(),
+  rightColumnId: z.coerce.number().int().positive(),
+  kind: z.enum(RELATIONSHIP_KINDS),
+});
+
+/**
+ * Câu hỏi gửi tới Explorer — §10.7.
+ *
+ * ⚠️ TOÀN BỘ là id. Không một tên cube, tên bảng hay tên cột nào đi từ trình
+ * duyệt xuống. Express tra id trong phạm vi mô hình đã lọc theo tổ chức rồi TỰ
+ * DỰNG tên cube — cùng nguyên tắc `aggregateWarehouse` đang dùng: chuỗi đi vào
+ * truy vấn lấy từ database của ta, không phải từ body request.
+ */
+export const explorerQueryBodySchema = z
+  .object({
+    dimensionIds: z.array(z.coerce.number().int().positive()).max(20).default([]),
+    measureIds: z.array(z.coerce.number().int().positive()).max(20).default([]),
+    timeDimension: z
+      .object({
+        dimensionId: z.coerce.number().int().positive(),
+        granularity: z.enum(TIME_GRANULARITIES),
+      })
+      .optional(),
+    limit: z.coerce.number().int().positive().max(5000).optional(),
+  })
+  .refine((q) => q.dimensionIds.length + q.measureIds.length > 0, {
+    message: 'Hãy chọn ít nhất một chiều hoặc một thước đo',
+    path: ['dimensionIds'],
+  });
 
 /** Dòng lỗi của lần nạp gần nhất (§9.8). Chỉ cần phân trang, không có bộ lọc. */
 export const listLoadErrorsQuerySchema = paginationSchema;

@@ -65,6 +65,17 @@ const NAV_ITEMS: NavItem[] = [
     icon: 'M4 7c0-1.7 3.6-3 8-3s8 1.3 8 3-3.6 3-8 3-8-1.3-8-3Zm0 0v10c0 1.7 3.6 3 8 3s8-1.3 8-3V7M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3',
   },
   /*
+   * §10 — tầng ngữ nghĩa dựng TRÊN kho dữ liệu, nên nằm ngay dưới nó.
+   *
+   * Cũng không có `needs`: mọi vai trò đều có `datamodel:read`, và giấu mục này
+   * là chặn viewer khỏi thứ họ có quyền xem. Cùng lý do với "Kho dữ liệu".
+   */
+  {
+    label: 'Mô hình dữ liệu',
+    to: '/datamodels',
+    icon: 'M4 5h6v5H4V5Zm10 9h6v5h-6v-5ZM7 10v3a1 1 0 0 0 1 1h6',
+  },
+  /*
    * Ba mục cũ — Workspace, Thành viên và (chưa từng có) thông tin tổ chức — gom
    * thành MỘT. Chúng cùng trả lời câu hỏi "tổ chức này được cấu hình thế nào",
    * nên tách ra thành nhiều dòng sidebar chỉ bắt người quản trị phải nhớ mỗi thứ

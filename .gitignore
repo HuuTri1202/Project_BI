@@ -72,6 +72,10 @@ docker-compose.override.yml
 # Giữ .gitkeep để git còn tạo được thư mục sau khi clone.
 infrastructure/cube/model/cubes/*
 !infrastructure/cube/model/cubes/.gitkeep
+# §10 sinh MỘT THƯ MỤC MỖI TỔ CHỨC ở đây — `model/tenants/{tenantId}/dm{id}.js`.
+# Chúng mang dữ liệu thật của khách hàng (tên bảng, tên cột) và được dựng lại từ
+# database mỗi lần backend khởi động, nên không có lý do gì để nằm trong Git.
+infrastructure/cube/model/tenants/
 
 # Sản phẩm biên dịch của dbt
 infrastructure/dbt/target/
