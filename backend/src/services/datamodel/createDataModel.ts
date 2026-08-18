@@ -1,5 +1,4 @@
 import { DATAMODEL_ERROR_CODES, type WarehouseSchemaDto } from '@bi/shared';
-import type { PoolConnection } from 'mysql2/promise';
 
 import { mysqlPool } from '../../config/mysql';
 import { withTransaction } from '../../db/tx';
@@ -8,6 +7,7 @@ import * as datasetsRepo from '../../repositories/datasets';
 import { HttpError, notFound } from '../../utils/httpError';
 import { warehouseSchema } from '../ingest/loadService';
 import { defaultRoleOf, isSystemColumn } from './classifyColumn';
+import { generateCalcFields } from './schemaFields';
 
 /**
  * Tạo mô hình dữ liệu — §10.2.
@@ -23,64 +23,6 @@ import { defaultRoleOf, isSystemColumn } from './classifyColumn';
  * và không ai phát hiện cho tới khi một biểu đồ ra số lạ. Đây đúng là lỗi cột
  * ngày Excel mà §9 đã mắc và ghi lại trong README. Nên hỏi kho.
  */
-
-/**
- * Gieo thước đo mặc định cho mọi cột số — §10.2 gặp §10.6.
- *
- * ─── Vì sao cần, và nó được phát hiện bằng cách nào ─────────────────────────
- *
- * §10.2 phân loại `UInt/Int/Float → Measure`, nhưng `role = 'measure'` một mình
- * KHÔNG dẫn đi đâu cả: file cube lấy `measures` từ bảng `datamodel_measures`,
- * vốn là thứ §10.6 cho người dùng tự đặt. Nên một mô hình vừa tạo xong có đủ
- * chiều mà không có thước đo nào — Explorer mở ra và không đo được gì.
- *
- * Lỗ hổng này KHÔNG lộ ra ở test đơn vị lẫn test tích hợp: cả hai đều kiểm phần
- * của mình và đều xanh. Nó chỉ hiện ra khi hỏi Cube "cube này có gì" và nhận
- * được `0 thước đo`.
- *
- * Cách vá: `datamodel_measures` là NGUỒN DUY NHẤT của thước đo, và §10.2 gieo
- * sẵn một dòng `sum` cho mỗi cột số. Người dùng đổi tên, đổi phép tính, xoá,
- * hoặc thêm cái khác ở tab Thước đo — tất cả trên cùng một cơ chế.
- *
- * `sum` chứ không phải `avg`: tổng là câu hỏi hay gặp nhất với một cột số trong
- * BI, và đoán sai theo hướng tổng thì người dùng đổi trong hai giây, còn đoán
- * theo hướng trung bình thì con số trông hợp lý hơn nên dễ bị tin nhầm.
- */
-async function seedMeasures(
-  conn: PoolConnection,
-  tenantId: number,
-  dataModelId: number,
-  datamodelDatasetId: number,
-  createdBy: number | null,
-  used: Set<string>,
-): Promise<void> {
-  const columns = await datamodelsRepo.listColumnsOfDataset(conn, tenantId, datamodelDatasetId);
-
-  for (const column of columns) {
-    if (column.role !== 'measure') continue;
-
-    // `UNIQUE (datamodel_id, name)` — hai bảng trong cùng mô hình rất hay có
-    // cùng một cột "Doanh thu", và để nó đâm vào ràng buộc sẽ cho ra lỗi 500
-    // khó hiểu ngay ở bước tạo mô hình.
-    const base = column.alias ?? column.column_name;
-    let name = base;
-    let suffix = 2;
-    while (used.has(name)) {
-      name = `${base} (${suffix})`;
-      suffix += 1;
-    }
-    used.add(name);
-
-    await datamodelsRepo.createMeasure(conn, tenantId, {
-      dataModelId,
-      datamodelDatasetId,
-      columnId: Number(column.id),
-      name,
-      agg: 'sum',
-      createdBy,
-    });
-  }
-}
 
 /** Bố cục lưới ban đầu cho canvas — người dùng kéo lại tuỳ ý sau đó. */
 const GRID_COLUMNS = 3;
@@ -150,9 +92,6 @@ export async function createDataModel(input: CreateInput): Promise<number> {
       createdBy: input.createdBy,
     });
 
-    // Tên thước đo duy nhất trong PHẠM VI MÔ HÌNH, không phải phạm vi bảng.
-    const usedMeasureNames = new Set<string>();
-
     for (const [index, datasetId] of input.datasetIds.entries()) {
       const position = initialPosition(index);
       const datamodelDatasetId = await datamodelsRepo.addDataset(conn, input.tenantId, {
@@ -176,19 +115,18 @@ export async function createDataModel(input: CreateInput): Promise<number> {
           // sẵn thì lần đồng bộ lại không biết có được cập nhật hay không.
           alias: null,
           role: defaultRoleOf(column.name, column.type),
+          // `_row_index` không bao giờ hiện: nó là cột hệ thống §9 thêm vào để
+          // Cube có khoá chính mà JOIN đếm đúng, không phải cột của người dùng.
+          visible: !isSystemColumn(column.name),
           chType: column.type,
           ordinal: column.ordinal,
         })),
       );
 
-      await seedMeasures(
-        conn,
-        input.tenantId,
-        dataModelId,
-        datamodelDatasetId,
-        input.createdBy,
-        usedMeasureNames,
-      );
+      // §8.3.1: mỗi cột số đẻ ra bốn field tính toán. Chúng CHÍNH LÀ thước đo
+      // của mô hình — không còn bảng `datamodel_measures` để hai nơi cùng định
+      // nghĩa một thứ.
+      await generateCalcFields(conn, input.tenantId, datamodelDatasetId);
     }
 
     return dataModelId;
@@ -204,7 +142,6 @@ export async function addDatasets(
   tenantId: number,
   dataModelId: number,
   datasetIds: readonly number[],
-  createdBy: number,
 ): Promise<void> {
   const schemas = new Map<number, WarehouseSchemaDto>();
   for (const datasetId of datasetIds) {
@@ -212,12 +149,6 @@ export async function addDatasets(
   }
 
   const existing = await datamodelsRepo.listDatasets(mysqlPool, tenantId, dataModelId);
-
-  // Tên thước đo đang dùng, để cột "Doanh thu" của bảng mới không đâm vào cột
-  // cùng tên của bảng đã có trong mô hình.
-  const usedMeasureNames = new Set(
-    (await datamodelsRepo.listMeasures(mysqlPool, tenantId, dataModelId)).map((m) => m.name),
-  );
 
   await withTransaction(async (conn) => {
     for (const [index, datasetId] of datasetIds.entries()) {
@@ -240,19 +171,15 @@ export async function addDatasets(
           columnName: column.name,
           alias: null,
           role: defaultRoleOf(column.name, column.type),
+          // `_row_index` không bao giờ hiện: nó là cột hệ thống §9 thêm vào để
+          // Cube có khoá chính mà JOIN đếm đúng, không phải cột của người dùng.
+          visible: !isSystemColumn(column.name),
           chType: column.type,
           ordinal: column.ordinal,
         })),
       );
 
-      await seedMeasures(
-        conn,
-        tenantId,
-        dataModelId,
-        datamodelDatasetId,
-        createdBy,
-        usedMeasureNames,
-      );
+      await generateCalcFields(conn, tenantId, datamodelDatasetId);
     }
 
     await datamodelsRepo.touch(conn, tenantId, dataModelId);

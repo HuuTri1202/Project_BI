@@ -2,6 +2,7 @@ import type {
   CreateDataModelInput,
   CreateMeasureInput,
   CreateRelationshipInput,
+  DataModelColumnDto,
   DataModelDetailDto,
   DataModelDto,
   DataModelMeasureDto,
@@ -13,6 +14,9 @@ import type {
   RelationshipWarningDto,
   SaveLayoutInput,
   SaveSchemaInput,
+  SchemaListItemDto,
+  SchemaSyncResultDto,
+  UpdateFieldInput,
 } from '@bi/shared';
 import { apiClient } from '../../services/apiClient';
 
@@ -200,5 +204,44 @@ export async function runQuery(
   input: ExplorerQueryDto,
 ): Promise<ExplorerResultDto> {
   const { data } = await apiClient.post<ExplorerResultDto>(`/v1/datamodels/${id}/query`, input);
+  return data;
+}
+
+// ─── Schema và Field (§8.3, §8.3.1) ──────────────────────────────────────────
+
+export async function fetchSchemas(id: number): Promise<SchemaListItemDto[]> {
+  const { data } = await apiClient.get<SchemaListItemDto[]>(`/v1/datamodels/${id}/schemas`);
+  return data;
+}
+
+export interface SchemaFieldsDto {
+  schema: { id: number; datasetId: number; name: string; chTable: string };
+  fields: DataModelColumnDto[];
+}
+
+export async function fetchSchemaFields(id: number, schemaId: number): Promise<SchemaFieldsDto> {
+  const { data } = await apiClient.get<SchemaFieldsDto>(
+    `/v1/datamodels/${id}/schemas/${schemaId}/fields`,
+  );
+  return data;
+}
+
+export async function updateField(
+  id: number,
+  schemaId: number,
+  fieldId: number,
+  input: UpdateFieldInput,
+): Promise<DataModelColumnDto> {
+  const { data } = await apiClient.put<DataModelColumnDto>(
+    `/v1/datamodels/${id}/schemas/${schemaId}/fields/${fieldId}`,
+    input,
+  );
+  return data;
+}
+
+export async function syncSchema(id: number, schemaId: number): Promise<SchemaSyncResultDto> {
+  const { data } = await apiClient.post<SchemaSyncResultDto>(
+    `/v1/datamodels/${id}/schemas/${schemaId}/sync`,
+  );
   return data;
 }

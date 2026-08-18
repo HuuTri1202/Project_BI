@@ -400,6 +400,24 @@ export const saveSchemaBodySchema = z.object({
     .max(500),
 });
 
+/**
+ * Sửa một field ở trang chi tiết Schema — §8.3.1.
+ *
+ * Cả ba trường đều TUỲ CHỌN, và đó là điểm mấu chốt: `PUT` với đúng một trường
+ * nghĩa là sửa đúng trường đó. Bắt buộc cả ba thì mỗi lần gạt công tắc
+ * Visibility sẽ ghi đè luôn mô tả người dùng vừa nhập.
+ */
+export const updateFieldBodySchema = z
+  .object({
+    visible: z.boolean().optional(),
+    description: z.string().trim().max(500).nullable().optional(),
+    displayName: z.string().trim().max(255).nullable().optional(),
+  })
+  .refine(
+    (v) => v.visible !== undefined || v.description !== undefined || v.displayName !== undefined,
+    { message: 'Không có gì để cập nhật.' },
+  );
+
 export const saveLayoutBodySchema = z.object({
   positions: z
     .array(

@@ -1,4 +1,5 @@
 import type {
+  CalcAgg,
   ColumnRole,
   DataModelDto,
   DataModelMeasureDto,
@@ -36,6 +37,7 @@ interface ModelRow extends RowDataPacket {
   dataset_count: number;
   measure_count: number;
   relationship_count: number;
+  report_count: number;
   creator_name: string | null;
   created_at: Date;
   updated_at: Date;
@@ -56,6 +58,9 @@ const MODEL_SELECT = `SELECT dm.id, dm.workspace_id, dm.name, dm.description,
            WHERE x.datamodel_id = dm.id AND x.deleted_at IS NULL) AS measure_count,
          (SELECT COUNT(*) FROM datamodel_relationships x
            WHERE x.datamodel_id = dm.id AND x.deleted_at IS NULL) AS relationship_count,
+         (SELECT COUNT(*) FROM reports r
+            JOIN datamodel_datasets x ON x.dataset_id = r.dataset_id
+           WHERE x.datamodel_id = dm.id AND r.deleted_at IS NULL) AS report_count,
          u.full_name AS creator_name, dm.created_at, dm.updated_at
     FROM datamodels dm
     LEFT JOIN users u ON u.id = dm.created_by`;
@@ -69,6 +74,7 @@ function toModelDto(row: ModelRow): DataModelDto {
     datasetCount: Number(row.dataset_count),
     measureCount: Number(row.measure_count),
     relationshipCount: Number(row.relationship_count),
+    reportCount: Number(row.report_count),
     creatorName: row.creator_name,
     createdAt: row.created_at.toISOString(),
     updatedAt: row.updated_at.toISOString(),
@@ -299,10 +305,25 @@ export interface ModelColumnRow extends RowDataPacket {
   datamodel_dataset_id: number;
   column_name: string;
   alias: string | null;
+  display_name: string | null;
+  description: string | null;
+  visible: number;
   role: ColumnRole;
+  calc_agg: CalcAgg | null;
+  source_column_id: number | null;
   ch_type: string;
   ordinal: number;
 }
+
+/**
+ * Danh sách cột dùng chung cho mọi câu đọc field.
+ *
+ * Một hằng số thay vì chép tay: có bốn nơi đọc field, và bốn danh sách cột chép
+ * tay là bốn cơ hội để một cột mới lọt ở ba nơi rồi thiếu ở nơi thứ tư.
+ */
+const FIELD_COLUMNS = `c.id, c.datamodel_dataset_id, c.column_name, c.alias, c.display_name,
+         c.description, c.visible, c.role, c.calc_agg, c.source_column_id,
+         c.ch_type, c.ordinal`;
 
 export async function listColumns(
   db: Db,
@@ -310,36 +331,158 @@ export async function listColumns(
   dataModelId: number,
 ): Promise<ModelColumnRow[]> {
   const [rows] = await db.query<ModelColumnRow[]>(
-    `SELECT c.id, c.datamodel_dataset_id, c.column_name, c.alias, c.role, c.ch_type, c.ordinal
+    `SELECT ${FIELD_COLUMNS}
        FROM datamodel_columns c
        JOIN datamodel_datasets dmd ON dmd.id = c.datamodel_dataset_id
       WHERE c.tenant_id = ? AND dmd.datamodel_id = ?
-      ORDER BY c.datamodel_dataset_id ASC, c.ordinal ASC`,
+      ORDER BY c.datamodel_dataset_id ASC, c.ordinal ASC, c.id ASC`,
     [tenantId, dataModelId],
   );
   return rows;
 }
 
-/** Cột của MỘT bảng trong mô hình — dùng để gieo thước đo ngay sau khi chèn. */
+/** Field của MỘT Schema — trang chi tiết §8.3.1, và bước sinh field tính toán. */
 export async function listColumnsOfDataset(
   db: Db,
   tenantId: number,
   datamodelDatasetId: number,
 ): Promise<ModelColumnRow[]> {
   const [rows] = await db.query<ModelColumnRow[]>(
-    `SELECT id, datamodel_dataset_id, column_name, alias, role, ch_type, ordinal
-       FROM datamodel_columns
-      WHERE tenant_id = ? AND datamodel_dataset_id = ?
-      ORDER BY ordinal ASC`,
+    `SELECT ${FIELD_COLUMNS}
+       FROM datamodel_columns c
+      WHERE c.tenant_id = ? AND c.datamodel_dataset_id = ?
+      ORDER BY c.ordinal ASC, c.id ASC`,
     [tenantId, datamodelDatasetId],
   );
   return rows;
+}
+
+/**
+ * Sinh bốn field TÍNH TOÁN cho một cột số — §8.3.1.
+ *
+ * `INSERT IGNORE` chứ không kiểm trước: `UNIQUE (datamodel_dataset_id,
+ * column_name)` là thứ thật sự chặn trùng, và giữa một câu SELECT kiểm và câu
+ * INSERT luôn có khe hở. Nhờ vậy nút Sync gọi lại được bao nhiêu lần cũng không
+ * đẻ thêm bản sao.
+ *
+ * `ordinal` bám theo cột gốc để bốn field nằm ngay dưới nó trong danh sách, thay
+ * vì dồn hết xuống cuối trang.
+ */
+export async function insertCalcFields(
+  db: Db,
+  tenantId: number,
+  datamodelDatasetId: number,
+  source: { id: number; columnName: string; chType: string; ordinal: number },
+): Promise<number> {
+  const aggs: CalcAgg[] = ['count', 'countDistinct', 'sum', 'avg'];
+
+  const [result] = await db.query<ResultSetHeader>(
+    `INSERT IGNORE INTO datamodel_columns
+       (tenant_id, datamodel_dataset_id, column_name, display_name, role,
+        calc_agg, source_column_id, ch_type, ordinal, visible)
+     VALUES ?`,
+    [
+      aggs.map((agg) => [
+        tenantId,
+        datamodelDatasetId,
+        `${source.columnName}_${agg}`,
+        `${source.columnName}_${agg}`,
+        'measure',
+        agg,
+        source.id,
+        source.chType,
+        source.ordinal,
+        1,
+      ]),
+    ],
+  );
+  return result.affectedRows;
+}
+
+/** Sửa một field ở trang chi tiết Schema — §8.3.1. */
+export async function updateField(
+  db: Db,
+  tenantId: number,
+  datamodelDatasetId: number,
+  fieldId: number,
+  // `| undefined` tường minh vì `exactOptionalPropertyTypes` bật: ở chế độ đó
+  // `?:` nghĩa là "vắng mặt", còn zod trả về "có mặt với giá trị undefined".
+  input: {
+    visible?: boolean | undefined;
+    description?: string | null | undefined;
+    displayName?: string | null | undefined;
+  },
+): Promise<number> {
+  const sets: string[] = [];
+  const params: unknown[] = [];
+
+  // Chỉ ghi những gì người gọi THẬT SỰ gửi. `PUT` với một trường nghĩa là sửa
+  // đúng trường đó; ghi cả ba sẽ xoá mô tả mỗi lần người dùng gạt công tắc.
+  if (input.visible !== undefined) {
+    sets.push('visible = ?');
+    params.push(input.visible ? 1 : 0);
+  }
+  if (input.description !== undefined) {
+    sets.push('description = ?');
+    params.push(input.description);
+  }
+  if (input.displayName !== undefined) {
+    sets.push('display_name = ?');
+    params.push(input.displayName);
+  }
+  if (sets.length === 0) return 0;
+
+  const [result] = await db.query<ResultSetHeader>(
+    `UPDATE datamodel_columns SET ${sets.join(', ')}
+      WHERE tenant_id = ? AND datamodel_dataset_id = ? AND id = ?`,
+    [...params, tenantId, datamodelDatasetId, fieldId],
+  );
+  return result.affectedRows;
+}
+
+/** Xoá field tính toán của một cột — dùng khi Sync thấy cột đó biến mất. */
+export async function deleteColumn(db: Db, tenantId: number, id: number): Promise<void> {
+  // Field tính toán CASCADE theo `source_column_id`, không phải xoá tay.
+  await db.query('DELETE FROM datamodel_columns WHERE tenant_id = ? AND id = ?', [tenantId, id]);
+}
+
+/** Thêm một cột thật vừa xuất hiện trong kho — nút Sync. */
+export async function insertOneColumn(
+  db: Db,
+  tenantId: number,
+  datamodelDatasetId: number,
+  input: ColumnInput,
+): Promise<number> {
+  const [result] = await db.query<ResultSetHeader>(
+    `INSERT INTO datamodel_columns
+       (tenant_id, datamodel_dataset_id, column_name, alias, role, ch_type, ordinal, visible)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      tenantId,
+      datamodelDatasetId,
+      input.columnName,
+      input.alias,
+      input.role,
+      input.chType,
+      input.ordinal,
+      input.visible === false ? 0 : 1,
+    ],
+  );
+  return result.insertId;
 }
 
 export interface ColumnInput {
   columnName: string;
   alias: string | null;
   role: ColumnRole;
+  /**
+   * Mặc định bật, TRỪ cột hệ thống.
+   *
+   * Migration 11 đặt `visible = 0` cho `_row_index` của những mô hình đã có,
+   * nhưng dòng CHÈN MỚI thì lấy `DEFAULT 1` của cột — nên phải truyền tường
+   * minh ở đây, nếu không cột hệ thống lại hiện ra với mọi mô hình tạo sau đó.
+   */
+  visible?: boolean;
   chType: string;
   ordinal: number;
 }
@@ -353,7 +496,7 @@ export async function insertColumns(
   if (columns.length === 0) return;
   await db.query<ResultSetHeader>(
     `INSERT INTO datamodel_columns
-       (tenant_id, datamodel_dataset_id, column_name, alias, role, ch_type, ordinal)
+       (tenant_id, datamodel_dataset_id, column_name, alias, role, ch_type, ordinal, visible)
      VALUES ?`,
     [
       columns.map((c) => [
@@ -364,6 +507,7 @@ export async function insertColumns(
         c.role,
         c.chType,
         c.ordinal,
+        c.visible === false ? 0 : 1,
       ]),
     ],
   );

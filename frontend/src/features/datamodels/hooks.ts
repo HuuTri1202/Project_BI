@@ -1,4 +1,5 @@
 import type {
+  DataModelColumnDto,
   DataModelDetailDto,
   DataModelDto,
   DataModelMeasureDto,
@@ -7,6 +8,8 @@ import type {
   ExplorerQueryDto,
   ExplorerResultDto,
   PageResult,
+  SchemaListItemDto,
+  SchemaSyncResultDto,
 } from '@bi/shared';
 import {
   keepPreviousData,
@@ -58,6 +61,62 @@ export function useModelSchema(id: number | null): UseQueryResult<DataModelDetai
     queryKey: dataModelKeys.schema(id ?? 0),
     queryFn: () => api.fetchModelSchema(id as number),
     enabled: id !== null,
+  });
+}
+
+/** Danh sách Schema — bảng ở tab Schemas (§8.3). */
+export function useSchemas(id: number | null): UseQueryResult<SchemaListItemDto[]> {
+  return useQuery({
+    queryKey: dataModelKeys.schemas(id ?? 0),
+    queryFn: () => api.fetchSchemas(id as number),
+    enabled: id !== null,
+  });
+}
+
+/** Field của một Schema — trang chi tiết (§8.3.1). */
+export function useSchemaFields(
+  id: number | null,
+  schemaId: number | null,
+): UseQueryResult<api.SchemaFieldsDto> {
+  return useQuery({
+    queryKey: dataModelKeys.schemaFields(id ?? 0, schemaId ?? 0),
+    queryFn: () => api.fetchSchemaFields(id as number, schemaId as number),
+    enabled: id !== null && schemaId !== null,
+  });
+}
+
+export function useUpdateField(
+  id: number,
+  schemaId: number,
+): UseMutationResult<
+  DataModelColumnDto,
+  unknown,
+  { fieldId: number; input: Parameters<typeof api.updateField>[3] }
+> {
+  const invalidate = useInvalidateDataModel();
+  return useMutation({
+    mutationFn: ({ fieldId, input }) => api.updateField(id, schemaId, fieldId, input),
+    onSuccess: invalidate,
+  });
+}
+
+export function useAddDatasets(
+  id: number,
+): UseMutationResult<DataModelDetailDto, unknown, number[]> {
+  const invalidate = useInvalidateDataModel();
+  return useMutation({
+    mutationFn: (datasetIds) => api.addDatasets(id, datasetIds),
+    onSuccess: invalidate,
+  });
+}
+
+export function useSyncSchema(
+  id: number,
+): UseMutationResult<SchemaSyncResultDto, unknown, number> {
+  const invalidate = useInvalidateDataModel();
+  return useMutation({
+    mutationFn: (schemaId) => api.syncSchema(id, schemaId),
+    onSuccess: invalidate,
   });
 }
 

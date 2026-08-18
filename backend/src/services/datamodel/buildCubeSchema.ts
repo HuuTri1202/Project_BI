@@ -66,10 +66,24 @@ export interface SchemaColumn {
 export interface SchemaMeasure {
   id: number;
   name: string;
-  agg: 'sum' | 'avg' | 'count' | 'min' | 'max';
-  /** `null` khi và chỉ khi `agg === 'count'`. */
+  /**
+   * Bốn phép của field tính toán (§8.3.1).
+   *
+   * `countDistinct` được dịch sang `count_distinct` — tên kiểu của Cube dùng
+   * gạch dưới, và dạng camelCase im lặng không khớp bất kỳ kiểu nào.
+   */
+  agg: 'count' | 'countDistinct' | 'sum' | 'avg';
+  /** `null` khi và chỉ khi `agg === 'count'` — đếm dòng không đo cột nào. */
   columnName: string | null;
 }
+
+/** Tên phép của TA -> tên kiểu measure của Cube. */
+const CUBE_MEASURE_TYPE: Record<SchemaMeasure['agg'], string> = {
+  count: 'count',
+  countDistinct: 'count_distinct',
+  sum: 'sum',
+  avg: 'avg',
+};
 
 export interface SchemaJoin {
   /** Tên cube phía bên kia. */
@@ -164,7 +178,7 @@ function measureBlock(measure: SchemaMeasure): string {
     lines.push(`      sql: ${sqlIdent(measure.columnName)},`);
   }
 
-  lines.push(`      type: ${js(measure.agg)},`, `    },`);
+  lines.push(`      type: ${js(CUBE_MEASURE_TYPE[measure.agg])},`, `    },`);
   return lines.join('\n');
 }
 

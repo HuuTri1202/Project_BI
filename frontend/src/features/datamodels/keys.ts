@@ -18,6 +18,9 @@ export const dataModelKeys = {
     [...dataModelKeys.all, 'list', workspaceId, query] as const,
   detail: (id: number) => [...dataModelKeys.all, 'detail', id] as const,
   schema: (id: number) => [...dataModelKeys.all, 'schema', id] as const,
+  schemas: (id: number) => [...dataModelKeys.all, 'schemas', id] as const,
+  schemaFields: (id: number, schemaId: number) =>
+    [...dataModelKeys.all, 'schema-fields', id, schemaId] as const,
   measures: (id: number) => [...dataModelKeys.all, 'measures', id] as const,
   relationships: (id: number) => [...dataModelKeys.all, 'relationships', id] as const,
   fields: (id: number) => [...dataModelKeys.all, 'fields', id] as const,

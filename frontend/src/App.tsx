@@ -16,6 +16,8 @@ import UsersPage from './pages/admin/UsersPage';
 import WorkspacesPage from './pages/admin/WorkspacesPage';
 import ConnectionFormPage from './pages/tenant/ConnectionFormPage';
 import DataModelPage from './pages/tenant/DataModelPage';
+import DataModelsPage from './pages/tenant/DataModelsPage';
+import SchemaDetailPage from './pages/tenant/datamodel/SchemaDetailPage';
 import ExplorerTab from './pages/tenant/datamodel/ExplorerTab';
 import MeasuresTab from './pages/tenant/datamodel/MeasuresTab';
 import RelationshipTab from './pages/tenant/datamodel/RelationshipTab';
@@ -58,7 +60,7 @@ import { WorkspaceProvider } from './workspace/WorkspaceProvider';
  * giờ tới được SPA.
  */
 /**
- * Bốn tab thật của trang Mô hình dữ liệu (§10).
+ * Bốn tab thật của trang Data Model (§8, §10).
  *
  * Trả về một MẢNG `<Route>` để khai đúng một lần rồi dùng cho cả hai nhánh
  * `/datamodels` và `/datamodels/:id`. Chép tay hai lần là hai chỗ để quên khi
@@ -130,14 +132,12 @@ export default function App(): React.ReactElement {
               Tab là ROUTE THẬT — xem `DataModelPage`. Năm tab chưa xây KHÔNG có
               route: chúng render `<span aria-disabled>` chứ không phải
               `NavLink`, nên không có đường nào bấm vào rồi rơi vào 404. */}
-          {/* Hai nhánh cùng một component: `/datamodels` mở mô hình cập nhật
-              gần nhất, `/datamodels/:id` mở đúng một mô hình để chia sẻ link
-              được. KHÔNG có trang danh sách chắn phía trước — §10.1 mô tả trang
-              DataModel đã có sẵn breadcrumb, hai nút và thanh tab, tức là mở ra
-              là đã ở trong một mô hình. Đổi mô hình bằng ô chọn trên breadcrumb. */}
-          <Route path="/datamodels" element={<DataModelPage />}>
-            {dataModelTabs()}
-          </Route>
+
+          <Route path="/datamodels" element={<DataModelsPage />} />
+          {/* Trang chi tiết Schema là SIBLING, không phải con của trang model:
+              nó cần cả vùng nội dung và có breadcrumb riêng, giống cách wizard
+              kết nối của §8 nằm ngoài khung tab của Quản lý tổ chức. */}
+          <Route path="/datamodels/:id/schemas/:schemaId" element={<SchemaDetailPage />} />
           <Route path="/datamodels/:id" element={<DataModelPage />}>
             {dataModelTabs()}
           </Route>

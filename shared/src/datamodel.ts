@@ -85,13 +85,45 @@ export const RELATIONSHIP_KIND_SHORT: Record<RelationshipKind, string> = {
 
 // ─── Bộ dữ liệu trong mô hình ────────────────────────────────────────────────
 
+/**
+ * Phép tính của một FIELD TÍNH TOÁN — §8.3.1.
+ *
+ * Mỗi cột SỐ tự sinh ra bốn field: `<cột>_count`, `<cột>_countDistinct`,
+ * `<cột>_sum`, `<cột>_avg`. Chúng CHÍNH LÀ thước đo — không còn một bảng
+ * "measures" riêng để hai nơi cùng định nghĩa một thứ.
+ */
+export const CALC_AGGS = ['count', 'countDistinct', 'sum', 'avg'] as const;
+export type CalcAgg = (typeof CALC_AGGS)[number];
+
+export const CALC_AGG_LABELS: Record<CalcAgg, string> = {
+  count: 'Count',
+  countDistinct: 'Count Distinct',
+  sum: 'Sum',
+  avg: 'Average',
+};
+
 export interface DataModelColumnDto {
   id: number;
-  /** Tên cột NGUYÊN VĂN trong ClickHouse. Đây là thứ đi vào SQL. */
+  /** Tên cột NGUYÊN VĂN trong ClickHouse, hoặc `<cột>_sum` với field tính toán. */
   columnName: string;
-  /** Tên người dùng muốn thấy. Trống thì lấy `columnName`. */
+  /** Giữ lại từ §10; `displayName` mới là thứ giao diện dùng. */
   alias: string | null;
+  /** Tên hiển thị người dùng đặt. Trống thì lấy `columnName`. */
+  displayName: string | null;
+  description: string | null;
+  /**
+   * Tắt = ẩn field khỏi DataModel.
+   *
+   * TÁCH khỏi `role`: một field có thể là thước đo mà vẫn bị ẩn. Gộp hai thứ
+   * lại thì bật lại một field đã ẩn sẽ mất thông tin nó vốn là chiều hay thước
+   * đo.
+   */
+  visible: boolean;
   role: ColumnRole;
+  /** `null` = cột thật trong kho. Khác null = field TÍNH TOÁN. */
+  calcAgg: CalcAgg | null;
+  /** Cột số mà field tính toán này dựng lên. `null` với cột thật. */
+  sourceColumnId: number | null;
   /** Kiểu ClickHouse đầy đủ, đọc từ `system.columns` lúc xem. */
   chType: string;
   cubeType: CubeType;
@@ -106,6 +138,12 @@ export interface DataModelColumnDto {
   typeChanged: boolean;
 }
 
+/**
+ * Một SCHEMA — §8.3.
+ *
+ * Sinh ra từ đúng một Dataset (§8.2), nên "Schema" và "bộ dữ liệu trong mô
+ * hình" là một khái niệm nhìn từ hai phía. Có trang chi tiết riêng.
+ */
 export interface DataModelDatasetDto {
   /** Id của DÒNG NỐI, không phải id bộ dữ liệu. Mọi thứ khác trỏ vào cái này. */
   id: number;
@@ -115,7 +153,22 @@ export interface DataModelDatasetDto {
   chTable: string;
   canvasX: number;
   canvasY: number;
+  /** Cột thật VÀ field tính toán, chung một danh sách. */
   columns: DataModelColumnDto[];
+}
+
+/** Một dòng trong bảng danh sách Schema (§8.3). */
+export interface SchemaListItemDto {
+  id: number;
+  datasetId: number;
+  name: string;
+  chTable: string;
+  /** Cột thật đọc được từ kho. */
+  columnCount: number;
+  /** Field tính toán tự sinh. */
+  calcFieldCount: number;
+  /** Field đang bật Visibility. */
+  visibleCount: number;
 }
 
 // ─── Thước đo (§10.6) ────────────────────────────────────────────────────────
@@ -176,9 +229,18 @@ export interface DataModelDto {
   workspaceId: number;
   name: string;
   description: string | null;
+  /** "Dataset Quantity" ở bảng §8.1 — cũng chính là số Schema. */
   datasetCount: number;
   measureCount: number;
   relationshipCount: number;
+  /**
+   * "Related Reports" ở bảng §8.1 — số báo cáo dựng trên bộ dữ liệu của mô hình.
+   *
+   * Đếm qua `datasets` chứ không qua `datamodels`: báo cáo (§7.6) trỏ tới một
+   * bộ dữ liệu, chưa trỏ tới mô hình. Con số này trả lời đúng câu người dùng
+   * hỏi — "xoá mô hình này thì đụng tới cái gì".
+   */
+  reportCount: number;
   creatorName: string | null;
   createdAt: string;
   updatedAt: string;
@@ -264,6 +326,22 @@ export interface CreateDataModelInput {
 
 export interface SaveSchemaInput {
   columns: { columnId: number; alias: string | null; role: ColumnRole }[];
+}
+
+/** Sửa một field ở trang chi tiết Schema — §8.3.1. */
+export interface UpdateFieldInput {
+  visible?: boolean;
+  description?: string | null;
+  displayName?: string | null;
+}
+
+/** Kết quả bấm Sync ở tab Schemas — đọc lại ClickHouse rồi so với bản đã lưu. */
+export interface SchemaSyncResultDto {
+  added: string[];
+  removed: string[];
+  typeChanged: string[];
+  /** Field tính toán sinh thêm cho những cột số vừa xuất hiện. */
+  calcFieldsAdded: number;
 }
 
 export interface CreateRelationshipInput {

@@ -85,22 +85,42 @@ async function buildModelFile(
     const ref = Number(row.id);
     const datasetId = Number(row.dataset_id);
 
-    const columns: SchemaColumn[] = (columnsByDataset.get(ref) ?? []).map((c) => ({
-      id: Number(c.id),
-      columnName: c.column_name,
-      label: c.alias ?? c.column_name,
-      role: c.role,
-      cubeType: cubeTypeOf(c.ch_type),
-    }));
+    const own = columnsByDataset.get(ref) ?? [];
 
-    const cubeMeasures: SchemaMeasure[] = measures
-      .filter((m) => m.datamodelDatasetId === ref)
-      .map((m) => ({
-        id: m.id,
-        name: m.name,
-        agg: m.agg,
-        columnName: m.columnName,
+    // CHIỀU: cột thật, không phải field tính toán, đang bật Visibility.
+    //
+    // `visible` tách khỏi `role` (§8.3.1): người dùng tắt một field nghĩa là ẩn
+    // nó khỏi mô hình, và cách duy nhất để "ẩn" có thật là KHÔNG sinh nó vào
+    // file cube — giữ lại rồi đánh dấu ẩn là mời một truy vấn thủ công tìm ra.
+    const columns: SchemaColumn[] = own
+      .filter((c) => c.calc_agg === null && c.visible === 1)
+      .map((c) => ({
+        id: Number(c.id),
+        columnName: c.column_name,
+        label: c.display_name ?? c.alias ?? c.column_name,
+        role: c.role,
+        cubeType: cubeTypeOf(c.ch_type),
       }));
+
+    // THƯỚC ĐO: field tính toán. Nguồn DUY NHẤT kể từ §8.3.1 — bảng
+    // `datamodel_measures` không còn được ghi nữa.
+    //
+    // `sql` lấy tên cột GỐC qua `source_column_id`, không phải `column_name`
+    // của chính field: `column_name` là `doanh_thu_sum`, một cột không tồn tại
+    // trong ClickHouse.
+    const cubeMeasures: SchemaMeasure[] = own
+      .filter((c) => c.calc_agg !== null && c.visible === 1)
+      .map((c) => {
+        const source = columnById.get(Number(c.source_column_id));
+        return {
+          id: Number(c.id),
+          name: c.display_name ?? c.column_name,
+          agg: c.calc_agg as NonNullable<typeof c.calc_agg>,
+          columnName: source?.column_name ?? null,
+        };
+      })
+      .filter((m) => m.agg === 'count' || m.columnName !== null);
+    void measures;
 
     return {
       dataModelId,

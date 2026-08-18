@@ -64,11 +64,12 @@ import {
   warehouseSchema,
 } from '../../services/ingest/loadService';
 import { chTableName } from '../../services/ingest/buildDdl';
-import { cubeTypeOf } from '../../services/datamodel/classifyColumn';
+import { cubeTypeOf, isSystemColumn } from '../../services/datamodel/classifyColumn';
 import { addDatasets, createDataModel } from '../../services/datamodel/createDataModel';
 import { pingCube } from '../../services/datamodel/cubeClient';
 import { regenerateTenant } from '../../services/datamodel/cubeSchemaService';
 import { explorerFields, runExplorerQuery } from '../../services/datamodel/explorer';
+import { listSchemas, syncSchema } from '../../services/datamodel/schemaFields';
 import { createRelationship } from '../../services/datamodel/relationships';
 import { aggregateInWarehouse } from '../../services/dataset/aggregateWarehouse';
 import { analyzeDataset, clearAnalyzeCache } from '../../services/dataset/analyze';
@@ -112,6 +113,7 @@ import {
   testConnectionBodySchema,
   updateConnectionBodySchema,
   updateDataModelBodySchema,
+  updateFieldBodySchema,
   updateMeasureBodySchema,
   updateProjectBodySchema,
   updateReportBodySchema,
@@ -552,6 +554,34 @@ async function readDatasetDetail(tenantId: number, id: number): Promise<DatasetD
  * Route `/schema` mới là nơi đối chiếu hai bên và báo cột nào đã đổi kiểu — mở
  * một tab không đáng một vòng gọi sang ClickHouse cho mỗi bảng.
  */
+/**
+ * Một FIELD ở dạng đi ra ngoài API — §8.3.1.
+ *
+ * Cột thật và field tính toán đi qua CÙNG hàm này: chúng ở chung một bảng và
+ * trang chi tiết Schema hiện chúng trong cùng một danh sách, nên hai hàm chuyển
+ * đổi là hai chỗ để lệch nhau.
+ *
+ * `typeChanged` luôn `false` ở đây; chỉ route `/schema` mới trả lời được câu đó
+ * vì nó phải đọc lại ClickHouse.
+ */
+function toFieldDto(row: datamodelsRepo.ModelColumnRow): DataModelColumnDto {
+  return {
+    id: Number(row.id),
+    columnName: row.column_name,
+    alias: row.alias,
+    displayName: row.display_name,
+    description: row.description,
+    visible: row.visible === 1,
+    role: row.role,
+    calcAgg: row.calc_agg,
+    sourceColumnId: row.source_column_id === null ? null : Number(row.source_column_id),
+    chType: row.ch_type,
+    cubeType: cubeTypeOf(row.ch_type),
+    ordinal: Number(row.ordinal),
+    typeChanged: false,
+  };
+}
+
 async function readDataModelDetail(tenantId: number, id: number): Promise<DataModelDetailDto> {
   const model = await requireDataModel(tenantId, id);
 
@@ -565,17 +595,7 @@ async function readDataModelDetail(tenantId: number, id: number): Promise<DataMo
   const columnsByDataset = new Map<number, DataModelColumnDto[]>();
   for (const row of columnRows) {
     const list = columnsByDataset.get(row.datamodel_dataset_id) ?? [];
-    list.push({
-      id: Number(row.id),
-      columnName: row.column_name,
-      alias: row.alias,
-      role: row.role,
-      chType: row.ch_type,
-      cubeType: cubeTypeOf(row.ch_type),
-      ordinal: Number(row.ordinal),
-      // Chỉ `/schema` mới trả lời được câu này, vì nó đòi đọc lại ClickHouse.
-      typeChanged: false,
-    });
+    list.push(toFieldDto(row));
     columnsByDataset.set(row.datamodel_dataset_id, list);
   }
 
@@ -1693,7 +1713,7 @@ v1Router.post(
     const body = addDatasetsBodySchema.parse(req.body);
 
     await requireDataModel(auth.tenantId, id);
-    await addDatasets(auth.tenantId, id, [...new Set(body.datasetIds)], auth.userId);
+    await addDatasets(auth.tenantId, id, [...new Set(body.datasetIds)]);
     await regenerateTenant(auth.tenantId);
 
     res.json(await readDataModelDetail(auth.tenantId, id));
@@ -1792,6 +1812,126 @@ v1Router.patch(
     await regenerateTenant(tenantId);
 
     res.json(await readModelSchema(tenantId, id));
+  }),
+);
+
+// ─── §8.3 Schema ─────────────────────────────────────────────────────────────
+
+/** Danh sách Schema của mô hình — bảng ở tab Schemas. */
+v1Router.get(
+  '/datamodels/:id/schemas',
+  authorize('datamodel', 'read'),
+  asyncHandler(async (req, res) => {
+    const { tenantId } = requireAuth(req);
+    const { id } = idParamSchema.parse(req.params);
+    await requireDataModel(tenantId, id);
+
+    const schemas = await listSchemas(tenantId, id);
+    // `chTable` suy lại từ hai id — hàm thuần, không đọc `datasets.ch_table`.
+    res.json(schemas.map((s) => ({ ...s, chTable: chTableName(tenantId, s.datasetId) })));
+  }),
+);
+
+/**
+ * Chốt Schema thuộc đúng mô hình đang mở.
+ *
+ * `WHERE tenant_id = ?` một mình chưa đủ: một id Schema của mô hình KHÁC trong
+ * cùng tổ chức vẫn khớp, và khi đó người dùng sửa được field của một mô hình họ
+ * không mở.
+ */
+async function requireSchema(
+  tenantId: number,
+  dataModelId: number,
+  schemaId: number,
+): Promise<{ id: number; datasetId: number; name: string }> {
+  const datasets = await datamodelsRepo.listDatasets(mysqlPool, tenantId, dataModelId);
+  const found = datasets.find((d) => Number(d.id) === schemaId);
+  if (found === undefined) throw notFound('Không tìm thấy schema này trong mô hình.');
+  return { id: Number(found.id), datasetId: Number(found.dataset_id), name: found.dataset_name };
+}
+
+/**
+ * §8.3.1 — danh sách field của một Schema.
+ *
+ * Cột thật VÀ field tính toán trong cùng một danh sách: cả hai đều có
+ * Visibility, Description và Display Name y hệt nhau, nên tách làm hai endpoint
+ * chỉ bắt giao diện ghép lại.
+ */
+v1Router.get(
+  '/datamodels/:id/schemas/:schemaId/fields',
+  authorize('datamodel', 'read'),
+  asyncHandler(async (req, res) => {
+    const { tenantId } = requireAuth(req);
+    const { id } = idParamSchema.parse(req.params);
+    const schemaId = Number(req.params['schemaId']);
+    if (!Number.isInteger(schemaId) || schemaId <= 0) throw badRequest('Mã không hợp lệ.');
+
+    await requireDataModel(tenantId, id);
+    const schema = await requireSchema(tenantId, id, schemaId);
+
+    const rows = await datamodelsRepo.listColumnsOfDataset(mysqlPool, tenantId, schemaId);
+    res.json({
+      schema: { ...schema, chTable: chTableName(tenantId, schema.datasetId) },
+      // Cột HỆ THỐNG không đi ra ngoài. `_row_index` tồn tại để Cube có khoá
+      // chính; người dùng không đổi tên, không mô tả, không tắt được nó — nên
+      // hiện nó ra chỉ là một dòng gây bối rối trong danh sách.
+      fields: rows.filter((r) => !isSystemColumn(r.column_name)).map(toFieldDto),
+    });
+  }),
+);
+
+/** §8.3.1 — sửa Visibility, Description, Display Name của một field. */
+v1Router.put(
+  '/datamodels/:id/schemas/:schemaId/fields/:fieldId',
+  authorize('datamodel', 'modify'),
+  asyncHandler(async (req, res) => {
+    const { tenantId } = requireAuth(req);
+    const { id } = idParamSchema.parse(req.params);
+    const schemaId = Number(req.params['schemaId']);
+    const fieldId = Number(req.params['fieldId']);
+    if (!Number.isInteger(schemaId) || schemaId <= 0) throw badRequest('Mã không hợp lệ.');
+    if (!Number.isInteger(fieldId) || fieldId <= 0) throw badRequest('Mã không hợp lệ.');
+
+    const body = updateFieldBodySchema.parse(req.body);
+    await requireDataModel(tenantId, id);
+    await requireSchema(tenantId, id, schemaId);
+
+    const affected = await datamodelsRepo.updateField(mysqlPool, tenantId, schemaId, fieldId, body);
+    if (affected === 0) throw notFound('Không tìm thấy field này.');
+
+    await datamodelsRepo.touch(mysqlPool, tenantId, id);
+    await regenerateTenant(tenantId);
+
+    const rows = await datamodelsRepo.listColumnsOfDataset(mysqlPool, tenantId, schemaId);
+    const updated = rows.find((r) => Number(r.id) === fieldId);
+    res.json(updated === undefined ? null : toFieldDto(updated));
+  }),
+);
+
+/**
+ * §8.3 — nút Sync: đọc lại ClickHouse rồi hoà với những gì đã lưu.
+ *
+ * GIỮ NGUYÊN Display Name, Description và Visibility người dùng đã đặt. Sync là
+ * đồng bộ CẤU TRÚC, không phải đặt lại cấu hình — làm mất công người dùng đã bỏ
+ * ra là cách nhanh nhất khiến họ không bao giờ bấm nút này nữa.
+ */
+v1Router.post(
+  '/datamodels/:id/schemas/:schemaId/sync',
+  authorize('datamodel', 'modify'),
+  asyncHandler(async (req, res) => {
+    const { tenantId } = requireAuth(req);
+    const { id } = idParamSchema.parse(req.params);
+    const schemaId = Number(req.params['schemaId']);
+    if (!Number.isInteger(schemaId) || schemaId <= 0) throw badRequest('Mã không hợp lệ.');
+
+    await requireDataModel(tenantId, id);
+    const schema = await requireSchema(tenantId, id, schemaId);
+
+    const result = await syncSchema(tenantId, schemaId, schema.datasetId);
+    await datamodelsRepo.touch(mysqlPool, tenantId, id);
+    await regenerateTenant(tenantId);
+
+    res.json(result);
   }),
 );
 

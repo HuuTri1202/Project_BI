@@ -1142,4 +1142,77 @@ export const migrations: readonly Migration[] = [
          ('p', 'creator', '*', 'datamodel', 'delete')`,
     ],
   },
+
+  {
+    id: 11,
+    name: 'schema_fields',
+    statements: [
+      // ═══ §8.3 Schema và Field ════════════════════════════════════════════
+      //
+      // Migration 10 mô hình hoá `DataModel -> Dataset -> Column`. Yêu cầu sửa
+      // lại thành `DataModel -> Schema -> Field`, và khác biệt KHÔNG chỉ là tên:
+      //
+      //   - Một Schema có TRANG CHI TIẾT riêng, không còn là một mục trong bảng.
+      //   - Field không chỉ là cột trong kho. Mỗi cột SỐ tự sinh thêm bốn field
+      //     TÍNH TOÁN: `_count`, `_countDistinct`, `_sum`, `_avg`.
+      //   - Mỗi field có Visibility, Description và Display Name riêng.
+      //
+      // `datamodel_datasets` giữ nguyên và ĐÓNG VAI Schema — một Schema sinh ra
+      // từ đúng một Dataset (§8.2), nên hai khái niệm là một. Đổi tên bảng chỉ
+      // để cho khớp từ ngữ là một migration rủi ro đổi lấy con số không.
+
+      // ─── Field: thêm ba thứ người dùng sửa được ──────────────────────────
+      //
+      // `visible` TÁCH khỏi `role`. Migration 10 dùng `role='hidden'` cho cả hai
+      // việc, nhưng chúng khác nhau: một field có thể là thước đo (role) mà vẫn
+      // bị ẩn khỏi bộ chọn (visible). Gộp lại thì bật lại một field đã ẩn sẽ mất
+      // thông tin nó vốn là chiều hay thước đo.
+      //
+      // `_row_index` vẫn mang `role='hidden'` từ migration 10 và giờ thêm
+      // `visible=0` — nó là cột hệ thống, không bao giờ được lọt vào bộ chọn dù
+      // người dùng có bật gì đi nữa.
+      `ALTER TABLE datamodel_columns
+         ADD COLUMN display_name VARCHAR(255) NULL AFTER alias,
+         ADD COLUMN description  VARCHAR(500) NULL AFTER display_name,
+         ADD COLUMN visible      TINYINT(1) NOT NULL DEFAULT 1 AFTER description`,
+
+      // ─── Field TÍNH TOÁN ─────────────────────────────────────────────────
+      //
+      // `calc_agg` NULL = field này là một CỘT THẬT trong ClickHouse.
+      // Khác NULL  = field này được SINH RA từ một cột số, và `source_column_id`
+      //              trỏ về cột đó để bộ sinh cube biết viết SQL trên cột nào.
+      //
+      // Vì sao field tính toán nằm chung bảng với cột thật, không phải bảng
+      // riêng: trang chi tiết Schema hiện MỘT danh sách field, và cả hai loại
+      // đều có Visibility, Description, Display Name y hệt nhau. Hai bảng nghĩa
+      // là hai câu truy vấn, hai đường cập nhật, và một phép hợp ở mọi nơi đọc.
+      //
+      // `column_name` của field tính toán là `<tên cột>_sum`, `<tên cột>_avg`…
+      // đúng quy ước §8.3.1. Nhờ vậy `UNIQUE (datamodel_dataset_id, column_name)`
+      // của migration 10 vẫn đúng mà không phải đụng tới.
+      `ALTER TABLE datamodel_columns
+         ADD COLUMN calc_agg ENUM('count','countDistinct','sum','avg') NULL AFTER role,
+         ADD COLUMN source_column_id BIGINT UNSIGNED NULL AFTER calc_agg,
+         ADD KEY idx_dmc_source (source_column_id)`,
+
+      // Khoá ngoại TỰ TRỎ trong cùng bảng: xoá một cột thật thì bốn field tính
+      // toán dựng trên nó không còn nghĩa gì.
+      `ALTER TABLE datamodel_columns
+         ADD CONSTRAINT fk_dmc_source FOREIGN KEY (source_column_id)
+           REFERENCES datamodel_columns (id) ON DELETE CASCADE`,
+
+      // ─── `_row_index` không bao giờ hiện ─────────────────────────────────
+      `UPDATE datamodel_columns SET visible = 0 WHERE column_name = '_row_index'`,
+
+      // ─── `datamodel_measures` từ đây KHÔNG còn được ghi ──────────────────
+      //
+      // Thước đo giờ CHÍNH LÀ field tính toán, và đó là một nguồn sự thật duy
+      // nhất thay vì hai nơi cùng định nghĩa một thứ. Tab Measures đổi thành chỗ
+      // XEM những field đó.
+      //
+      // Bảng vẫn giữ, KHÔNG DROP: nó đã lên remote cùng migration 10, và xoá một
+      // bảng để "cho sạch" là đánh đổi dữ liệu của người đã dùng lấy vẻ gọn gàng
+      // của schema. Nó sẽ rỗng với mọi mô hình tạo từ đây.
+    ],
+  },
 ];

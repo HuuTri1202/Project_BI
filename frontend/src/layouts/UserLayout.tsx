@@ -67,11 +67,15 @@ const NAV_ITEMS: NavItem[] = [
   /*
    * §10 — tầng ngữ nghĩa dựng TRÊN kho dữ liệu, nên nằm ngay dưới nó.
    *
+   * Nhãn để nguyên tiếng Anh: Data Model, Schema, Field, Measure, Dimension
+   * đều là thuật ngữ của Cube.js, và dịch chúng ra tiếng Việt sẽ khiến người
+   * đọc tài liệu Cube không nối được hai bên với nhau.
+   *
    * Cũng không có `needs`: mọi vai trò đều có `datamodel:read`, và giấu mục này
    * là chặn viewer khỏi thứ họ có quyền xem. Cùng lý do với "Kho dữ liệu".
    */
   {
-    label: 'Mô hình dữ liệu',
+    label: 'Data Model',
     to: '/datamodels',
     icon: 'M4 5h6v5H4V5Zm10 9h6v5h-6v-5ZM7 10v3a1 1 0 0 0 1 1h6',
   },
