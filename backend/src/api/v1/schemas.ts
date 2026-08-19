@@ -8,7 +8,9 @@ import {
   DATASET_STATUSES,
   LOAD_STATUSES,
   MEASURE_AGGS,
+  MEASURE_FORMATS,
   MEASURE_NAME_MAX,
+  MEASURE_OPS,
   RELATIONSHIP_KINDS,
   REPORT_NAME_MAX,
   TIME_GRANULARITIES,
@@ -66,26 +68,6 @@ export const userIdParamSchema = z.object({
  */
 export const homeQuerySchema = z.object({
   workspaceId: z.coerce.number().int().positive().optional(),
-});
-
-// ─── Project ─────────────────────────────────────────────────────────────────
-
-export const listProjectsQuerySchema = z.object({
-  workspaceId: z.coerce.number().int().positive(),
-  q: z.string().trim().max(100).optional(),
-  sort: z.string().optional(),
-  order: z.enum(['asc', 'desc']).default('desc'),
-});
-
-export const createProjectBodySchema = z.object({
-  workspaceId: z.coerce.number().int().positive(),
-  name: z.string().trim().min(1, 'Tên project không được để trống').max(255),
-  description: z.string().trim().max(500).optional(),
-});
-
-export const updateProjectBodySchema = z.object({
-  name: z.string().trim().min(1, 'Tên project không được để trống').max(255),
-  description: z.string().trim().max(500).optional(),
 });
 
 // ─── Tổ chức ─────────────────────────────────────────────────────────────────
@@ -221,6 +203,37 @@ export const updateReportBodySchema = z.object({
   config: reportConfigSchema,
 });
 
+/**
+ * Báo cáo dựng trên MÔ HÌNH — §10.8.
+ *
+ * Toàn ID, không một tên cột nào — cùng luật với `explorerQueryBodySchema`.
+ * Backend tra hai ID này trong phạm vi mô hình đã lọc theo tổ chức rồi tự dựng
+ * tên cube, nên một ID bịa ra rơi vào `FIELD_UNKNOWN` chứ không trỏ sang được
+ * mô hình của người khác.
+ *
+ * KHÔNG có `aggregate`: phép gộp thuộc về định nghĩa của thước đo. Xem
+ * `ReportModelConfigDto`.
+ */
+export const reportModelConfigSchema = z.object({
+  dimensionId: z.coerce.number().int().positive(),
+  measureId: z.coerce.number().int().positive(),
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+});
+
+/**
+ * Ngược `createReportBodySchema`: nhận LUÔN biểu đồ.
+ *
+ * Không mâu thuẫn với lý do nhánh kia từ chối. Ở luồng file, hệ thống chưa biết
+ * cột nào đáng vẽ nên nó không đoán. Ở đây chính người dùng vừa chọn chiều và
+ * thước đo trong hộp thoại, nên không có gì để đoán cả.
+ */
+export const createModelReportBodySchema = z.object({
+  datamodelId: z.coerce.number().int().positive(),
+  name: z.string().trim().min(1, 'Tên báo cáo không được để trống').max(REPORT_NAME_MAX),
+  chartType: z.enum(CHART_TYPES),
+  config: reportModelConfigSchema,
+});
+
 export const listReportsQuerySchema = paginationSchema.extend({
   workspaceId: z.coerce.number().int().positive(),
   q: z.string().trim().max(100).optional(),
@@ -304,6 +317,13 @@ export const updateConnectionBodySchema = z.object({
  * tốt hơn là để người dùng chờ 30 giây rồi nhận một lỗi mạng.
  */
 export const syncBodySchema = z.object({
+  /**
+   * Workspace nhận những bảng đồng bộ về.
+   *
+   * `optional()` để những lời gọi cũ không gãy — bỏ trống thì `resolveWorkspace`
+   * chọn workspace đầu tiên. Giao diện LUÔN gửi workspace đang mở.
+   */
+  workspaceId: z.coerce.number().int().positive().optional(),
   tables: z
     .array(
       z.object({
@@ -323,8 +343,11 @@ export const syncBodySchema = z.object({
  * Một schema cho cả hai nguồn, vì chỉ còn MỘT trang danh sách. Mọi bộ lọc đều
  * tuỳ chọn:
  *
- *   workspaceId  bỏ trống = cả tổ chức. Cần thế cho những bộ dữ liệu §8 tạo
- *                trước khi hai phần được gộp — chúng chưa thuộc workspace nào.
+ *   workspaceId  bỏ trống = cả tổ chức. Giao diện LUÔN gửi workspace đang mở —
+ *                mỗi workspace quản lý kho riêng. Nhánh "cả tổ chức" giữ lại
+ *                cho công cụ nội bộ và cho việc giải thích một danh sách rỗng.
+ *                (Từ migration 11 mọi dataset đều có workspace, nên nhánh này
+ *                không còn là cách duy nhất để thấy dữ liệu cũ nữa.)
  *   source       lọc riêng "từ file" hoặc "từ CSDL".
  *   connectionId chỉ có nghĩa với nguồn `connection`.
  *   status       bỏ trống = chỉ `ready`, xem `where()` trong repository.
@@ -394,10 +417,44 @@ export const saveSchemaBodySchema = z.object({
         columnId: z.coerce.number().int().positive(),
         alias: z.string().trim().max(255).nullable(),
         role: z.enum(COLUMN_ROLES),
+        // `.optional().nullable()` chứ không `.nullish()` gộp một chỗ: ba
+        // trạng thái ở đây mang ba nghĩa khác nhau — vắng mặt là "đừng đụng
+        // tới", `null` là "bỏ thước đo của cột này", còn một phép là "đặt nó".
+        measureAgg: z.enum(MEASURE_AGGS).nullable().optional(),
       }),
     )
     .min(1)
     .max(500),
+});
+
+/**
+ * Thước đo TÍNH TOÁN — §10.6.
+ *
+ * Không có ô nào nhận biểu thức dạng chữ: hai vế là ID và phép nằm trong ENUM.
+ * Xem ghi chú ở migration 13 về lý do.
+ */
+export const createFormulaMeasureBodySchema = z.object({
+  name: z.string().trim().min(1).max(MEASURE_NAME_MAX),
+  leftId: z.coerce.number().int().positive(),
+  op: z.enum(MEASURE_OPS),
+  rightId: z.coerce.number().int().positive(),
+  format: z.enum(MEASURE_FORMATS),
+});
+
+/**
+ * Sửa một BẢNG trong mô hình — §10.3.
+ *
+ * Cả ba trường đều `optional()`: hộp thoại "Đặt khoá chính" chỉ gửi
+ * `primaryColumnId`, còn hộp thoại "Sửa" chỉ gửi tên và mô tả. Bắt gửi đủ cả ba
+ * sẽ khiến một hộp thoại vô tình xoá trắng thứ hộp thoại kia vừa lưu.
+ *
+ * `nullable()` mang nghĩa XOÁ TRỐNG, khác hẳn `undefined` là "không đụng tới" —
+ * đó là cách gỡ khoá chính đã đặt.
+ */
+export const updateModelDatasetBodySchema = z.object({
+  displayName: z.string().trim().max(255).nullable().optional(),
+  description: z.string().trim().max(500).nullable().optional(),
+  primaryColumnId: z.coerce.number().int().positive().nullable().optional(),
 });
 
 export const saveLayoutBodySchema = z.object({

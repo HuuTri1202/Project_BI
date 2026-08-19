@@ -44,7 +44,7 @@ export default function TenantWorkspacesPage(): React.ReactElement {
     <div className="flex h-full flex-col">
       <div className="flex shrink-0 flex-wrap items-start justify-between gap-4">
         <p className="text-sm text-slate-500">
-          Không gian làm việc để nhóm project và dữ liệu của tổ chức.
+          Không gian làm việc để nhóm dữ liệu, mô hình và báo cáo của tổ chức.
         </p>
         <Button variant="primary" onClick={openCreate}>
           Tạo workspace
@@ -77,7 +77,7 @@ export default function TenantWorkspacesPage(): React.ReactElement {
                 <Th>Tên</Th>
                 <Th>Đường dẫn</Th>
                 <Th>Mô tả</Th>
-                <Th align="right">Project</Th>
+                <Th align="right">Báo cáo</Th>
                 <Th align="right">Thao tác</Th>
               </Tr>
             </THead>
@@ -105,8 +105,8 @@ export default function TenantWorkspacesPage(): React.ReactElement {
                     <span className="text-slate-500">{workspace.description ?? '—'}</span>
                   </Td>
                   <Td align="right">
-                    {workspace.projectCount > 0 ? (
-                      <Badge tone="brand">{workspace.projectCount}</Badge>
+                    {workspace.reportCount > 0 ? (
+                      <Badge tone="brand">{workspace.reportCount}</Badge>
                     ) : (
                       <span className="text-slate-400">0</span>
                     )}
@@ -155,18 +155,18 @@ function DeleteWorkspaceModal({
     setError(null);
     mutation.mutate(workspace.id, {
       onSuccess: onClose,
-      // Server từ chối bằng `WorkspaceNotEmpty` kèm số project, hoặc
+      // Server từ chối bằng `WorkspaceNotEmpty` kèm số nội dung bên trong, hoặc
       // `LastWorkspace` — hiện nguyên thông báo đó, vì nó cho biết chính xác
       // phải làm gì tiếp.
       onError: (err) => setError(getApiError(err).message),
     });
   };
 
-  const hasProjects = (workspace?.projectCount ?? 0) > 0;
+  const hasContent = (workspace?.reportCount ?? 0) > 0;
   const isLast = total <= 1;
   // Hai lý do chặn, kiểm cả ở đây lẫn ở backend. Khoá nút và nói rõ lý do tốt
   // hơn là để bấm được rồi mới báo lỗi — người dùng biết trước phải dọn gì.
-  const blocked = hasProjects || isLast;
+  const blocked = hasContent || isLast;
 
   return (
     <Modal
@@ -188,11 +188,11 @@ function DeleteWorkspaceModal({
           {error}
         </p>
       )}
-      {hasProjects ? (
+      {hasContent ? (
         <p className="text-sm text-slate-600">
-          Workspace này còn <strong>{workspace?.projectCount} project</strong> đang hoạt động. Hãy
-          chuyển hoặc xoá chúng trước — hệ thống không xoá lan sang project để tránh mất dữ liệu
-          ngoài ý muốn.
+          Workspace này còn <strong>{workspace?.reportCount} báo cáo</strong>. Hãy chuyển hoặc xoá
+          chúng trước — hệ thống không xoá lan sang nội dung bên trong để tránh mất dữ liệu ngoài
+          ý muốn.
         </p>
       ) : isLast ? (
         <p className="text-sm text-slate-600">

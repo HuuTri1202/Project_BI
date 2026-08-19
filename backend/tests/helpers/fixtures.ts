@@ -85,14 +85,26 @@ export async function makeWorkspace(tenantId: number, name: string, slug: string
   return result.insertId;
 }
 
-export async function makeProject(
+/**
+ * Một bộ dữ liệu tối thiểu + một báo cáo dựng trên nó.
+ *
+ * Báo cáo không đứng một mình được: `ck_reports_one_source` (migration 15) đòi
+ * đúng một trong `dataset_id`/`datamodel_id`, và cột đầu có khoá ngoại sang
+ * `datasets`. Nên fixture này dựng cả cặp.
+ */
+export async function makeReport(
   tenantId: number,
   workspaceId: number,
   name: string,
 ): Promise<number> {
+  const [ds] = await mysqlPool.query<ResultSetHeader>(
+    `INSERT INTO datasets (tenant_id, workspace_id, source, name, status, load_status)
+     VALUES (?, ?, 'file', ?, 'ready', 'idle')`,
+    [tenantId, workspaceId, `${name} (bộ dữ liệu)`],
+  );
   const [result] = await mysqlPool.query<ResultSetHeader>(
-    'INSERT INTO projects (tenant_id, workspace_id, name) VALUES (?, ?, ?)',
-    [tenantId, workspaceId, name],
+    'INSERT INTO reports (tenant_id, workspace_id, dataset_id, name) VALUES (?, ?, ?, ?)',
+    [tenantId, workspaceId, ds.insertId, name],
   );
   return result.insertId;
 }

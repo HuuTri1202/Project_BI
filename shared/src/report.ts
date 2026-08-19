@@ -1,11 +1,25 @@
 import type { DatasetSource } from './data';
+import type { MeasureFormat } from './datamodel';
 
 /**
- * Hợp đồng dữ liệu của báo cáo và biểu đồ (§7.6).
+ * Hợp đồng dữ liệu của báo cáo và biểu đồ (§7.6, mở rộng ở §10.8).
  *
- * Một báo cáo là MỘT biểu đồ dựng trên MỘT bộ dữ liệu — bất kể bộ đó đến từ file
- * hay từ kết nối CSDL. Đó là lợi ích cụ thể của việc gộp hai nguồn vào một bảng:
- * trình dựng báo cáo không cần biết dữ liệu đã vào hệ thống bằng đường nào.
+ * Một báo cáo là MỘT biểu đồ dựng trên MỘT nguồn số liệu. Có HAI loại nguồn, và
+ * chúng khác nhau ở chỗ sâu hơn cái tên:
+ *
+ *   `dataset`    — một bộ dữ liệu. Cấu hình trỏ tới cột bằng TÊN, và câu tổng
+ *                  hợp do `aggregateWarehouse` dựng thẳng trên bảng kho.
+ *   `datamodel`  — một mô hình. Cấu hình trỏ tới chiều và thước đo bằng ID, và
+ *                  câu lệnh do Cube sinh — nên nó thừa hưởng cả phép nối lẫn
+ *                  thước đo tính toán mà tầng ngữ nghĩa đã khai.
+ *
+ * Vì sao đáng có cả hai thay vì ép mọi báo cáo qua mô hình: một file vừa tải
+ * lên chưa thuộc mô hình nào, và bắt người dùng dựng mô hình trước khi xem được
+ * biểu đồ đầu tiên là dựng một bức tường ngay ở bước một.
+ *
+ * Vì sao báo cáo trên mô hình KHÔNG nhận tên cột: cùng nguyên tắc với §10.7 —
+ * trình duyệt gửi ID, backend tra ID trong phạm vi đã lọc theo tổ chức rồi tự
+ * dựng tên cube. Một ID bịa ra không trỏ được sang mô hình của người khác.
  */
 
 export const CHART_TYPES = ['bar', 'line', 'area', 'pie', 'table'] as const;
@@ -48,6 +62,34 @@ export interface ReportConfigDto {
   limit: number;
 }
 
+/** Nguồn số liệu của một báo cáo — xem ghi chú đầu file. */
+export const REPORT_SOURCES = ['dataset', 'datamodel'] as const;
+export type ReportSource = (typeof REPORT_SOURCES)[number];
+
+export const REPORT_SOURCE_LABELS: Record<ReportSource, string> = {
+  dataset: 'Bộ dữ liệu',
+  datamodel: 'Mô hình dữ liệu',
+};
+
+/**
+ * Cấu hình biểu đồ dựng trên MÔ HÌNH — §10.8.
+ *
+ * Toàn ID, không một tên nào. Nhờ vậy đổi tên hiển thị của cột hay của thước đo
+ * không làm mồ côi báo cáo, và chuỗi trong cấu hình không bao giờ đi vào câu
+ * lệnh — Cube nhận tên do backend dựng từ chính hai ID này.
+ *
+ * KHÔNG có `aggregate`: phép gộp đã nằm trong định nghĩa của thước đo (tab
+ * Schemas, hoặc công thức ở §10.6). Cho phép chọn lại ở đây nghĩa là cùng một
+ * thước đo cho hai con số khác nhau tuỳ báo cáo — đúng thứ tầng ngữ nghĩa sinh
+ * ra để dẹp.
+ */
+export interface ReportModelConfigDto {
+  dimensionId: number;
+  measureId: number;
+  /** Số nhóm tối đa hiện trên biểu đồ; phần còn lại gộp thành "Khác". */
+  limit: number;
+}
+
 /**
  * Một báo cáo.
  *
@@ -56,17 +98,30 @@ export interface ReportConfigDto {
  * hiện lời mời dựng biểu đồ thay vì một biểu đồ mặc định không ai yêu cầu.
  *
  * Hai trường đi CÙNG NHAU: có cấu hình thì có loại biểu đồ, và ngược lại.
+ *
+ * ⚠️ Báo cáo dựng trên MÔ HÌNH thì không đi qua trạng thái đó: hộp thoại tạo đã
+ * hỏi đủ chiều, thước đo và loại biểu đồ, nên nó ra đời với cấu hình đầy đủ.
+ *
+ * `datasetId` và `datamodelId` loại trừ nhau — database ép bằng CHECK ở
+ * migration 15, không chỉ bằng quy ước. `sourceName` là tên của bên nào đang
+ * được dùng, để nơi hiển thị không phải tự phân nhánh chỉ để in một cái tên.
  */
 export interface ReportDto {
   id: number;
   workspaceId: number;
-  datasetId: number;
-  datasetName: string;
+  source: ReportSource;
+  /** Tên bộ dữ liệu hoặc tên mô hình — tuỳ `source`. */
+  sourceName: string;
+  datasetId: number | null;
   /** Bộ dữ liệu đến từ đâu — để trang Report nói đúng nguồn của số liệu. */
-  datasetSource: DatasetSource;
+  datasetSource: DatasetSource | null;
+  datamodelId: number | null;
   name: string;
   chartType: ChartType | null;
+  /** Chỉ khi `source === 'dataset'`. */
   config: ReportConfigDto | null;
+  /** Chỉ khi `source === 'datamodel'`. */
+  modelConfig: ReportModelConfigDto | null;
   creatorName: string | null;
   createdAt: string;
   updatedAt: string;
@@ -84,6 +139,22 @@ export interface CreateReportInput {
   name: string;
 }
 
+/**
+ * Tạo báo cáo trên MÔ HÌNH — §10.8. Ngược hẳn `CreateReportInput`: ra đời là đã
+ * có biểu đồ.
+ *
+ * Không phải mâu thuẫn với ghi chú "không đoán hộ cấu hình" ở trên. Ở luồng
+ * file, người dùng vừa tải một file lạ lên và hệ thống chưa biết cột nào đáng
+ * vẽ — nên nó không đoán. Ở đây họ vừa TỰ chọn chiều và thước đo trong hộp
+ * thoại, nên tạo ra một báo cáo rỗng để bắt họ chọn lại là việc thừa.
+ */
+export interface CreateModelReportInput {
+  datamodelId: number;
+  name: string;
+  chartType: ChartType;
+  config: ReportModelConfigDto;
+}
+
 /** Dựng hoặc sửa biểu đồ — trang Report, không phải wizard. */
 export interface UpdateReportInput {
   name: string;
@@ -99,6 +170,14 @@ export interface ReportDataDto {
   measureLabel: string;
   /** Có nhóm nào bị gộp vào "Khác" không. */
   grouped: boolean;
+  /**
+   * Cách ĐỌC con số, không phải cách tính nó — §10.6.
+   *
+   * Vắng mặt nghĩa là số thường. Có `'percent'` khi thước đo được khai là tỉ lệ:
+   * kho lưu 0,283 và chỗ hiển thị phải đọc thành 28,3 %. Đi kèm dữ liệu chứ
+   * không tra lại từ mô hình, vì trang xem báo cáo không mở mô hình ra.
+   */
+  format?: MeasureFormat | undefined;
 }
 
 export const REPORT_NAME_MAX = 255;

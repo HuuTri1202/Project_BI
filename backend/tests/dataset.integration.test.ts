@@ -167,6 +167,7 @@ describe('§7.8 phân quyền theo bảng route', () => {
     ['post', '/api/v1/datasets/1/commit'],
     ['delete', '/api/v1/datasets/1'],
     ['post', '/api/v1/reports'],
+    ['post', '/api/v1/reports/from-datamodel'],
     ['patch', '/api/v1/reports/1'],
     ['delete', '/api/v1/reports/1'],
   ];
@@ -808,6 +809,15 @@ describe('§7.6 báo cáo được tạo RỖNG', () => {
     expect(res.body.chartType).toBeNull();
     expect(res.body.config).toBeNull();
     expect(res.body.datasetId).toBe(datasetId);
+
+    // §10.8 thêm nguồn thứ hai. Báo cáo cũ phải tự nhận đúng nguồn của nó, và
+    // `sourceName` thay `datasetName` — nếu hai trường này lệch thì trang xem
+    // báo cáo in ra "Không rõ" cho mọi báo cáo đang có.
+    expect(res.body.source).toBe('dataset');
+    expect(res.body.modelConfig).toBeNull();
+    expect(res.body.datamodelId).toBeNull();
+    expect(typeof res.body.sourceName).toBe('string');
+    expect(res.body.sourceName.length).toBeGreaterThan(0);
   });
 
   it('gửi kèm chartType/config lúc TẠO thì bị bỏ qua', async () => {

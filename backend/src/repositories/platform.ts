@@ -532,7 +532,7 @@ interface PlatformWorkspaceRow extends RowDataPacket {
   is_active: number;
   tenant_id: number;
   tenant_name: string;
-  project_count: number;
+  report_count: number;
   created_at: Date;
 }
 
@@ -593,8 +593,8 @@ export async function listWorkspaces(
   const [rows] = await db.query<PlatformWorkspaceRow[]>(
     `SELECT w.id, w.name, w.slug, w.description, w.is_active, w.created_at,
             w.tenant_id, t.name AS tenant_name,
-            (SELECT COUNT(*) FROM projects p
-              WHERE p.workspace_id = w.id AND p.deleted_at IS NULL) AS project_count
+            (SELECT COUNT(*) FROM reports r
+              WHERE r.workspace_id = w.id AND r.deleted_at IS NULL) AS report_count
        FROM workspaces w
        JOIN tenants t ON t.id = w.tenant_id
       WHERE ${where.sql}
@@ -611,7 +611,7 @@ export async function listWorkspaces(
     isActive: row.is_active === 1,
     tenantId: Number(row.tenant_id),
     tenantName: row.tenant_name,
-    projectCount: Number(row.project_count),
+    reportCount: Number(row.report_count),
     createdAt: row.created_at.toISOString(),
   }));
 }

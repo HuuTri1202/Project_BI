@@ -68,10 +68,15 @@ infrastructure/data/
 infrastructure/**/data/
 docker-compose.override.yml
 
-# Schema Cube.js do Express SINH RA lúc chạy (xem ADR-08), không phải mã nguồn.
-# Giữ .gitkeep để git còn tạo được thư mục sau khi clone.
-infrastructure/cube/model/cubes/*
-!infrastructure/cube/model/cubes/.gitkeep
+# Thư mục schema ĐỜI ĐẦU, từ trước khi §10 chuyển sang một thư mục mỗi tổ chức.
+# Không còn gì ghi vào đây (`cube.js` đọc `model/tenants`), nên `.gitkeep` cũng
+# bỏ luôn — giữ một thư mục rỗng cho một đường dẫn đã chết là mời người sau tưởng
+# nó còn được dùng. File còn sót lại trên máy cũ vẫn được bỏ qua.
+infrastructure/cube/model/cubes/
+
+# Cube tự sinh file mẫu này trong container lúc khởi động lần đầu; toàn bộ nội
+# dung là chú thích. Không phải mã của ta, và nó quay lại sau mỗi lần dựng mới.
+infrastructure/cube/model/views/
 # §10 sinh MỘT THƯ MỤC MỖI TỔ CHỨC ở đây — `model/tenants/{tenantId}/dm{id}.js`.
 # Chúng mang dữ liệu thật của khách hàng (tên bảng, tên cột) và được dựng lại từ
 # database mỗi lần backend khởi động, nên không có lý do gì để nằm trong Git.

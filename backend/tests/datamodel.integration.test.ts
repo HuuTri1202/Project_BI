@@ -4,6 +4,7 @@ import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 
 import { createApp } from '../src/app';
 import { closeMysql, mysqlPool } from '../src/config/mysql';
+import * as datamodelsRepo from '../src/repositories/datamodels';
 import { closeRedis } from '../src/config/redis';
 import { resetDatabase } from './helpers/db';
 import {
@@ -79,6 +80,38 @@ async function makeModel(
     [tenantId, workspaceId, name],
   );
   return (result as unknown as { insertId: number }).insertId;
+}
+
+/**
+ * Gắn một bảng kèm hai cột vào mô hình — cũng bằng SQL thô.
+ *
+ * Đi qua `POST /datamodels/:id/datasets` sẽ kéo theo một vòng đọc ClickHouse
+ * (đó là nơi cấu trúc cột thật sự đến từ), và bộ test này cố ý chạy được khi
+ * chưa có kho — xem ghi chú đầu file.
+ */
+async function attachDataset(
+  tenantId: number,
+  dataModelId: number,
+  datasetId: number,
+): Promise<{ refId: number; columnIds: number[] }> {
+  const [ref] = await mysqlPool.query(
+    'INSERT INTO datamodel_datasets (tenant_id, datamodel_id, dataset_id) VALUES (?, ?, ?)',
+    [tenantId, dataModelId, datasetId],
+  );
+  const refId = (ref as unknown as { insertId: number }).insertId;
+
+  const columnIds: number[] = [];
+  for (const [ordinal, name] of ['ma_don', 'so_tien'].entries()) {
+    const [col] = await mysqlPool.query(
+      `INSERT INTO datamodel_columns
+         (tenant_id, datamodel_dataset_id, column_name, role, ch_type, ordinal)
+       VALUES (?, ?, ?, 'dimension', 'Nullable(String)', ?)`,
+      [tenantId, refId, name, ordinal],
+    );
+    columnIds.push((col as unknown as { insertId: number }).insertId);
+  }
+
+  return { refId, columnIds };
 }
 
 beforeEach(async () => {
@@ -209,6 +242,60 @@ describe('§10 cách ly tổ chức', () => {
     expect(b.body.items.map((m: { name: string }) => m.name)).toEqual(['Mô hình của B']);
   });
 
+  /**
+   * Cách ly theo workspace — đường đi mà giao diện thật sự dùng.
+   *
+   * Mỗi workspace có nội dung riêng: mô hình dựng ở workspace này KHÔNG được
+   * hiện ở workspace khác. Đây là yêu cầu, không phải tác dụng phụ.
+   *
+   * ⚠️ Cách ly chỉ đúng nếu đường TẠO mô hình gửi `workspaceId` tường minh. Bỏ
+   * trống thì backend chọn workspace đầu tiên theo TÊN, mô hình rơi nhầm chỗ, và
+   * người dùng thấy nó biến mất ngay sau khi tạo. Chốt chặn cho việc đó nằm ở
+   * TẦNG KIỂU chứ không phải ở đây: `CreateDataModelInput.workspaceId` là bắt
+   * buộc, nên quên gửi là lỗi biên dịch. (Không kiểm bằng test tích hợp được vì
+   * `POST /datamodels` đọc cấu trúc cột từ ClickHouse, mà bộ test này cố ý chạy
+   * không cần kho — xem ghi chú đầu file.)
+   */
+  it('danh sách CHỈ thấy mô hình của workspace được gửi lên', async () => {
+    const khac = await makeWorkspace(f.tenantA, 'Kho vận', 'kho-van');
+    await makeModel(f.tenantA, khac, 'Mô hình ở workspace khác');
+
+    const dangMo = await request(app)
+      .get('/api/v1/datamodels')
+      .query({ workspaceId: f.workspaceA })
+      .set(bearer(f.tokenAdminA));
+    const benKia = await request(app)
+      .get('/api/v1/datamodels')
+      .query({ workspaceId: khac })
+      .set(bearer(f.tokenAdminA));
+
+    expect(dangMo.body.items.map((m: { name: string }) => m.name)).toEqual(['Doanh thu 2026']);
+    expect(benKia.body.items.map((m: { name: string }) => m.name)).toEqual([
+      'Mô hình ở workspace khác',
+    ]);
+  });
+
+  /**
+   * Bỏ trống `workspaceId` = cả tổ chức.
+   *
+   * KHÔNG phải đường đi thường ngày — giao diện luôn gửi workspace đang mở.
+   * Nhánh này chỉ phục vụ khung rỗng: khi workspace đang mở không có mô hình
+   * nào, trang đếm xem còn mô hình ở workspace khác không để nói ra chỗ cần
+   * tới, thay vì để một khung rỗng im lặng bị đọc thành mất dữ liệu.
+   */
+  it('không gửi workspaceId thì thấy cả tổ chức — phục vụ gợi ý ở khung rỗng', async () => {
+    const khac = await makeWorkspace(f.tenantA, 'Kho vận', 'kho-van');
+    await makeModel(f.tenantA, khac, 'Mô hình ở workspace khác');
+
+    const res = await request(app).get('/api/v1/datamodels').set(bearer(f.tokenAdminA));
+
+    expect(res.status).toBe(200);
+    expect(res.body.items.map((m: { name: string }) => m.name).sort()).toEqual([
+      'Doanh thu 2026',
+      'Mô hình ở workspace khác',
+    ]);
+  });
+
   it('không tạo được mô hình trên bộ dữ liệu của tổ chức khác', async () => {
     const res = await request(app)
       .post('/api/v1/datamodels')
@@ -304,6 +391,72 @@ describe('§10 vòng đời mô hình', () => {
     expect(res.body.message).toContain('Chưa nạp');
   });
 
+  /**
+   * Khoá chính nghiệp vụ — §10.3.
+   *
+   * Đây là thứ tab Quan hệ dùng để điền sẵn cột nối, nên nó phải chịu đúng một
+   * ràng buộc: cột khai làm khoá phải thuộc CHÍNH bảng đó. Khoá ngoại trong
+   * database chỉ có một cột (xem migration 12), nên tầng ứng dụng là nơi duy
+   * nhất chặn được một id lạ.
+   */
+  it('đặt khoá chính, sửa tên hiển thị và mô tả', async () => {
+    const { refId, columnIds } = await attachDataset(f.tenantA, f.modelA, f.datasetA);
+    const token = bearer(f.tokenAdminA);
+
+    const res = await request(app)
+      .patch(`/api/v1/datamodels/${f.modelA}/datasets/${refId}`)
+      .set(token)
+      .send({ displayName: 'Đơn hàng', description: 'Mỗi dòng một mặt hàng' });
+    expect(res.status).toBe(200);
+
+    const withKey = await request(app)
+      .patch(`/api/v1/datamodels/${f.modelA}/datasets/${refId}`)
+      .set(token)
+      .send({ primaryColumnId: columnIds[0] });
+    expect(withKey.status).toBe(200);
+
+    const dataset = withKey.body.dataModel.datasets[0];
+    expect(dataset.displayName).toBe('Đơn hàng');
+    expect(dataset.description).toBe('Mỗi dòng một mặt hàng');
+    expect(dataset.primaryColumnId).toBe(columnIds[0]);
+    expect(dataset.primaryColumnName).toBe('ma_don');
+  });
+
+  it('gửi thiếu trường thì GIỮ NGUYÊN giá trị cũ, không xoá trắng', async () => {
+    // Hai hộp thoại gửi hai tập trường khác nhau. Ghi đè cả ba bằng giá trị nhận
+    // được sẽ khiến "Đặt khoá chính" lặng lẽ xoá mất mô tả người dùng vừa viết.
+    const { refId, columnIds } = await attachDataset(f.tenantA, f.modelA, f.datasetA);
+    const token = bearer(f.tokenAdminA);
+
+    await request(app)
+      .patch(`/api/v1/datamodels/${f.modelA}/datasets/${refId}`)
+      .set(token)
+      .send({ displayName: 'Đơn hàng', description: 'Mô tả gốc' });
+
+    const res = await request(app)
+      .patch(`/api/v1/datamodels/${f.modelA}/datasets/${refId}`)
+      .set(token)
+      .send({ primaryColumnId: columnIds[1] });
+
+    const dataset = res.body.dataModel.datasets[0];
+    expect(dataset.displayName).toBe('Đơn hàng');
+    expect(dataset.description).toBe('Mô tả gốc');
+    expect(dataset.primaryColumnName).toBe('so_tien');
+  });
+
+  it('cột khoá của bảng KHÁC -> 400', async () => {
+    const a = await attachDataset(f.tenantA, f.modelA, f.datasetA);
+    const khac = await makeLoadedDataset(f.tenantA, f.workspaceA, 'kho-hang');
+    const b = await attachDataset(f.tenantA, f.modelA, khac);
+
+    const res = await request(app)
+      .patch(`/api/v1/datamodels/${f.modelA}/datasets/${a.refId}`)
+      .set(bearer(f.tokenAdminA))
+      .send({ primaryColumnId: b.columnIds[0] });
+
+    expect(res.status).toBe(400);
+  });
+
   it('sắp xếp theo cột không hợp lệ -> 400 kèm danh sách cột nhận được', async () => {
     const res = await request(app)
       .get('/api/v1/datamodels?sort=; DROP TABLE datamodels')
@@ -341,5 +494,152 @@ describe('§10 vị trí canvas', () => {
       .set(bearer(f.tokenAdminA))
       .send({ positions: [{ id: 1, x: 99_999_999, y: 0 }] });
     expect(res.status).toBe(400);
+  });
+});
+
+/**
+ * Báo cáo dựng trên MÔ HÌNH — §10.8.
+ *
+ * Không ca nào ở đây vẽ được biểu đồ thật: việc đó cần ClickHouse và Cube, và
+ * `modelA` trong bộ cố định này chưa có bảng nào. Kiểm đúng phần kiểm được mà
+ * không cần kho — và đó cũng chính là phần dễ hỏng im lặng nhất: cách ly tổ
+ * chức, và ràng buộc "một ID phải thuộc chính mô hình này".
+ */
+describe('§10.8 tạo báo cáo từ mô hình', () => {
+  const body = (datamodelId: number, dimensionId = 1, measureId = 1): Record<string, unknown> => ({
+    datamodelId,
+    name: 'Doanh thu theo vùng',
+    chartType: 'bar',
+    config: { dimensionId, measureId, limit: 10 },
+  });
+
+  it('mô hình của tổ chức khác -> 404, không phải 403', async () => {
+    // 403 sẽ xác nhận rằng mô hình đó CÓ THẬT — một rò rỉ nhỏ nhưng đủ để dò ra
+    // tổ chức khác đang có bao nhiêu mô hình. Cùng luật với mọi route §10.
+    const res = await request(app)
+      .post('/api/v1/reports/from-datamodel')
+      .set(bearer(f.tokenAdminA))
+      .send(body(f.modelB));
+
+    expect(res.status).toBe(404);
+  });
+
+  it('chiều và thước đo không thuộc mô hình -> 400 ngay lúc TẠO', async () => {
+    // Hoãn tới lúc vẽ thì bản ghi hỏng đã nằm trong database, và chưa có màn
+    // sửa cấu hình nào để chọn lại — báo cáo hỏng vĩnh viễn.
+    const res = await request(app)
+      .post('/api/v1/reports/from-datamodel')
+      .set(bearer(f.tokenAdminA))
+      .send(body(f.modelA, 999_999, 999_999));
+
+    expect(res.status).toBe(400);
+    expect(res.body.message).toContain('Chiều');
+  });
+
+  it('thiếu chiều hoặc thước đo -> 400', async () => {
+    const res = await request(app)
+      .post('/api/v1/reports/from-datamodel')
+      .set(bearer(f.tokenAdminA))
+      .send({ datamodelId: f.modelA, name: 'Thiếu', chartType: 'bar', config: { limit: 10 } });
+
+    expect(res.status).toBe(400);
+  });
+
+  it('viewer không tạo được', async () => {
+    const res = await request(app)
+      .post('/api/v1/reports/from-datamodel')
+      .set(bearer(f.tokenViewerA))
+      .send(body(f.modelA));
+
+    expect(res.status).toBe(403);
+  });
+});
+
+/**
+ * Khoá gom nhóm của mô hình TỰ SINH — migration 19.
+ *
+ * Đây là phần kiểm được mà không cần kho: `ensureAutoDataModel` phải đi qua
+ * `createDataModel`, vốn đọc cấu trúc cột từ ClickHouse, nên toàn bộ đường tự
+ * sinh nằm ngoài tầm bộ test này (xem ghi chú đầu file). Nhưng thứ dễ hỏng nhất
+ * lại KHÔNG phải chỗ đó — nó là câu truy vấn tìm lại mô hình: sai một điều kiện
+ * là bảng thứ hai của cùng một file rơi vào mô hình sai, hoặc vào một mô hình
+ * đã bị xoá.
+ */
+describe('§10 gom mô hình tự sinh theo lần tải', () => {
+  const KEY = 'file:t9/w9/kiem-chung.xlsx';
+
+  it('tìm lại được mô hình cùng khoá', async () => {
+    const id = await datamodelsRepo.create(mysqlPool, f.tenantA, {
+      workspaceId: f.workspaceA,
+      name: 'Sổ tay',
+      description: null,
+      autoBatchKey: KEY,
+      createdBy: null,
+    });
+
+    const found = await datamodelsRepo.findAutoModelByBatch(
+      mysqlPool,
+      f.tenantA,
+      f.workspaceA,
+      KEY,
+    );
+    expect(found?.id).toBe(id);
+  });
+
+  it('mô hình do NGƯỜI DÙNG tạo không bao giờ bị nhận nhầm', async () => {
+    // Không mang khoá thì không có đường nào tìm ra nó. Đây là thứ giữ cho luồng
+    // tự sinh không tự tiện nhét thêm bảng vào mô hình người ta đang dùng.
+    await datamodelsRepo.create(mysqlPool, f.tenantA, {
+      workspaceId: f.workspaceA,
+      name: 'Của tôi',
+      description: null,
+      createdBy: null,
+    });
+
+    const found = await datamodelsRepo.findAutoModelByBatch(
+      mysqlPool,
+      f.tenantA,
+      f.workspaceA,
+      KEY,
+    );
+    expect(found).toBeNull();
+  });
+
+  it('mô hình đã xoá mềm KHÔNG được trả về', async () => {
+    // Thiếu điều kiện `deleted_at IS NULL` thì sau khi người dùng xoá mô hình tự
+    // sinh, mọi lần nạp sau lại đi thêm bảng vào một mô hình không hiện ở đâu —
+    // dữ liệu vào kho đầy đủ mà màn hình thì trống trơn.
+    const id = await datamodelsRepo.create(mysqlPool, f.tenantA, {
+      workspaceId: f.workspaceA,
+      name: 'Đã xoá',
+      description: null,
+      autoBatchKey: KEY,
+      createdBy: null,
+    });
+    await datamodelsRepo.softDelete(mysqlPool, f.tenantA, id);
+
+    const found = await datamodelsRepo.findAutoModelByBatch(
+      mysqlPool,
+      f.tenantA,
+      f.workspaceA,
+      KEY,
+    );
+    expect(found).toBeNull();
+  });
+
+  it('cùng khoá nhưng khác workspace là hai mô hình', async () => {
+    // Mô hình thuộc về workspace. Đồng bộ cùng một schema vào hai workspace phải
+    // ra hai mô hình, nếu không bảng của workspace này hiện trong workspace kia.
+    await datamodelsRepo.create(mysqlPool, f.tenantA, {
+      workspaceId: f.workspaceA,
+      name: 'Ở A',
+      description: null,
+      autoBatchKey: KEY,
+      createdBy: null,
+    });
+
+    const other = await makeWorkspace(f.tenantA, 'Khác', 'khac-batch');
+    const found = await datamodelsRepo.findAutoModelByBatch(mysqlPool, f.tenantA, other, KEY);
+    expect(found).toBeNull();
   });
 });

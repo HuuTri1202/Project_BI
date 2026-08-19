@@ -22,17 +22,41 @@ export function TableWrap({
    * Cần cha là một flex column có `min-h-0` — xem `PageBody`.
    */
   fill = false,
+  /**
+   * Căng hộp hết chiều cao còn lại (`flex-1`) — NGƯỢC với mặc định của `fill`.
+   *
+   * Dùng cho bảng là NỘI DUNG CHÍNH của một trang quản lý: ở đó khoảng trắng
+   * dưới vài dòng dữ liệu không phải lãng phí mà là chỗ cho dòng sắp thêm, và
+   * một khung cao cố định giữ cho trang không nhảy mỗi lần thêm/bớt một dòng.
+   *
+   * Nó còn sửa một lỗi thấy được: menu "⋮" ở cuối dòng bung xuống dưới, và với
+   * một hộp chỉ cao bằng ba dòng thì menu rơi ra ngoài vùng `overflow-auto` rồi
+   * bị cắt cụt. (`RowMenu` cũng đã chuyển sang portal để không phụ thuộc vào
+   * chiều cao hộp nữa — hai lớp cho cùng một vấn đề, vì hộp có thể vẫn hẹp trên
+   * màn hình thấp.)
+   */
+  grow = false,
+  /**
+   * Lớp phụ — dành cho TRẦN chiều cao (`max-h-60`).
+   *
+   * Có `fill` rồi vẫn cần cái này: `fill` để bảng nhường chỗ còn lại, còn ở tab
+   * Quan hệ thì ngược lại — bảng phải bị CHẶN để không lấn vào sơ đồ, dù trên
+   * màn hình còn thừa chỗ. Đó là hai luật khác nhau, không phải một luật hai tên.
+   */
+  className = '',
 }: {
   children: ReactNode;
   fill?: boolean;
+  grow?: boolean;
+  className?: string;
 }): React.ReactElement {
   return (
     // overflow-auto: bảng có 6 cột không vừa màn hình điện thoại, cho cuộn
     // trong khung thay vì để cả trang bị đẩy rộng ra.
     <div
       className={`overflow-auto rounded-xl border border-slate-200 bg-white ${
-        fill ? 'min-h-0' : ''
-      }`}
+        fill || grow ? 'min-h-0' : ''
+      } ${grow ? 'flex-1' : ''} ${className}`}
     >
       <table className="w-full min-w-[52rem] border-collapse text-sm">{children}</table>
     </div>

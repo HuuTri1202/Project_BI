@@ -114,6 +114,19 @@ export function useCreateReport(): UseMutationResult<
   });
 }
 
+/** Tạo báo cáo trên mô hình — §10.8. Cùng cơ chế dọn cache với nhánh bộ dữ liệu. */
+export function useCreateModelReport(): UseMutationResult<
+  ReportDto,
+  unknown,
+  Parameters<typeof api.createModelReport>[0]
+> {
+  const invalidate = useInvalidateReports();
+  return useMutation({
+    mutationFn: api.createModelReport,
+    onSuccess: invalidate,
+  });
+}
+
 export function useDeleteReport(): UseMutationResult<void, unknown, number> {
   const invalidate = useInvalidateReports();
   return useMutation({

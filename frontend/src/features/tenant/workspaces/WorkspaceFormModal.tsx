@@ -81,7 +81,7 @@ export function WorkspaceFormModal({
       description={
         editing
           ? `Đường dẫn (${editing.slug}) giữ nguyên để không làm hỏng link đã chia sẻ.`
-          : 'Không gian làm việc để nhóm các project và dữ liệu.'
+          : 'Không gian làm việc để nhóm dữ liệu, mô hình và báo cáo.'
       }
       footer={
         <>

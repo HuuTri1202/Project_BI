@@ -2,6 +2,7 @@ import type {
   AnalyzeResultDto,
   ChartType,
   CommitDatasetsInput,
+  CreateModelReportInput,
   CreateReportInput,
   CreateUploadResultDto,
   DatasetDetailDto,
@@ -104,6 +105,17 @@ export async function fetchReportData(id: number): Promise<ReportDataDto> {
  */
 export async function createReport(input: CreateReportInput): Promise<ReportDto> {
   const { data } = await apiClient.post<ReportDto>('/v1/reports', input);
+  return data;
+}
+
+/**
+ * Tạo báo cáo trên MÔ HÌNH — §10.8. Ngược cái trên: ra đời là đã có biểu đồ.
+ *
+ * `config` toàn ID. Không một tên cột nào rời trình duyệt, cùng luật với
+ * `runQuery` của Explorer.
+ */
+export async function createModelReport(input: CreateModelReportInput): Promise<ReportDto> {
+  const { data } = await apiClient.post<ReportDto>('/v1/reports/from-datamodel', input);
   return data;
 }
 

@@ -24,7 +24,6 @@ export const RESOURCES = [
    */
   'member',
   /** Project là cấp trên Dataset/Report — đã có bảng thật từ migration 1. */
-  'project',
   /**
    * Chính TỔ CHỨC: đổi tên công ty, và sau này là mọi cấu hình cấp tổ chức.
    *
@@ -62,7 +61,6 @@ export const RESOURCE_LABELS: Record<Resource, string> = {
   chart: 'Biểu đồ',
   workspace: 'Workspace',
   member: 'Thành viên',
-  project: 'Project',
   tenant: 'Tổ chức',
   connection: 'Kết nối CSDL',
 };
@@ -114,8 +112,8 @@ export const DEFAULT_POLICY: readonly PolicyRule[] = [
 
   // ─── Creator: tạo và sửa NỘI DUNG, không đụng tới cơ cấu tổ chức ─────────
   //
-  // `delete` chỉ có ở những tài nguyên Creator TỰ DỰNG RA từ đầu: project (§6.3),
-  // rồi dataset và report (§7.8, migration 6). Không xoá được thứ mình vừa tạo
+  // `delete` chỉ có ở những tài nguyên Creator TỰ DỰNG RA từ đầu: dataset và
+  // report (§7.8, migration 6). Không xoá được thứ mình vừa tạo
   // nghĩa là mỗi lần tải nhầm file là một bản ghi rác nằm lại vĩnh viễn và phải
   // đi nhờ Admin.
   //
@@ -135,12 +133,6 @@ export const DEFAULT_POLICY: readonly PolicyRule[] = [
   { role: 'creator', resource: 'report', action: 'delete' },
   { role: 'creator', resource: 'chart', action: 'read' },
   { role: 'creator', resource: 'chart', action: 'modify' },
-  { role: 'creator', resource: 'project', action: 'read' },
-  { role: 'creator', resource: 'project', action: 'modify' },
-  // Xoá project ĐƯỢC phép: project là vỏ chứa do chính Creator dựng, khác với
-  // dữ liệu bên trong. Không cho xoá thì mỗi lần gõ nhầm tên là một project rác
-  // nằm lại vĩnh viễn và phải đi nhờ Admin.
-  { role: 'creator', resource: 'project', action: 'delete' },
   // Thấy workspace và danh sách thành viên, nhưng không sửa được.
   { role: 'creator', resource: 'workspace', action: 'read' },
   { role: 'creator', resource: 'member', action: 'read' },
@@ -150,7 +142,6 @@ export const DEFAULT_POLICY: readonly PolicyRule[] = [
   { role: 'viewer', resource: 'datamodel', action: 'read' },
   { role: 'viewer', resource: 'report', action: 'read' },
   { role: 'viewer', resource: 'chart', action: 'read' },
-  { role: 'viewer', resource: 'project', action: 'read' },
   { role: 'viewer', resource: 'workspace', action: 'read' },
   { role: 'viewer', resource: 'member', action: 'read' },
 ];
@@ -173,7 +164,6 @@ export function emptyPermissionMatrix(): PermissionMatrixDto {
     chart: [],
     workspace: [],
     member: [],
-    project: [],
     tenant: [],
     connection: [],
   };

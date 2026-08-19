@@ -9,7 +9,7 @@ import { resetDatabase } from './helpers/db';
 import {
   bearer,
   makeMembership,
-  makeProject,
+  makeReport,
   makeTenant,
   makeUser,
   makeWorkspace,
@@ -435,7 +435,7 @@ describe('quản lý tổ chức', () => {
       .delete(`/api/admin/tenants/${f.tenantA}`)
       .set(bearer(f.tokenRoot));
 
-    // CHẶN thay vì xoá lan xuống workspace và project: xoá mềm dây chuyền qua
+    // CHẶN thay vì xoá lan xuống workspace và dữ liệu: xoá mềm dây chuyền qua
     // hai tầng, không nút hoàn tác, là cách nhanh nhất làm mất dữ liệu cả công ty.
     expect(res.status).toBe(409);
     expect(res.body.error).toBe('TenantNotEmpty');
@@ -727,16 +727,16 @@ describe('quản lý workspace toàn hệ thống', () => {
     expect(res.body.items[0].name).toBe('Kế toán');
   });
 
-  it('kèm số project, không N+1', async () => {
-    await makeProject(f.tenantA, f.wsA, 'Báo cáo doanh thu');
-    await makeProject(f.tenantA, f.wsA, 'Báo cáo tồn kho');
+  it('kèm số báo cáo, không N+1', async () => {
+    await makeReport(f.tenantA, f.wsA, 'Báo cáo doanh thu');
+    await makeReport(f.tenantA, f.wsA, 'Báo cáo tồn kho');
 
     const res = await request(app)
       .get('/api/admin/workspaces')
       .query({ tenantId: f.tenantA })
       .set(bearer(f.tokenRoot));
 
-    expect(res.body.items[0].projectCount).toBe(2);
+    expect(res.body.items[0].reportCount).toBe(2);
   });
 
   it('khoá rồi mở khoá workspace', async () => {

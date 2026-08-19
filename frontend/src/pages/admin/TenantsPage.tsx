@@ -257,7 +257,7 @@ export default function TenantsPage(): React.ReactElement {
           {(deleteTarget?.workspaceCount ?? 0) > 0 ? (
             <>
               Tổ chức này còn <strong>{deleteTarget?.workspaceCount} workspace</strong>. Hãy xoá
-              chúng trước — hệ thống không xoá lan xuống workspace và project để tránh mất dữ liệu
+              chúng trước — hệ thống không xoá lan xuống workspace và dữ liệu bên trong để tránh mất dữ liệu
               ngoài ý muốn.
             </>
           ) : (

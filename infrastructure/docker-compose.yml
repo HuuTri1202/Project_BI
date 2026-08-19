@@ -210,6 +210,10 @@ services:
       # Secret này để Express ký JWT ngắn hạn mang securityContext ở F7.
       # Cube TUYỆT ĐỐI không được expose thẳng ra trình duyệt.
       CUBEJS_API_SECRET: ${CUBEJS_API_SECRET:-cube-api-secret-change-me}
+      # Đồng hồ Windows và đồng hồ máy ảo Docker trôi xa nhau sau mỗi lần máy
+      # ngủ. 300 giây là dung sai cho việc đó — xem CLOCK_TOLERANCE trong
+      # cube/cube.js để biết vì sao nới ra không phải là hạ tiêu chuẩn an toàn.
+      CUBEJS_CLOCK_TOLERANCE: ${CUBEJS_CLOCK_TOLERANCE:-300}
       CUBEJS_LOG_LEVEL: info
       TZ: Asia/Ho_Chi_Minh
     ports:

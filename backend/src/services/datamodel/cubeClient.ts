@@ -22,6 +22,13 @@ import { HttpError } from '../../utils/httpError';
  * Token này mang quyền đọc dữ liệu của cả một tổ chức. Nó chỉ cần sống đủ lâu
  * cho một vòng HTTP nội bộ, nên một token bị chộp trên đường sẽ vô dụng trước
  * khi ai kịp dùng.
+ *
+ * ⚠️ Đây là hạn đo theo ĐỒNG HỒ CỦA MÁY NÀY. Cube kiểm nó bằng đồng hồ của
+ * container, và hai đồng hồ đó độc lập với nhau (Windows ↔ máy ảo Docker). Bao
+ * nhiêu lệch được tha là việc của `CLOCK_TOLERANCE` trong
+ * `infrastructure/cube/cube.js` — cố tình tách khỏi con số này, vì gộp một tham
+ * số an toàn với một tham số môi trường vào cùng một chỗ chính là gốc của lỗi
+ * "Explorer chết sạch vì máy chậm giờ 2 phút".
  */
 const TOKEN_TTL_SECONDS = 60;
 
@@ -102,6 +109,73 @@ export async function loadFromCube(
   }
 }
 
+/**
+ * Câu SQL mà Cube SẼ chạy cho truy vấn này — không chạy nó.
+ *
+ * ─── Vì sao đáng có ────────────────────────────────────────────────────────
+ *
+ * Tầng ngữ nghĩa là một hộp đen: người dùng chọn hai trường, nhận về một con số,
+ * và không có cách nào biết con số đó ra từ phép nối nào. Khi số trông sai —
+ * chuyện xảy ra thật, xem cảnh báo khoá trùng ở §10.3 và §10.5 — câu SQL là
+ * bằng chứng duy nhất phân biệt được "mô hình khai sai" với "dữ liệu vốn thế".
+ *
+ * ─── Vì sao lộ SQL ra không phải rò rỉ ─────────────────────────────────────
+ *
+ * Nó chỉ chứa tên bảng vật lý và tên cột của CHÍNH mô hình người dùng đang mở —
+ * đúng những thứ tab Schemas đã hiện ở cột "Bảng vật lý". Truy vấn vẫn dựng từ
+ * ID qua `buildQuery`, nên không có chuỗi nào của người dùng đi vào SQL và không
+ * có đường nào trỏ sang bảng của tổ chức khác.
+ *
+ * Cube nhận truy vấn ở QUERY STRING cho endpoint này (không phải body), nên phải
+ * `encodeURIComponent` — thiếu bước đó thì mọi truy vấn có dấu `&` trong tên cột
+ * sẽ bị cắt đôi.
+ */
+export async function sqlFromCube(
+  context: CubeSecurityContext,
+  query: CubeQuery,
+): Promise<{ sql: string; params: (string | number)[] }> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
+  let response: Response;
+  try {
+    const url =
+      `${env.CUBEJS_URL}/cubejs-api/v1/sql?query=` + encodeURIComponent(JSON.stringify(query));
+    response = await fetch(url, {
+      headers: { authorization: sign(context) },
+      signal: controller.signal,
+    });
+  } catch (cause) {
+    throw unavailable(cause);
+  } finally {
+    clearTimeout(timer);
+  }
+
+  const text = await response.text();
+  if (!response.ok) throw explain(response.status, text);
+
+  // Cube trả `{ sql: { sql: [câu lệnh, [tham số]] } }` — một mảng hai phần tử,
+  // không phải một chuỗi. Đọc phòng thủ vì đây là hình dạng nội bộ của Cube.
+  try {
+    const body = JSON.parse(text) as { sql?: { sql?: unknown } };
+    const pair = body.sql?.sql;
+    if (!Array.isArray(pair) || typeof pair[0] !== 'string') {
+      throw new Error('hình dạng lạ');
+    }
+    return {
+      sql: pair[0],
+      params: Array.isArray(pair[1]) ? (pair[1] as (string | number)[]) : [],
+    };
+  } catch (cause) {
+    console.error('[datamodel] Cube trả câu SQL không đọc được:', cause, text.slice(0, 300));
+    throw new HttpError(
+      502,
+      DATAMODEL_ERROR_CODES.SCHEMA_INVALID,
+      'Tầng ngữ nghĩa không trả về được câu lệnh SQL cho truy vấn này.',
+    );
+  }
+}
+
 /** Cube có sống không — dùng cho `/health` và cho tab Explorer hỏi trước. */
 export async function pingCube(): Promise<boolean> {
   const controller = new AbortController();
@@ -140,6 +214,43 @@ function unavailable(cause: unknown): HttpError {
  * mất đúng thông tin cần để đi sửa.
  */
 function explain(status: number, body: string): HttpError {
+  /*
+   * ⚠️ Lỗi xác thực của Cube KHÔNG tới đây dưới dạng 401/403.
+   *
+   * `checkAuth` trong `infrastructure/cube/cube.js` NÉM lỗi, và gateway của Cube
+   * biến mọi ngoại lệ trong đó thành **500**. Nên nếu chỉ nhìn mã trạng thái thì
+   * một token hết hạn rơi vào nhánh "lỗi máy chủ" và người dùng nhận câu "Tầng
+   * ngữ nghĩa không trả lời được truy vấn này" — một câu không dẫn tới đâu cả.
+   *
+   * Đó chính xác là chuyện đã xảy ra: đồng hồ máy ảo Docker đi trước máy thật
+   * hơn 60 giây, nên token vừa ký đã hết hạn khi tới nơi và MỌI truy vấn
+   * Explorer đều hỏng — kể cả truy vấn trong đúng một bảng, tức là không liên
+   * quan gì tới quan hệ giữa các bảng.
+   *
+   * Vì vậy phải soi THÂN phản hồi, không chỉ mã trạng thái.
+   */
+  if (body.includes('TokenExpiredError') || body.includes('ĐỒNG HỒ LỆCH')) {
+    console.error('[datamodel] Cube từ chối token vì hết hạn:', body.slice(0, 400));
+    return new HttpError(
+      503,
+      DATAMODEL_ERROR_CODES.CUBE_UNAVAILABLE,
+      'Đồng hồ máy bạn và đồng hồ container Cube.js lệch nhau quá 6 phút, vượt cả dung sai đã ' +
+        'nới, nên token hết hạn ngay khi vừa ký. So bằng: date -u  và  docker exec bi-cube ' +
+        'date -u. Máy Windows hay bị chậm giờ — mở PowerShell với quyền quản trị rồi chạy: ' +
+        'w32tm /resync. Hai tab Schemas và Relationship không bị ảnh hưởng.',
+    );
+  }
+
+  if (body.includes('JsonWebTokenError') || body.includes('CUBEJS_API_SECRET')) {
+    console.error('[datamodel] Cube từ chối chữ ký token:', body.slice(0, 400));
+    return new HttpError(
+      500,
+      DATAMODEL_ERROR_CODES.CUBE_UNAVAILABLE,
+      'Tầng ngữ nghĩa từ chối yêu cầu: CUBEJS_API_SECRET trong backend/.env không trùng ' +
+        'infrastructure/.env.',
+    );
+  }
+
   // 403 nghĩa là chữ ký của TA sai — `CUBEJS_API_SECRET` lệch giữa backend/.env
   // và infrastructure/.env. Đó là lỗi cấu hình của hệ thống, không phải thao tác
   // của người dùng, nên họ nhận một câu chung còn chi tiết đi vào log.

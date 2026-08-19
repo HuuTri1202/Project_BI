@@ -8,7 +8,6 @@ import type {
   DatasetLoadErrorDto,
   DatasetPreviewDto,
   PageResult,
-  ProjectDto,
   SourceTableDto,
   TenantDto,
   TenantRole,
@@ -35,7 +34,7 @@ import { tenantKeys } from './keys';
  * ─── Luật dọn cache sau khi ghi ─────────────────────────────────────────────
  *
  * Mọi mutation `invalidate` ở mức CAO NHẤT còn đúng, không phải mức hẹp nhất:
- * tạo một project làm đổi cả danh sách project LẪN số `projectCount` trong bộ
+ * tạo một báo cáo làm đổi cả danh sách báo cáo LẪN số `reportCount` trong bộ
  * chuyển workspace LẪN thẻ số trên trang Home. Nhắm đúng một key nghĩa là hai
  * chỗ kia hiện số cũ cho tới lần refetch tự nhiên — và người dùng tin vào số cũ
  * đó, vì họ vừa mới tự tay tạo ra thứ làm nó thay đổi.
@@ -55,68 +54,6 @@ export function useHome() {
     // request thứ hai với id thật — trang nhảy số hai lần trước mắt người dùng.
     enabled: !isLoading,
   });
-}
-
-// ─── Project ─────────────────────────────────────────────────────────────────
-
-export function useProjects(
-  query: Omit<api.ProjectListQuery, 'workspaceId'>,
-): UseQueryResult<ProjectDto[]> {
-  const { current } = useWorkspace();
-  const workspaceId = current?.id ?? null;
-
-  return useQuery({
-    queryKey: tenantKeys.projectList(workspaceId, query),
-    queryFn: () => api.fetchProjects({ ...query, workspaceId: workspaceId as number }),
-    enabled: workspaceId !== null,
-    // Giữ kết quả cũ trong lúc tải trang mới — nếu không, mỗi lần gõ một ký tự
-    // tìm kiếm thì lưới chớp trắng rồi hiện lại, và chiều cao trang nhảy khiến
-    // con trỏ chuột trượt khỏi thứ đang định bấm.
-    placeholderData: keepPreviousData,
-  });
-}
-
-/** Dọn mọi thứ mà một thay đổi project có thể chạm tới. */
-function useInvalidateProjects(): () => Promise<void> {
-  const queryClient = useQueryClient();
-  return async () => {
-    await queryClient.invalidateQueries({ queryKey: tenantKeys.projects() });
-    await queryClient.invalidateQueries({ queryKey: tenantKeys.all, predicate: (q) =>
-      q.queryKey[1] === 'home' || q.queryKey[1] === 'workspaces' });
-  };
-}
-
-export function useCreateProject(): UseMutationResult<
-  ProjectDto,
-  unknown,
-  api.ProjectFormValues
-> {
-  const { current } = useWorkspace();
-  const invalidate = useInvalidateProjects();
-
-  return useMutation({
-    mutationFn: (values: api.ProjectFormValues) =>
-      api.createProject(current?.id as number, values),
-    onSuccess: invalidate,
-  });
-}
-
-export function useUpdateProject(): UseMutationResult<
-  ProjectDto,
-  unknown,
-  { id: number; values: api.ProjectFormValues }
-> {
-  const invalidate = useInvalidateProjects();
-  return useMutation({
-    mutationFn: ({ id, values }: { id: number; values: api.ProjectFormValues }) =>
-      api.updateProject(id, values),
-    onSuccess: invalidate,
-  });
-}
-
-export function useDeleteProject(): UseMutationResult<void, unknown, number> {
-  const invalidate = useInvalidateProjects();
-  return useMutation({ mutationFn: api.deleteProject, onSuccess: invalidate });
 }
 
 // ─── Tổ chức ─────────────────────────────────────────────────────────────────
@@ -220,9 +157,13 @@ export function useSourceTables(connectionId: number | null): UseQueryResult<Sou
 
 export function useSyncTables() {
   const queryClient = useQueryClient();
+  // Bảng đồng bộ về thuộc workspace ĐANG MỞ. Kết nối vẫn là tài sản chung của
+  // tổ chức — chỉ những bảng lấy ra từ nó mới thuộc về một workspace.
+  const { current } = useWorkspace();
+
   return useMutation({
     mutationFn: ({ id, tables }: { id: number; tables: { schema: string; table: string }[] }) =>
-      api.syncTables(id, tables),
+      api.syncTables(id, tables, current?.id as number),
     onSuccess: async () => {
       // Đồng bộ đổi CẢ BA thứ: kho dữ liệu, cờ `imported` của danh sách bảng, và
       // `datasetCount` trên từng kết nối. Nhắm đúng một key nghĩa là hai chỗ kia
@@ -263,12 +204,28 @@ export function useSyncTables() {
  * nhìn nó, nên đó là lúc duy nhất chi phí ấy đáng.
  */
 export function useDatasets(
-  query: api.DatasetListQuery,
+  query: Omit<api.DatasetListQuery, 'workspaceId'>,
   pollWhileOpen = false,
 ): UseQueryResult<PageResult<DatasetDto>> {
+  /*
+   * Kho dữ liệu thuộc về TỪNG WORKSPACE.
+   *
+   * Trước đây hook này không gửi `workspaceId`, và backend hiểu "không gửi" là
+   * "cả tổ chức" — nên bộ dữ liệu tải lên ở workspace A hiện luôn ở workspace B.
+   * Mỗi workspace phải quản lý nội dung riêng, đúng như báo cáo và mô
+   * hình dữ liệu vẫn làm.
+   *
+   * `workspaceId` nằm trong `queryKey` chứ không chỉ trong `queryFn`: thiếu nó
+   * thì đổi workspace vẫn hiện nguyên danh sách cũ lấy từ cache.
+   */
+  const { current } = useWorkspace();
+  const workspaceId = current?.id ?? null;
+  const scoped = { ...query, workspaceId: workspaceId as number };
+
   return useQuery({
-    queryKey: tenantKeys.datasetList(query),
-    queryFn: () => api.fetchDatasets(query),
+    queryKey: tenantKeys.datasetList(scoped),
+    queryFn: () => api.fetchDatasets(scoped),
+    enabled: workspaceId !== null,
     placeholderData: keepPreviousData,
     refetchInterval: (q) => {
       if (!pollWhileOpen) return false;
@@ -484,7 +441,6 @@ function useInvalidateWorkspaces(): () => Promise<void> {
   const queryClient = useQueryClient();
   return async () => {
     await queryClient.invalidateQueries({ queryKey: tenantKeys.workspaces() });
-    await queryClient.invalidateQueries({ queryKey: tenantKeys.projects() });
     await queryClient.invalidateQueries({
       queryKey: tenantKeys.all,
       predicate: (q) => q.queryKey[1] === 'home',

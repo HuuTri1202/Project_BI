@@ -1,6 +1,5 @@
 import { mysqlPool } from '../../config/mysql';
 import * as datasetsRepo from '../../repositories/datasets';
-import { dropDatasetTables } from '../ingest/dropTables';
 import { notFound } from '../../utils/httpError';
 
 /**
@@ -14,47 +13,35 @@ import { notFound } from '../../utils/httpError';
  *     đứt vĩnh viễn.
  *   - `dataset_columns` CASCADE theo dataset. Xoá cứng là mất luôn ảnh chụp
  *     schema — thứ duy nhất còn lại nếu CSDL nguồn đã ngừng hoạt động.
+ *
+ * ═══ Xoá KHÔNG đụng tới ClickHouse ══════════════════════════════════════════
+ *
+ * Bản trước drop luôn bảng `raw_*`, với lập luận: bảng đó là DẪN XUẤT, dựng lại
+ * được từ `dataset_rows` / file trong MinIO / chính CSDL khách hàng, nên giữ nó
+ * chỉ tốn đĩa.
+ *
+ * Lập luận đó đúng về mặt lý thuyết nhưng sai về hậu quả. "Dựng lại được" không
+ * có nghĩa là "dựng lại dễ": với nguồn `file`, tải lại luôn sinh một id MỚI
+ * (`uq_datasets_source` không ràng buộc được các cột NULL của nguồn file), nên
+ * bộ dữ liệu cũ KHÔNG hồi sinh — người dùng phải tải lại file, nạp lại, rồi
+ * dựng lại mô hình trỏ vào id mới. Một thao tác mang tên "xoá mềm" mà hậu quả
+ * thì không hoàn tác được.
+ *
+ * Nên từ nay xoá dataset là một thao tác THUẦN MySQL: đúng một cột `deleted_at`.
+ * Cả `load_status`, `ch_table`, `loaded_row_count` lẫn bảng trong kho đều giữ
+ * nguyên, nên khôi phục là gỡ đúng cột đó ra và mọi thứ chạy lại ngay.
+ *
+ * Cái giá, ghi ra chứ không giấu: bảng trong kho KHÔNG bao giờ tự được thu hồi
+ * nữa. Xoá rồi tải lại cùng một file mười lần để lại mười bảng đầy đủ trong
+ * ClickHouse. Janitor giờ chỉ dọn bảng của dataset đã biến mất KHỎI MySQL (xem
+ * `sweepOrphanTables`), và điều đó gần như chỉ xảy ra khi một tổ chức bị xoá
+ * cứng.
  */
 export async function deleteDataset(tenantId: number, id: number): Promise<void> {
   await assertNotInUse(tenantId, id);
 
   const affected = await datasetsRepo.softDelete(mysqlPool, tenantId, id);
   if (affected === 0) throw notFound('Không tìm thấy tập dữ liệu này.');
-
-  await dropWarehouseTable(tenantId, id);
-}
-
-/**
- * Trả lại chỗ trong kho phân tích (§9).
- *
- * Bảng `raw_*` là DẪN XUẤT chứ không phải bản gốc — nguồn để dựng lại nó
- * (`dataset_rows`, file trong MinIO, hay chính CSDL khách hàng) đều sống sót qua
- * lần xoá mềm này. Nên giữ lại bảng không bảo vệ được gì, chỉ chiếm đĩa: mỗi
- * vòng xoá-rồi-tải-lại một file để lại một bản sao đầy đủ, vì tải file luôn sinh
- * id MỚI (`uq_datasets_source` không chặn được các cột NULL của nguồn `file`).
- *
- * ─── Toàn bộ khối này KHÔNG ĐƯỢC ném ───────────────────────────────────────
- *
- * Dòng MySQL đã xoá mềm xong ở trên. Ném ra từ đây là trả lỗi cho một thao tác
- * ĐÃ thành công, và người dùng bấm xoá lại sẽ nhận 404 — vừa sai vừa khó hiểu.
- * Tệ hơn: nó buộc "xoá được một dòng trong MySQL" vào "ClickHouse phải đang
- * sống", hai thứ vốn không liên quan.
- *
- * Nên đây là nỗ lực TỐT NHẤT CÓ THỂ, và `sweepOrphanTables` trong runner là lưới
- * hứng — nó suy tên bảng từ id chứ không đọc `ch_table`, nên dọn được cả những
- * bảng mà bước này bỏ lỡ.
- *
- * Dọn cờ TRƯỚC, drop SAU: nếu tiến trình chết giữa hai bước thì kết quả là một
- * bảng mồ côi (janitor xử lý được), chứ không phải một bộ dữ liệu khoe "đã nạp
- * 50.000 dòng" trỏ vào bảng đã biến mất (không ai xử lý được).
- */
-async function dropWarehouseTable(tenantId: number, id: number): Promise<void> {
-  try {
-    await datasetsRepo.clearLoadState(mysqlPool, id);
-    await dropDatasetTables(tenantId, id);
-  } catch (err) {
-    console.error(`[ingest] không dọn được kho cho bộ dữ liệu ${id}:`, err);
-  }
 }
 
 /**

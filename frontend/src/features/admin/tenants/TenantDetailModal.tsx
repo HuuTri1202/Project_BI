@@ -99,7 +99,7 @@ export function TenantDetailModal({
                         {workspace.name}
                       </p>
                       <p className="truncate text-xs text-slate-500">
-                        {workspace.slug} · {workspace.projectCount} project
+                        {workspace.slug} · {workspace.reportCount} báo cáo
                       </p>
                     </div>
                     {!workspace.isActive && <Badge tone="warning">Bị khoá</Badge>}
