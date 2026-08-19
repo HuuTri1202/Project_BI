@@ -1,40 +1,53 @@
 import { useEffect, useRef, useState } from 'react';
+import { ModelReportModal } from '../datamodels/ModelReportModal';
 import { ReportWizard } from '../datasets/wizard/ReportWizard';
 
 /**
- * Nút "Tạo báo cáo" — §4.9, nay đã nối vào wizard của §7.
+ * Nút "Tạo báo cáo" — §4.9, nay chọn theo NGUỒN SỐ LIỆU (§10.8).
  *
- * Dropdown chọn giữa BÁO CÁO và SỔ BÁO CÁO. Mục "Báo cáo" mở
- * `ReportWizard` (§7.1). Mục "Sổ báo cáo" vẫn ở trạng thái *sắp có* — nó là thứ
- * khác hẳn (nhiều báo cáo gom trên một trang) và chưa tới lượt.
+ * ═══ Vì sao hai mục là hai NGUỒN, không phải hai loại đầu ra ════════════════
  *
- * Hiện mục vô hiệu kèm nhãn "sắp có" thay vì giấu đi, hoặc tệ hơn là để nó bấm
- * được rồi dẫn tới trang 404. Người dùng thấy được lộ trình mà không bị lừa bấm
- * vào chỗ trống — đúng cách `AdminLayout` đang xử lý trang chưa xây.
+ * Bản trước chia theo thứ sẽ tạo ra: "Báo cáo" với "Sổ báo cáo". Nhưng người
+ * dùng đứng trước nút này không đang phân vân giữa một biểu đồ và một trang gom
+ * nhiều biểu đồ — họ đang có sẵn một file, hoặc có sẵn một mô hình, và câu hỏi
+ * thật là số liệu lấy từ đâu. Hai nhánh đó đi hai đường khác nhau tới tận
+ * database, nên đây là chỗ rẽ đúng.
  *
- * `aria-disabled` chứ không phải thuộc tính `disabled`: nút bị `disabled` biến
- * mất khỏi luồng Tab và trình đọc màn hình bỏ qua hoàn toàn, nên người dùng bàn
- * phím không bao giờ biết mục đó tồn tại. Cách này giữ nó đọc được, chỉ không
- * kích hoạt.
+ * Cái mất: "Sổ báo cáo" không còn chỗ trên menu này. Nó vốn chỉ là một nhãn
+ * *sắp có*, và giữ một mục không bấm được bên cạnh hai mục chạy được thì mục
+ * nào cũng khó đọc hơn.
+ *
+ * ═══ Trong một mô hình thì không hỏi nữa ═══════════════════════════════════
+ *
+ * Khi `datamodelId` có mặt (trang Mô hình dữ liệu), nút bỏ hẳn dropdown và mở
+ * thẳng hộp thoại cho chính mô hình đang mở. Hỏi "dùng Excel hay dùng mô hình"
+ * ngay bên trong một mô hình là hỏi một câu người dùng đã trả lời bằng việc mở
+ * trang đó ra.
  */
 const ITEMS = [
   {
-    label: 'Báo cáo',
-    hint: 'Một biểu đồ hoặc bảng số liệu',
-    ready: true,
-    icon: 'M4 19V5m0 14h16M8 15V9m4 6v-4m4 4V7',
+    key: 'file' as const,
+    label: 'Dùng file Excel/CSV',
+    hint: 'Tải file lên rồi dựng biểu đồ từ nó',
+    icon: 'M13 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9l-6-6Zm0 0v6h6',
   },
   {
-    label: 'Sổ báo cáo',
-    hint: 'Nhiều báo cáo gom trên một trang',
-    ready: false,
-    icon: 'M4 5h16v14H4V5Zm0 5h16M9 10v9',
+    key: 'model' as const,
+    label: 'Dùng mô hình dữ liệu',
+    hint: 'Chọn chiều và thước đo đã khai trong mô hình',
+    icon: 'M4 7h6V4H4v3Zm10 13h6v-3h-6v3Zm0-6.5h6v-3h-6v3ZM7 7v10.5h7M7 11h7',
   },
 ];
 
-export function CreateReportMenu(): React.ReactElement {
+export function CreateReportMenu({
+  datamodelId,
+}: {
+  /** Có mặt = đang đứng trong một mô hình; nút không hỏi nguồn nữa. */
+  datamodelId?: number | undefined;
+} = {}): React.ReactElement {
   const [open, setOpen] = useState(false);
   const [wizardOpen, setWizardOpen] = useState(false);
+  const [modelOpen, setModelOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -52,6 +65,26 @@ export function CreateReportMenu(): React.ReactElement {
       document.removeEventListener('keydown', onKey);
     };
   }, [open]);
+
+  // Trong một mô hình: một nút thường, không dropdown. Xem ghi chú đầu file.
+  if (datamodelId !== undefined) {
+    return (
+      <>
+        <button
+          type="button"
+          onClick={() => setModelOpen(true)}
+          className="flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
+        >
+          Tạo báo cáo
+        </button>
+        <ModelReportModal
+          open={modelOpen}
+          onClose={() => setModelOpen(false)}
+          datamodelId={datamodelId}
+        />
+      </>
+    );
+  }
 
   return (
     <div ref={rootRef} className="relative">
@@ -84,21 +117,15 @@ export function CreateReportMenu(): React.ReactElement {
         >
           {ITEMS.map((item) => (
             <button
-              key={item.label}
+              key={item.key}
               type="button"
               role="menuitem"
-              aria-disabled={!item.ready}
-              onClick={
-                item.ready
-                  ? () => {
-                      setOpen(false);
-                      setWizardOpen(true);
-                    }
-                  : undefined
-              }
-              className={`flex w-full items-start gap-3 rounded-lg px-3 py-2.5 text-left transition-colors ${
-                item.ready ? 'hover:bg-slate-50' : 'cursor-not-allowed'
-              }`}
+              onClick={() => {
+                setOpen(false);
+                if (item.key === 'file') setWizardOpen(true);
+                else setModelOpen(true);
+              }}
+              className="flex w-full items-start gap-3 rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-slate-50"
             >
               <svg
                 viewBox="0 0 24 24"
@@ -107,33 +134,14 @@ export function CreateReportMenu(): React.ReactElement {
                 strokeWidth="1.7"
                 strokeLinecap="round"
                 strokeLinejoin="round"
-                className={`mt-0.5 h-5 w-5 shrink-0 ${
-                  item.ready ? 'text-brand-600' : 'text-slate-300'
-                }`}
+                className="mt-0.5 h-5 w-5 shrink-0 text-brand-600"
                 aria-hidden="true"
               >
                 <path d={item.icon} />
               </svg>
               <span className="min-w-0 flex-1">
-                <span
-                  className={`flex items-center gap-2 text-sm font-medium ${
-                    item.ready ? 'text-slate-900' : 'text-slate-400'
-                  }`}
-                >
-                  {item.label}
-                  {!item.ready && (
-                    <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold tracking-wide text-slate-500 uppercase">
-                      sắp có
-                    </span>
-                  )}
-                </span>
-                <span
-                  className={`mt-0.5 block text-xs ${
-                    item.ready ? 'text-slate-500' : 'text-slate-400'
-                  }`}
-                >
-                  {item.hint}
-                </span>
+                <span className="block text-sm font-medium text-slate-900">{item.label}</span>
+                <span className="mt-0.5 block text-xs text-slate-500">{item.hint}</span>
               </span>
             </button>
           ))}
@@ -141,6 +149,7 @@ export function CreateReportMenu(): React.ReactElement {
       )}
 
       <ReportWizard open={wizardOpen} onClose={() => setWizardOpen(false)} />
+      <ModelReportModal open={modelOpen} onClose={() => setModelOpen(false)} />
     </div>
   );
 }

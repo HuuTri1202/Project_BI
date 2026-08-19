@@ -188,13 +188,15 @@ export interface DatasetDto {
   source: DatasetSource;
   name: string;
   /**
-   * Workspace sở hữu bộ dữ liệu này.
+   * Workspace sở hữu bộ dữ liệu này — LUÔN có, từ migration 11.
    *
-   * NULL với những bộ dữ liệu §8 tạo TRƯỚC khi hai phần được gộp — lúc đó chúng
-   * ở phạm vi cả tổ chức. Giao diện gom chúng vào mục "chưa gán workspace" thay
-   * vì bịa một workspace, vì bịa sai là đẩy dữ liệu sang bộ phận khác.
+   * Trước đó trường này nhận NULL với bộ dữ liệu đồng bộ từ CSDL, vì §8 coi kho
+   * là tài sản chung của cả tổ chức. Hệ quả người dùng nhìn thấy: bảng đồng bộ ở
+   * workspace này hiện luôn ở workspace kia. Giờ mọi bộ dữ liệu đều thuộc đúng
+   * một workspace, và ràng buộc đó nằm ở DATABASE (`workspace_id NOT NULL`)
+   * chứ không phải ở một quy ước mà code phải nhớ.
    */
-  workspaceId: number | null;
+  workspaceId: number;
   columnCount: number;
 
   /* ─── Nguồn `connection` ───────────────────────────────────────────────── */

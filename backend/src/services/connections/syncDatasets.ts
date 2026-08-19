@@ -40,6 +40,19 @@ export async function syncDatasets(
   tenantId: number,
   connectionId: number,
   refs: TableRef[],
+  /**
+   * Workspace nhận những bảng này.
+   *
+   * Kết nối là tài sản chung của TỔ CHỨC, nhưng bảng đồng bộ từ nó thì thuộc về
+   * workspace của người bấm nút — cùng luật với project, report và mô hình dữ
+   * liệu. Trước đây chỗ này ghi `null` với lý lẽ "kết nối chung thì bảng cũng
+   * chung", và hệ quả là bảng đồng bộ ở workspace A hiện luôn trong workspace B.
+   *
+   * Hai workspace vẫn đồng bộ được CÙNG một bảng nguồn: `uq_datasets_source`
+   * mang `workspace_id` từ migration 11, nên mỗi bên có dòng riêng, tên hiển
+   * thị riêng và lần nạp riêng.
+   */
+  workspaceId: number,
   /** Ai bấm đồng bộ — ghi vào lần nạp tự động sinh ra ở cuối hàm. */
   triggeredBy: number | null = null,
 ): Promise<SyncResultDto> {
@@ -84,7 +97,7 @@ export async function syncDatasets(
         continue;
       }
 
-      const before = await currentColumnCount(conn, tenantId, connectionId, ref);
+      const before = await currentColumnCount(conn, tenantId, workspaceId, connectionId, ref);
 
       const { id, isNew } = await datasetsRepo.upsert(conn, tenantId, {
         connectionId,
@@ -94,10 +107,7 @@ export async function syncDatasets(
         // ghi đè tên, nên đổi tên ở mục 8.9 sống qua mọi lần đồng bộ sau.
         name: schema.table,
         columnCount: schema.columns.length,
-        // Kho dữ liệu §8 ở phạm vi TỔ CHỨC: một kết nối là tài sản chung, và
-        // bảng đồng bộ từ nó cũng vậy. Chỉ bộ dữ liệu từ file mới thuộc về một
-        // workspace, vì nó do một người trong workspace đó tải lên.
-        workspaceId: null,
+        workspaceId,
       });
 
       await datasetsRepo.replaceColumns(conn, id, schema.columns);
@@ -142,14 +152,19 @@ export async function syncDatasets(
 async function currentColumnCount(
   conn: Parameters<typeof datasetsRepo.upsert>[0],
   tenantId: number,
+  workspaceId: number,
   connectionId: number,
   ref: TableRef,
 ): Promise<number | null> {
   const [rows] = await conn.query<RowDataPacket[]>(
+    // Điều kiện phải TRÙNG KHỚP `uq_datasets_source`, kể cả `workspace_id`.
+    // Thiếu nó thì hàm đọc dòng của workspace khác, và bảng tổng kết báo "không
+    // đổi" cho một bảng vừa được thêm mới ở đây.
     `SELECT column_count FROM datasets
-      WHERE tenant_id = ? AND connection_id = ? AND source_schema = ? AND source_table = ?
+      WHERE tenant_id = ? AND workspace_id = ? AND connection_id = ?
+        AND source_schema = ? AND source_table = ?
       LIMIT 1`,
-    [tenantId, connectionId, ref.schema, ref.table],
+    [tenantId, workspaceId, connectionId, ref.schema, ref.table],
   );
   const row = rows[0];
   return row ? Number(row['column_count']) : null;

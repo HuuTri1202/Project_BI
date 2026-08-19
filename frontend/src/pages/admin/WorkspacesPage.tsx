@@ -140,7 +140,7 @@ export default function WorkspacesPage(): React.ReactElement {
                   <Th>Tổ chức</Th>
                   <Th>Workspace</Th>
                   <Th>Trạng thái</Th>
-                  <Th align="right">Project</Th>
+                  <Th align="right">Báo cáo</Th>
                   <Th align="right">Thao tác</Th>
                 </Tr>
               </THead>
@@ -160,8 +160,8 @@ export default function WorkspacesPage(): React.ReactElement {
                       </Badge>
                     </Td>
                     <Td align="right">
-                      {workspace.projectCount > 0 ? (
-                        <Badge tone="brand">{workspace.projectCount}</Badge>
+                      {workspace.reportCount > 0 ? (
+                        <Badge tone="brand">{workspace.reportCount}</Badge>
                       ) : (
                         <span className="text-slate-400">0</span>
                       )}
@@ -229,9 +229,9 @@ export default function WorkspacesPage(): React.ReactElement {
             remove.mutate(deleteTarget.id, { onSuccess: () => setDeleteTarget(null), onError });
           }}
         >
-          {(deleteTarget?.projectCount ?? 0) > 0 ? (
+          {(deleteTarget?.reportCount ?? 0) > 0 ? (
             <>
-              Workspace này còn <strong>{deleteTarget?.projectCount} project</strong>. Xoá workspace
+              Workspace này còn <strong>{deleteTarget?.reportCount} báo cáo</strong>. Xoá workspace
               sẽ khiến chúng không truy cập được nữa.
             </>
           ) : (

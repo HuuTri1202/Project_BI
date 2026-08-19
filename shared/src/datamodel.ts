@@ -61,6 +61,40 @@ export const MEASURE_AGG_LABELS: Record<MeasureAgg, string> = {
 };
 
 /**
+ * Phép nối hai thước đo trong một thước đo TÍNH TOÁN — §10.6.
+ *
+ * ─── Vì sao là bốn phép chọn sẵn, không phải một ô nhập công thức ───────────
+ *
+ * Cả §9 lẫn §10 dựng trên một nguyên tắc: KHÔNG một ký tự nào của người dùng đi
+ * vào câu lệnh SQL. Tên bảng sinh từ hai số nguyên, tên cột qua `quoteIdent`,
+ * Explorer chỉ nhận ID. Một ô nhập công thức tự do phá đúng nguyên tắc đó, và
+ * phá ở chỗ khó vá nhất — biểu thức người dùng gõ phải đi thẳng vào `sql:` của
+ * file cube.
+ *
+ * Bốn phép và hai toán hạng là ID thì công thức dựng hoàn toàn từ dữ liệu của
+ * ta. Cái giá: không viết được `CASE WHEN`. Cái được: không có đường nào để một
+ * chuỗi lạ chạm tới kho.
+ */
+export const MEASURE_OPS = ['add', 'sub', 'mul', 'div'] as const;
+export type MeasureOp = (typeof MEASURE_OPS)[number];
+
+export const MEASURE_OP_LABELS: Record<MeasureOp, string> = {
+  add: '+',
+  sub: '−',
+  mul: '×',
+  div: '÷',
+};
+
+/** Cách ĐỌC con số, không đổi con số. `percent` hiển thị 0,283 thành 28,3 %. */
+export const MEASURE_FORMATS = ['number', 'percent'] as const;
+export type MeasureFormat = (typeof MEASURE_FORMATS)[number];
+
+export const MEASURE_FORMAT_LABELS: Record<MeasureFormat, string> = {
+  number: 'Số thường',
+  percent: 'Phần trăm',
+};
+
+/**
  * Hướng của một quan hệ — quyết định Cube sinh JOIN kiểu gì.
  *
  * CỐ Ý không có `many_to_many`: Cube cần một bảng trung gian cho quan hệ đó, và
@@ -110,7 +144,26 @@ export interface DataModelDatasetDto {
   /** Id của DÒNG NỐI, không phải id bộ dữ liệu. Mọi thứ khác trỏ vào cái này. */
   id: number;
   datasetId: number;
+  /** Tên của BỘ DỮ LIỆU, dùng chung cho mọi mô hình. */
   datasetName: string;
+  /**
+   * Tên hiển thị RIÊNG trong mô hình này.
+   *
+   * Tách khỏi `datasetName` vì cùng một bộ dữ liệu có thể đóng hai vai khác nhau
+   * ở hai mô hình, và đổi tên ở đây không được đụng tới tên trong Kho dữ liệu.
+   */
+  displayName: string | null;
+  description: string | null;
+  /**
+   * Khoá chính NGHIỆP VỤ — cột mà các bảng khác nối tới.
+   *
+   * ⚠️ KHÔNG phải `primary_key` mà Cube dùng. Cube nhận `_row_index` (§9), vốn
+   * chắc chắn duy nhất, để đếm đúng qua JOIN. Cột khai ở đây chỉ nói "muốn nối
+   * tới bảng này thì nối vào cột này" — giao diện dùng nó để điền sẵn form quan
+   * hệ. Tách hai vai để một lựa chọn sai của người dùng không làm hỏng số liệu.
+   */
+  primaryColumnId: number | null;
+  primaryColumnName: string | null;
   /** Bảng trong ClickHouse — hiện ra để người dùng đối chiếu được. */
   chTable: string;
   canvasX: number;
@@ -130,6 +183,23 @@ export interface DataModelMeasureDto {
   /** `null` KHI VÀ CHỈ KHI `agg === 'count'` — đếm dòng không đo cột nào. */
   columnId: number | null;
   columnName: string | null;
+  /**
+   * `column` = gộp một cột (`sum(Sales)`). `formula` = ghép hai thước đo khác.
+   *
+   * Một trường thay vì đoán qua `formula !== null`: mã đọc dữ liệu này nằm ở
+   * bốn chỗ, và "suy ra kiểu từ việc một trường có null hay không" là thứ sẽ
+   * lệch nhau ngay khi thêm kiểu thứ ba.
+   */
+  kind: 'column' | 'formula';
+  format: MeasureFormat;
+  /** Chỉ có khi `kind === 'formula'`. Tên hai vế kèm sẵn để khỏi tra lại. */
+  formula: {
+    leftId: number;
+    leftName: string;
+    op: MeasureOp;
+    rightId: number;
+    rightName: string;
+  } | null;
   createdAt: string;
 }
 
@@ -162,6 +232,33 @@ export interface DataModelRelationshipDto {
  * Cảnh báo chứ KHÔNG chặn: nối qua bảng cầu nối là trường hợp hợp lệ và cũng
  * cho ra khoá trùng.
  */
+/**
+ * Cảnh báo phát ra khi ĐẶT khoá chính cho một bảng — §10.3.
+ *
+ * Cùng họ với `RelationshipWarningDto` nhưng xuất hiện sớm hơn một bước: khoá
+ * chính sai làm mọi quan hệ nối vào nó nhân bản dòng, và hậu quả là những con số
+ * lớn hơn sự thật mà không có lỗi nào báo ra.
+ */
+export interface PrimaryKeyWarningDto {
+  /** Tên cột vừa khai. Cảnh báo phải nói RÕ nó là cột nào, không bắt đi tra lại. */
+  columnName: string;
+  /** Cột có giá trị TRÙNG — nó không phải khoá, dù người dùng vừa khai là khoá. */
+  duplicateValues: boolean;
+  /**
+   * Số giá trị KHÁC NHAU.
+   *
+   * Đi kèm `rowCount` và `nullValues` là ra được số dòng dôi ra — thứ quyết định
+   * MỨC ĐỘ nghiêm trọng. Một bảng 1.173 dòng dôi 1 dòng là dữ liệu nguồn có lỗi
+   * nhỏ, sửa được; 51.290 dòng chỉ có 25.035 giá trị nghĩa là cột đó vốn dĩ
+   * không phải khoá và phải chọn cột khác. Chỉ đưa `rowCount` thì hai ca đó đọc
+   * lên giống hệt nhau.
+   */
+  distinctValues: number;
+  /** Số dòng mang giá trị trống; chúng rơi khỏi kết quả khi nối. */
+  nullValues: number;
+  rowCount: number;
+}
+
 export interface RelationshipWarningDto {
   /** Khoá bên "một" có giá trị trùng — tổng sau khi nối có thể bị nhân lên. */
   duplicateKeys: boolean;
@@ -245,8 +342,31 @@ export interface ExplorerQueryDto {
 }
 
 /** Kết quả đã dịch ngược về id — Explorer không cần biết Cube gọi chúng là gì. */
+/**
+ * Câu lệnh Cube sinh ra cho một truy vấn — §10.7.
+ *
+ * Tồn tại để tầng ngữ nghĩa thôi là hộp đen: người dùng chọn hai trường và nhận
+ * một con số, còn phép nối nào tạo ra con số đó thì không nhìn thấy. Khi số
+ * trông sai, đây là bằng chứng phân biệt "mô hình khai sai" với "dữ liệu vốn
+ * thế" — thứ mà không cảnh báo nào thay được.
+ */
+export interface ExplorerSqlDto {
+  /** SQL gửi xuống ClickHouse. Tham số còn ở dạng `?`. */
+  sql: string;
+  /** Giá trị thay vào các dấu `?`, theo thứ tự. */
+  params: (string | number)[];
+  /** Truy vấn Cube (JSON) — tầng trung gian giữa lựa chọn và SQL. */
+  cubeQuery: string;
+}
+
 export interface ExplorerResultDto {
-  columns: { id: number; label: string; kind: 'dimension' | 'measure' }[];
+  columns: {
+    id: number;
+    label: string;
+    kind: 'dimension' | 'measure';
+    /** Chỉ có ở thước đo — quyết định cách ĐỌC con số, không đổi con số. */
+    format?: MeasureFormat;
+  }[];
   rows: (string | number | null)[][];
   /** Đã chạm trần số dòng: còn dữ liệu mà truy vấn không lấy hết. */
   truncated: boolean;
@@ -255,7 +375,21 @@ export interface ExplorerResultDto {
 // ─── Đầu vào ─────────────────────────────────────────────────────────────────
 
 export interface CreateDataModelInput {
-  workspaceId?: number;
+  /**
+   * BẮT BUỘC, dù zod phía backend vẫn nhận thiếu.
+   *
+   * Mỗi workspace có nội dung riêng, nên mô hình phải nằm đúng workspace người
+   * dùng đang đứng. Backend có nhánh dự phòng `resolveWorkspace(undefined)`
+   * nhưng nhánh đó chọn workspace ĐẦU TIÊN THEO TÊN (`ORDER BY w.name ASC`) —
+   * không liên quan gì tới nơi người dùng đang làm việc.
+   *
+   * Hậu quả của một lần quên: mô hình rơi vào workspace khác và biến mất khỏi
+   * danh sách ngay sau khi tạo. Tổ chức một workspace thì hai thứ đó tình cờ
+   * trùng nhau nên lỗi không lộ ra cho tới khi có workspace thứ hai.
+   *
+   * Bắt buộc ở đây là để TRÌNH BIÊN DỊCH chặn, thay vì trông vào việc nhớ.
+   */
+  workspaceId: number;
   name: string;
   description?: string;
   /** Chỉ nhận bộ dữ liệu đã `loadStatus === 'loaded'` — chưa nạp thì chưa có bảng. */
@@ -263,7 +397,27 @@ export interface CreateDataModelInput {
 }
 
 export interface SaveSchemaInput {
-  columns: { columnId: number; alias: string | null; role: ColumnRole }[];
+  columns: {
+    columnId: number;
+    alias: string | null;
+    role: ColumnRole;
+    /**
+     * Phép gộp của thước đo dựng trên cột này.
+     *
+     * `null` = không có thước đo nào cho cột này. `undefined` = không đụng tới.
+     * Ba trạng thái chứ không hai, vì "bỏ thước đo đi" và "để nguyên" là hai ý
+     * định khác nhau và cả hai đều phải nói được.
+     */
+    measureAgg?: MeasureAgg | null;
+  }[];
+}
+
+export interface CreateFormulaMeasureInput {
+  name: string;
+  leftId: number;
+  op: MeasureOp;
+  rightId: number;
+  format: MeasureFormat;
 }
 
 export interface CreateRelationshipInput {
@@ -306,6 +460,10 @@ export const DATAMODEL_ERROR_CODES = {
   SCHEMA_INVALID: 'DataModelSchemaInvalid',
   /** Không ghi được file cube schema. Sai `CUBE_SCHEMA_DIR` hoặc thiếu quyền ghi. */
   SCHEMA_UNWRITABLE: 'DataModelSchemaUnwritable',
+  /** Thước đo đang là một vế của thước đo tính toán khác — xoá sẽ làm gãy công thức. */
+  MEASURE_IN_USE: 'MeasureInUse',
+  /** Hai vế của công thức thuộc hai bảng khác nhau; ghép chéo bảng cho ra tỉ lệ sai. */
+  MEASURE_CROSS_DATASET: 'MeasureCrossDataset',
 } as const;
 
 export type DataModelErrorCode =

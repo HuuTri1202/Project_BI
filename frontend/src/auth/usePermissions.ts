@@ -68,7 +68,7 @@ export type Permissions = Record<PermissionFlag, boolean> & {
   manageConnections: boolean;
   /** §8.5 — mở được Kho dữ liệu. Mọi vai trò đều có. */
   readDatasets: boolean;
-  /** Tạo và sửa project, báo cáo, biểu đồ. */
+  /** Tạo và sửa báo cáo, biểu đồ. */
   editContent: boolean;
   /** Console vận hành hệ thống — trục NỀN TẢNG, không phải trục tổ chức. */
   adminConsole: boolean;
@@ -102,7 +102,7 @@ export function usePermissions(): Permissions {
       manageTenant: can(matrix, 'tenant', 'modify'),
       manageConnections: can(matrix, 'connection', 'modify'),
       readDatasets: can(matrix, 'dataset', 'read'),
-      editContent: can(matrix, 'project', 'modify'),
+      editContent: can(matrix, 'report', 'modify'),
       // KHÔNG lấy từ ma trận: đây là trục `users.role`, hoàn toàn tách khỏi
       // policy theo tổ chức. Trộn vào cùng một object phẳng sẽ khiến người viết
       // tưởng chúng cùng loại — đúng cái lẫn lộn đã sinh ra lỗi ở

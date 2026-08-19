@@ -3,6 +3,8 @@ import {
   type ExplorerFieldsDto,
   type ExplorerQueryDto,
   type ExplorerResultDto,
+  type ExplorerSqlDto,
+  type MeasureFormat,
 } from '@bi/shared';
 
 import { mysqlPool } from '../../config/mysql';
@@ -10,7 +12,7 @@ import * as datamodelsRepo from '../../repositories/datamodels';
 import { HttpError, notFound } from '../../utils/httpError';
 import { cubeTypeOf } from './classifyColumn';
 import { cubeNameFor, dimensionNameFor, measureNameFor } from './cubeName';
-import { loadFromCube, type CubeQuery } from './cubeClient';
+import { loadFromCube, sqlFromCube, type CubeQuery } from './cubeClient';
 
 /**
  * Explorer — §10.7.
@@ -33,7 +35,7 @@ import { loadFromCube, type CubeQuery } from './cubeClient';
 interface ModelIndex {
   /** id dòng `datamodel_columns` -> mọi thứ cần để dựng tên và nhãn. */
   columns: Map<number, { cubeName: string; label: string; chType: string; datasetName: string }>;
-  measures: Map<number, { cubeName: string; label: string; datasetName: string }>;
+  measures: Map<number, { cubeName: string; label: string; datasetName: string; format: MeasureFormat }>;
 }
 
 /**
@@ -85,6 +87,7 @@ async function indexModel(tenantId: number, dataModelId: number): Promise<ModelI
       cubeName: cube.cubeName,
       label: m.name,
       datasetName: cube.datasetName,
+      format: m.format,
     });
   }
 
@@ -128,14 +131,21 @@ function unknownField(): HttpError {
   );
 }
 
-export async function runExplorerQuery(
-  tenantId: number,
-  userId: number,
-  dataModelId: number,
+/**
+ * Dịch lựa chọn của người dùng thành một truy vấn Cube.
+ *
+ * Tách ra để CHẠY và XEM CÂU LỆNH đi qua đúng một đường: nếu hai nơi tự dựng
+ * truy vấn riêng thì SQL hiện cho người dùng xem sẽ dần khác SQL thật sự chạy,
+ * và một màn "xem câu lệnh" nói sai còn tệ hơn không có.
+ *
+ * ⚠️ Trình duyệt chỉ gửi ID. Tên cube dựng ở ĐÂY, từ `index` vốn đã lọc theo tổ
+ * chức — nên một ID bịa ra không trỏ được sang mô hình của người khác, nó chỉ
+ * rơi vào `unknownField()`.
+ */
+function buildQuery(
+  index: ModelIndex,
   input: ExplorerQueryDto,
-): Promise<ExplorerResultDto> {
-  const index = await indexModel(tenantId, dataModelId);
-
+): { query: CubeQuery; columns: ExplorerResultDto['columns']; keys: string[]; limit: number } {
   const columns: ExplorerResultDto['columns'] = [];
   const keys: string[] = [];
 
@@ -152,7 +162,10 @@ export async function runExplorerQuery(
     const found = index.measures.get(id);
     if (found === undefined) throw unknownField();
     const key = `${found.cubeName}.${measureNameFor(id)}`;
-    columns.push({ id, label: found.label, kind: 'measure' });
+    // `format` đi kèm KẾT QUẢ chứ không chỉ nằm ở bộ chọn: bảng kết quả là
+    // nơi con số 0,283 phải đọc thành 28,3 %, và nó không tra lại danh sách
+    // trường để biết điều đó.
+    columns.push({ id, label: found.label, kind: 'measure', format: found.format });
     keys.push(key);
     return key;
   });
@@ -179,6 +192,18 @@ export async function runExplorerQuery(
   const limit = input.limit ?? 500;
   query.limit = limit;
 
+  return { query, columns, keys, limit };
+}
+
+export async function runExplorerQuery(
+  tenantId: number,
+  userId: number,
+  dataModelId: number,
+  input: ExplorerQueryDto,
+): Promise<ExplorerResultDto> {
+  const index = await indexModel(tenantId, dataModelId);
+  const { query, columns, keys, limit } = buildQuery(index, input);
+
   const schemaVersion = await datamodelsRepo.schemaVersion(mysqlPool, tenantId);
   const result = await loadFromCube(
     { tenantId, userId, dataModelId, schemaVersion },
@@ -195,6 +220,26 @@ export async function runExplorerQuery(
     // tại ở §7.
     truncated: rows.length >= limit,
   };
+}
+
+/**
+ * Câu SQL Cube sẽ chạy cho đúng lựa chọn này — §10.7.
+ *
+ * Dùng CHUNG `buildQuery` với `runExplorerQuery`, nên câu hiện ra là câu thật.
+ */
+export async function explainExplorerQuery(
+  tenantId: number,
+  userId: number,
+  dataModelId: number,
+  input: ExplorerQueryDto,
+): Promise<ExplorerSqlDto> {
+  const index = await indexModel(tenantId, dataModelId);
+  const { query } = buildQuery(index, input);
+
+  const schemaVersion = await datamodelsRepo.schemaVersion(mysqlPool, tenantId);
+  const { sql, params } = await sqlFromCube({ tenantId, userId, dataModelId, schemaVersion }, query);
+
+  return { sql, params, cubeQuery: JSON.stringify(query, null, 2) };
 }
 
 /** Cube trả JSON sẵn; chỉ còn hạ những kiểu không mang qua được. */

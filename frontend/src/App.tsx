@@ -16,8 +16,8 @@ import UsersPage from './pages/admin/UsersPage';
 import WorkspacesPage from './pages/admin/WorkspacesPage';
 import ConnectionFormPage from './pages/tenant/ConnectionFormPage';
 import DataModelPage from './pages/tenant/DataModelPage';
+import DataModelsPage from './pages/tenant/DataModelsPage';
 import ExplorerTab from './pages/tenant/datamodel/ExplorerTab';
-import MeasuresTab from './pages/tenant/datamodel/MeasuresTab';
 import RelationshipTab from './pages/tenant/datamodel/RelationshipTab';
 import SchemasTab from './pages/tenant/datamodel/SchemasTab';
 import ConnectionsPage from './pages/tenant/ConnectionsPage';
@@ -57,22 +57,6 @@ import { WorkspaceProvider } from './workspace/WorkspaceProvider';
  * vite.config.ts proxy `/health` thẳng sang Express nên đường dẫn đó không bao
  * giờ tới được SPA.
  */
-/**
- * Bốn tab thật của trang Mô hình dữ liệu (§10).
- *
- * Trả về một MẢNG `<Route>` để khai đúng một lần rồi dùng cho cả hai nhánh
- * `/datamodels` và `/datamodels/:id`. Chép tay hai lần là hai chỗ để quên khi
- * thêm tab thứ năm.
- */
-function dataModelTabs(): React.ReactElement[] {
-  return [
-    <Route key="schemas" index element={<SchemasTab />} />,
-    <Route key="relationship" path="relationship" element={<RelationshipTab />} />,
-    <Route key="measures" path="measures" element={<MeasuresTab />} />,
-    <Route key="explorer" path="explorer" element={<ExplorerTab />} />,
-  ];
-}
-
 export default function App(): React.ReactElement {
   return (
     <Routes>
@@ -130,19 +114,19 @@ export default function App(): React.ReactElement {
               Tab là ROUTE THẬT — xem `DataModelPage`. Năm tab chưa xây KHÔNG có
               route: chúng render `<span aria-disabled>` chứ không phải
               `NavLink`, nên không có đường nào bấm vào rồi rơi vào 404. */}
-          {/* Hai nhánh cùng một component: `/datamodels` mở mô hình cập nhật
-              gần nhất, `/datamodels/:id` mở đúng một mô hình để chia sẻ link
-              được. KHÔNG có trang danh sách chắn phía trước — §10.1 mô tả trang
-              DataModel đã có sẵn breadcrumb, hai nút và thanh tab, tức là mở ra
-              là đã ở trong một mô hình. Đổi mô hình bằng ô chọn trên breadcrumb. */}
-          <Route path="/datamodels" element={<DataModelPage />}>
-            {dataModelTabs()}
-          </Route>
+          {/* Danh sách rồi mới tới chi tiết — cùng hình dạng với `/datasets`.
+              Trước đây `/datamodels` mở thẳng mô hình cập nhật gần nhất và
+              KHÔNG có trang danh sách; xem chú thích ở `DataModelsPage` để biết
+              vì sao quyết định đó bị đảo. */}
+          <Route path="/datamodels" element={<DataModelsPage />} />
           <Route path="/datamodels/:id" element={<DataModelPage />}>
-            {dataModelTabs()}
+            <Route index element={<SchemasTab />} />
+            <Route path="relationship" element={<RelationshipTab />} />
+            <Route path="explorer" element={<ExplorerTab />} />
           </Route>
 
           <Route path="/reports/:id" element={<ReportPage />} />
+
 
           {/* ─── Quản lý tổ chức: một trang, ba tab ─────────────────────────
               Tab là ROUTE THẬT chứ không phải state — xem `OrganizationPage`.

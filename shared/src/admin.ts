@@ -131,8 +131,13 @@ export interface AdminWorkspaceDto {
    * lỗi ở chỗ không có lỗi.
    */
   isActive: boolean;
-  /** Số project còn sống trong workspace. Dùng để cảnh báo trước khi xoá. */
-  projectCount: number;
+  /**
+   * Số báo cáo còn sống trong workspace. Dùng để cảnh báo trước khi xoá.
+   *
+   * Thay chỗ `projectCount` từ khi bỏ project: cảnh báo này tồn tại để người ta
+   * không xoá nhầm một workspace còn NỘI DUNG, và nội dung giờ là báo cáo.
+   */
+  reportCount: number;
   createdAt: string;
 }
 
@@ -196,7 +201,7 @@ export const ADMIN_ERROR_CODES = {
   SHARED_IDENTITY: 'SharedIdentity',
   /** Mục tiêu là quản trị viên HỆ THỐNG — nằm ngoài thẩm quyền của admin tổ chức. */
   PLATFORM_ADMIN_PROTECTED: 'PlatformAdminProtected',
-  /** Workspace còn project đang hoạt động. */
+  /** Workspace còn nội dung (báo cáo) bên trong. */
   WORKSPACE_NOT_EMPTY: 'WorkspaceNotEmpty',
   /** Đã thử hết hậu tố mà vẫn trùng slug. */
   WORKSPACE_SLUG_EXHAUSTED: 'WorkspaceSlugExhausted',

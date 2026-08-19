@@ -8,7 +8,7 @@ interface PaginationProps {
   onPageChange: (page: number) => void;
   /**
    * Bật ô chọn số dòng mỗi trang. Bỏ trống thì không hiện — danh sách vài chục
-   * dòng (thành viên, project) không cần, còn bảng dữ liệu hàng vạn dòng thì có.
+   * dòng (thành viên, báo cáo) không cần, còn bảng dữ liệu hàng vạn dòng thì có.
    */
   pageSizeOptions?: readonly number[];
   onPageSizeChange?: (pageSize: number) => void;

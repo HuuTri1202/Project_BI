@@ -1142,4 +1142,442 @@ export const migrations: readonly Migration[] = [
          ('p', 'creator', '*', 'datamodel', 'delete')`,
     ],
   },
+  {
+    id: 11,
+    name: 'workspace_scoped_datasets',
+    statements: [
+      // ═══ Kho dữ liệu về đúng phạm vi workspace ═══════════════════════════
+      //
+      // Mỗi workspace quản lý nội dung RIÊNG. Project, report và mô hình dữ
+      // liệu đã theo luật đó từ đầu (`workspace_id NOT NULL`); riêng `datasets`
+      // thì không, và nó là chỗ duy nhất còn lệch.
+      //
+      // Lệch ở hai mức:
+      //
+      //   1. Cột cho phép NULL, và `syncDatasets` CỐ Ý ghi NULL cho mọi bảng
+      //      đồng bộ từ kết nối — lý lẽ cũ là "kết nối là tài sản chung của tổ
+      //      chức nên bảng lấy từ nó cũng vậy". Hệ quả người dùng nhìn thấy:
+      //      bảng đồng bộ ở workspace A hiện luôn trong workspace B.
+      //   2. `uq_datasets_source` chỉ gồm (tenant, connection, schema, table),
+      //      nên một bảng nguồn chỉ tồn tại được ở ĐÚNG MỘT workspace trong cả
+      //      tổ chức. Hai nhóm làm việc trên cùng một bảng `orders` sẽ giành
+      //      nhau một dòng duy nhất.
+      //
+      // Ba câu dưới đây sửa cả hai, THEO ĐÚNG THỨ TỰ NÀY: điền chỗ trống trước,
+      // rồi mới cấm để trống, rồi mới đổi khoá.
+
+      // Điền workspace cho những dòng đang trống — workspace CŨ NHẤT của tổ
+      // chức, tức là cái được tạo lúc đăng ký. Không có bước này thì lệnh
+      // NOT NULL bên dưới sẽ hỏng, và tệ hơn: bật lọc theo workspace lên là
+      // mọi bảng đồng bộ biến mất khỏi mọi workspace cùng lúc.
+      `UPDATE datasets d
+          JOIN (
+            SELECT tenant_id, MIN(id) AS ws_id
+              FROM workspaces WHERE deleted_at IS NULL GROUP BY tenant_id
+          ) w ON w.tenant_id = d.tenant_id
+          SET d.workspace_id = w.ws_id
+        WHERE d.workspace_id IS NULL`,
+
+      // Giờ mới cấm để trống. Đây là thứ khiến "mỗi workspace một kho" là ràng
+      // buộc của DATABASE chứ không phải một quy ước mà code phải nhớ.
+      `ALTER TABLE datasets MODIFY COLUMN workspace_id BIGINT UNSIGNED NOT NULL`,
+
+      // ⚠️ PHẢI cấp chỉ mục riêng cho khoá ngoại TRƯỚC khi đụng tới khoá duy
+      // nhất. `fk_datasets_connection (tenant_id, connection_id)` không có chỉ
+      // mục của riêng nó — nó đang mượn tiền tố của `uq_datasets_source`, và
+      // MySQL từ chối bỏ một chỉ mục mà khoá ngoại đang dựa vào:
+      //
+      //     ER_DROP_INDEX_FK: Cannot drop index 'uq_datasets_source':
+      //     needed in a foreign key constraint
+      //
+      // Chỉ mục này phải ở LẠI vĩnh viễn: khoá duy nhất mới xen `workspace_id`
+      // vào giữa nên `(tenant_id, connection_id)` không còn là tiền tố của nó.
+      `ALTER TABLE datasets ADD KEY idx_datasets_connection (tenant_id, connection_id)`,
+
+      // Khoá duy nhất phải mang `workspace_id`, nếu không hai workspace không
+      // cùng đồng bộ được một bảng nguồn.
+      //
+      // Thứ tự DROP rồi ADD trong CÙNG một câu là cố ý: tách thành hai câu thì
+      // giữa chúng có một khoảnh khắc không còn ràng buộc nào chặn trùng.
+      `ALTER TABLE datasets
+         DROP INDEX uq_datasets_source,
+         ADD UNIQUE KEY uq_datasets_source
+           (tenant_id, workspace_id, connection_id, source_schema, source_table)`,
+    ],
+  },
+  {
+    id: 12,
+    name: 'schema_primary_key',
+    statements: [
+      // ═══ Quản lý schema trong mô hình ════════════════════════════════════
+      //
+      // Ba trường cho một BẢNG trong mô hình, bổ sung cho phần cột đã có:
+      //
+      //   display_name       tên hiển thị. `datasets.name` là tên của bộ dữ
+      //                      liệu và nó dùng chung cho mọi mô hình; đổi tên ở
+      //                      đây phải chỉ ảnh hưởng mô hình này.
+      //   description        mô tả nghiệp vụ do người dựng mô hình viết.
+      //   primary_column_id  KHOÁ CHÍNH NGHIỆP VỤ.
+      //
+      // ⚠️ `primary_column_id` KHÔNG phải khoá chính mà Cube dùng.
+      //
+      // Cube cần một `primary_key` chắc chắn duy nhất để đếm đúng qua JOIN, và
+      // vai đó do `_row_index` (§9) đảm nhiệm — nó luôn duy nhất, kể cả khi bảng
+      // nguồn là một view không có khoá tự nhiên. Cột khai ở đây là khoá theo
+      // NGHĨA NGHIỆP VỤ: nó nói "muốn nối tới bảng này thì nối vào cột này", và
+      // giao diện dùng nó để điền sẵn ô chọn ở tab Quan hệ.
+      //
+      // Tách hai vai là có chủ đích: người dùng hoàn toàn có thể chọn nhầm một
+      // cột có giá trị trùng, và nếu cột đó đi thẳng vào `primary_key` của Cube
+      // thì mọi phép tổng sau JOIN sẽ sai mà không có lỗi nào. Hệ thống cảnh báo
+      // khi phát hiện trùng, nhưng không để một lựa chọn sai làm hỏng số liệu.
+      `ALTER TABLE datamodel_datasets
+         ADD COLUMN display_name VARCHAR(255) NULL AFTER dataset_id,
+         ADD COLUMN description VARCHAR(500) NULL AFTER display_name,
+         ADD COLUMN primary_column_id BIGINT UNSIGNED NULL AFTER description`,
+
+      // ⚠️ Khoá ngoại MỘT CỘT, lệch khỏi quy ước ghép (tenant_id, id) của repo.
+      //
+      // Không phải bỏ sót. `ON DELETE SET NULL` đòi MỌI cột trong khoá ngoại
+      // phải cho phép NULL, mà `tenant_id` thì `NOT NULL`:
+      //
+      //     ER_FK_COLUMN_NOT_NULL: Column 'tenant_id' cannot be NOT NULL:
+      //     needed in a foreign key constraint 'fk_dmd_primary_column' SET NULL
+      //
+      // Ba lựa chọn còn lại đều tệ hơn: `CASCADE` sẽ xoá cả BẢNG khỏi mô hình
+      // chỉ vì một cột biến mất; `RESTRICT` chặn luôn việc gỡ một bảng khỏi mô
+      // hình; bỏ hẳn khoá ngoại thì để lại id trỏ vào hư không.
+      //
+      // Cách ly tổ chức ở đây do TẦNG ỨNG DỤNG giữ, và nó chặt hơn một khoá
+      // ngoại: endpoint đặt khoá chính chỉ nhận cột tra được qua chính bảng
+      // trong chính mô hình đang mở (`findColumnInDataset`), nên một id của tổ
+      // chức khác không đi qua được. Khoá ngoại này chỉ còn nhiệm vụ dọn rác.
+      `ALTER TABLE datamodel_datasets
+         ADD CONSTRAINT fk_dmd_primary_column
+           FOREIGN KEY (primary_column_id)
+           REFERENCES datamodel_columns (id) ON DELETE SET NULL`,
+    ],
+  },
+  {
+    id: 13,
+    name: 'formula_measures',
+    statements: [
+      // ═══ Thước đo TÍNH TOÁN — §10.6 ═══════════════════════════════════════
+      //
+      // Trước mục này, một thước đo chỉ diễn đạt được "gộp MỘT cột":
+      // `sum(Sales)`, `avg(Discount)`. Những con số mà người dùng thật sự đi
+      // tìm lại là TỈ LỆ giữa hai thước đo:
+      //
+      //     Biên lợi nhuận      = sum(Profit) / sum(Sales)
+      //     Giá trung bình      = sum(Sales)  / sum(Quantity)
+      //
+      // Và chúng KHÔNG thay được bằng cách tính tay trên bảng kết quả:
+      // `sum(Profit)/sum(Sales)` phải tính SAU KHI GỘP NHÓM, bên trong SQL.
+      // Tính từng dòng rồi lấy trung bình cho ra một con số khác — và sai. Đó
+      // chính là lý do phép này thuộc về tầng ngữ nghĩa chứ không phải bảng tính.
+      //
+      // ─── Vì sao KHÔNG lưu một chuỗi biểu thức ─────────────────────────────
+      //
+      // Cách hiển nhiên là thêm một cột `expression VARCHAR` rồi cho người dùng
+      // gõ `sum(Profit) / sum(Sales)`. Nó phá nguyên tắc mà cả §9 lẫn §10 dựng
+      // lên: không một ký tự nào của người dùng đi vào câu lệnh SQL. Chuỗi đó
+      // sẽ phải đi thẳng vào `sql:` của file cube, và từ đó xuống ClickHouse.
+      //
+      // Ở đây công thức lưu dạng CÓ CẤU TRÚC — hai ID và một phép trong ENUM —
+      // nên câu lệnh sinh ra hoàn toàn từ dữ liệu của ta. Cái giá: không viết
+      // được `CASE WHEN`. Cái được: không có đường nào cho một chuỗi lạ.
+      //
+      // ─── Vì sao không có khoá ngoại cho hai vế ────────────────────────────
+      //
+      // `expr_left_id`/`expr_right_id` trỏ vào CHÍNH bảng này. Khoá ngoại tự
+      // trỏ kèm `ON DELETE CASCADE` trên cùng một bảng là thứ MySQL xử lý được
+      // nhưng thứ tự xoá không đảm bảo khi dòng cha bị xoá dây chuyền từ
+      // `datamodels`. Đổi lại, tầng ứng dụng kiểm chặt hơn một khoá ngoại: hai
+      // vế phải là thước đo CÒN SỐNG, thuộc CÙNG mô hình và CÙNG bảng — xem
+      // `createFormulaMeasure`. Và xoá một thước đo đang bị công thức khác dùng
+      // thì bị TỪ CHỐI, chứ không âm thầm để lại một công thức gãy.
+      `ALTER TABLE datamodel_measures
+         ADD COLUMN expr_kind ENUM('column','formula') NOT NULL DEFAULT 'column' AFTER agg,
+         ADD COLUMN expr_op ENUM('add','sub','mul','div') NULL AFTER expr_kind,
+         ADD COLUMN expr_left_id BIGINT UNSIGNED NULL AFTER expr_op,
+         ADD COLUMN expr_right_id BIGINT UNSIGNED NULL AFTER expr_left_id,
+         ADD COLUMN display_format ENUM('number','percent') NOT NULL DEFAULT 'number'
+           AFTER expr_right_id`,
+
+      // Tra ngược "thước đo này có ai dùng làm vế không" — chạy mỗi lần xoá một
+      // thước đo, nên không để nó quét cả bảng.
+      `ALTER TABLE datamodel_measures
+         ADD KEY idx_dmm_expr_left (datamodel_id, expr_left_id),
+         ADD KEY idx_dmm_expr_right (datamodel_id, expr_right_id)`,
+    ],
+  },
+  {
+    id: 14,
+    name: 'seed_row_count_measures',
+    statements: [
+      // ═══ Thước đo ĐẾM DÒNG cho các mô hình đã tạo trước ════════════════════
+      //
+      // Migration DỮ LIỆU, không đổi cấu trúc — hiếm trong repo này, nên phải
+      // nói rõ vì sao nó không thể là một đoạn mã chạy lúc khởi động.
+      //
+      // Từ nay `seedMeasures` gieo cho mỗi bảng một thước đo `count`, vì câu hỏi
+      // "mỗi vùng có bao nhiêu đơn" không gộp cột nào nên KHÔNG có đường nào tạo
+      // được nó từ giao diện: chỗ chọn phép gộp nằm trên dòng cột ở tab Schemas.
+      //
+      // Mô hình tạo trước bản này thì không có, và cũng không tự có: quyết định
+      // về ngữ nghĩa được LƯU chứ không tính lại mỗi lần đọc — đúng nguyên tắc
+      // khiến `dataset_columns` và `datamodel_columns` là hai bảng khác nhau.
+      // Nên hoặc vá một lần ở đây, hoặc bắt người dùng dựng lại mô hình.
+      //
+      // ─── Ba chỗ dễ sai, và cách né ────────────────────────────────────────
+      //
+      // 1. `UNIQUE (datamodel_id, name)` là phạm vi MÔ HÌNH, không phải bảng.
+      //    Mô hình bốn bảng cần bốn tên khác nhau, nên `ROW_NUMBER()` đánh số
+      //    trong từng `datamodel_id` — ra "Số dòng", "Số dòng (2)", … đúng quy
+      //    ước hậu tố mà `uniqueName` dùng.
+      //
+      // 2. Ràng buộc UNIQUE đó KHÔNG tính `deleted_at`. Nên câu `NOT EXISTS`
+      //    dưới đây cố ý không lọc `deleted_at`: một thước đo đã xoá mềm vẫn
+      //    giữ chỗ tên của nó, và bỏ qua điều đó là một lỗi trùng khoá.
+      //
+      // 3. Một mô hình có thể đã có sẵn thước đo tên "Số dòng" — cột tên như vậy
+      //    hoàn toàn có thật trong dữ liệu tiếng Việt. Khi đó bảng đó bị BỎ QUA
+      //    thay vì làm hỏng cả migration; người dùng đã có một thước đo tên đó
+      //    rồi, và mất một phép đếm còn hơn mất khả năng nâng cấp.
+      //
+      // `created_by` để NULL: không có người nào thực hiện việc này.
+      `INSERT INTO datamodel_measures
+         (tenant_id, datamodel_id, datamodel_dataset_id, datamodel_column_id, name, agg, created_by)
+       SELECT t.tenant_id, t.datamodel_id, t.id, NULL, t.candidate, 'count', NULL
+         FROM (
+           SELECT dd.tenant_id,
+                  dd.datamodel_id,
+                  dd.id,
+                  IF(ROW_NUMBER() OVER (PARTITION BY dd.datamodel_id ORDER BY dd.id) = 1,
+                     'Số dòng',
+                     CONCAT('Số dòng (',
+                            ROW_NUMBER() OVER (PARTITION BY dd.datamodel_id ORDER BY dd.id),
+                            ')')) AS candidate
+             FROM datamodel_datasets dd
+         ) AS t
+        WHERE NOT EXISTS (
+                SELECT 1 FROM datamodel_measures m
+                 WHERE m.datamodel_id = t.datamodel_id AND m.name = t.candidate
+              )`,
+    ],
+  },
+  {
+    id: 15,
+    name: 'reports_on_datamodel',
+    statements: [
+      // ═══ Báo cáo dựng trên MÔ HÌNH — §10.8 ════════════════════════════════
+      //
+      // Tới đây `reports.dataset_id` là NOT NULL, tức là mỗi báo cáo bám chặt
+      // vào MỘT bộ dữ liệu. Điều đó khoá báo cáo lại ở đúng những thứ một bảng
+      // đơn lẻ trả lời được: không phép nối, không thước đo tính toán, không
+      // ngữ nghĩa nào của §10.
+      //
+      // ─── Vì sao KHÔNG chuyển hết báo cáo sang mô hình ─────────────────────
+      //
+      // Cách gọn hơn là bắt mọi báo cáo đi qua một mô hình, rồi bỏ hẳn nhánh
+      // dataset. Nhưng một file vừa tải lên chưa thuộc mô hình nào, nên làm vậy
+      // là dựng một bức tường ngay trước biểu đồ đầu tiên của người dùng: tải
+      // file → tạo mô hình → khai quan hệ → mới được xem. Hai nhánh cùng tồn
+      // tại là có chủ đích.
+      //
+      // ─── Vì sao `dataset_id` thành NULL được, chứ không thêm bảng mới ─────
+      //
+      // Hai loại báo cáo giống nhau ở gần như mọi thứ — tên, workspace, loại
+      // biểu đồ, người tạo, xoá mềm, phân quyền. Tách bảng nghĩa là nhân đôi
+      // toàn bộ phần đó, và mọi chỗ liệt kê báo cáo phải UNION hai bảng rồi tự
+      // sắp xếp lại. Khác nhau chỉ ở hai cột và ở cách đọc `config`.
+      `ALTER TABLE reports
+         MODIFY COLUMN dataset_id BIGINT UNSIGNED NULL,
+         ADD COLUMN datamodel_id BIGINT UNSIGNED NULL AFTER dataset_id,
+         ADD KEY idx_reports_datamodel (datamodel_id)`,
+
+      // Khoá ngoại GHÉP theo đúng quy ước cách ly tổ chức của repo — khác khoá
+      // ngoại một cột của `dataset_id` (có từ §7, giữ nguyên để không phải viết
+      // lại một ràng buộc đang chạy tốt).
+      //
+      // `RESTRICT` chứ không `CASCADE`: xoá mô hình mà kéo theo báo cáo là xoá
+      // thứ người dùng không nhắc tới. Thực tế nó không bao giờ nổ, vì mô hình
+      // chỉ bị xoá MỀM — ràng buộc này là lưới an toàn cho đường xoá cứng.
+      `ALTER TABLE reports
+         ADD CONSTRAINT fk_reports_datamodel
+           FOREIGN KEY (tenant_id, datamodel_id)
+           REFERENCES datamodels (tenant_id, id) ON DELETE RESTRICT`,
+
+      // ⚠️ Ràng buộc QUAN TRỌNG NHẤT của migration này.
+      //
+      // Đúng một trong hai nguồn được đặt. Không có nó, hai trạng thái vô nghĩa
+      // lọt vào được: báo cáo không nguồn (trang xem không biết hỏi ai lấy số),
+      // và báo cáo hai nguồn (hai đường tổng hợp cho hai con số khác nhau, và
+      // thứ tự `if` trong code quyết định con số nào thắng — một cái bẫy im
+      // lặng đúng kiểu tệ nhất).
+      //
+      // Đặt ở DATABASE chứ không chỉ ở zod: `createReport` và
+      // `createModelReport` là hai hàm khác nhau, và ràng buộc "loại trừ nhau"
+      // nằm giữa chúng thì không hàm nào một mình giữ được.
+      `ALTER TABLE reports
+         ADD CONSTRAINT ck_reports_one_source
+           CHECK ((dataset_id IS NULL) <> (datamodel_id IS NULL))`,
+    ],
+  },
+  {
+    id: 16,
+    name: 'projects_hold_reports',
+    statements: [
+      // ═══ Project rốt cuộc CHỨA được thứ gì đó ═════════════════════════════
+      //
+      // Tới trước bản này, `projects` là một cái vỏ rỗng theo đúng nghĩa đen:
+      // có bảng, có bốn route CRUD, có ba quyền trong RBAC, có thẻ trên trang
+      // chủ — nhưng KHÔNG bảng nào trỏ vào nó. Màn hình trống thì viết "Project
+      // là nơi chứa dataset và báo cáo", một lời hứa hệ thống không giữ được.
+      //
+      // Lý do nó thành ra thế: `workspace_id` đã chiếm mất vai trò gom nhóm.
+      // Dataset, báo cáo, mô hình, kết nối đều gắn workspace, và bộ chuyển ở
+      // sidebar lọc theo workspace. Project ra đời ở §4 rồi §7–§10 dựng lên
+      // trên workspace và không cần tới nó.
+      //
+      // ─── Vì sao CHỈ báo cáo, không phải dataset và mô hình ────────────────
+      //
+      // Dataset và mô hình là NGUYÊN LIỆU dùng chung: một bảng Orders phục vụ
+      // mảng bán hàng lẫn mảng kho, và ép nó thuộc về một project là buộc người
+      // ta phải nhân đôi nó. Báo cáo thì ngược lại — nó là SẢN PHẨM của đúng
+      // một mảng công việc, và "mảng bán hàng có 5 báo cáo này" chính là câu
+      // người dùng muốn nói khi họ tạo một project.
+      //
+      // ⚠️ Khoá ngoại MỘT CỘT, lệch khỏi quy ước ghép (tenant_id, id) của repo —
+      // cùng lý do đã ghi ở `fk_dmd_primary_column` (migration 12):
+      //
+      //     ER_FK_COLUMN_NOT_NULL: Column 'tenant_id' cannot be NOT NULL:
+      //     needed in a foreign key constraint ... SET NULL
+      //
+      // `ON DELETE SET NULL` đòi mọi cột trong khoá ngoại phải NULL được, mà
+      // `reports.tenant_id` thì `NOT NULL`. Ba lựa chọn còn lại đều tệ hơn:
+      // `CASCADE` biến việc xoá một project thành xoá sạch báo cáo bên trong —
+      // đúng thứ người dùng KHÔNG lường được khi họ chỉ định dọn một thư mục;
+      // `RESTRICT` khoá cứng, không xoá được project cho tới khi dời từng báo
+      // cáo; bỏ hẳn khoá ngoại thì để lại id trỏ vào hư không.
+      //
+      // Cách ly tổ chức ở đây do TẦNG ỨNG DỤNG giữ, và nó chặt hơn: endpoint
+      // chỉ nhận project tra được trong chính tổ chức VÀ chính workspace của
+      // báo cáo. Khoá ngoại này chỉ còn nhiệm vụ dọn rác.
+      `ALTER TABLE reports
+         ADD COLUMN project_id BIGINT UNSIGNED NULL AFTER workspace_id,
+         ADD KEY idx_reports_project (project_id),
+         ADD CONSTRAINT fk_reports_project
+           FOREIGN KEY (project_id) REFERENCES projects (id) ON DELETE SET NULL`,
+
+      // ─── Dọn cột chết ────────────────────────────────────────────────────
+      //
+      // `datasets.project_id` được thêm ở migration 7 cùng lô với `s3_key`,
+      // `sheet_name`, `truncated` — rồi không ai quay lại. Nó KHÔNG có khoá
+      // ngoại, KHÔNG có chỉ mục, và không một dòng mã nào trong repo đọc hay
+      // ghi nó (kiểm bằng grep trên cả ba workspace: 0 kết quả).
+      //
+      // Xoá thay vì để lại: một cột không ràng buộc, không ai đọc, mang đúng
+      // cái tên của một quan hệ đang tồn tại ở chỗ khác là thứ lần sau sẽ có
+      // người tưởng là đang chạy — rồi ghi vào đó và không hiểu vì sao không có
+      // gì xảy ra. Quyết định "project chứa báo cáo, không chứa dataset" nằm
+      // ngay phía trên; cột này nói ngược lại.
+      `ALTER TABLE datasets DROP COLUMN project_id`,
+    ],
+  },
+  {
+    id: 17,
+    name: 'drop_projects',
+    statements: [
+      // ═══ Bỏ hẳn PROJECT khỏi hệ thống ═════════════════════════════════════
+      //
+      // Migration 16 vừa cho project chứa được báo cáo. Bản này gỡ cả tầng đó
+      // đi, và việc hai migration liền nhau đi ngược chiều nhau là có thật —
+      // ghi ra đây thay vì để người đọc sau tự đoán.
+      //
+      // Lý do: `workspace_id` đã làm đúng việc gom nhóm mà project sinh ra để
+      // làm. Dataset, mô hình, báo cáo, kết nối đều gắn workspace; bộ chuyển ở
+      // sidebar lọc theo workspace; phân quyền chạy theo workspace. Project
+      // thành tầng thứ hai không mang thêm thông tin nào, chỉ thêm một chỗ để
+      // người dùng phải quyết định.
+      //
+      // Hai tầng gom nhóm chỉ đáng giá khi tầng trong CẮT NGANG tầng ngoài theo
+      // một trục khác. Ở đây chúng cùng một trục, nên tầng trong chỉ là thư mục
+      // lồng thư mục.
+      //
+      // ⚠️ THỨ TỰ BẮT BUỘC: gỡ khoá ngoại trên `reports` TRƯỚC khi bỏ bảng.
+      // `DROP TABLE projects` khi còn `fk_reports_project` trỏ vào sẽ ném
+      // ER_ROW_IS_REFERENCED và migration dừng giữa chừng.
+      `ALTER TABLE reports
+         DROP FOREIGN KEY fk_reports_project`,
+      `ALTER TABLE reports
+         DROP KEY idx_reports_project,
+         DROP COLUMN project_id`,
+
+      // `DROP TABLE` chứ không xoá mềm: đây là bỏ một KHÁI NIỆM khỏi hệ thống,
+      // không phải xoá dữ liệu của một người dùng. Giữ lại bảng nghĩa là giữ
+      // một bảng không mã nào đọc — đúng thứ `datasets.project_id` vừa dạy ở
+      // migration 16, chỉ khác quy mô.
+      `DROP TABLE IF EXISTS projects`,
+    ],
+  },
+  {
+    id: 18,
+    name: 'drop_project_policy',
+    statements: [
+      // ═══ Gỡ nốt quyền `project` khỏi bảng policy ══════════════════════════
+      //
+      // Đáng lẽ nằm chung migration 17, nhưng 17 đã chạy trên máy dev trước khi
+      // thiếu sót này lộ ra. Sửa một migration ĐÃ ÁP DỤNG là cách để máy đã
+      // chạy và máy cài mới cho ra hai schema khác nhau mà không ai biết — luật
+      // ghi ở đầu file này. Nên nó thành một migration riêng.
+      //
+      // Vì sao quan trọng: `casbin_rule` là nơi engine phân quyền THẬT SỰ đọc.
+      // `DEFAULT_POLICY` trong `shared/src/rbac.ts` chỉ là bản chép tay dùng để
+      // gieo lúc khởi tạo. Bỏ tài nguyên `project` ở một bên mà quên bên kia thì
+      // database vẫn cấp `project:read/modify/delete` cho creator và viewer —
+      // vô hại hôm nay vì không còn endpoint nào nhận nó, nhưng đó là bốn dòng
+      // policy nói về một thứ không tồn tại.
+      //
+      // `v2` là cột TÀI NGUYÊN khi `ptype = 'p'`: thứ tự là (vai trò, tổ chức,
+      // tài nguyên, hành động). Nhắm nhầm cột sẽ xoá sạch policy của một vai trò.
+      `DELETE FROM casbin_rule WHERE ptype = 'p' AND v2 = 'project'`,
+    ],
+  },
+  {
+    id: 19,
+    name: 'datamodel_auto_batch_key',
+    statements: [
+      // ═══ Mô hình tự sinh gom theo LẦN TẢI, không theo từng bảng ═══════════
+      //
+      // Trước bản này `ensureAutoDataModel` chạy ở đuôi MỖI lần nạp, mà mỗi lần
+      // nạp là một bộ dữ liệu — nên một workbook ba sheet đẻ ra ba mô hình một
+      // bảng, rời nhau, không nối được gì. Đo trên dữ liệu thật của tổ chức 4:
+      // 15 mô hình tự sinh, KHÔNG cái nào quá một bảng, 12 cái bị xoá; song
+      // song đó người dùng tự dựng tay 9 mô hình nhiều bảng — tức là tính năng
+      // này chưa từng tạo ra thứ ai dùng được.
+      //
+      // Cột này làm ĐÚNG HAI việc, và đó là lý do nó là một cột chứ không phải
+      // hai:
+      //
+      //   1. Đánh dấu "do máy tạo". Trước đây điều đó được suy ra từ chuỗi
+      //      `description`, và cách đó hỏng ngay khi giao diện cho người dùng
+      //      sửa mô tả — một mô hình tự sinh bị đổi mô tả sẽ thành "của người
+      //      dùng" trong mắt máy, rồi lần nạp sau lại đẻ thêm một cái nữa.
+      //   2. Mang khoá gom nhóm, để bảng thứ hai của cùng một lần tải tìm được
+      //      mô hình mà bảng thứ nhất vừa tạo.
+      //
+      // Dạng khoá — cả hai đều dựng từ ID và tên do HỆ THỐNG giữ:
+      //   file  ->  `file:<s3_key>`            (ba sheet chung một object MinIO)
+      //   CSDL  ->  `conn:<connectionId>:<schema>`
+      //
+      // KHÔNG đặt UNIQUE. Xoá mềm vẫn giữ nguyên khoá, nên một ràng buộc duy
+      // nhất sẽ chặn vĩnh viễn việc dựng lại mô hình cho đúng cái schema mà
+      // người dùng vừa xoá — biến một thao tác xoá bình thường thành cụt đường.
+      // Việc tìm luôn lọc `deleted_at IS NULL`, đó mới là chỗ đảm bảo.
+      `ALTER TABLE datamodels
+         ADD COLUMN auto_batch_key VARCHAR(255) NULL AFTER description,
+         ADD KEY idx_datamodels_auto_batch (tenant_id, workspace_id, auto_batch_key)`,
+    ],
+  },
 ];

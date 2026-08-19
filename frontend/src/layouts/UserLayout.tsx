@@ -121,7 +121,7 @@ function SidebarContent({
 
       {/* §5.1 — hai bộ chuyển đặt trên sidebar, ngay dưới tên sản phẩm.
           Thứ tự tổ chức trước, workspace sau là thứ tự bao hàm thật của dữ liệu
-          (tenant -> workspace -> project); đảo lại sẽ khiến người dùng đổi
+          (tenant -> workspace); đảo lại sẽ khiến người dùng đổi
           workspace rồi mới nhận ra mình đang ở sai tổ chức. */}
       <div className="shrink-0 border-y border-slate-800 py-2">
         <TenantSwitcher />
@@ -136,7 +136,7 @@ function SidebarContent({
             key={item.to}
             to={item.to}
             // `end` cho mục có đường dẫn là tiền tố của mục khác. Các mục con
-            // KHÔNG được `end`, để sau này có `/projects/:id` thì mục cha vẫn sáng.
+            // KHÔNG được `end`, để trang con của mục này vẫn làm mục cha sáng.
             end={item.exact === true}
             className={({ isActive }) =>
               `flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${

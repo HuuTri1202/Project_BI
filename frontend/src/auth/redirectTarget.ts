@@ -17,7 +17,7 @@ import type { PublicUser, TenantRole } from '../types/auth';
  * lý do:
  *
  *   - Superadmin cũng là một người dùng bình thường của tổ chức mình. Ném họ vào
- *     console vận hành ngay khi đăng nhập nghĩa là muốn xem workspace hay project
+ *     console vận hành ngay khi đăng nhập nghĩa là muốn xem workspace hay dữ liệu
  *     của chính mình thì phải tự gõ địa chỉ.
  *   - Console là nơi thao tác trên dữ liệu của MỌI tổ chức. Rơi thẳng vào đó mỗi
  *     lần đăng nhập biến nó thành mặc định, trong khi nó nên là một nơi người ta

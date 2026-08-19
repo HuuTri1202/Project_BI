@@ -1,6 +1,7 @@
 import {
   CHART_TYPE_LABELS,
   REPORT_ERROR_CODES,
+  REPORT_SOURCE_LABELS,
   type ChartType,
   type ReportDataDto,
 } from '@bi/shared';
@@ -106,7 +107,8 @@ export default function ReportPage(): React.ReactElement {
               ) : (
                 <Badge tone="neutral">{CHART_TYPE_LABELS[report.data.chartType]}</Badge>
               )}
-              <span>{report.data.datasetName}</span>
+              <Badge tone="neutral">{REPORT_SOURCE_LABELS[report.data.source]}</Badge>
+              <span>{report.data.sourceName}</span>
               <span>· {report.data.creatorName ?? 'Không rõ'}</span>
             </span>
           ) : undefined
@@ -124,7 +126,7 @@ export default function ReportPage(): React.ReactElement {
       <section className="rounded-xl border border-slate-200 bg-white p-5">
         {/* Báo cáo vừa được wizard tạo: chưa có biểu đồ, và đó là trạng thái
             bình thường. Nói rõ bước tiếp theo thay vì để một khung trống. */}
-        {notConfigured && <NotConfigured datasetName={report.data?.datasetName ?? ''} />}
+        {notConfigured && <NotConfigured sourceName={report.data?.sourceName ?? ''} />}
 
         {!notConfigured && data.isPending && <TableSkeleton rows={4} />}
 
@@ -158,10 +160,17 @@ export default function ReportPage(): React.ReactElement {
               className="w-full"
             />
             {data.data.grouped && (
-              // Người xem phải biết biểu đồ không hiện hết mọi nhóm, nếu không
-              // họ sẽ đọc "5 nhóm lớn nhất" thành "toàn bộ dữ liệu".
+              /* Người xem phải biết biểu đồ không hiện hết mọi nhóm, nếu không
+                 họ sẽ đọc "5 nhóm lớn nhất" thành "toàn bộ dữ liệu".
+
+                 Hai câu khác nhau, vì hai chuyện khác nhau: "Khác" chỉ tồn tại
+                 khi phép tính CỘNG ĐƯỢC. Với tỉ lệ hay trung bình thì phần vượt
+                 bị CẮT hẳn, và nói nó "được gộp vào Khác" là nói sai — người
+                 xem sẽ tin rằng tổng trên biểu đồ vẫn là tổng của tất cả. */
               <p className="mt-3 text-xs text-slate-500">
-                Chỉ hiện các nhóm lớn nhất; phần còn lại được gộp vào “Khác”.
+                {hasOther(data.data)
+                  ? 'Chỉ hiện các nhóm lớn nhất; phần còn lại được gộp vào “Khác”.'
+                  : 'Chỉ hiện các nhóm lớn nhất — phép tính này không cộng được nên phần còn lại bị bỏ khỏi biểu đồ.'}
               </p>
             )}
           </>
@@ -183,7 +192,7 @@ export default function ReportPage(): React.ReactElement {
                 <Tr key={row.label}>
                   <Td>{row.label}</Td>
                   <Td align="right">
-                    <span className="tabular-nums">{row.value.toLocaleString('vi-VN')}</span>
+                    <span className="tabular-nums">{formatValue(row.value, data.data?.format)}</span>
                   </Td>
                 </Tr>
               ))}
@@ -218,7 +227,29 @@ export default function ReportPage(): React.ReactElement {
  * Trình dựng biểu đồ (kéo thả) là phần việc sau; giấu điều đó đi thì người dùng
  * sẽ đi tìm một nút không tồn tại.
  */
-function NotConfigured({ datasetName }: { datasetName: string }): React.ReactElement {
+/** Có dòng "Khác" thật hay chỉ bị cắt bớt — xem ghi chú ở chỗ gọi. */
+function hasOther(data: ReportDataDto): boolean {
+  return data.rows.at(-1)?.label === 'Khác';
+}
+
+/**
+ * Con số trong bảng, đọc theo cách thước đo được khai.
+ *
+ * `'percent'` nhân 100 khi HIỂN THỊ, không đụng tới dữ liệu — cùng lập luận với
+ * trục của biểu đồ.
+ */
+function formatValue(value: number, format: ReportDataDto['format']): string {
+  if (format === 'percent') {
+    return `${(value * 100).toLocaleString('vi-VN', { maximumFractionDigits: 2 })} %`;
+  }
+  return value.toLocaleString('vi-VN');
+}
+
+/**
+ * Chỉ báo cáo dựng trên BỘ DỮ LIỆU mới đi qua trạng thái này — báo cáo trên mô
+ * hình ra đời là đã có biểu đồ (§10.8).
+ */
+function NotConfigured({ sourceName }: { sourceName: string }): React.ReactElement {
   return (
     <div className="py-10 text-center">
       <svg
@@ -235,7 +266,7 @@ function NotConfigured({ datasetName }: { datasetName: string }): React.ReactEle
       </svg>
       <p className="mt-3 text-sm font-medium text-slate-700">Báo cáo chưa có biểu đồ</p>
       <p className="mx-auto mt-1 max-w-md text-sm text-slate-500">
-        Bộ dữ liệu <span className="font-medium text-slate-700">{datasetName}</span> đã sẵn sàng
+        Bộ dữ liệu <span className="font-medium text-slate-700">{sourceName}</span> đã sẵn sàng
         nhưng chưa chọn cột để vẽ.
       </p>
     </div>
@@ -254,6 +285,15 @@ function NotConfigured({ datasetName }: { datasetName: string }): React.ReactEle
 function buildSpec(chartType: ChartType, data: ReportDataDto): TopLevelSpec {
   const brand = readBrandColor('--color-brand-600', '#4f46e5');
 
+  /*
+   * Thước đo tỉ lệ: kho lưu 0,283 và trục phải đọc thành 28,3 % (§10.6).
+   *
+   * Đặt ở ĐỊNH DẠNG chứ không nhân 100 vào dữ liệu: nhân vào dữ liệu thì tooltip,
+   * bảng số liệu bên dưới và câu SQL người dùng chép ra sẽ nói ba con số khác
+   * nhau cho cùng một ô.
+   */
+  const valueAxis = data.format === 'percent' ? { format: '.1%' } : {};
+
   const base = {
     $schema: 'https://vega.github.io/schema/vega-lite/v6.json',
     width: 'container',
@@ -270,7 +310,12 @@ function buildSpec(chartType: ChartType, data: ReportDataDto): TopLevelSpec {
       ...base,
       mark: { type: 'arc', innerRadius: 60, tooltip: true },
       encoding: {
-        theta: { field: 'value', type: 'quantitative', title: data.measureLabel },
+        theta: {
+          field: 'value',
+          type: 'quantitative',
+          title: data.measureLabel,
+          ...(data.format === 'percent' ? { format: '.1%' } : {}),
+        },
         color: {
           field: 'label',
           type: 'nominal',
@@ -301,7 +346,7 @@ function buildSpec(chartType: ChartType, data: ReportDataDto): TopLevelSpec {
         sort: null,
         axis: { labelAngle: -35, labelLimit: 120 },
       },
-      y: { field: 'value', type: 'quantitative', title: data.measureLabel },
+      y: { field: 'value', type: 'quantitative', title: data.measureLabel, axis: valueAxis },
     },
   } as TopLevelSpec;
 }

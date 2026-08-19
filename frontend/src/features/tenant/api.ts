@@ -15,7 +15,6 @@ import type {
   HomeDataDto,
   JobTitle,
   PageResult,
-  ProjectDto,
   ResetMemberPasswordResultDto,
   SourceTableDto,
   SyncResultDto,
@@ -164,8 +163,13 @@ export async function fetchSourceTables(id: number): Promise<SourceTableDto[]> {
 export async function syncTables(
   id: number,
   tables: { schema: string; table: string }[],
+  /** Workspace nhận những bảng này — mỗi workspace quản lý kho riêng. */
+  workspaceId: number,
 ): Promise<SyncResultDto> {
-  const { data } = await apiClient.post<SyncResultDto>(`/v1/connections/${id}/sync`, { tables });
+  const { data } = await apiClient.post<SyncResultDto>(`/v1/connections/${id}/sync`, {
+    tables,
+    workspaceId,
+  });
   return data;
 }
 
@@ -180,6 +184,13 @@ export interface DatasetListQuery {
   connectionId: number | '';
   /** `''` = cả hai nguồn. Xem `DATASET_SOURCE_LABELS`. */
   source: DatasetSource | '';
+  /**
+   * Workspace đang mở. `useDatasets` tự điền, nơi gọi không cần truyền.
+   *
+   * Bỏ trống thì backend trả về CẢ TỔ CHỨC — đúng cho công cụ nội bộ, sai cho
+   * màn hình người dùng, vì kho của mỗi workspace phải tách nhau.
+   */
+  workspaceId?: number;
 }
 
 export async function fetchDatasets(
@@ -311,48 +322,6 @@ export async function updateWorkspace(
 
 export async function deleteWorkspace(id: number): Promise<void> {
   await apiClient.delete(`/v1/workspaces/${id}`);
-}
-
-// ─── Project (§4.2) ──────────────────────────────────────────────────────────
-
-export interface ProjectListQuery {
-  workspaceId: number;
-  q: string;
-  sort: string;
-  order: 'asc' | 'desc';
-}
-
-export async function fetchProjects(query: ProjectListQuery): Promise<ProjectDto[]> {
-  const { data } = await apiClient.get<ProjectDto[]>('/v1/projects', { params: clean({ ...query }) });
-  return data;
-}
-
-export interface ProjectFormValues {
-  name: string;
-  description: string;
-}
-
-export async function createProject(
-  workspaceId: number,
-  input: ProjectFormValues,
-): Promise<ProjectDto> {
-  const { data } = await apiClient.post<ProjectDto>('/v1/projects', {
-    workspaceId,
-    ...withOptionalDescription(input),
-  });
-  return data;
-}
-
-export async function updateProject(id: number, input: ProjectFormValues): Promise<ProjectDto> {
-  const { data } = await apiClient.patch<ProjectDto>(
-    `/v1/projects/${id}`,
-    withOptionalDescription(input),
-  );
-  return data;
-}
-
-export async function deleteProject(id: number): Promise<void> {
-  await apiClient.delete(`/v1/projects/${id}`);
 }
 
 // ─── Thành viên (§4.7) ───────────────────────────────────────────────────────

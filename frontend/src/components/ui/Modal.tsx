@@ -70,22 +70,28 @@ export function Modal({
       }}
       aria-labelledby="modal-title"
       className={[
-        'm-auto rounded-2xl border border-slate-200 bg-white p-0',
+        // `open:flex` chứ không `flex`: thẻ <dialog> lúc đóng phải giữ
+        // `display: none` của trình duyệt, đặt `flex` cứng là nó hiện thường trực.
+        'm-auto max-h-[calc(100vh-3rem)] flex-col overflow-hidden open:flex',
+        'rounded-2xl border border-slate-200 bg-white p-0',
         SIZE_CLASS[size],
         'shadow-xl backdrop:bg-slate-900/40',
       ].join(' ')}
     >
-      <div className="px-6 pt-6">
+      <div className="shrink-0 px-6 pt-6">
         <h2 id="modal-title" className="text-lg font-semibold text-slate-900">
           {title}
         </h2>
         {description && <p className="mt-1 text-sm text-slate-500">{description}</p>}
       </div>
 
-      <div className="px-6 py-5">{children}</div>
+      {/* CHỈ phần thân cuộn, không phải cả hộp thoại. Mặc định của trình duyệt là
+          cho cả <dialog> cuộn, và khi nội dung dài thì hàng nút Lưu/Huỷ trôi ra
+          khỏi màn hình — người dùng thấy một form không có cách nào kết thúc. */}
+      <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">{children}</div>
 
       {footer && (
-        <div className="flex justify-end gap-2 rounded-b-2xl border-t border-slate-100 bg-slate-50 px-6 py-4">
+        <div className="flex shrink-0 justify-end gap-2 rounded-b-2xl border-t border-slate-100 bg-slate-50 px-6 py-4">
           {footer}
         </div>
       )}

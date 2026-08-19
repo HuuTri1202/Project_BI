@@ -1,6 +1,6 @@
 import type {
   CreateDataModelInput,
-  CreateMeasureInput,
+  CreateFormulaMeasureInput,
   CreateRelationshipInput,
   DataModelDetailDto,
   DataModelDto,
@@ -9,7 +9,9 @@ import type {
   ExplorerFieldsDto,
   ExplorerQueryDto,
   ExplorerResultDto,
+  ExplorerSqlDto,
   PageResult,
+  PrimaryKeyWarningDto,
   RelationshipWarningDto,
   SaveLayoutInput,
   SaveSchemaInput,
@@ -38,7 +40,8 @@ function clean(input: Record<string, string | number | undefined>): Record<strin
 }
 
 export interface DataModelListQuery {
-  workspaceId: number;
+  /** Bỏ trống = cả tổ chức. Xem ghi chú ở `useDataModels` và ở backend. */
+  workspaceId?: number;
   page: number;
   pageSize: number;
   q: string;
@@ -99,6 +102,37 @@ export async function removeDataset(id: number, refId: number): Promise<void> {
   await apiClient.delete(`/v1/datamodels/${id}/datasets/${refId}`);
 }
 
+/**
+ * Sửa một BẢNG trong mô hình — tên hiển thị, mô tả, khoá chính.
+ *
+ * Trường nào KHÔNG gửi thì backend giữ nguyên. Nhờ vậy hộp thoại "Đặt khoá
+ * chính" chỉ cần gửi `primaryColumnId` mà không xoá mất mô tả người dùng đã
+ * viết, và ngược lại.
+ */
+export interface UpdateModelDatasetInput {
+  displayName?: string | null;
+  description?: string | null;
+  primaryColumnId?: number | null;
+}
+
+export interface UpdateModelDatasetResult {
+  dataModel: DataModelDetailDto;
+  /** `null` khi không đặt khoá chính, hoặc khi kho không kiểm được. */
+  warning: PrimaryKeyWarningDto | null;
+}
+
+export async function updateModelDataset(
+  id: number,
+  refId: number,
+  input: UpdateModelDatasetInput,
+): Promise<UpdateModelDatasetResult> {
+  const { data } = await apiClient.patch<UpdateModelDatasetResult>(
+    `/v1/datamodels/${id}/datasets/${refId}`,
+    input,
+  );
+  return data;
+}
+
 export async function saveSchema(
   id: number,
   input: SaveSchemaInput,
@@ -118,24 +152,19 @@ export async function fetchMeasures(id: number): Promise<DataModelMeasureDto[]> 
   return data;
 }
 
-export async function createMeasure(
+/*
+ * `POST /measures` và `PATCH /measures/:id` KHÔNG có bản bọc ở đây: thước đo
+ * dựng-trên-cột đi qua `saveSchema`, cùng một lần ghi với vai trò và tên hiển
+ * thị của cột. Xem ghi chú ở `hooks.ts`.
+ */
+
+/** Thước đo TÍNH TOÁN — §10.6. Hai vế là ID, không phải chuỗi công thức. */
+export async function createFormulaMeasure(
   id: number,
-  input: CreateMeasureInput,
+  input: CreateFormulaMeasureInput,
 ): Promise<DataModelMeasureDto> {
   const { data } = await apiClient.post<DataModelMeasureDto>(
-    `/v1/datamodels/${id}/measures`,
-    input,
-  );
-  return data;
-}
-
-export async function updateMeasure(
-  id: number,
-  measureId: number,
-  input: Omit<CreateMeasureInput, 'datamodelDatasetId'>,
-): Promise<DataModelMeasureDto> {
-  const { data } = await apiClient.patch<DataModelMeasureDto>(
-    `/v1/datamodels/${id}/measures/${measureId}`,
+    `/v1/datamodels/${id}/measures/formula`,
     input,
   );
   return data;
@@ -200,5 +229,11 @@ export async function runQuery(
   input: ExplorerQueryDto,
 ): Promise<ExplorerResultDto> {
   const { data } = await apiClient.post<ExplorerResultDto>(`/v1/datamodels/${id}/query`, input);
+  return data;
+}
+
+/** Câu lệnh Cube sẽ chạy cho lựa chọn này — không chạy nó. */
+export async function querySql(id: number, input: ExplorerQueryDto): Promise<ExplorerSqlDto> {
+  const { data } = await apiClient.post<ExplorerSqlDto>(`/v1/datamodels/${id}/query/sql`, input);
   return data;
 }

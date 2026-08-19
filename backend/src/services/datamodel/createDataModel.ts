@@ -7,7 +7,8 @@ import * as datamodelsRepo from '../../repositories/datamodels';
 import * as datasetsRepo from '../../repositories/datasets';
 import { HttpError, notFound } from '../../utils/httpError';
 import { warehouseSchema } from '../ingest/loadService';
-import { defaultRoleOf, isSystemColumn } from './classifyColumn';
+import { defaultAggOf, defaultRoleOf, isSystemColumn } from './classifyColumn';
+import { ROW_COUNT_MEASURE_NAME, uniqueName } from './measures';
 
 /**
  * Tạo mô hình dữ liệu — §10.2.
@@ -45,6 +46,18 @@ import { defaultRoleOf, isSystemColumn } from './classifyColumn';
  * `sum` chứ không phải `avg`: tổng là câu hỏi hay gặp nhất với một cột số trong
  * BI, và đoán sai theo hướng tổng thì người dùng đổi trong hai giây, còn đoán
  * theo hướng trung bình thì con số trông hợp lý hơn nên dễ bị tin nhầm.
+ *
+ * ─── Vì sao mỗi bảng còn được gieo thêm một thước đo ĐẾM DÒNG ───────────────
+ *
+ * "Mỗi vùng có bao nhiêu đơn hàng" là câu hỏi phổ biến hơn mọi tỉ lệ, nhưng nó
+ * KHÔNG gộp một cột nào cả — nên không có đường nào tạo nó từ tab Schemas, chỗ
+ * chọn phép gộp nằm trên dòng CỘT. Không gieo sẵn thì Explorer trả lời được
+ * "tổng doanh thu theo vùng" mà không trả lời được "bao nhiêu đơn theo vùng".
+ *
+ * Nó phải là `count` chứ không phải `sum` của một cột nào: `count(cột)` bỏ qua
+ * dòng có ô trống, và hai con số đó khác nhau ở đúng những bảng dữ liệu bẩn —
+ * tức là những bảng mà người dùng cần con số đúng nhất. Xem `buildCubeSchema`,
+ * chỗ nó cố ý KHÔNG khai `sql` cho `count`.
  */
 async function seedMeasures(
   conn: PoolConnection,
@@ -54,6 +67,21 @@ async function seedMeasures(
   createdBy: number | null,
   used: Set<string>,
 ): Promise<void> {
+  // Gieo TRƯỚC vòng lặp cột, vì Explorer xếp thước đo theo `id` tăng dần: đếm
+  // dòng đứng đầu nhóm của bảng, đúng thứ tự người ta đi tìm.
+  const countName = uniqueName(ROW_COUNT_MEASURE_NAME, used);
+  used.add(countName);
+  await datamodelsRepo.createMeasure(conn, tenantId, {
+    dataModelId,
+    datamodelDatasetId,
+    // `null` là điều KIỆN của `agg = 'count'`, không phải chỗ còn thiếu dữ
+    // liệu: đếm dòng không thuộc về cột nào.
+    columnId: null,
+    name: countName,
+    agg: 'count',
+    createdBy,
+  });
+
   const columns = await datamodelsRepo.listColumnsOfDataset(conn, tenantId, datamodelDatasetId);
 
   for (const column of columns) {
@@ -62,13 +90,7 @@ async function seedMeasures(
     // `UNIQUE (datamodel_id, name)` — hai bảng trong cùng mô hình rất hay có
     // cùng một cột "Doanh thu", và để nó đâm vào ràng buộc sẽ cho ra lỗi 500
     // khó hiểu ngay ở bước tạo mô hình.
-    const base = column.alias ?? column.column_name;
-    let name = base;
-    let suffix = 2;
-    while (used.has(name)) {
-      name = `${base} (${suffix})`;
-      suffix += 1;
-    }
+    const name = uniqueName(column.alias ?? column.column_name, used);
     used.add(name);
 
     await datamodelsRepo.createMeasure(conn, tenantId, {
@@ -76,7 +98,10 @@ async function seedMeasures(
       datamodelDatasetId,
       columnId: Number(column.id),
       name,
-      agg: 'sum',
+      // `sum` cho tiền và số lượng, `avg` cho tỉ lệ — xem `defaultAggOf`. Cột
+      // định danh (`Row ID`, `Postal Code`) không tới được đây: `defaultRoleOf`
+      // đã xếp chúng thành CHIỀU, nên vòng lặp trên đã bỏ qua.
+      agg: defaultAggOf(column.alias ?? column.column_name),
       createdBy,
     });
   }
@@ -130,6 +155,13 @@ export interface CreateInput {
    * chỉ vì không biết ai đứng tên là bỏ mất cả một luồng.
    */
   createdBy: number | null;
+  /**
+   * Khoá gom nhóm của mô hình TỰ SINH — migration 19.
+   *
+   * Bỏ trống với mô hình do người dùng tự tạo: cột này vừa là dấu "do máy tạo"
+   * vừa là khoá để bảng thứ hai của cùng một lần tải tìm về đúng mô hình.
+   */
+  autoBatchKey?: string | null;
 }
 
 export async function createDataModel(input: CreateInput): Promise<number> {
@@ -147,6 +179,7 @@ export async function createDataModel(input: CreateInput): Promise<number> {
       workspaceId: input.workspaceId,
       name: input.name,
       description: input.description,
+      autoBatchKey: input.autoBatchKey ?? null,
       createdBy: input.createdBy,
     });
 
@@ -204,7 +237,9 @@ export async function addDatasets(
   tenantId: number,
   dataModelId: number,
   datasetIds: readonly number[],
-  createdBy: number,
+  // `null` hợp lệ, cùng lý do đã ghi ở `CreateInput.createdBy`: đường tự sinh
+  // gọi hàm này cho bộ dữ liệu đồng bộ từ CSDL, vốn không có `created_by`.
+  createdBy: number | null,
 ): Promise<void> {
   const schemas = new Map<number, WarehouseSchemaDto>();
   for (const datasetId of datasetIds) {

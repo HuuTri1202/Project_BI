@@ -1,4 +1,5 @@
 import type { AdminWorkspaceDto } from './admin';
+import type { ReportDto } from './report';
 
 /**
  * Hợp đồng dữ liệu của KHU NGƯỜI DÙNG (Section 04).
@@ -8,17 +9,6 @@ import type { AdminWorkspaceDto } from './admin';
  * phải thuần validate. Schema request ở lại backend.
  */
 
-export interface ProjectDto {
-  id: number;
-  workspaceId: number;
-  name: string;
-  description: string | null;
-  createdBy: number | null;
-  /** NULL khi người tạo đã bị xoá (`ON DELETE SET NULL`). Hiện "Không rõ". */
-  creatorName: string | null;
-  createdAt: string;
-  updatedAt: string;
-}
 
 /**
  * Workspace như bộ chuyển (§4.6) nhìn thấy.
@@ -44,9 +34,17 @@ export type WorkspaceOptionDto = Pick<AdminWorkspaceDto, 'id' | 'name' | 'slug' 
  */
 export interface HomeDataDto {
   workspace: WorkspaceOptionDto;
-  projects: ProjectDto[];
+  /**
+   * Báo cáo đụng tới gần đây nhất — thứ trang chủ liệt kê từ khi bỏ project.
+   *
+   * Trước đó chỗ này là danh sách project, nhưng project không chứa được gì nên
+   * thẻ của nó không mở ra thứ gì. Báo cáo là sản phẩm người dùng thật sự quay
+   * lại tìm, nên nó thế chỗ.
+   */
+  reports: ReportDto[];
   stats: {
-    projects: number;
+    /** TỔNG số báo cáo trong workspace, không phải độ dài `reports` ở trên. */
+    reports: number;
     /** Thành viên còn trong tổ chức. Phạm vi TỔ CHỨC, không phải workspace. */
     members: number;
   };

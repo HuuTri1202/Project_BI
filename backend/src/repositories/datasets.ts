@@ -37,7 +37,8 @@ import type { Db } from './db';
 interface DatasetRow extends RowDataPacket {
   id: number;
   source: DatasetSource;
-  workspace_id: number | null;
+  /** `NOT NULL` từ migration 11 — mọi bộ dữ liệu đều thuộc một workspace. */
+  workspace_id: number;
   name: string;
   column_count: number;
   // nguồn `connection`
@@ -87,7 +88,7 @@ function toDto(row: DatasetRow): DatasetDto {
   return {
     id: Number(row.id),
     source: row.source,
-    workspaceId: row.workspace_id === null ? null : Number(row.workspace_id),
+    workspaceId: Number(row.workspace_id),
     name: row.name,
     columnCount: Number(row.column_count),
 
@@ -318,15 +319,24 @@ export async function upsert(
     sourceTable: string;
     name: string;
     columnCount: number;
-    /** Workspace nhận bảng này. Xem ghi chú `workspace_id` ở migration 8. */
-    workspaceId: number | null;
+    /**
+     * Workspace nhận bảng này — BẮT BUỘC từ migration 11.
+     *
+     * Trước đó chỗ này nhận `null` và `syncDatasets` luôn truyền `null`, nên
+     * bảng đồng bộ từ kết nối hiện ở MỌI workspace của tổ chức.
+     */
+    workspaceId: number;
   },
 ): Promise<{ id: number; isNew: boolean }> {
   const [existing] = await db.query<RowDataPacket[]>(
+    // Điều kiện phải TRÙNG KHỚP `uq_datasets_source` (migration 11 đã đưa
+    // `workspace_id` vào khoá đó). Thiếu một cột của khoá thì hàm này tìm thấy
+    // dòng của workspace khác và trả về id sai — mọi thứ sau đó ghi nhầm chỗ.
     `SELECT id FROM datasets
-      WHERE tenant_id = ? AND connection_id = ? AND source_schema = ? AND source_table = ?
+      WHERE tenant_id = ? AND workspace_id = ? AND connection_id = ?
+        AND source_schema = ? AND source_table = ?
       LIMIT 1`,
-    [tenantId, input.connectionId, input.sourceSchema, input.sourceTable],
+    [tenantId, input.workspaceId, input.connectionId, input.sourceSchema, input.sourceTable],
   );
   const found = existing[0];
 
@@ -354,10 +364,14 @@ export async function upsert(
   if (found) return { id: Number(found['id']), isNew: false };
 
   const [rows] = await db.query<RowDataPacket[]>(
+    // Điều kiện phải TRÙNG KHỚP `uq_datasets_source` (migration 11 đã đưa
+    // `workspace_id` vào khoá đó). Thiếu một cột của khoá thì hàm này tìm thấy
+    // dòng của workspace khác và trả về id sai — mọi thứ sau đó ghi nhầm chỗ.
     `SELECT id FROM datasets
-      WHERE tenant_id = ? AND connection_id = ? AND source_schema = ? AND source_table = ?
+      WHERE tenant_id = ? AND workspace_id = ? AND connection_id = ?
+        AND source_schema = ? AND source_table = ?
       LIMIT 1`,
-    [tenantId, input.connectionId, input.sourceSchema, input.sourceTable],
+    [tenantId, input.workspaceId, input.connectionId, input.sourceSchema, input.sourceTable],
   );
   const row = rows[0];
   if (!row) throw new Error('Vừa tạo dataset xong nhưng đọc lại không thấy');
@@ -706,44 +720,27 @@ export async function markLoadStatus(
   ]);
 }
 
-/**
- * Xoá sạch dấu vết lần nạp — gọi khi bảng trong kho đã bị (hoặc sắp bị) drop.
- *
- * Không gộp vào `markLoadStatus('idle')` được: hàm đó cố ý KHÔNG đụng tới
- * `ch_table`/`loaded_row_count` để trạng thái `queued`/`running` còn hiện được số
- * dòng của lần nạp trước. Ở đây thì ngược lại — để nguyên chúng nghĩa là một bộ
- * dữ liệu hồi sinh sẽ khoe "Đã nạp 50.000 dòng" trỏ tới một bảng không còn tồn
- * tại. Con số sai còn tệ hơn không có con số nào.
- */
-export async function clearLoadState(db: Db, datasetId: number): Promise<void> {
-  await db.query<ResultSetHeader>(
-    `UPDATE datasets
-        SET load_status = 'idle', ch_table = NULL, loaded_row_count = 0, loaded_at = NULL
-      WHERE id = ?`,
-    [datasetId],
-  );
-}
 
 /**
- * Mọi id bộ dữ liệu người dùng CÒN THẤY ĐƯỢC — nguồn sự thật của janitor §9.
+ * Mọi id bộ dữ liệu MySQL còn biết tới — nguồn sự thật của janitor §9.
  *
- * Điều kiện phải khớp TỪNG CHỮ với `where()` ở đầu file, kể cả
- * `c.deleted_at IS NULL`: xoá một kết nối làm mọi bộ dữ liệu của nó khuất khỏi
- * giao diện mà `datasets.deleted_at` vẫn NULL. Bỏ vế đó thì janitor coi chúng là
- * còn sống và bảng của chúng nằm lại vĩnh viễn — đúng cái nó sinh ra để dọn.
- * Với nguồn `file` thì `LEFT JOIN` không khớp dòng nào nên `c.deleted_at` là
- * NULL, và điều kiện tự đúng.
+ * Bao gồm CẢ bộ đã xoá mềm và bộ thuộc kết nối đã xoá. Đó là thay đổi so với
+ * bản trước (`listLiveIds`, chỉ đếm bộ người dùng còn thấy), và nó theo sau việc
+ * xoá dataset thôi không drop bảng trong kho nữa:
+ *
+ *   - Xoá mềm giờ giữ nguyên bảng `raw_*` để khôi phục là gỡ một cột `deleted_at`
+ *     ra là xong. Nếu janitor vẫn coi bộ đã xoá mềm là "chết", nó sẽ drop đúng
+ *     cái bảng ấy sau một giờ — và việc xoá mềm lại thành không hoàn tác được,
+ *     chỉ chậm hơn một tiếng.
+ *   - Nên "mồ côi" giờ có nghĩa hẹp và đúng nghĩa đen: bảng mà MySQL KHÔNG CÒN
+ *     dòng nào nhận. Thực tế chỉ xảy ra khi dòng `datasets` bị xoá cứng theo
+ *     dây chuyền, ví dụ một tổ chức bị xoá cứng.
  *
  * Không lọc theo `tenant_id`: janitor là tác vụ của toàn hệ thống, không chạy
  * dưới danh nghĩa tổ chức nào. Đây là NGOẠI LỆ duy nhất của quy ước "mọi hàm
- * repository nhận `tenantId` đầu tiên", và nó an toàn vì hàm chỉ TRẢ VỀ ID —
- * không dữ liệu nào của tổ chức này đi sang tổ chức khác.
+ * tenant-scoped phải nhận `tenantId` đầu tiên".
  */
-export async function listLiveIds(db: Db): Promise<Set<number>> {
-  const [rows] = await db.query<RowDataPacket[]>(
-    `SELECT d.id FROM datasets d
-       LEFT JOIN connections c ON c.id = d.connection_id AND c.tenant_id = d.tenant_id
-      WHERE d.deleted_at IS NULL AND c.deleted_at IS NULL`,
-  );
+export async function listKnownIds(db: Db): Promise<Set<number>> {
+  const [rows] = await db.query<RowDataPacket[]>('SELECT id FROM datasets');
   return new Set(rows.map((r) => Number(r['id'])));
 }

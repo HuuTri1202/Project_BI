@@ -128,7 +128,7 @@ export function AuthProvider({ children }: { children: ReactNode }): React.React
    * lý do khác với lúc đăng xuất: query key của khu người dùng CỐ Ý không chứa
    * `tenantId` (xem `features/tenant/keys.ts`), vì token chỉ mở đúng một tổ chức
    * nên chuyện đó không cần thiết. Đổi tổ chức phá vỡ đúng giả định ấy — không
-   * xoá thì danh sách thành viên, workspace và project của công ty CŨ hiện
+   * xoá thì danh sách thành viên, workspace và dữ liệu của công ty CŨ hiện
    * nguyên xi dưới tên công ty MỚI cho tới lần refetch kế tiếp.
    *
    * Ghi token TRƯỚC khi dọn cache và đổi state: react-query có thể bắn refetch

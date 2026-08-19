@@ -3,7 +3,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 export interface SwitcherOption {
   id: number;
   label: string;
-  /** Dòng phụ nhỏ bên phải — số project, vai trò… */
+  /** Dòng phụ nhỏ bên phải — số báo cáo, vai trò… */
   meta?: string;
 }
 
@@ -33,7 +33,7 @@ interface SidebarSwitcherProps {
  * cái này đóng bằng Escape, cái kia thì không.
  *
  * Dựng bằng `<button>` + danh sách thay vì `<select>` gốc vì cần hiện dòng phụ
- * (số project, vai trò) và dấu tick, mà `<option>` chỉ chứa được text thuần.
+ * (số báo cáo, vai trò) và dấu tick, mà `<option>` chỉ chứa được text thuần.
  * Đổi lại phải tự làm ba thứ `<select>` cho không, và cả ba đều ở dưới đây:
  * đóng khi bấm ra ngoài, đóng bằng Escape, và `aria-expanded` + `role="listbox"`
  * để trình đọc màn hình hiểu đây là bộ chọn.

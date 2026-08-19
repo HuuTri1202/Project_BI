@@ -4,6 +4,8 @@ import type {
   DataModelMeasureDto,
   DataModelRelationshipDto,
   MeasureAgg,
+  MeasureFormat,
+  MeasureOp,
   RelationshipKind,
 } from '@bi/shared';
 import type { ResultSetHeader, RowDataPacket } from 'mysql2';
@@ -92,7 +94,20 @@ const SORT_SQL: Record<DataModelSortKey, string> = {
 };
 
 export interface DataModelFilter {
-  workspaceId: number;
+  /**
+   * KHÔNG truyền nghĩa là "cả tổ chức", không phải "workspace đang mở".
+   *
+   * Cùng lý do đã ghi ở `GET /datasets`: mô hình dữ liệu là lời mô tả về những
+   * bộ dữ liệu trong kho, mà kho §8 nằm ở phạm vi TỔ CHỨC. Lọc mô hình theo
+   * workspace trong khi nguyên liệu dựng nên nó thì không, tạo ra một cái bẫy
+   * rất khó đoán: người dùng chọn bộ dữ liệu thấy được từ mọi workspace, dựng
+   * mô hình xong, rồi mô hình ấy biến mất ngay khi họ đổi workspace — trông
+   * hệt như dữ liệu bị mất.
+   *
+   * Cột `workspace_id` vẫn được ghi để biết mô hình sinh ra ở đâu, và bộ lọc
+   * này vẫn nhận giá trị khi nơi gọi thật sự muốn thu hẹp phạm vi.
+   */
+  workspaceId?: number | undefined;
   search?: string | undefined;
   sort: DataModelSortKey;
   order: 'asc' | 'desc';
@@ -102,8 +117,13 @@ export interface DataModelFilter {
 
 /** Dùng chung bởi `count` và `list` để hai bên không thể lệch nhau. */
 function where(tenantId: number, filter: DataModelFilter): { sql: string; params: unknown[] } {
-  const parts = ['dm.tenant_id = ?', 'dm.workspace_id = ?', 'dm.deleted_at IS NULL'];
-  const params: unknown[] = [tenantId, filter.workspaceId];
+  const parts = ['dm.tenant_id = ?', 'dm.deleted_at IS NULL'];
+  const params: unknown[] = [tenantId];
+
+  if (filter.workspaceId !== undefined) {
+    parts.push('dm.workspace_id = ?');
+    params.push(filter.workspaceId);
+  }
 
   if (filter.search !== undefined && filter.search !== '') {
     parts.push("(dm.name LIKE ? ESCAPE '\\\\' OR dm.description LIKE ? ESCAPE '\\\\')");
@@ -156,14 +176,53 @@ export async function create(
     name: string;
     description: string | null;
     createdBy: number | null;
+    /** Xem `findAutoModelByBatch`. `null` = mô hình do người dùng tự tạo. */
+    autoBatchKey?: string | null;
   },
 ): Promise<number> {
   const [result] = await db.query<ResultSetHeader>(
-    `INSERT INTO datamodels (tenant_id, workspace_id, name, description, created_by)
-     VALUES (?, ?, ?, ?, ?)`,
-    [tenantId, input.workspaceId, input.name, input.description, input.createdBy],
+    `INSERT INTO datamodels (tenant_id, workspace_id, name, description, auto_batch_key, created_by)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+    [
+      tenantId,
+      input.workspaceId,
+      input.name,
+      input.description,
+      input.autoBatchKey ?? null,
+      input.createdBy,
+    ],
   );
   return result.insertId;
+}
+
+/**
+ * Mô hình TỰ SINH của một lần tải file / một schema — migration 19.
+ *
+ * Bảng thứ hai của cùng một workbook dùng hàm này để tìm mô hình mà bảng thứ
+ * nhất vừa tạo, thay vì dựng thêm một mô hình rời. Các job nạp chạy tuần tự nên
+ * thứ tự luôn là "tạo rồi mới thêm", không có hai bảng cùng vào một lúc.
+ *
+ * Lọc theo cả `workspace_id`: cùng một schema đồng bộ vào hai workspace là hai
+ * mô hình, vì mô hình thuộc về workspace.
+ *
+ * ⚠️ `deleted_at IS NULL` là phần KHÔNG được bỏ. Thiếu nó thì sau khi người dùng
+ * xoá mô hình tự sinh, mọi lần nạp sau sẽ tìm thấy cái đã xoá và đi thêm bảng
+ * vào một mô hình không còn hiện ở đâu cả.
+ */
+export async function findAutoModelByBatch(
+  db: Db,
+  tenantId: number,
+  workspaceId: number,
+  autoBatchKey: string,
+): Promise<DataModelDto | null> {
+  const [rows] = await db.query<ModelRow[]>(
+    `${MODEL_SELECT} WHERE dm.tenant_id = ? AND dm.workspace_id = ? AND dm.auto_batch_key = ?
+       AND dm.deleted_at IS NULL
+     ORDER BY dm.id ASC LIMIT 1`,
+    [tenantId, workspaceId, autoBatchKey],
+  );
+  const row = rows[0];
+  return row ? toModelDto(row) : null;
 }
 
 export async function update(
@@ -235,6 +294,11 @@ export interface ModelDatasetRow extends RowDataPacket {
   datamodel_id: number;
   dataset_id: number;
   dataset_name: string;
+  display_name: string | null;
+  description: string | null;
+  primary_column_id: number | null;
+  /** Tên cột khoá chính, giải sẵn để giao diện khỏi phải tự dò. */
+  primary_column_name: string | null;
   canvas_x: number;
   canvas_y: number;
 }
@@ -245,15 +309,81 @@ export async function listDatasets(
   dataModelId: number,
 ): Promise<ModelDatasetRow[]> {
   const [rows] = await db.query<ModelDatasetRow[]>(
+    // `LEFT JOIN` cho cột khoá chính: chưa đặt thì `primary_column_id` là NULL,
+    // và `INNER JOIN` sẽ làm cả BẢNG biến mất khỏi mô hình — đúng loại lỗi chỉ
+    // lộ ra với dữ liệu chưa được cấu hình đầy đủ.
     `SELECT dmd.id, dmd.datamodel_id, dmd.dataset_id, d.name AS dataset_name,
+            dmd.display_name, dmd.description, dmd.primary_column_id,
+            pk.column_name AS primary_column_name,
             dmd.canvas_x, dmd.canvas_y
        FROM datamodel_datasets dmd
        JOIN datasets d ON d.id = dmd.dataset_id
+       LEFT JOIN datamodel_columns pk ON pk.id = dmd.primary_column_id
       WHERE dmd.tenant_id = ? AND dmd.datamodel_id = ?
       ORDER BY dmd.id ASC`,
     [tenantId, dataModelId],
   );
   return rows;
+}
+
+/**
+ * Sửa phần mô tả của một BẢNG trong mô hình — tên hiển thị, mô tả, khoá chính.
+ *
+ * `WHERE tenant_id = ?` một mình chưa đủ: `refId` do người gọi gửi lên, và một
+ * id thuộc mô hình KHÁC trong cùng tổ chức vẫn khớp. Nên câu này kèm luôn ràng
+ * buộc "dòng phải thuộc mô hình đang mở" — cùng khuôn với `updateColumn`.
+ */
+export async function updateDataset(
+  db: Db,
+  tenantId: number,
+  dataModelId: number,
+  refId: number,
+  input: {
+    displayName: string | null;
+    description: string | null;
+    primaryColumnId: number | null;
+  },
+): Promise<number> {
+  const [result] = await db.query<ResultSetHeader>(
+    `UPDATE datamodel_datasets
+        SET display_name = ?, description = ?, primary_column_id = ?
+      WHERE tenant_id = ? AND id = ? AND datamodel_id = ?`,
+    [
+      input.displayName,
+      input.description,
+      input.primaryColumnId,
+      tenantId,
+      refId,
+      dataModelId,
+    ],
+  );
+  return result.affectedRows;
+}
+
+/**
+ * Một cột, tra trong phạm vi ĐÚNG bảng của ĐÚNG mô hình của ĐÚNG tổ chức.
+ *
+ * Đây là thứ giữ cách ly tổ chức cho `primary_column_id`, vì khoá ngoại của cột
+ * đó chỉ là khoá một cột (xem migration 12). Ba tầng lọc trong một câu: id cột
+ * của tổ chức khác, của mô hình khác, hay của bảng khác đều cho ra `null`.
+ */
+export async function findColumnInDataset(
+  db: Db,
+  tenantId: number,
+  dataModelId: number,
+  refId: number,
+  columnId: number,
+): Promise<{ id: number; columnName: string } | null> {
+  const [rows] = await db.query<RowDataPacket[]>(
+    `SELECT c.id, c.column_name
+       FROM datamodel_columns c
+       JOIN datamodel_datasets dmd ON dmd.id = c.datamodel_dataset_id
+      WHERE c.tenant_id = ? AND c.id = ? AND dmd.id = ? AND dmd.datamodel_id = ?
+      LIMIT 1`,
+    [tenantId, columnId, refId, dataModelId],
+  );
+  const row = rows[0];
+  return row ? { id: Number(row['id']), columnName: String(row['column_name']) } : null;
 }
 
 export async function addDataset(
@@ -412,6 +542,13 @@ interface MeasureRow extends RowDataPacket {
   id: number;
   name: string;
   agg: MeasureAgg;
+  expr_kind: 'column' | 'formula';
+  expr_op: MeasureOp | null;
+  expr_left_id: number | null;
+  expr_right_id: number | null;
+  left_name: string | null;
+  right_name: string | null;
+  display_format: MeasureFormat;
   datamodel_dataset_id: number;
   dataset_name: string;
   column_id: number | null;
@@ -419,19 +556,45 @@ interface MeasureRow extends RowDataPacket {
   created_at: Date;
 }
 
+// Tự nối hai lần để lấy TÊN hai vế của công thức. Không có nó thì giao diện
+// phải tự ghép id với tên, và mọi nơi hiển thị công thức lại tự ghép một lần.
 const MEASURE_SELECT = `SELECT m.id, m.name, m.agg, m.datamodel_dataset_id,
+         m.expr_kind, m.expr_op, m.expr_left_id, m.expr_right_id, m.display_format,
+         ml.name AS left_name, mr.name AS right_name,
          d.name AS dataset_name, m.datamodel_column_id AS column_id,
          c.column_name, m.created_at
     FROM datamodel_measures m
     JOIN datamodel_datasets dmd ON dmd.id = m.datamodel_dataset_id
     JOIN datasets d ON d.id = dmd.dataset_id
-    LEFT JOIN datamodel_columns c ON c.id = m.datamodel_column_id`;
+    LEFT JOIN datamodel_columns c ON c.id = m.datamodel_column_id
+    LEFT JOIN datamodel_measures ml ON ml.id = m.expr_left_id
+    LEFT JOIN datamodel_measures mr ON mr.id = m.expr_right_id`;
 
 function toMeasureDto(row: MeasureRow): DataModelMeasureDto {
+  // Công thức chỉ dựng khi ĐỦ cả ba mảnh. Thiếu một mảnh nghĩa là dòng hỏng —
+  // trả `formula: null` để giao diện hiện nó như thước đo thường thay vì vẽ ra
+  // một công thức có ô trống.
+  const formula =
+    row.expr_kind === 'formula' &&
+    row.expr_left_id !== null &&
+    row.expr_right_id !== null &&
+    row.expr_op !== null
+      ? {
+          leftId: Number(row.expr_left_id),
+          leftName: row.left_name ?? '—',
+          op: row.expr_op,
+          rightId: Number(row.expr_right_id),
+          rightName: row.right_name ?? '—',
+        }
+      : null;
+
   return {
     id: Number(row.id),
     name: row.name,
     agg: row.agg,
+    kind: formula === null ? 'column' : 'formula',
+    format: row.display_format,
+    formula,
     datamodelDatasetId: Number(row.datamodel_dataset_id),
     datasetName: row.dataset_name,
     columnId: row.column_id === null ? null : Number(row.column_id),
@@ -511,6 +674,131 @@ export async function softDeleteMeasure(
     [tenantId, dataModelId, id],
   );
   return result.affectedRows;
+}
+
+/**
+ * Thước đo CÒN SỐNG nào đang dùng thước đo này làm một vế.
+ *
+ * Gọi TRƯỚC mọi lần xoá. Không có bước này thì xoá `Sales` sẽ để lại công thức
+ * "Biên lợi nhuận" trỏ vào hư không, Cube biên dịch hỏng, và cả tab Explorer
+ * chết vì một thao tác trông hoàn toàn vô hại.
+ */
+export async function measuresUsing(
+  db: Db,
+  tenantId: number,
+  dataModelId: number,
+  id: number,
+): Promise<string[]> {
+  const [rows] = await db.query<(RowDataPacket & { name: string })[]>(
+    `SELECT name FROM datamodel_measures
+      WHERE tenant_id = ? AND datamodel_id = ? AND deleted_at IS NULL
+        AND (expr_left_id = ? OR expr_right_id = ?)
+      ORDER BY name ASC`,
+    [tenantId, dataModelId, id, id],
+  );
+  return rows.map((r) => r.name);
+}
+
+/**
+ * Thước đo dựng trên một CỘT — kể cả bản đã xoá mềm.
+ *
+ * Lấy cả bản đã xoá là có lý do rất cụ thể: ràng buộc
+ * `UNIQUE (datamodel_id, name)` KHÔNG tính tới `deleted_at`. Nên sau khi người
+ * dùng gỡ thước đo của cột `Sales` rồi đổi ý, một lệnh INSERT tên "Sales" sẽ
+ * đâm vào dòng đã xoá và ném `ER_DUP_ENTRY`. Hồi sinh đúng dòng cũ vừa tránh
+ * được điều đó, vừa giữ nguyên `id` — nên công thức nào đang trỏ vào nó vẫn
+ * còn nguyên nghĩa.
+ */
+export async function findMeasureOfColumn(
+  db: Db,
+  tenantId: number,
+  dataModelId: number,
+  columnId: number,
+): Promise<{ id: number; agg: MeasureAgg; deleted: boolean } | null> {
+  const [rows] = await db.query<
+    (RowDataPacket & { id: number; agg: MeasureAgg; deleted_at: Date | null })[]
+  >(
+    `SELECT id, agg, deleted_at FROM datamodel_measures
+      WHERE tenant_id = ? AND datamodel_id = ? AND datamodel_column_id = ?
+        AND expr_kind = 'column'
+      ORDER BY deleted_at IS NULL DESC, id ASC
+      LIMIT 1`,
+    [tenantId, dataModelId, columnId],
+  );
+  const row = rows[0];
+  return row === undefined
+    ? null
+    : { id: Number(row.id), agg: row.agg, deleted: row.deleted_at !== null };
+}
+
+/** Đặt lại phép gộp và tên, đồng thời HỒI SINH nếu dòng đang bị xoá mềm. */
+export async function reviveColumnMeasure(
+  db: Db,
+  tenantId: number,
+  dataModelId: number,
+  id: number,
+  input: { name: string; agg: MeasureAgg },
+): Promise<void> {
+  await db.query<ResultSetHeader>(
+    `UPDATE datamodel_measures SET name = ?, agg = ?, deleted_at = NULL
+      WHERE tenant_id = ? AND datamodel_id = ? AND id = ?`,
+    [input.name, input.agg, tenantId, dataModelId, id],
+  );
+}
+
+/** Mọi tên thước đo còn sống — để né `UNIQUE (datamodel_id, name)`. */
+export async function measureNames(
+  db: Db,
+  tenantId: number,
+  dataModelId: number,
+): Promise<Set<string>> {
+  const [rows] = await db.query<(RowDataPacket & { name: string })[]>(
+    `SELECT name FROM datamodel_measures
+      WHERE tenant_id = ? AND datamodel_id = ? AND deleted_at IS NULL`,
+    [tenantId, dataModelId],
+  );
+  return new Set(rows.map((r) => r.name));
+}
+
+/**
+ * Thước đo TÍNH TOÁN.
+ *
+ * `agg` vẫn phải điền vì cột đó `NOT NULL` từ migration 6, nhưng nó KHÔNG mang
+ * nghĩa gì ở đây — bộ sinh schema đọc `expr_kind` trước và không bao giờ nhìn
+ * tới `agg` của dòng công thức. Ghi `sum` như một giá trị giữ chỗ.
+ */
+export async function createFormulaMeasure(
+  db: Db,
+  tenantId: number,
+  input: {
+    dataModelId: number;
+    datamodelDatasetId: number;
+    name: string;
+    op: MeasureOp;
+    leftId: number;
+    rightId: number;
+    format: MeasureFormat;
+    createdBy: number | null;
+  },
+): Promise<number> {
+  const [result] = await db.query<ResultSetHeader>(
+    `INSERT INTO datamodel_measures
+       (tenant_id, datamodel_id, datamodel_dataset_id, datamodel_column_id, name, agg,
+        expr_kind, expr_op, expr_left_id, expr_right_id, display_format, created_by)
+     VALUES (?, ?, ?, NULL, ?, 'sum', 'formula', ?, ?, ?, ?, ?)`,
+    [
+      tenantId,
+      input.dataModelId,
+      input.datamodelDatasetId,
+      input.name,
+      input.op,
+      input.leftId,
+      input.rightId,
+      input.format,
+      input.createdBy,
+    ],
+  );
+  return result.insertId;
 }
 
 // ─── Quan hệ ─────────────────────────────────────────────────────────────────

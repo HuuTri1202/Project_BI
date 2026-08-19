@@ -1,15 +1,13 @@
-import type { ProjectDto } from '@bi/shared';
+import { CHART_TYPE_LABELS, REPORT_SOURCE_LABELS, type ReportDto } from '@bi/shared';
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../auth/useAuth';
 import { usePermissions } from '../auth/usePermissions';
-import { ConfirmDialog } from '../components/ui/ConfirmDialog';
-import { Button } from '../components/ui/Button';
+import { Badge } from '../components/ui/Badge';
 import { Page, PageBody, PageHeader } from '../components/ui/Page';
 import { EmptyState, ErrorState, TableSkeleton } from '../components/ui/states';
 import { CreateReportMenu } from '../features/tenant/CreateReportMenu';
-import { ProjectFormModal } from '../features/tenant/ProjectFormModal';
-import { useDeleteProject, useHome } from '../features/tenant/hooks';
+import { useHome } from '../features/tenant/hooks';
 import { getApiError } from '../services/apiClient';
 import { useWorkspace } from '../workspace/useWorkspace';
 
@@ -28,29 +26,25 @@ function readView(): ViewMode {
 /**
  * Trang chủ khu người dùng — §4.2.
  *
- * Danh sách project của workspace ĐANG CHỌN, chuyển được giữa lưới và danh sách.
- * Kiểu hiển thị ghi nhớ trong localStorage: đó là sở thích cá nhân, không phải
- * trạng thái điều hướng, nên nó không thuộc về URL và cũng không đáng một cột
- * trong database.
+ * Danh sách BÁO CÁO của workspace đang chọn, chuyển được giữa lưới và danh
+ * sách. Kiểu hiển thị ghi nhớ trong localStorage: đó là sở thích cá nhân, không
+ * phải trạng thái điều hướng, nên nó không thuộc về URL và cũng không đáng một
+ * cột trong database.
  *
- * Khối "Báo cáo gần đây" dựng sẵn ở trạng thái *sắp có*: chưa có bảng `reports`
- * và chưa có trình soạn báo cáo. Nói thẳng điều đó thay vì để một ô trống mà
- * người xem phải tự đoán là hỏng hay chưa có dữ liệu.
+ * Trước đây chỗ này liệt kê project. Project đã bị bỏ khỏi hệ thống (migration
+ * 17) vì `workspace_id` đã làm đúng việc gom nhóm mà nó sinh ra để làm, nên
+ * trang chủ chuyển sang liệt kê thứ người dùng thật sự quay lại tìm.
  */
 export default function HomePage(): React.ReactElement {
   const { user } = useAuth();
   const permissions = usePermissions();
   const { current, isLoading: wsLoading } = useWorkspace();
   const { data, isPending, isError, error } = useHome();
-  const deleteProject = useDeleteProject();
 
   const [view, setView] = useState<ViewMode>(readView);
-  const [editing, setEditing] = useState<ProjectDto | null>(null);
-  const [formOpen, setFormOpen] = useState(false);
-  const [confirming, setConfirming] = useState<ProjectDto | null>(null);
 
   // §5.9 — hỏi bảng quyền, không so sánh chuỗi vai trò tại chỗ. Ô `editContent`
-  // khớp với `requireRole('admin','creator')` trên `/v1/projects` ở backend.
+  // khớp với `authorize('report', 'modify')` ở backend.
   const canEdit = permissions.editContent;
 
   function changeView(next: ViewMode): void {
@@ -62,47 +56,15 @@ export default function HomePage(): React.ReactElement {
     }
   }
 
-  function openCreate(): void {
-    setEditing(null);
-    setFormOpen(true);
-  }
-
-  function openEdit(project: ProjectDto): void {
-    setEditing(project);
-    setFormOpen(true);
-  }
-
-  // `onError` do chính ConfirmDialog truyền vào: lỗi hiện NGAY TRONG hộp thoại
-  // chứ không đóng lại im lặng. Server từ chối bằng những lý do rất cụ thể, và
-  // đó chính là thông tin người dùng cần để biết phải làm gì tiếp.
-  function confirmDelete(onError: (err: unknown) => void): void {
-    if (!confirming) return;
-    deleteProject.mutate(confirming.id, {
-      onSuccess: () => setConfirming(null),
-      onError,
-    });
-  }
-
-  const projects = data?.projects ?? [];
+  const reports = data?.reports ?? [];
 
   return (
     <Page>
       <PageHeader
         title={`Xin chào, ${user?.fullName ?? 'bạn'}`}
         description={current ? `Đang làm việc trong ${current.name}` : 'Chưa chọn workspace'}
-        actions={
-          <>
-            {/* §5.9 — viewer không tạo được báo cáo, nên nút cũng không hiện. Cùng
-                một ô quyền với nút "Tạo project" ngay bên cạnh: cả hai đều là tạo
-                nội dung, tách ra hai câu điều kiện riêng chỉ mời chúng lệch nhau. */}
-            {canEdit && <CreateReportMenu />}
-            {canEdit && (
-              <Button variant="primary" onClick={openCreate} disabled={!current}>
-                Tạo project
-              </Button>
-            )}
-          </>
-        }
+        // §5.9 — viewer không tạo được báo cáo, nên nút cũng không hiện.
+        actions={canEdit ? <CreateReportMenu /> : undefined}
       />
 
       <PageBody>
@@ -123,80 +85,47 @@ export default function HomePage(): React.ReactElement {
       {/* Thẻ số. Trong lúc chờ để dấu gạch ngang chứ không phải số 0 — hiện 0
           rồi nhảy sang 12 khiến người ta tin vào con số 0 đó trong khoảnh khắc. */}
       <div className="mt-4 grid gap-4 sm:grid-cols-2">
-        <StatCard label="Project trong workspace" value={data?.stats.projects} />
+        <StatCard label="Báo cáo trong workspace" value={data?.stats.reports} />
         <StatCard label="Thành viên trong tổ chức" value={data?.stats.members} />
       </div>
 
       <section className="mt-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <h2 className="text-sm font-semibold text-slate-900">Project</h2>
+          <h2 className="text-sm font-semibold text-slate-900">Báo cáo</h2>
           <ViewToggle value={view} onChange={changeView} />
         </div>
 
         <div className="mt-4">
           {(isPending || wsLoading) && <TableSkeleton rows={3} />}
 
-          {!isPending && !wsLoading && projects.length === 0 && (
+          {!isPending && !wsLoading && reports.length === 0 && (
             <EmptyState
-              title="Chưa có project nào"
+              title="Chưa có báo cáo nào"
               hint={
                 canEdit
-                  ? 'Project là nơi chứa dataset và báo cáo của một mảng công việc. Tạo cái đầu tiên để bắt đầu.'
-                  : 'Quản trị viên hoặc người tạo báo cáo của tổ chức sẽ tạo project.'
-              }
-              action={
-                canEdit && current ? (
-                  <Button variant="primary" onClick={openCreate}>
-                    Tạo project
-                  </Button>
-                ) : undefined
+                  ? 'Dùng nút "Tạo báo cáo" để dựng cái đầu tiên — từ một file Excel/CSV, hoặc từ một mô hình dữ liệu đã khai.'
+                  : 'Quản trị viên hoặc người tạo báo cáo của tổ chức sẽ dựng báo cáo.'
               }
             />
           )}
 
-          {projects.length > 0 &&
+          {reports.length > 0 &&
             (view === 'grid' ? (
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                {projects.map((p) => (
-                  <ProjectCard
-                    key={p.id}
-                    project={p}
-                    canEdit={canEdit}
-                    onEdit={() => openEdit(p)}
-                    onDelete={() => setConfirming(p)}
-                  />
+                {reports.map((r) => (
+                  <ReportCard key={r.id} report={r} />
                 ))}
               </div>
             ) : (
               <ul className="divide-y divide-slate-100 rounded-xl border border-slate-200 bg-white">
-                {projects.map((p) => (
-                  <ProjectRow
-                    key={p.id}
-                    project={p}
-                    canEdit={canEdit}
-                    onEdit={() => openEdit(p)}
-                    onDelete={() => setConfirming(p)}
-                  />
+                {reports.map((r) => (
+                  <ReportRow key={r.id} report={r} />
                 ))}
               </ul>
             ))}
         </div>
       </section>
 
-      <ProjectFormModal open={formOpen} onClose={() => setFormOpen(false)} project={editing} />
-
-      <ConfirmDialog
-        open={confirming !== null}
-        onClose={() => setConfirming(null)}
-        onConfirm={confirmDelete}
-        title="Xoá project"
-        confirmLabel="Xoá project"
-        danger
-        loading={deleteProject.isPending}
-      >
-        Xoá <strong>{confirming?.name}</strong>? Dataset và báo cáo bên trong sẽ không truy cập
-        được nữa.
-        </ConfirmDialog>
       </PageBody>
     </Page>
   );
@@ -308,62 +237,67 @@ function ViewToggle({
 }
 
 interface ItemProps {
-  project: ProjectDto;
-  canEdit: boolean;
-  onEdit: () => void;
-  onDelete: () => void;
+  report: ReportDto;
+}
+
+/**
+ * Cả thẻ là MỘT liên kết, khác thẻ project trước đây.
+ *
+ * Thẻ project phải để hai nút Sửa/Xoá bên trong nên chỉ tiêu đề mới bấm được.
+ * Báo cáo không có nút nào ở đây — sửa và xoá đều nằm trên trang báo cáo — nên
+ * cả khối trở thành vùng bấm, và đó là thứ người dùng vốn đã cố bấm vào.
+ */
+function ReportCard({ report }: ItemProps): React.ReactElement {
+  return (
+    <Link
+      to={`/reports/${report.id}`}
+      className="flex flex-col rounded-xl border border-slate-200 bg-white p-5 transition-colors hover:border-brand-300 hover:bg-slate-50"
+    >
+      <h3 className="font-semibold text-slate-900">{report.name}</h3>
+      <p className="mt-2 flex flex-wrap items-center gap-2">
+        {report.chartType === null ? (
+          <Badge tone="warning">Chưa có biểu đồ</Badge>
+        ) : (
+          <Badge tone="neutral">{CHART_TYPE_LABELS[report.chartType]}</Badge>
+        )}
+        <span className="text-xs text-slate-500">
+          {REPORT_SOURCE_LABELS[report.source]} · {report.sourceName}
+        </span>
+      </p>
+      <p className="mt-3 text-xs text-slate-400">
+        {report.creatorName ?? 'Không rõ'} · {formatDate(report.updatedAt)}
+      </p>
+    </Link>
+  );
+}
+
+function ReportRow({ report }: ItemProps): React.ReactElement {
+  return (
+    <li>
+      <Link
+        to={`/reports/${report.id}`}
+        className="flex flex-wrap items-center gap-3 px-5 py-3.5 transition-colors hover:bg-slate-50"
+      >
+        <div className="min-w-0 flex-1">
+          <p className="truncate font-medium text-slate-900">{report.name}</p>
+          <p className="truncate text-sm text-slate-500">
+            {REPORT_SOURCE_LABELS[report.source]} · {report.sourceName}
+          </p>
+        </div>
+        {report.chartType === null ? (
+          <Badge tone="warning">Chưa có biểu đồ</Badge>
+        ) : (
+          <Badge tone="neutral">{CHART_TYPE_LABELS[report.chartType]}</Badge>
+        )}
+        <p className="text-xs text-slate-400">
+          {report.creatorName ?? 'Không rõ'} · {formatDate(report.updatedAt)}
+        </p>
+      </Link>
+    </li>
+  );
 }
 
 function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString('vi-VN');
 }
 
-function ProjectCard({ project, canEdit, onEdit, onDelete }: ItemProps): React.ReactElement {
-  return (
-    <article className="flex flex-col rounded-xl border border-slate-200 bg-white p-5">
-      <h3 className="font-semibold text-slate-900">{project.name}</h3>
-      <p className="mt-1 line-clamp-2 min-h-[2.5rem] text-sm text-slate-500">
-        {project.description ?? 'Không có mô tả'}
-      </p>
-      <p className="mt-3 text-xs text-slate-400">
-        {project.creatorName ?? 'Không rõ'} · {formatDate(project.updatedAt)}
-      </p>
-      {canEdit && (
-        <div className="mt-4 flex gap-2 border-t border-slate-100 pt-3">
-          <Button size="sm" variant="ghost" onClick={onEdit}>
-            Sửa
-          </Button>
-          <Button size="sm" variant="ghost" onClick={onDelete}>
-            Xoá
-          </Button>
-        </div>
-      )}
-    </article>
-  );
-}
-
-function ProjectRow({ project, canEdit, onEdit, onDelete }: ItemProps): React.ReactElement {
-  return (
-    <li className="flex flex-wrap items-center gap-3 px-5 py-3.5">
-      <div className="min-w-0 flex-1">
-        <p className="truncate font-medium text-slate-900">{project.name}</p>
-        <p className="truncate text-sm text-slate-500">
-          {project.description ?? 'Không có mô tả'}
-        </p>
-      </div>
-      <p className="text-xs text-slate-400">
-        {project.creatorName ?? 'Không rõ'} · {formatDate(project.updatedAt)}
-      </p>
-      {canEdit && (
-        <div className="flex gap-1">
-          <Button size="sm" variant="ghost" onClick={onEdit}>
-            Sửa
-          </Button>
-          <Button size="sm" variant="ghost" onClick={onDelete}>
-            Xoá
-          </Button>
-        </div>
-      )}
-    </li>
-  );
-}

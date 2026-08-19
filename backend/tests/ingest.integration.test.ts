@@ -10,6 +10,7 @@ import { closeMysql, mysqlPool } from '../src/config/mysql';
 import { closeRedis } from '../src/config/redis';
 import * as loadsRepo from '../src/repositories/datasetLoads';
 import * as datasetsRepo from '../src/repositories/datasets';
+import { deleteDataset } from '../src/services/connections/deleteDataset';
 import { queueAutoLoad } from '../src/services/ingest/autoLoad';
 import { memoryStorage } from '../src/storage/memoryStorage';
 import { chTableName } from '../src/services/ingest/buildDdl';
@@ -343,51 +344,60 @@ describe('hàng đợi', () => {
  * Cần `npm run infra:up` đang chạy. Dùng database riêng `bi_analytics_test`
  * (xem `vitest.config.ts`) để không đụng dữ liệu dev.
  */
-describe('dọn kho khi bộ dữ liệu không còn sống', () => {
-  it('listLiveIds bỏ bộ đã xoá mềm', async () => {
-    expect(await datasetsRepo.listLiveIds(mysqlPool)).toContain(f.datasetA);
+describe('dọn kho: xoá dataset KHÔNG đụng tới ClickHouse', () => {
+  it('listKnownIds GIỮ bộ đã xoá mềm — bảng trong kho phải sống sót', async () => {
+    // Đây là điều kiện để "xoá mềm" đúng nghĩa xoá mềm. Nếu janitor coi bộ đã
+    // xoá mềm là mồ côi, nó drop bảng sau một giờ và việc khôi phục trở thành
+    // không thể — chỉ chậm hơn một tiếng chứ không khác gì xoá cứng.
+    expect(await datasetsRepo.listKnownIds(mysqlPool)).toContain(f.datasetA);
 
     await mysqlPool.query('UPDATE datasets SET deleted_at = CURRENT_TIMESTAMP(3) WHERE id = ?', [
       f.datasetA,
     ]);
 
-    expect(await datasetsRepo.listLiveIds(mysqlPool)).not.toContain(f.datasetA);
+    expect(await datasetsRepo.listKnownIds(mysqlPool)).toContain(f.datasetA);
   });
 
-  it('listLiveIds bỏ bộ thuộc KẾT NỐI đã xoá — lỗ mà đường xoá dataset không đi qua', async () => {
-    // Xoá một kết nối làm mọi bộ dữ liệu của nó khuất khỏi giao diện nhưng
-    // `datasets.deleted_at` vẫn NULL. Nếu janitor chỉ nhìn `datasets.deleted_at`
-    // thì bảng của chúng nằm lại VĨNH VIỄN và không đường nào chạm tới nữa.
+  it('listKnownIds GIỮ bộ thuộc kết nối đã xoá', async () => {
+    // Xoá kết nối làm bộ dữ liệu khuất khỏi giao diện nhưng `deleted_at` vẫn
+    // NULL. Trước đây janitor dùng đúng lỗ này để dọn bảng; giờ thì không, vì
+    // khôi phục kết nối phải kéo theo cả dữ liệu đã nạp.
     const connId = await makeConnection(f.tenantA, f.alice);
     const datasetB = await makeConnectionDataset(f.tenantA, f.workspaceA, connId, f.alice);
-    expect(await datasetsRepo.listLiveIds(mysqlPool)).toContain(datasetB);
 
     await mysqlPool.query('UPDATE connections SET deleted_at = CURRENT_TIMESTAMP(3) WHERE id = ?', [
       connId,
     ]);
 
-    const live = await datasetsRepo.listLiveIds(mysqlPool);
-    expect(live).not.toContain(datasetB);
-    // Bộ nguồn `file` KHÔNG được vạ lây: nó không khớp dòng nào ở `LEFT JOIN`.
-    expect(live).toContain(f.datasetA);
+    const known = await datasetsRepo.listKnownIds(mysqlPool);
+    expect(known).toContain(datasetB);
+    expect(known).toContain(f.datasetA);
   });
 
-  it('clearLoadState xoá cả `ch_table` lẫn số dòng, không chỉ trạng thái', async () => {
+  it('chỉ id đã biến mất KHỎI MySQL mới là mồ côi', async () => {
+    // Nghĩa duy nhất còn lại của "mồ côi": không dòng `datasets` nào nhận. Thực
+    // tế chỉ xảy ra khi dòng bị xoá cứng theo dây chuyền.
+    const known = await datasetsRepo.listKnownIds(mysqlPool);
+    expect(known).not.toContain(999_999);
+  });
+
+  it('xoá dataset giữ nguyên trạng thái nạp, không dọn cờ', async () => {
+    // `ch_table` và `loaded_row_count` phải còn: bộ hồi sinh trỏ vào đúng bảng
+    // vẫn đang nằm trong kho, nên nó dùng được ngay mà không phải nạp lại.
     await datasetsRepo.markLoadStatus(mysqlPool, f.datasetA, 'loaded', {
       chTable: 'raw_t1_d1',
       rowCount: 50_000,
     });
 
-    await datasetsRepo.clearLoadState(mysqlPool, f.datasetA);
+    await deleteDataset(f.tenantA, f.datasetA);
 
     const [rows] = await mysqlPool.query<RowDataPacket[]>(
-      'SELECT load_status, ch_table, loaded_row_count, loaded_at FROM datasets WHERE id = ?',
+      'SELECT deleted_at, load_status, ch_table, loaded_row_count FROM datasets WHERE id = ?',
       [f.datasetA],
     );
-    // Để sót `ch_table` nghĩa là một bộ hồi sinh sẽ khoe "Đã nạp 50.000 dòng"
-    // trỏ vào một bảng không còn tồn tại.
-    expect(rows[0]).toMatchObject({ load_status: 'idle', ch_table: null, loaded_at: null });
-    expect(Number(rows[0]?.['loaded_row_count'])).toBe(0);
+    expect(rows[0]?.['deleted_at']).not.toBeNull();
+    expect(rows[0]).toMatchObject({ load_status: 'loaded', ch_table: 'raw_t1_d1' });
+    expect(Number(rows[0]?.['loaded_row_count'])).toBe(50_000);
   });
 });
 

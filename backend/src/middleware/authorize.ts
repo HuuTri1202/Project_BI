@@ -68,7 +68,7 @@ const RESOURCE_NOUNS: Record<Resource, string> = {
   chart: 'biểu đồ',
   workspace: 'workspace',
   member: 'thành viên',
-  project: 'project',
+
   tenant: 'thông tin tổ chức',
   connection: 'kết nối CSDL',
 };

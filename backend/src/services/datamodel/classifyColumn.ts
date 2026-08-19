@@ -1,4 +1,4 @@
-import type { ColumnRole, CubeType } from '@bi/shared';
+import type { ColumnRole, CubeType, MeasureAgg } from '@bi/shared';
 
 import { ROW_INDEX_COLUMN } from '../ingest/buildDdl';
 
@@ -95,7 +95,57 @@ export function cubeTypeOf(chType: string): CubeType {
  */
 export function defaultRoleOf(columnName: string, chType: string): ColumnRole {
   if (columnName === ROW_INDEX_COLUMN) return 'hidden';
-  return cubeTypeOf(chType) === 'number' ? 'measure' : 'dimension';
+  if (cubeTypeOf(chType) !== 'number') return 'dimension';
+
+  // Số nhưng là ĐỊNH DANH -> chiều, không phải thước đo. Xem `looksLikeIdentifier`.
+  return looksLikeIdentifier(columnName) ? 'dimension' : 'measure';
+}
+
+/**
+ * Từ cuối của tên cột nói rằng đây là một ĐỊNH DANH, không phải một lượng.
+ *
+ * ─── Vì sao cần, và bằng chứng ─────────────────────────────────────────────
+ *
+ * Luật "số → thước đo" đúng với `Sales`, `Profit`, `Quantity`. Nó sai với
+ * `Row ID` và `Postal Code`, và sai theo kiểu tệ nhất: `sum(Row ID)` trên
+ * `Global-Superstore` cho ra ~1,3 tỉ — một con số vô nghĩa nhưng trông y hệt
+ * tiền, nằm ngay cạnh `sum(Sales)` trong cùng một danh sách chọn.
+ *
+ * ─── Vì sao xét TỪ CUỐI chứ không phải cả tên ──────────────────────────────
+ *
+ * `contains('code')` sẽ nuốt luôn những cột hợp lệ như `Discount Code Value`
+ * hay `Số lượng mã hoá`. Từ cuối là nơi tiếng Anh lẫn tiếng Việt đều đặt danh
+ * từ chính của cụm: `Postal Code`, `Customer ID`, `Mã hàng` thì từ cuối là
+ * `hàng`… — nên với tiếng Việt luật này bắt được ít hơn, và đó là đánh đổi
+ * đúng chiều: bỏ sót thì người dùng sửa một lần ở tab Schemas, bắt nhầm thì
+ * một thước đo hợp lệ biến mất mà không ai để ý.
+ *
+ * Danh sách cố ý NGẮN. Mỗi từ thêm vào là một khả năng bắt nhầm.
+ */
+const IDENTIFIER_WORDS = new Set(['id', 'ids', 'code', 'key', 'no', 'num', 'zip', 'zipcode']);
+
+export function looksLikeIdentifier(columnName: string): boolean {
+  const last = columnName.trim().toLowerCase().split(/[\s_\-.]+/).filter(Boolean).pop();
+  return last !== undefined && IDENTIFIER_WORDS.has(last);
+}
+
+/**
+ * Phép gộp MẶC ĐỊNH cho một cột số.
+ *
+ * `sum` đúng với tiền và số lượng, nhưng vô nghĩa với TỈ LỆ: `Discount` của
+ * `Global-Superstore` nhận giá trị 0…0,85, và cộng 51.290 giá trị đó lại cho ra
+ * một con số không trả lời câu hỏi nào. `avg` mới là con số người ta muốn.
+ *
+ * Cũng là ĐOÁN, và cũng sửa được ở tab Schemas — nhưng đoán đúng ngay từ đầu
+ * tiết kiệm cho người dùng đúng cái lần họ chưa biết là mình cần sửa.
+ */
+const RATIO_WORDS = new Set([
+  'discount', 'rate', 'ratio', 'percent', 'percentage', 'pct', 'margin', 'lệ', 'suất',
+]);
+
+export function defaultAggOf(columnName: string): MeasureAgg {
+  const last = columnName.trim().toLowerCase().split(/[\s_\-.]+/).filter(Boolean).pop();
+  return last !== undefined && RATIO_WORDS.has(last) ? 'avg' : 'sum';
 }
 
 /**

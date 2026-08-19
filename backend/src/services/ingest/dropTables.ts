@@ -2,42 +2,30 @@ import { warehouse } from '../../config/clickhouse';
 import { env } from '../../config/env';
 import { mysqlPool } from '../../config/mysql';
 import * as datasetsRepo from '../../repositories/datasets';
-import { chTableName, qualified } from './buildDdl';
+import { qualified } from './buildDdl';
 
 /**
- * Dọn bảng trong kho phân tích khi bộ dữ liệu không còn sống (§9).
+ * Dọn bảng trong kho khi MySQL KHÔNG CÒN dòng nào nhận nó (§9).
  *
- * ─── Vì sao XOÁ BẢNG là an toàn, dù `datasets` chỉ xoá MỀM ──────────────────
+ * ─── Phạm vi đã HẸP LẠI, và đó là chủ ý ────────────────────────────────────
  *
- * Nghe thì mâu thuẫn: xoá mềm là để hoàn tác được, mà `DROP TABLE` thì không.
- * Nhưng bảng `raw_*` là **dẫn xuất**, không phải bản gốc — mọi thứ cần để dựng
- * lại nó đều sống sót qua lần xoá mềm:
+ * Bản trước có hai lớp: xoá ngay lúc người dùng bấm xoá dataset, cộng một lượt
+ * quét mỗi giờ. Lớp thứ nhất đã bị bỏ — xoá dataset nay là thao tác thuần
+ * MySQL, bảng `raw_*` giữ nguyên để khôi phục chỉ là gỡ `deleted_at` ra (xem
+ * `deleteDataset`).
  *
- *   nguồn `connection` → CSDL khách hàng còn nguyên, `dataset_columns` còn nguyên
- *   nguồn `file`       → `dataset_rows` và file trong MinIO đều KHÔNG bị xoá theo
+ * Nên "mồ côi" ở đây mang nghĩa hẹp và đúng nghĩa đen: bảng mà `datasets` không
+ * còn DÒNG NÀO trỏ tới, kể cả dòng đã xoá mềm. Thực tế chỉ xảy ra khi dòng bị
+ * xoá cứng theo dây chuyền — ví dụ một tổ chức bị xoá cứng — và khi đó không ai
+ * còn đường nào để đọc bảng ấy nữa.
  *
- * Nên cái mất đi khi drop là thời gian nạp lại, không phải dữ liệu. Và với nguồn
- * `connection`, người dùng thậm chí không thấy khoảng trống: đồng bộ lại hồi sinh
- * đúng id cũ (nhánh `deleted_at = NULL` của `datasets.upsert`), rồi nạp tự động
- * đổ đầy lại ngay.
+ * ⚠️ Hệ quả phải biết: bảng của một bộ dữ liệu ĐÃ XOÁ MỀM sẽ nằm lại vĩnh viễn.
+ * Xoá rồi tải lại cùng một file mười lần để lại mười bản đầy đủ trong kho, vì
+ * tải file luôn sinh id mới. Đây là cái giá đã cân nhắc của việc xoá mềm thật
+ * sự hoàn tác được, không phải một chỗ bị bỏ quên.
  *
- * ─── Vì sao cần CẢ hai lớp: xoá ngay VÀ quét định kỳ ────────────────────────
- *
- * Xoá ngay là đường nhanh, xử lý đúng trường hợp thường gặp. Nhưng nó không thể
- * kín, và ba lỗ dưới đây đều có thật:
- *
- *   1. ClickHouse tắt đúng lúc người dùng bấm xoá. Lệnh xoá vẫn phải thành công —
- *      bắt người dùng chờ kho phân tích sống lại mới xoá được một dòng trong
- *      MySQL là buộc hai thứ độc lập vào nhau.
- *   2. Xoá KẾT NỐI làm mọi bộ dữ liệu của nó khuất khỏi giao diện, nhưng
- *      `datasets.deleted_at` vẫn NULL (xem điều kiện `c.deleted_at IS NULL`
- *      trong `datasets.where`). Đường xoá dataset không hề chạy qua.
- *   3. Người dùng xoá GIỮA LÚC đang nạp. Lần nạp đó chạy tiếp và tạo lại đúng
- *      cái bảng ta vừa drop, ở bước `CREATE` trước `EXCHANGE TABLES`.
- *
- * Nên janitor không đọc `ch_table` mà **suy tên từ chính hai số nguyên** rồi đối
- * chiếu với danh sách còn sống. Nhờ vậy nó dọn được cả bảng mà MySQL đã quên mất
- * là mình từng có.
+ * Janitor không đọc `ch_table` mà **suy tên từ chính hai số nguyên**, nên nó dọn
+ * được cả bảng mà MySQL đã quên mất là mình từng có.
  */
 
 /**
@@ -51,44 +39,19 @@ import { chTableName, qualified } from './buildDdl';
 const RAW_TABLE_RE = /^raw_t(\d+)_d(\d+)(?:__new)?$/;
 
 /**
- * Xoá bảng của một bộ dữ liệu — cả bảng đang phục vụ lẫn bảng tạm.
- *
- * KHÔNG BAO GIỜ ném. Nơi gọi là đường xoá dataset, và ở đó dòng MySQL đã bị xoá
- * mềm xong rồi: ném ra lúc này sẽ trả về lỗi cho một thao tác đã thành công, và
- * người dùng bấm lại thì nhận 404. Dọn không được thì janitor lo.
- *
- * `SYNC` vì `bi_analytics` dùng engine `Atomic` — thiếu nó thì đĩa chỉ được trả
- * sau `database_atomic_delay_before_drop_table_sec` (mặc định 480 giây), tức là
- * "đã xoá" mà `du` vẫn không đổi trong tám phút.
- */
-export async function dropDatasetTables(tenantId: number, datasetId: number): Promise<void> {
-  const db = env.CLICKHOUSE_DATABASE;
-  const target = chTableName(tenantId, datasetId);
-
-  for (const table of [target, `${target}__new`]) {
-    try {
-      await warehouse.command({ query: `DROP TABLE IF EXISTS ${qualified(db, table)} SYNC` });
-    } catch (err) {
-      console.error(`[ingest] không xoá được bảng ${table} trong kho:`, err);
-    }
-  }
-}
-
-/**
- * Quét toàn kho, xoá bảng không còn bộ dữ liệu sống nào nhận.
+ * Quét toàn kho, xoá bảng không còn dòng `datasets` nào nhận.
  *
  * Trả về số bảng đã xoá. Ném ra ngoài nếu KHÔNG LIỆT KÊ ĐƯỢC — nơi gọi ghi log
  * rồi thử lại giờ sau. Còn lỗi của từng lệnh `DROP` lẻ thì nuốt tại chỗ: một
  * bảng đang bị khoá không được phép chặn 20 bảng còn lại.
  *
- * ⚠️ Thứ tự đọc là CỐ Ý: lấy danh sách còn sống TRƯỚC, liệt kê bảng SAU. Ngược
- * lại thì một bộ dữ liệu tạo ra giữa hai lần đọc sẽ có bảng nằm trong danh sách
- * quét nhưng id chưa kịp vào danh sách sống — và janitor xoá mất bảng vừa nạp
- * xong. Đọc theo thứ tự này thì trường hợp xấu nhất chỉ là bỏ sót một bảng tới
+ * ⚠️ Thứ tự đọc là CỐ Ý: lấy danh sách id TRƯỚC, liệt kê bảng SAU. Ngược lại thì
+ * một bộ dữ liệu tạo ra giữa hai lần đọc sẽ có bảng nằm trong danh sách quét
+ * nhưng id chưa kịp vào danh sách — và janitor xoá mất bảng vừa nạp xong. Đọc theo thứ tự này thì trường hợp xấu nhất chỉ là bỏ sót một bảng tới
  * lượt quét sau.
  */
 export async function sweepOrphanTables(): Promise<number> {
-  const liveIds = await datasetsRepo.listLiveIds(mysqlPool);
+  const knownIds = await datasetsRepo.listKnownIds(mysqlPool);
   const db = env.CLICKHOUSE_DATABASE;
 
   const rs = await warehouse.query({
@@ -104,7 +67,7 @@ export async function sweepOrphanTables(): Promise<number> {
     if (!m) continue;
 
     const datasetId = Number(m[2]);
-    if (liveIds.has(datasetId)) continue;
+    if (knownIds.has(datasetId)) continue;
 
     try {
       await warehouse.command({ query: `DROP TABLE IF EXISTS ${qualified(db, name)} SYNC` });

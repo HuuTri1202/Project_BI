@@ -9,7 +9,7 @@ import { resetDatabase } from './helpers/db';
 import {
   bearer,
   makeMembership,
-  makeProject,
+  makeReport,
   makeTenant,
   makeUser,
   makeWorkspace,
@@ -136,9 +136,6 @@ describe('bảng route — mọi endpoint đều có guard', () => {
 
   /** Admin HOẶC creator — viewer bị chặn. */
   const EDITOR_ROUTES: [Method, string][] = [
-    ['post', '/api/v1/projects'],
-    ['patch', '/api/v1/projects/1'],
-    ['delete', '/api/v1/projects/1'],
   ];
 
   const ALL = [...READ_ROUTES, ...ADMIN_ROUTES, ...EDITOR_ROUTES];
@@ -283,25 +280,6 @@ describe('cách ly tổ chức', () => {
     expect(res.status).toBe(404);
   });
 
-  it('project của tổ chức khác -> 404', async () => {
-    const projectB = await makeProject(f.tenantB, f.wsB, 'Báo cáo Beta');
-
-    const res = await request(app)
-      .patch(`/api/v1/projects/${projectB}`)
-      .set(bearer(f.tokenAlice))
-      .send({ name: 'Bị chiếm' });
-
-    expect(res.status).toBe(404);
-  });
-
-  it('không gắn được project vào workspace của tổ chức khác', async () => {
-    const res = await request(app)
-      .post('/api/v1/projects')
-      .set(bearer(f.tokenAlice))
-      .send({ workspaceId: f.wsB, name: 'Vượt biên' });
-
-    expect(res.status).toBe(404);
-  });
 });
 
 describe('trang Home (§4.3)', () => {
@@ -314,16 +292,18 @@ describe('trang Home (§4.3)', () => {
     expect([f.wsA, f.wsA2]).toContain(res.body.workspace.id);
   });
 
-  it('chỉ liệt kê project của workspace đang chọn', async () => {
-    await makeProject(f.tenantA, f.wsA, 'Doanh thu');
-    await makeProject(f.tenantA, f.wsA2, 'Công nợ');
+  it('chỉ liệt kê báo cáo của workspace đang chọn', async () => {
+    await makeReport(f.tenantA, f.wsA, 'Doanh thu');
+    await makeReport(f.tenantA, f.wsA2, 'Công nợ');
 
     const res = await request(app)
       .get(`/api/v1/home?workspaceId=${f.wsA}`)
       .set(bearer(f.tokenAlice));
 
-    const names = (res.body as { projects: { name: string }[] }).projects.map((p) => p.name);
+    const names = (res.body as { reports: { name: string }[] }).reports.map((r) => r.name);
     expect(names).toEqual(['Doanh thu']);
+    // `stats.reports` là TỔNG, không phải độ dài danh sách đã cắt trần.
+    expect(res.body.stats.reports).toBe(1);
   });
 
   it('workspace bị quản trị hệ thống khoá -> 403, không lặng lẽ đổi sang cái khác', async () => {
@@ -346,48 +326,6 @@ describe('trang Home (§4.3)', () => {
 
     expect(res.status).toBe(409);
     expect(res.body.error).toBe('NoWorkspace');
-  });
-});
-
-describe('project', () => {
-  it('creator tạo, sửa và xoá được', async () => {
-    const created = await request(app)
-      .post('/api/v1/projects')
-      .set(bearer(f.tokenBob))
-      .send({ workspaceId: f.wsA, name: 'Doanh thu quý 3', description: 'Theo khu vực' });
-
-    expect(created.status).toBe(201);
-    expect(created.body.name).toBe('Doanh thu quý 3');
-    // `created_by` phải là NGƯỜI GỌI, không phải giá trị nào client gửi lên.
-    expect(created.body.createdBy).toBe(f.bob);
-
-    const id = created.body.id as number;
-
-    const updated = await request(app)
-      .patch(`/api/v1/projects/${id}`)
-      .set(bearer(f.tokenBob))
-      .send({ name: 'Doanh thu quý 4' });
-    expect(updated.status).toBe(200);
-    expect(updated.body.name).toBe('Doanh thu quý 4');
-
-    expect(
-      (await request(app).delete(`/api/v1/projects/${id}`).set(bearer(f.tokenBob))).status,
-    ).toBe(204);
-
-    // Xoá MỀM: dòng vẫn còn, chỉ có `deleted_at`.
-    const [rows] = await mysqlPool.query<RowDataPacket[]>(
-      'SELECT deleted_at FROM projects WHERE id = ?',
-      [id],
-    );
-    expect(rows[0]?.['deleted_at']).not.toBeNull();
-  });
-
-  it('sort ngoài whitelist -> 400, không đi vào ORDER BY', async () => {
-    const res = await request(app)
-      .get(`/api/v1/projects?workspaceId=${f.wsA}&sort=password_hash`)
-      .set(bearer(f.tokenAlice));
-
-    expect(res.status).toBe(400);
   });
 });
 
@@ -515,8 +453,8 @@ describe('workspace (§4.5)', () => {
     ).toBe(204);
   });
 
-  it('xoá workspace còn project -> 409, không xoá lan sang project', async () => {
-    const projectId = await makeProject(f.tenantA, f.wsA, 'Đang dùng');
+  it('xoá workspace còn báo cáo -> 409, không xoá lan sang nội dung', async () => {
+    const reportId = await makeReport(f.tenantA, f.wsA, 'Đang dùng');
 
     const res = await request(app)
       .delete(`/api/v1/workspaces/${f.wsA}`)
@@ -526,8 +464,8 @@ describe('workspace (§4.5)', () => {
     expect(res.body.error).toBe('WorkspaceNotEmpty');
 
     const [rows] = await mysqlPool.query<RowDataPacket[]>(
-      'SELECT deleted_at FROM projects WHERE id = ?',
-      [projectId],
+      'SELECT deleted_at FROM reports WHERE id = ?',
+      [reportId],
     );
     expect(rows[0]?.['deleted_at']).toBeNull();
   });
@@ -1138,11 +1076,11 @@ describe('đổi tổ chức (§5.1)', () => {
       .set(bearer(f.tokenBob))
       .send({ tenantId: f.tenantB });
 
-    // Ở A anh ta là creator nên tạo được project. Ở B là viewer -> phải 403.
+    // Ở A anh ta là creator nên tạo được báo cáo. Ở B là viewer -> phải 403.
     const res = await request(app)
-      .post('/api/v1/projects')
+      .post('/api/v1/reports')
       .set(bearer(switched.body.token as string))
-      .send({ workspaceId: f.wsB, name: 'Thử vượt quyền' });
+      .send({ datasetId: 1, name: 'Thử vượt quyền' });
 
     expect(res.status).toBe(403);
   });

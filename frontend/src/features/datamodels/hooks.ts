@@ -1,4 +1,5 @@
 import type {
+  CreateFormulaMeasureInput,
   DataModelDetailDto,
   DataModelDto,
   DataModelMeasureDto,
@@ -6,6 +7,7 @@ import type {
   ExplorerFieldsDto,
   ExplorerQueryDto,
   ExplorerResultDto,
+  ExplorerSqlDto,
   PageResult,
 } from '@bi/shared';
 import {
@@ -30,6 +32,18 @@ import { dataModelKeys } from './keys';
  * cũ ngay sau khi người dùng tự tay đổi nó.
  */
 
+/**
+ * Danh sách mô hình của workspace ĐANG MỞ.
+ *
+ * Mô hình thuộc về một workspace và chỉ hiện trong workspace đó — cách ly là có
+ * chủ đích, không phải tác dụng phụ.
+ *
+ * ⚠️ Điều đó CHỈ đúng nếu đường tạo mô hình gửi `workspaceId` tường minh. Bỏ
+ * trống thì backend rơi vào `resolveWorkspace(undefined)`, nhánh này chọn
+ * workspace đầu tiên theo TÊN, và mô hình rơi vào một workspace khác chỗ người
+ * dùng đang đứng — nó biến mất khỏi danh sách ngay lập tức, trông hệt như dữ
+ * liệu không được lưu. Xem `CreateDataModelModal`.
+ */
 export function useDataModels(
   query: Omit<api.DataModelListQuery, 'workspaceId'>,
 ): UseQueryResult<PageResult<DataModelDto>> {
@@ -41,6 +55,27 @@ export function useDataModels(
     queryFn: () => api.fetchDataModels({ ...query, workspaceId: workspaceId as number }),
     enabled: workspaceId !== null,
     placeholderData: keepPreviousData,
+  });
+}
+
+/**
+ * Mô hình của CẢ tổ chức — chỉ dùng để giải thích một danh sách rỗng.
+ *
+ * Khi workspace đang mở không có mô hình nào, câu hỏi duy nhất người dùng cần
+ * trả lời là "vậy mấy cái tôi vừa làm đâu rồi". Một khung rỗng im lặng khiến họ
+ * kết luận là mất dữ liệu; đếm được số mô hình nằm ở workspace khác thì khung
+ * rỗng nói ra được chỗ cần tới.
+ *
+ * `enabled` để nó KHÔNG chạy ở trường hợp thường: danh sách có mô hình thì
+ * không có gì cần giải thích, và một request thừa mỗi lần mở trang là cái giá
+ * vô lý cho một dòng chữ hiếm khi hiện.
+ */
+export function useDataModelsElsewhere(enabled: boolean): UseQueryResult<PageResult<DataModelDto>> {
+  const query = { page: 1, pageSize: 100, q: '', sort: 'updatedAt', order: 'desc' as const };
+  return useQuery({
+    queryKey: dataModelKeys.list(null, query),
+    queryFn: () => api.fetchDataModels(query),
+    enabled,
   });
 }
 
@@ -151,26 +186,68 @@ export function useSaveSchema(
   });
 }
 
-export function useCreateMeasure(
-  id: number,
-): UseMutationResult<DataModelMeasureDto, unknown, Parameters<typeof api.createMeasure>[1]> {
+/**
+ * Thêm bảng vào mô hình đã có — §10.2.
+ *
+ * Endpoint tồn tại từ đầu nhưng không có đường nào gọi tới: mô hình chỉ nhận
+ * bảng đúng một lần lúc tạo, và sau đó muốn thêm một bảng thì phải xoá cả mô
+ * hình rồi dựng lại từ đầu, mất sạch alias, thước đo và quan hệ đã khai.
+ */
+export function useAddDatasets(id: number): UseMutationResult<DataModelDetailDto, unknown, number[]> {
   const invalidate = useInvalidateDataModel();
   return useMutation({
-    mutationFn: (input) => api.createMeasure(id, input),
+    mutationFn: (datasetIds) => api.addDatasets(id, datasetIds),
     onSuccess: invalidate,
   });
 }
 
-export function useUpdateMeasure(
+/** Sửa tên hiển thị / mô tả / khoá chính của một bảng trong mô hình — §10.3. */
+export function useUpdateModelDataset(
   id: number,
 ): UseMutationResult<
-  DataModelMeasureDto,
+  api.UpdateModelDatasetResult,
   unknown,
-  { measureId: number; input: Parameters<typeof api.updateMeasure>[2] }
+  { refId: number; input: api.UpdateModelDatasetInput }
 > {
   const invalidate = useInvalidateDataModel();
   return useMutation({
-    mutationFn: ({ measureId, input }) => api.updateMeasure(id, measureId, input),
+    mutationFn: ({ refId, input }) => api.updateModelDataset(id, refId, input),
+    onSuccess: invalidate,
+  });
+}
+
+export function useRemoveDataset(id: number): UseMutationResult<void, unknown, number> {
+  const invalidate = useInvalidateDataModel();
+  return useMutation({
+    mutationFn: (refId) => api.removeDataset(id, refId),
+    onSuccess: invalidate,
+  });
+}
+
+/*
+ * Không có `useCreateMeasure`/`useUpdateMeasure` ở đây, và đó là có chủ đích.
+ *
+ * Thước đo dựng-trên-cột được khai ở tab Schemas, đi chung nút "Lưu thay đổi"
+ * với tên hiển thị và vai trò — tức là qua `useSaveSchema`, một lần ghi cho cả
+ * bảng. Hai hook tạo/sửa từng thước đo là tàn dư của tab Measures đã bỏ; giữ
+ * lại thì lần sau có người gọi chúng và ghi đè mất phần cột trong cùng lần lưu.
+ *
+ * Endpoint phía backend thì VẪN CÒN: nó là đường duy nhất tạo một thước đo
+ * `count` cho mô hình dựng trước migration 14, và nó có test tích hợp.
+ */
+
+/**
+ * Tạo thước đo TÍNH TOÁN — §10.6.
+ *
+ * Quét cả cây `datamodels` như mọi thao tác ghi khác ở đây: một thước đo mới
+ * làm đổi bộ đếm trên đầu trang, danh sách thước đo, VÀ bộ chọn của Explorer.
+ */
+export function useCreateFormulaMeasure(
+  id: number,
+): UseMutationResult<DataModelMeasureDto, unknown, CreateFormulaMeasureInput> {
+  const invalidate = useInvalidateDataModel();
+  return useMutation({
+    mutationFn: (input) => api.createFormulaMeasure(id, input),
     onSuccess: invalidate,
   });
 }
@@ -225,4 +302,17 @@ export function useRunQuery(
   // phải khi họ vừa tích một ô. Mỗi lần tích một trường mà tự chạy là một lần
   // quét ClickHouse cho một câu hỏi chưa hoàn chỉnh.
   return useMutation({ mutationFn: (input) => api.runQuery(id, input) });
+}
+
+/**
+ * Câu lệnh SQL của một truy vấn.
+ *
+ * Cũng là `useMutation` như `useRunQuery`, và vì cùng một lý do: nó gọi sang
+ * Cube, nên chỉ chạy khi người dùng MỞ khối xem câu lệnh — không phải mỗi lần
+ * họ tích thêm một ô.
+ */
+export function useQuerySql(
+  id: number,
+): UseMutationResult<ExplorerSqlDto, unknown, ExplorerQueryDto> {
+  return useMutation({ mutationFn: (input) => api.querySql(id, input) });
 }

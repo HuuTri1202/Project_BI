@@ -31,9 +31,38 @@ export function isBlank(raw: string): boolean {
  * Chấp nhận dấu phân cách hàng nghìn kiểu Việt Nam (`1.234.567`) và kiểu Anh Mỹ
  * (`1,234,567`), nhưng CHỈ khi các nhóm đúng ba chữ số — nếu không thì `1.5` sẽ
  * bị hiểu thành "1 nghìn 5". Cũng chấp nhận `%` và khoảng trắng ở hai đầu.
+ *
+ * ─── Vì sao luật Việt Nam đòi MỘT trong hai bằng chứng ──────────────────────
+ *
+ * `-288.765` là một chuỗi mà không quy tắc nào phân xử được: nó vừa có thể là
+ * "âm 288 phẩy 765" (thập phân kiểu Anh Mỹ) vừa có thể là "âm 288 nghìn 765"
+ * (phân cách kiểu Việt Nam). Bản trước chọn cách đọc thứ hai, và cái giá của nó
+ * đã đo được trên dữ liệu thật — file `Global-Superstore`, 51.290 dòng:
+ *
+ *     Shipping Cost  6.871 ô sai (13,40 %)   Sales   6.469 ô (12,61 %)
+ *     Profit         3.496 ô sai ( 6,82 %)   Discount  629 ô ( 1,23 %)
+ *
+ *     "-288.765" -> -288765        tổng lợi nhuận 1.467.457 -> 5.414.779
+ *     "0.402"    ->     402        một cột TỈ LỆ mang giá trị 402
+ *
+ * Nên luật Việt Nam giờ đòi một bằng chứng KHÔNG mơ hồ, thay vì suy đoán:
+ *
+ *   `1.234.567`   hai nhóm nghìn trở lên — không đọc thành thập phân được
+ *   `1.234,56`    có dấu phẩy thập phân đi kèm — dấu chấm buộc phải là nghìn
+ *
+ * Không có bằng chứng thì dấu chấm là dấu thập phân. Cái giá của chiều ngược
+ * lại: `1.234` đứng một mình, không kèm dấu phẩy nào trong cả cột, giờ đọc là
+ * 1,234 chứ không phải 1234. Đó là ca thật sự 50/50, và ta chọn phía KHÔNG
+ * nhân dữ liệu lên 1000 lần — cùng nguyên tắc "nghi ngờ thì đừng biến đổi" đã
+ * ghi ở đầu file.
+ *
+ * ⚠️ Đây cũng là lý do `parseFile.cellText` được phép ép số về chuỗi: `String()`
+ * của JavaScript không bao giờ sinh dấu phân cách hàng nghìn, nên một ô SỐ của
+ * Excel đi qua chuỗi rồi quay lại vẫn nguyên giá trị. Trước khi sửa luật này thì
+ * không — và đó là đường mà lỗi trên đi vào.
  */
 const PLAIN_NUMBER = /^-?\d+(?:[.,]\d+)?$/;
-const GROUPED_VN = /^-?\d{1,3}(?:\.\d{3})+(?:,\d+)?$/;
+const GROUPED_VN = /^-?\d{1,3}(?:\.\d{3}){2,}(?:,\d+)?$|^-?\d{1,3}(?:\.\d{3})+,\d+$/;
 const GROUPED_EN = /^-?\d{1,3}(?:,\d{3})+(?:\.\d+)?$/;
 
 export function looksLikeNumber(raw: string): boolean {

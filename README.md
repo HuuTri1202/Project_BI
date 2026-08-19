@@ -20,7 +20,8 @@ mà **không cần viết SQL**.
 | **Phân quyền Casbin** — 8 tài nguyên × 4 hành động, policy trong database                 | ✅ xong                           |
 | **Kết nối CSDL & Kho dữ liệu** (§8) — MySQL, ClickHouse (SSL/TLS, xem trước dữ liệu)      | ✅ xong                           |
 | **Nạp dữ liệu vào ClickHouse** (§9) — bảng `raw_*`, nạp nền, nạp lại nguyên tử            | ✅ xong                           |
-| Mô hình dữ liệu (Cube schema) / phân tích tự phục vụ / biểu đồ                            | ⏳ chưa làm                       |
+| **Mô hình dữ liệu** (§10) — Cube schema, quan hệ, thước đo, Explorer                      | ✅ xong — xem mục _Mô hình dữ liệu_ |
+| Phân tích tự phục vụ / trình dựng biểu đồ                                                 | ⏳ chưa làm                       |
 
 Xem lộ trình đầy đủ và phân công theo tính năng trong tài liệu kế hoạch của nhóm.
 
@@ -860,6 +861,103 @@ docker exec bi-clickhouse clickhouse-client --user bi_user \
 
 ---
 
+## Mô hình dữ liệu (§10)
+
+Bốn tab, đều làm thật: **Schemas** (gắn nhãn cột), **Relationship** (sơ đồ nối
+bảng), **Measures** (thước đo), **Explorer** (hỏi thử). Năm tab _sắp có_ trước
+đây đã bỏ — chín tab tràn màn hình và đẩy bốn tab dùng được vào một thanh cuộn
+ngang, một cái giá quá đắt cho việc phác lộ trình.
+
+### Phạm vi: MỖI WORKSPACE MỘT KHO RIÊNG
+
+Luật của cả nền tảng: project, report, bộ dữ liệu và mô hình dữ liệu đều thuộc
+về **một workspace**, và không hiện ở workspace khác. Chỉ những thứ ở cấp tổ
+chức mới dùng chung — thành viên, kết nối CSDL, thông tin tổ chức.
+
+Trước đây hai chỗ lệch khỏi luật đó, và cả hai đều cho ra cùng một triệu chứng
+khó đoán.
+
+**a) Mô hình rơi nhầm workspace.** `POST /datamodels` không nhận `workspaceId`
+từ giao diện nên rơi vào `resolveWorkspace(undefined)` — nhánh này chọn workspace
+**đầu tiên theo tên** (`ORDER BY w.name ASC`), không liên quan gì tới nơi người
+dùng đang đứng. Mô hình vừa tạo biến mất khỏi danh sách ngay lập tức. Tổ chức
+một workspace thì hai thứ đó tình cờ trùng nhau nên lỗi không lộ ra.
+
+Chốt chặn giờ nằm ở **tầng kiểu**: `CreateDataModelInput.workspaceId` là bắt
+buộc, nên quên gửi là lỗi biên dịch chứ không phải một lỗi lúc chạy. Hộp thoại
+tạo mô hình cũng **nói ra** mô hình sẽ nằm ở workspace nào.
+
+**b) Kho dữ liệu ở phạm vi tổ chức.** `datasets.workspace_id` cho phép NULL, và
+`syncDatasets` **cố ý** ghi NULL cho mọi bảng đồng bộ từ kết nối — lý lẽ cũ là
+"kết nối là tài sản chung nên bảng lấy từ nó cũng vậy". Kết quả: bảng đồng bộ ở
+workspace A hiện luôn trong workspace B.
+
+Migration 11 sửa cả hai mức:
+
+| | |
+|---|---|
+| Điền workspace cho dòng đang trống | workspace cũ nhất của tổ chức — cái tạo lúc đăng ký |
+| `workspace_id` → `NOT NULL` | ràng buộc nằm ở **database**, không phải ở một quy ước code phải nhớ |
+| `uq_datasets_source` thêm `workspace_id` | hai workspace cùng đồng bộ được một bảng nguồn, mỗi bên một dòng riêng |
+
+⚠️ Câu `DROP INDEX` sẽ hỏng với `ER_DROP_INDEX_FK` nếu chạy trước:
+`fk_datasets_connection` không có chỉ mục riêng, nó đang **mượn tiền tố** của
+`uq_datasets_source`. Migration thêm `idx_datasets_connection` trước, và chỉ mục
+đó phải ở lại vĩnh viễn vì khoá duy nhất mới xen `workspace_id` vào giữa.
+
+### Danh sách rỗng phải NÓI RA chỗ dữ liệu đang nằm
+
+Cách ly đúng, nhưng một khung rỗng im lặng thì không phân biệt được "chưa làm
+gì" với "đang đứng nhầm workspace" — và người dùng đọc nó thành mất dữ liệu.
+
+Khi workspace đang mở không có mô hình nào, trang hỏi thêm **một** request không
+lọc workspace để đếm mô hình ở nơi khác, rồi hiện nút chuyển thẳng sang đó
+(`abc (1)`). Request đó `enabled` theo đúng điều kiện rỗng nên nó không chạy ở
+trường hợp thường.
+
+Đó là lý do `GET /datamodels` và `GET /datasets` vẫn giữ nhánh "bỏ trống
+`workspaceId` = cả tổ chức": không phải để giao diện dùng hằng ngày — giao diện
+luôn gửi workspace đang mở — mà để giải thích được một danh sách rỗng.
+
+### Đồng hồ lệch làm hỏng TOÀN BỘ Explorer
+
+Cái bẫy tốn nhiều thời gian nhất của §10, và triệu chứng của nó chỉ vào đúng chỗ
+sai. Express ký JWT cho Cube với hạn **60 giây** (cố ý ngắn — token mang quyền
+đọc dữ liệu cả một tổ chức). Nếu đồng hồ container đi trước đồng hồ máy ký quá
+60 giây thì token vừa ký đã hết hạn khi tới nơi.
+
+Chuỗi khiến nó khó tìm:
+
+1. `checkAuth` trong `cube.js` **ném** lỗi → gateway của Cube trả **500**, không
+   phải 401.
+2. `explain()` phía Express thấy 5xx → dịch thành *"Tầng ngữ nghĩa không trả lời
+   được truy vấn này"*.
+3. Người dùng đọc câu đó rồi đi sửa tab **Quan hệ** — hoàn toàn sai hướng, vì
+   truy vấn chỉ chạm **một** bảng cũng hỏng y hệt.
+
+Cách phân biệt trong 5 giây: chọn **một chiều + một thước đo trong cùng một
+bảng**. Nếu vẫn hỏng thì vấn đề không nằm ở quan hệ.
+
+```bash
+date -u                        # máy thật
+docker exec bi-cube date -u    # container
+```
+
+Cả `cube.js` lẫn `cubeClient.ts` nay gọi thẳng tên nguyên nhân thay vì để nó lẫn
+vào lỗi chung — `checkAuth` bắt riêng `TokenExpiredError` và `JsonWebTokenError`,
+còn Express soi **thân** phản hồi chứ không chỉ mã trạng thái, vì mã trạng thái
+ở đây nói dối. `clockTolerance: 30` chỉ để nuốt dao động vài giây; nó **không**
+phải chỗ để dung túng một đồng hồ sai.
+
+### Điều kiện để một khung rỗng được phép hiện
+
+`activeId === null` — tức là **không có gì để mở**, không phải "danh sách rỗng".
+Hai thứ đó chỉ trùng nhau khi danh sách và phần thân đọc cùng một phạm vi; lấy
+điều kiện từ danh sách trong khi phần thân đọc từ một endpoint khác là cách chắc
+chắn để hiện lời mời tạo mới chồng lên nội dung đang có.
+
+---
+
 ## Sự cố thường gặp
 
 | Triệu chứng                                                      | Nguyên nhân & cách xử lý                                                                                                                                                               |
@@ -873,6 +971,7 @@ docker exec bi-clickhouse clickhouse-client --user bi_user \
 | Trạng thái nạp kẹt ở **Đang nạp** mãi không đổi                  | Backend đã restart giữa chừng (hay gặp: `tsx watch` khi bạn lưu file). Lần boot sau tự đánh `failed` kèm lý do — bấm **Nạp lại**                                                       |
 | ClickHouse báo `Directory for table data already exists`         | Thiếu `SYNC` sau `DROP TABLE`. Database engine `Atomic` hoãn xoá thật 480 giây, nên nạp lại trong vòng 8 phút sẽ đâm vào thư mục cũ. Mọi câu `DROP` trong `loadDataset.ts` đều có `SYNC` |
 | Cube báo `ECONNREFUSED` tới ClickHouse                           | Mount cả thư mục `config.d` dạng `:ro` chặn image ghi `docker_related_config.xml`, ClickHouse chỉ nghe `127.0.0.1`. Compose đã mount từng file — đừng đổi lại                          |
+| Explorer báo *Đồng hồ … lệch nhau quá 60 giây* — **mọi** truy vấn hỏng, kể cả trong một bảng | Đồng hồ máy thật lệch đồng hồ container. Token Express ký cho Cube sống 60s nên nó "hết hạn" ngay khi tới nơi. So bằng `date -u` và `docker exec bi-cube date -u`; Windows hay chậm giờ (`w32tm /query /status` báo `Local CMOS Clock`) — mở PowerShell **quyền quản trị** rồi `w32tm /resync` |
 | Kafka client trên host timeout                                   | Phải dùng `localhost:29092` (listener `PLAINTEXT_HOST`), không phải 9092                                                                                                               |
 | `port is already allocated` khi `docker compose up`              | Máy đã có service giữ cổng đó (hay gặp: Redis/Memurai giữ 6379). Xem [docs/ports.md](docs/ports.md)                                                                                    |
 | `EADDRINUSE :::4000`                                             | Còn tiến trình backend cũ chưa chết hẳn. `npm run ports:free` — xem mục _Cổng bị chiếm_ bên dưới                                                                                       |

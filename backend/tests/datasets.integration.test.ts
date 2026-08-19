@@ -8,7 +8,14 @@ import { closeMysql, mysqlPool } from '../src/config/mysql';
 import { closeRedis } from '../src/config/redis';
 import { open } from '../src/services/connections/secretBox';
 import { resetDatabase } from './helpers/db';
-import { bearer, makeMembership, makeTenant, makeUser, signTokenFor } from './helpers/fixtures';
+import {
+  bearer,
+  makeMembership,
+  makeTenant,
+  makeUser,
+  makeWorkspace,
+  signTokenFor,
+} from './helpers/fixtures';
 
 /**
  * Test tích hợp §8 — Kết nối CSDL & Kho dữ liệu.
@@ -48,6 +55,17 @@ const SOURCE = {
 interface Fixture {
   tenantA: number;
   tenantB: number;
+  /**
+   * Mỗi tổ chức PHẢI có workspace.
+   *
+   * Trước đây fixture này không tạo workspace nào, và luồng đồng bộ vẫn chạy vì
+   * nó ghi `workspace_id = NULL`. Đó là một trạng thái không tồn tại ngoài đời:
+   * mọi tổ chức đều được tạo kèm một workspace lúc đăng ký. Từ migration 11 thì
+   * dataset bắt buộc thuộc một workspace, nên fixture phải mô tả đúng thực tế.
+   */
+  workspaceA: number;
+  workspaceA2: number;
+  workspaceB: number;
   alice: number;
   tokenAlice: string;
   tokenBob: string;
@@ -76,6 +94,11 @@ beforeEach(async () => {
   f = {
     tenantA,
     tenantB,
+    // `Kinh doanh` được tạo trước nên nó là workspace mặc định mà
+    // `resolveWorkspace` chọn khi request không nói rõ.
+    workspaceA: await makeWorkspace(tenantA, 'Kinh doanh', 'kinh-doanh'),
+    workspaceA2: await makeWorkspace(tenantA, 'Kho vận', 'kho-van'),
+    workspaceB: await makeWorkspace(tenantB, 'Kế toán', 'ke-toan'),
     alice,
     tokenAlice: signTokenFor(alice, tenantA, 'admin'),
     tokenBob: signTokenFor(bob, tenantA, 'creator'),
@@ -515,6 +538,72 @@ describe('cách ly tổ chức', () => {
         .status,
     ).toBe(404);
   });
+
+  /**
+   * Cách ly theo WORKSPACE, không chỉ theo tổ chức.
+   *
+   * Mỗi workspace quản lý kho riêng — bảng đồng bộ về ở workspace này không
+   * được hiện ở workspace khác. Trước migration 11, `syncDatasets` ghi
+   * `workspace_id = NULL` cho MỌI bảng đồng bộ, nên chúng hiện ở khắp nơi.
+   */
+  it('bảng đồng bộ ở workspace này KHÔNG hiện ở workspace khác', async () => {
+    const id = await makeConnection(f.tokenAlice);
+    await request(app)
+      .post(`/api/v1/connections/${id}/sync`)
+      .set(bearer(f.tokenAlice))
+      .send({
+        workspaceId: f.workspaceA,
+        tables: [{ schema: env.MYSQL_DATABASE, table: 'users' }],
+      });
+
+    const trongA = await request(app)
+      .get('/api/v1/datasets')
+      .query({ workspaceId: f.workspaceA })
+      .set(bearer(f.tokenAlice));
+    const trongA2 = await request(app)
+      .get('/api/v1/datasets')
+      .query({ workspaceId: f.workspaceA2 })
+      .set(bearer(f.tokenAlice));
+
+    expect(trongA.body.items.map((d: { name: string }) => d.name)).toEqual(['users']);
+    expect(trongA2.body.items).toEqual([]);
+  });
+
+  /**
+   * Hai workspace đồng bộ CÙNG một bảng nguồn thì mỗi bên có dòng riêng.
+   *
+   * Đây là thứ `uq_datasets_source` cũ không cho phép: khoá chỉ gồm (tenant,
+   * connection, schema, table) nên bảng `users` chỉ tồn tại được ở đúng một
+   * workspace trong cả tổ chức, và workspace thứ hai sẽ CƯỚP dòng của workspace
+   * thứ nhất thay vì tạo bản của mình.
+   */
+  it('hai workspace cùng đồng bộ một bảng nguồn -> hai dataset riêng', async () => {
+    const id = await makeConnection(f.tokenAlice);
+    const table = [{ schema: env.MYSQL_DATABASE, table: 'users' }];
+
+    for (const workspaceId of [f.workspaceA, f.workspaceA2]) {
+      const res = await request(app)
+        .post(`/api/v1/connections/${id}/sync`)
+        .set(bearer(f.tokenAlice))
+        .send({ workspaceId, tables: table });
+      // Cả hai lần đều là THÊM MỚI, không phải "không đổi" — nếu lần hai báo
+      // không đổi nghĩa là nó vừa ghi đè lên dòng của workspace kia.
+      expect(res.body.added).toEqual([`${env.MYSQL_DATABASE}.users`]);
+    }
+
+    const a = await request(app)
+      .get('/api/v1/datasets')
+      .query({ workspaceId: f.workspaceA })
+      .set(bearer(f.tokenAlice));
+    const a2 = await request(app)
+      .get('/api/v1/datasets')
+      .query({ workspaceId: f.workspaceA2 })
+      .set(bearer(f.tokenAlice));
+
+    expect(a.body.items).toHaveLength(1);
+    expect(a2.body.items).toHaveLength(1);
+    expect(a.body.items[0].id).not.toBe(a2.body.items[0].id);
+  });
 });
 
 describe('xem trước dữ liệu', () => {
@@ -672,14 +761,17 @@ describe('đồng bộ (§8.6, §8.7)', () => {
 
   it('bảng nguồn thêm cột -> lần đồng bộ sau cập nhật, không tạo bản mới', async () => {
     const id = await makeConnection(f.tokenAlice);
-    const table = { schema: env.MYSQL_DATABASE, table: 'projects' };
+    // Bảng nguồn chỉ cần là MỘT bảng có thật trong `bi_platform`; nội dung của
+    // nó không liên quan tới điều đang kiểm. Trước đây là `projects`, nay bảng
+    // đó không còn (migration 17).
+    const table = { schema: env.MYSQL_DATABASE, table: 'workspaces' };
     await sync(id, [table]);
 
     const before = await request(app).get('/api/v1/datasets').set(bearer(f.tokenAlice));
     const datasetId = before.body.items[0].id as number;
     const beforeCount = before.body.items[0].columnCount as number;
 
-    await mysqlPool.query('ALTER TABLE projects ADD COLUMN test_cot_moi VARCHAR(10) NULL');
+    await mysqlPool.query('ALTER TABLE workspaces ADD COLUMN test_cot_moi VARCHAR(10) NULL');
     try {
       const res = await sync(id, [table]);
       expect(res.body.updated).toHaveLength(1);
@@ -691,7 +783,7 @@ describe('đồng bộ (§8.6, §8.7)', () => {
       expect(after.body.columnCount).toBe(beforeCount + 1);
       expect(after.body.columns.map((c: { name: string }) => c.name)).toContain('test_cot_moi');
     } finally {
-      await mysqlPool.query('ALTER TABLE projects DROP COLUMN test_cot_moi');
+      await mysqlPool.query('ALTER TABLE workspaces DROP COLUMN test_cot_moi');
     }
   });
 

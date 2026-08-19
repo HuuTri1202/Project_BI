@@ -8,7 +8,7 @@ import type { PlatformRole, TenantRole } from './dto';
  * nên hầu hết đều mang theo `tenantId`/`tenantName` để biết dòng đó thuộc về ai.
  *
  * Mô hình:
- *   Tenant (công ty)  ──<  Workspace  ──<  Project
+ *   Tenant (công ty)  ──<  Workspace  ──<  Dataset / DataModel / Report
  *          │
  *          └──<  Membership  >──  User (định danh toàn cục)
  */
@@ -80,7 +80,8 @@ export interface PlatformWorkspaceDto {
   isActive: boolean;
   tenantId: number;
   tenantName: string;
-  projectCount: number;
+  /** Số báo cáo còn sống — xem `AdminWorkspaceDto.reportCount`. */
+  reportCount: number;
   createdAt: string;
 }
 

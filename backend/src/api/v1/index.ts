@@ -7,6 +7,7 @@ import {
   type CreateUploadResultDto,
   type DataModelColumnDto,
   type DataModelDetailDto,
+  type PrimaryKeyWarningDto,
   type DataModelDto,
   type DatasetColumnDto,
   type DatasetDetailDto,
@@ -36,7 +37,6 @@ import * as datamodelsRepo from '../../repositories/datamodels';
 import * as datasetsRepo from '../../repositories/datasets';
 import type { Db } from '../../repositories/db';
 import * as membershipsRepo from '../../repositories/memberships';
-import * as projectsRepo from '../../repositories/projects';
 import * as reportsRepo from '../../repositories/reports';
 import * as tenantsRepo from '../../repositories/tenants';
 import { createMember } from '../../services/admin/createMember';
@@ -68,8 +68,19 @@ import { cubeTypeOf } from '../../services/datamodel/classifyColumn';
 import { addDatasets, createDataModel } from '../../services/datamodel/createDataModel';
 import { pingCube } from '../../services/datamodel/cubeClient';
 import { regenerateTenant } from '../../services/datamodel/cubeSchemaService';
-import { explorerFields, runExplorerQuery } from '../../services/datamodel/explorer';
+import {
+  explainExplorerQuery,
+  explorerFields,
+  runExplorerQuery,
+} from '../../services/datamodel/explorer';
+import { checkPrimaryKey } from '../../services/datamodel/primaryKeyCheck';
 import { createRelationship } from '../../services/datamodel/relationships';
+import {
+  applyColumnMeasures,
+  createFormulaMeasure,
+  deleteMeasure,
+} from '../../services/datamodel/measures';
+import { aggregateFromModel } from '../../services/datamodel/modelReportData';
 import { aggregateInWarehouse } from '../../services/dataset/aggregateWarehouse';
 import { analyzeDataset, clearAnalyzeCache } from '../../services/dataset/analyze';
 import { commitDatasets } from '../../services/dataset/commit';
@@ -90,7 +101,7 @@ import {
   createDataModelBodySchema,
   createMeasureBodySchema,
   createMemberBodySchema,
-  createProjectBodySchema,
+  createModelReportBodySchema,
   createRelationshipBodySchema,
   createReportBodySchema,
   createUploadBodySchema,
@@ -102,10 +113,10 @@ import {
   listDatasetsQuerySchema,
   listLoadErrorsQuerySchema,
   listMembersQuerySchema,
-  listProjectsQuerySchema,
   listReportsQuerySchema,
   renameDatasetBodySchema,
   saveLayoutBodySchema,
+  createFormulaMeasureBodySchema,
   saveSchemaBodySchema,
   setActiveBodySchema,
   syncBodySchema,
@@ -113,7 +124,7 @@ import {
   updateConnectionBodySchema,
   updateDataModelBodySchema,
   updateMeasureBodySchema,
-  updateProjectBodySchema,
+  updateModelDatasetBodySchema,
   updateReportBodySchema,
   updateRoleBodySchema,
   updateTenantBodySchema,
@@ -229,7 +240,7 @@ async function resolveWorkspace(
     return { id: found.id, name: found.name, slug: found.slug, isActive: found.isActive };
   }
 
-  const all = await adminWorkspacesRepo.listWithProjectCount(db, tenantId);
+  const all = await adminWorkspacesRepo.listWithReportCount(db, tenantId);
   const first = all.find((w) => w.isActive);
   if (!first) {
     // Tổ chức nào cũng được tạo kèm một workspace lúc đăng ký, nên tới đây nghĩa
@@ -246,7 +257,13 @@ async function resolveWorkspace(
 
 // ─── §4.3 Dữ liệu trang Home ─────────────────────────────────────────────────
 
-const HOME_PROJECT_LIMIT = 12;
+/**
+ * Trần số báo cáo liệt kê trên trang Home.
+ *
+ * Trang chủ là bản tóm tắt, không phải trang danh sách: quá chừng này thì nó
+ * thành một danh sách dài mà không có ô tìm kiếm lẫn phân trang.
+ */
+const HOME_REPORT_LIMIT = 12;
 
 v1Router.get(
   '/home',
@@ -259,12 +276,20 @@ v1Router.get(
     // Tuần tự chứ không `Promise.all`: pool chỉ có 10 connection, và chiếm gấp
     // đôi connection để tiết kiệm vài mili-giây trên trang mà MỌI người dùng mở
     // đầu tiên là đổi chác sai chiều.
-    const projects = await projectsRepo.listRecent(
+    const reports = await reportsRepo.listRecent(
       mysqlPool,
       tenantId,
       workspace.id,
-      HOME_PROJECT_LIMIT,
+      HOME_REPORT_LIMIT,
     );
+    // Đếm RIÊNG chứ không lấy `reports.length`: danh sách trên đã bị cắt ở trần,
+    // nên dùng độ dài của nó làm thống kê sẽ đứng im ở 12 dù workspace có 300
+    // báo cáo — một con số sai mà trông hoàn toàn hợp lý.
+    const reportTotal = await reportsRepo.countReports(mysqlPool, tenantId, {
+      workspaceId: workspace.id,
+      page: 1,
+      pageSize: 1,
+    });
     const members = await adminMembersRepo.countMembers(mysqlPool, tenantId, {
       status: 'active',
       sort: 'joinedAt',
@@ -275,91 +300,10 @@ v1Router.get(
 
     const body: HomeDataDto = {
       workspace,
-      projects,
-      stats: { projects: projects.length, members },
+      reports,
+      stats: { reports: reportTotal, members },
     };
     res.json(body);
-  }),
-);
-
-// ─── Project ─────────────────────────────────────────────────────────────────
-
-v1Router.get(
-  '/projects',
-  asyncHandler(async (req, res) => {
-    const { tenantId } = requireAuth(req);
-    const query = listProjectsQuerySchema.parse(req.query);
-
-    const sort = resolveSortColumn(query.sort, projectsRepo.PROJECT_SORT_KEYS, 'updatedAt');
-    if (sort === null) {
-      throw badRequest('Cột sắp xếp không hợp lệ.', {
-        sort: `Chỉ nhận: ${projectsRepo.PROJECT_SORT_KEYS.join(', ')}`,
-      });
-    }
-
-    // Kiểm quyền trên workspace TRƯỚC khi liệt kê project của nó.
-    const workspace = await resolveWorkspace(mysqlPool, tenantId, query.workspaceId);
-
-    res.json(
-      await projectsRepo.listByWorkspace(mysqlPool, tenantId, {
-        workspaceId: workspace.id,
-        search: query.q,
-        sort,
-        order: query.order,
-      }),
-    );
-  }),
-);
-
-v1Router.post(
-  '/projects',
-  authorize('project', 'modify'),
-  asyncHandler(async (req, res) => {
-    const auth = requireAuth(req);
-    const body = createProjectBodySchema.parse(req.body);
-
-    const workspace = await resolveWorkspace(mysqlPool, auth.tenantId, body.workspaceId);
-
-    const id = await projectsRepo.createProject(mysqlPool, auth.tenantId, {
-      workspaceId: workspace.id,
-      name: body.name,
-      description: body.description ?? null,
-      createdBy: auth.userId,
-    });
-
-    res.status(201).json(await projectsRepo.findById(mysqlPool, auth.tenantId, id));
-  }),
-);
-
-v1Router.patch(
-  '/projects/:id',
-  authorize('project', 'modify'),
-  asyncHandler(async (req, res) => {
-    const { tenantId } = requireAuth(req);
-    const { id } = idParamSchema.parse(req.params);
-    const body = updateProjectBodySchema.parse(req.body);
-
-    const affected = await projectsRepo.updateProject(mysqlPool, tenantId, id, {
-      name: body.name,
-      description: body.description ?? null,
-    });
-    if (affected === 0) throw notFound('Không tìm thấy project này.');
-
-    res.json(await projectsRepo.findById(mysqlPool, tenantId, id));
-  }),
-);
-
-v1Router.delete(
-  '/projects/:id',
-  authorize('project', 'delete'),
-  asyncHandler(async (req, res) => {
-    const { tenantId } = requireAuth(req);
-    const { id } = idParamSchema.parse(req.params);
-
-    const affected = await projectsRepo.softDeleteProject(mysqlPool, tenantId, id);
-    if (affected === 0) throw notFound('Không tìm thấy project này.');
-
-    res.status(204).end();
   }),
 );
 
@@ -499,10 +443,10 @@ v1Router.post(
     const body = commitDatasetsBodySchema.parse(req.body);
 
     const staged = await datasetsRepo.findOne(mysqlPool, auth.tenantId, id);
-    // `workspaceId` và `originalFilename` chỉ null với bộ dữ liệu nguồn
-    // `connection`; `requireDataset` ngay dưới đây lọc đúng nguồn `file`, nhưng
-    // kiểu vẫn cho phép null nên phải chốt ở đây thay vì ép kiểu.
-    if (!staged || staged.workspaceId === null || staged.originalFilename === null) {
+    // `originalFilename` chỉ null với bộ dữ liệu nguồn `connection`;
+    // `requireDataset` ngay dưới đây lọc đúng nguồn `file`, nhưng kiểu vẫn cho
+    // phép null nên phải chốt ở đây thay vì ép kiểu.
+    if (!staged || staged.originalFilename === null) {
       throw notFound('Không tìm thấy bộ dữ liệu này.');
     }
     const { key, ext } = await requireDataset(auth.tenantId, id);
@@ -585,6 +529,10 @@ async function readDataModelDetail(tenantId: number, id: number): Promise<DataMo
       id: Number(row.id),
       datasetId: Number(row.dataset_id),
       datasetName: row.dataset_name,
+      displayName: row.display_name,
+      description: row.description,
+      primaryColumnId: row.primary_column_id === null ? null : Number(row.primary_column_id),
+      primaryColumnName: row.primary_column_name,
       chTable: chTableName(tenantId, Number(row.dataset_id)),
       canvasX: Number(row.canvas_x),
       canvasY: Number(row.canvas_y),
@@ -673,6 +621,59 @@ v1Router.post(
   }),
 );
 
+/**
+ * Tạo báo cáo dựng trên MÔ HÌNH — §10.8.
+ *
+ * Đường riêng chứ không nhồi vào `POST /reports`: thân request khác hẳn (ID
+ * chiều/thước đo thay cho tên cột), và quan trọng hơn là nó tạo ra một báo cáo
+ * ĐÃ có biểu đồ. Gộp làm một thì thân request thành một union mà zod báo lỗi
+ * theo kiểu "không khớp nhánh nào", vô ích cho người dùng.
+ *
+ * Kiểm chiều và thước đo NGAY tại đây, bằng chính `explorerFields` — tức là
+ * cùng `indexModel` mà `runExplorerQuery` sẽ dùng lúc vẽ, nên không có chuyện
+ * hai đường kiểm lệch nhau.
+ *
+ * Không hoãn tới lúc vẽ, vì báo cáo là thứ được LƯU LẠI: một ID sai lọt vào đây
+ * sẽ nằm im trong database và chỉ lộ ra khi ai đó mở báo cáo, lúc đó thành một
+ * bản ghi hỏng vĩnh viễn — chưa có màn sửa cấu hình để chọn lại. Explorer thì
+ * ngược lại, ở đó người dùng chỉ việc chọn lại rồi bấm Chạy.
+ */
+v1Router.post(
+  '/reports/from-datamodel',
+  authorize('report', 'modify'),
+  asyncHandler(async (req, res) => {
+    const auth = requireAuth(req);
+    const body = createModelReportBodySchema.parse(req.body);
+
+    // Tra mô hình TRONG phạm vi tổ chức. Đây là chỗ chặn một id của tổ chức
+    // khác, và nó phải đứng trước mọi thứ khác.
+    const model = await datamodelsRepo.findOne(mysqlPool, auth.tenantId, body.datamodelId);
+    if (!model) throw notFound('Không tìm thấy mô hình dữ liệu này.');
+
+    const fields = await explorerFields(auth.tenantId, model.id);
+    if (!fields.dimensions.some((f) => f.id === body.config.dimensionId)) {
+      throw badRequest('Chiều đã chọn không còn trong mô hình. Hãy tải lại trang rồi chọn lại.');
+    }
+    if (!fields.measures.some((f) => f.id === body.config.measureId)) {
+      throw badRequest('Thước đo đã chọn không còn trong mô hình. Hãy tải lại trang rồi chọn lại.');
+    }
+
+    const id = await reportsRepo.createModelReport(mysqlPool, auth.tenantId, {
+      // Báo cáo nằm cùng workspace với mô hình. Khác nhánh bộ dữ liệu — ở đó
+      // bộ dữ liệu §8 có thể chưa thuộc workspace nào nên phải rơi về workspace
+      // đang mở; mô hình thì luôn có.
+      workspaceId: model.workspaceId,
+      datamodelId: model.id,
+      name: body.name,
+      chartType: body.chartType,
+      config: body.config,
+      createdBy: auth.userId,
+    });
+
+    res.status(201).json(await reportsRepo.findById(mysqlPool, auth.tenantId, id));
+  }),
+);
+
 v1Router.get(
   '/reports',
   asyncHandler(async (req, res) => {
@@ -726,12 +727,33 @@ v1Router.get(
     // Báo cáo vừa được wizard tạo thì chưa có cấu hình — đó là trạng thái BÌNH
     // THƯỜNG, không phải hỏng. 409 kèm mã riêng để giao diện hiện lời mời dựng
     // biểu đồ thay vì màn hình lỗi.
-    if (report.config === null) {
+    if (report.config === null && report.modelConfig === null) {
       throw new HttpError(
         409,
         REPORT_ERROR_CODES.REPORT_NOT_CONFIGURED,
         'Báo cáo chưa được dựng biểu đồ.',
       );
+    }
+
+    // Báo cáo trên MÔ HÌNH đi đường khác hẳn: câu lệnh do Cube sinh, nên nó
+    // thừa hưởng cả phép nối lẫn thước đo tính toán của tầng ngữ nghĩa (§10.8).
+    if (report.source === 'datamodel') {
+      if (report.datamodelId === null || report.modelConfig === null) {
+        throw notFound('Mô hình dữ liệu của báo cáo này không còn tồn tại.');
+      }
+      res.json(
+        await aggregateFromModel(
+          tenantId,
+          requireAuth(req).userId,
+          report.datamodelId,
+          report.modelConfig,
+        ),
+      );
+      return;
+    }
+
+    if (report.datasetId === null || report.config === null) {
+      throw notFound('Bộ dữ liệu của báo cáo này không còn tồn tại.');
     }
 
     // Gom nhóm trong ClickHouse, KHÔNG đọc `dataset_rows` lên RAM nữa.
@@ -764,6 +786,16 @@ v1Router.patch(
 
     const existing = await reportsRepo.findById(mysqlPool, tenantId, id);
     if (!existing) throw notFound('Không tìm thấy báo cáo này.');
+
+    // Thân request ở đây mang cấu hình dạng TÊN CỘT, vốn chỉ có nghĩa với báo
+    // cáo dựng trên bộ dữ liệu. Nhận nó cho một báo cáo trên mô hình sẽ ghi đè
+    // `config` bằng một hình dạng mà `parseModelConfig` đọc ra `null` — báo cáo
+    // trở lại trạng thái "chưa có biểu đồ" và không có đường nào dựng lại.
+    if (existing.source === 'datamodel' || existing.datasetId === null) {
+      throw badRequest(
+        'Báo cáo dựng trên mô hình dữ liệu chưa sửa được ở đây. Hãy tạo báo cáo mới từ mô hình.',
+      );
+    }
 
     const columns = await datasetsRepo.listColumns(mysqlPool, existing.datasetId);
     validateConfig(columns, body.config);
@@ -855,7 +887,7 @@ v1Router.get(
   '/workspaces',
   asyncHandler(async (req, res) => {
     const { tenantId } = requireAuth(req);
-    res.json(await adminWorkspacesRepo.listWithProjectCount(mysqlPool, tenantId));
+    res.json(await adminWorkspacesRepo.listWithReportCount(mysqlPool, tenantId));
   }),
 );
 
@@ -902,15 +934,23 @@ v1Router.delete(
     const { id } = idParamSchema.parse(req.params);
 
     await withTransaction(async (conn) => {
-      const live = await adminWorkspacesRepo.countLiveProjects(conn, tenantId, id);
-      if (live > 0) {
-        // CHẶN thay vì xoá lan sang project. Xoá mềm dây chuyền, không có nút
-        // hoàn tác, là cách nhanh nhất làm mất dashboard của người khác. Báo số
-        // lượng để Admin biết mình đang định xoá cái gì.
+      // CHẶN thay vì xoá lan sang nội dung bên trong. Xoá mềm dây chuyền,
+      // không có nút hoàn tác, là cách nhanh nhất làm mất dashboard của người
+      // khác. Báo số lượng để Admin biết mình đang định xoá cái gì.
+      //
+      // Trước khi bỏ project, chỗ này đếm project. Đổi sang đếm BÁO CÁO và BỘ
+      // DỮ LIỆU chứ không bỏ hẳn: cái lưới an toàn này không liên quan gì tới
+      // project, nó chỉ tình cờ đo bằng project.
+      const live = await adminWorkspacesRepo.countLiveContent(conn, tenantId, id);
+      if (live.reports > 0 || live.datasets > 0) {
+        const parts = [
+          live.reports > 0 ? `${live.reports} báo cáo` : null,
+          live.datasets > 0 ? `${live.datasets} bộ dữ liệu` : null,
+        ].filter((x): x is string => x !== null);
         throw new HttpError(
           409,
           ADMIN_ERROR_CODES.WORKSPACE_NOT_EMPTY,
-          `Workspace còn ${live} project đang hoạt động. Hãy chuyển hoặc xoá chúng trước.`,
+          `Workspace còn ${parts.join(' và ')}. Hãy chuyển hoặc xoá chúng trước.`,
         );
       }
 
@@ -1323,9 +1363,14 @@ v1Router.post(
   asyncHandler(async (req, res) => {
     const { tenantId, userId } = requireAuth(req);
     const { id } = idParamSchema.parse(req.params);
-    const { tables } = syncBodySchema.parse(req.body);
+    const body = syncBodySchema.parse(req.body);
 
-    res.json(await syncDatasets(tenantId, id, tables, userId));
+    // Bảng đồng bộ về thuộc workspace người dùng đang mở, không phải "cả tổ
+    // chức" như bản đầu. Kết nối vẫn là tài sản chung — chỉ những bảng lấy ra
+    // từ nó mới thuộc về một workspace.
+    const workspace = await resolveWorkspace(mysqlPool, tenantId, body.workspaceId);
+
+    res.json(await syncDatasets(tenantId, id, body.tables, workspace.id, userId));
   }),
 );
 
@@ -1580,10 +1625,16 @@ v1Router.get(
       });
     }
 
-    const workspace = await resolveWorkspace(mysqlPool, tenantId, query.workspaceId);
+    // Thiếu `workspaceId` nghĩa là CẢ TỔ CHỨC — xem ghi chú ở `DataModelFilter`
+    // và ở `GET /datasets`, hai chỗ theo cùng một luật. Có gửi thì vẫn giải
+    // nghĩa qua `resolveWorkspace` để giữ nguyên lỗi 403 khi workspace bị khoá.
+    const workspaceId =
+      query.workspaceId === undefined
+        ? undefined
+        : (await resolveWorkspace(mysqlPool, tenantId, query.workspaceId)).id;
 
     const filter: datamodelsRepo.DataModelFilter = {
-      workspaceId: workspace.id,
+      workspaceId,
       search: query.q,
       sort,
       order: query.order,
@@ -1700,6 +1751,86 @@ v1Router.post(
   }),
 );
 
+/**
+ * Sửa mô tả của một BẢNG trong mô hình — §10.3: tên hiển thị, mô tả, khoá chính.
+ *
+ * Trả kèm CẢNH BÁO chứ không chặn khi cột khoá có giá trị trùng. Xem
+ * `primaryKeyCheck.ts` — cùng lý lẽ với cảnh báo lúc lưu quan hệ.
+ */
+v1Router.patch(
+  '/datamodels/:id/datasets/:refId',
+  authorize('datamodel', 'modify'),
+  asyncHandler(async (req, res) => {
+    const { tenantId } = requireAuth(req);
+    const { id } = idParamSchema.parse(req.params);
+    const refId = Number(req.params['refId']);
+    if (!Number.isInteger(refId) || refId <= 0) throw badRequest('Mã không hợp lệ.');
+
+    const body = updateModelDatasetBodySchema.parse(req.body);
+    await requireDataModel(tenantId, id);
+
+    const dataset = (await datamodelsRepo.listDatasets(mysqlPool, tenantId, id)).find(
+      (row) => Number(row.id) === refId,
+    );
+    if (dataset === undefined) throw notFound('Bộ dữ liệu này không có trong mô hình.');
+
+    // Cột khoá phải thuộc ĐÚNG bảng này. Đây là chỗ giữ cách ly tổ chức cho
+    // `primary_column_id`, vì khoá ngoại của nó chỉ có một cột — xem migration 12.
+    let primaryColumnName: string | null = null;
+    if (body.primaryColumnId !== null && body.primaryColumnId !== undefined) {
+      const column = await datamodelsRepo.findColumnInDataset(
+        mysqlPool,
+        tenantId,
+        id,
+        refId,
+        body.primaryColumnId,
+      );
+      if (column === null) throw badRequest('Cột khoá chính không thuộc bảng này.');
+      primaryColumnName = column.columnName;
+    }
+
+    /*
+     * `undefined` = KHÔNG ĐỤNG TỚI, `null` = xoá trống.
+     *
+     * Hai hộp thoại gửi hai tập trường khác nhau ("Đặt khoá chính" chỉ gửi
+     * `primaryColumnId`; "Sửa" chỉ gửi tên và mô tả). Ghi đè cả ba bằng giá trị
+     * nhận được sẽ khiến hộp thoại này lặng lẽ xoá trắng thứ hộp thoại kia vừa
+     * lưu — một lỗi không có thông báo nào và chỉ lộ ra khi người dùng quay lại
+     * nhìn.
+     */
+    const keep = <T,>(sent: T | undefined, current: T): T => (sent === undefined ? current : sent);
+    const blankToNull = (value: string | null): string | null =>
+      value === null || value.trim() === '' ? null : value;
+
+    await datamodelsRepo.updateDataset(mysqlPool, tenantId, id, refId, {
+      displayName: blankToNull(keep(body.displayName, dataset.display_name)),
+      description: blankToNull(keep(body.description, dataset.description)),
+      primaryColumnId: keep(
+        body.primaryColumnId,
+        dataset.primary_column_id === null ? null : Number(dataset.primary_column_id),
+      ),
+    });
+
+    await datamodelsRepo.touch(mysqlPool, tenantId, id);
+    // Tên hiển thị đi vào `title:` của file cube, nên phải sinh lại.
+    await regenerateTenant(tenantId);
+
+    // Đối chiếu với dữ liệu THẬT trong kho. Kho tắt hoặc bảng chưa nạp thì bỏ
+    // qua phần cảnh báo — không để một lần kiểm không chạy được làm hỏng cả thao
+    // tác lưu, vì cảnh báo là thông tin thêm chứ không phải điều kiện.
+    let warning: PrimaryKeyWarningDto | null = null;
+    if (primaryColumnName !== null) {
+      try {
+        warning = await checkPrimaryKey(tenantId, Number(dataset.dataset_id), primaryColumnName);
+      } catch {
+        warning = null;
+      }
+    }
+
+    res.json({ dataModel: await readDataModelDetail(tenantId, id), warning });
+  }),
+);
+
 v1Router.delete(
   '/datamodels/:id/datasets/:refId',
   authorize('datamodel', 'modify'),
@@ -1772,21 +1903,39 @@ v1Router.patch(
     const { tenantId } = requireAuth(req);
     const { id } = idParamSchema.parse(req.params);
     const body = saveSchemaBodySchema.parse(req.body);
+    const auth = requireAuth(req);
 
     await requireDataModel(tenantId, id);
 
-    for (const column of body.columns) {
-      const affected = await datamodelsRepo.updateColumn(mysqlPool, tenantId, id, {
-        columnId: column.columnId,
-        // Alias trùng tên cột gốc thì lưu `null`: giữ `null` nghĩa là cột đổi
-        // tên ở nguồn sẽ kéo theo nhãn hiển thị, thay vì đóng băng một bản chép.
-        alias: column.alias === null || column.alias === '' ? null : column.alias,
-        role: column.role,
-      });
-      // Id không thuộc mô hình này -> 0 dòng. Từ chối cả lô thay vì lưu một
-      // phần: người dùng bấm Lưu một lần và phải nhận một kết quả duy nhất.
-      if (affected === 0) throw badRequest('Có cột không thuộc mô hình này.');
-    }
+    // Cột và thước đo đi trong CÙNG một giao dịch: đổi tên hiển thị của cột
+    // cũng đổi tên thước đo dựng trên nó, nên lưu được nửa này mà hỏng nửa kia
+    // để lại một thước đo mang tên cũ của một cột đã đổi tên.
+    await withTransaction(async (conn) => {
+      for (const column of body.columns) {
+        const affected = await datamodelsRepo.updateColumn(conn, tenantId, id, {
+          columnId: column.columnId,
+          // Alias trùng tên cột gốc thì lưu `null`: giữ `null` nghĩa là cột đổi
+          // tên ở nguồn sẽ kéo theo nhãn hiển thị, thay vì đóng băng một bản chép.
+          alias: column.alias === null || column.alias === '' ? null : column.alias,
+          role: column.role,
+        });
+        // Id không thuộc mô hình này -> 0 dòng. Từ chối cả lô thay vì lưu một
+        // phần: người dùng bấm Lưu một lần và phải nhận một kết quả duy nhất.
+        if (affected === 0) throw badRequest('Có cột không thuộc mô hình này.');
+      }
+
+      // Chỉ những cột CÓ nói gì về thước đo. Vắng mặt `measureAgg` nghĩa là
+      // "đừng đụng tới", khác hẳn `null` nghĩa là "bỏ đi".
+      await applyColumnMeasures(
+        conn,
+        tenantId,
+        id,
+        auth.userId,
+        body.columns
+          .filter((c) => c.measureAgg !== undefined)
+          .map((c) => ({ columnId: c.columnId, measureAgg: c.measureAgg ?? null })),
+      );
+    });
 
     await datamodelsRepo.touch(mysqlPool, tenantId, id);
     await regenerateTenant(tenantId);
@@ -1909,12 +2058,47 @@ v1Router.delete(
     if (!Number.isInteger(measureId) || measureId <= 0) throw badRequest('Mã không hợp lệ.');
 
     await requireDataModel(tenantId, id);
-    const affected = await datamodelsRepo.softDeleteMeasure(mysqlPool, tenantId, id, measureId);
+    // Qua `deleteMeasure` chứ không gọi thẳng repo: nó chặn việc xoá một thước
+    // đo đang là vế của công thức khác, thứ sẽ làm Cube hỏng biên dịch và kéo
+    // sập cả tab Explorer.
+    const affected = await deleteMeasure(tenantId, id, measureId);
     if (affected === 0) throw notFound('Không tìm thấy thước đo này.');
 
     await datamodelsRepo.touch(mysqlPool, tenantId, id);
     await regenerateTenant(tenantId);
     res.status(204).end();
+  }),
+);
+
+/**
+ * §10.6 — thước đo TÍNH TOÁN.
+ *
+ * Route riêng chứ không thêm nhánh vào `POST /measures`: hai loại thước đo nhận
+ * hai bộ đầu vào không giao nhau (một bên là bảng + cột + phép gộp, một bên là
+ * hai id + phép + định dạng). Gộp lại sẽ thành một schema toàn trường tuỳ chọn,
+ * và mọi ràng buộc phải tự kiểm bằng tay thay vì để zod chặn.
+ */
+v1Router.post(
+  '/datamodels/:id/measures/formula',
+  authorize('datamodel', 'modify'),
+  asyncHandler(async (req, res) => {
+    const auth = requireAuth(req);
+    const { id } = idParamSchema.parse(req.params);
+    const body = createFormulaMeasureBodySchema.parse(req.body);
+
+    await requireDataModel(auth.tenantId, id);
+    const measureId = await createFormulaMeasure(auth.tenantId, id, auth.userId, body);
+
+    await datamodelsRepo.touch(mysqlPool, auth.tenantId, id);
+    await regenerateTenant(auth.tenantId);
+
+    res
+      .status(201)
+      .json(
+        (await datamodelsRepo.listMeasures(mysqlPool, auth.tenantId, id)).find(
+          (m) => m.id === measureId,
+        ),
+      );
   }),
 );
 
@@ -2086,6 +2270,28 @@ v1Router.post(
     const body = explorerQueryBodySchema.parse(req.body);
 
     res.json(await runExplorerQuery(auth.tenantId, auth.userId, id, body));
+  }),
+);
+
+/**
+ * §10.7 — câu lệnh Cube SẼ chạy cho truy vấn này, không chạy nó.
+ *
+ * Cùng quyền `datamodel:read` với chính truy vấn đó: nó không lộ thêm dữ liệu
+ * nào, chỉ lộ tên bảng vật lý và tên cột của mô hình người dùng đang mở — đúng
+ * những thứ tab Schemas đã hiện sẵn ở cột "Bảng vật lý".
+ *
+ * Nhận CÙNG body với `/query` để hai đường không thể lệch nhau: câu lệnh hiện ra
+ * phải là câu lệnh thật, nếu không màn này còn hại hơn không có.
+ */
+v1Router.post(
+  '/datamodels/:id/query/sql',
+  authorize('datamodel', 'read'),
+  asyncHandler(async (req, res) => {
+    const auth = requireAuth(req);
+    const { id } = idParamSchema.parse(req.params);
+    const body = explorerQueryBodySchema.parse(req.body);
+
+    res.json(await explainExplorerQuery(auth.tenantId, auth.userId, id, body));
   }),
 );
 

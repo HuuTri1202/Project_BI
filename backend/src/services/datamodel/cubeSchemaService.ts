@@ -100,12 +100,23 @@ async function buildModelFile(
         name: m.name,
         agg: m.agg,
         columnName: m.columnName,
+        // Hai vế của công thức LUÔN thuộc cùng cube này — ràng buộc đó do
+        // `createFormulaMeasure` giữ, và nó là lý do khối `sql` bên dưới tham
+        // chiếu được bằng tên trần `${m67}` mà không cần tiền tố cube.
+        formula:
+          m.formula === null
+            ? null
+            : { op: m.formula.op, leftId: m.formula.leftId, rightId: m.formula.rightId },
       }));
 
     return {
       dataModelId,
       datasetId,
-      label: row.dataset_name,
+      // Tên hiển thị RIÊNG của mô hình này thắng tên bộ dữ liệu. Cùng một bộ dữ
+      // liệu có thể đóng hai vai ở hai mô hình ("Đơn hàng" ở mô hình bán hàng,
+      // "Chứng từ" ở mô hình kế toán), và `title:` trong file cube là thứ người
+      // dùng nhìn thấy ở Explorer.
+      label: row.display_name ?? row.dataset_name,
       // Tên bảng SUY LẠI từ hai id thay vì đọc `datasets.ch_table`. Được phép vì
       // tên là hàm THUẦN của (tenantId, datasetId) — đó chính là lý do quy ước
       // đặt tên ở §9 không nhận một ký tự nào của người dùng.

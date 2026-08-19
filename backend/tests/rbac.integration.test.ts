@@ -227,19 +227,22 @@ describe('§6.4 middleware authorize gác đúng endpoint', () => {
    * Ma trận ở trên là lý thuyết. Đây là bằng chứng nó THẬT SỰ được thi hành:
    * mỗi dòng là một endpoint có thật, bắn bằng token có thật.
    */
-  it('creator tạo được project nhưng không mời được thành viên', async () => {
+  it('creator tạo được bộ dữ liệu nhưng không mời được thành viên', async () => {
     const ws = await mysqlPool.query(
       'INSERT INTO workspaces (tenant_id, name, slug) VALUES (?, ?, ?)',
       [f.tenantA, 'Kinh doanh', 'kinh-doanh'],
     );
     const wsId = (ws[0] as { insertId: number }).insertId;
 
+    // Chọn `datasets/uploads` làm ca "tạo được": nó là route ghi RẺ NHẤT của
+    // creator — không cần dựng sẵn một bộ dữ liệu như `POST /reports` đòi hỏi,
+    // mà vẫn đi qua đúng `authorize('dataset', 'modify')`.
     expect(
       (
         await request(app)
-          .post('/api/v1/projects')
+          .post('/api/v1/datasets/uploads')
           .set(bearer(f.tokenBob))
-          .send({ workspaceId: wsId, name: 'Báo cáo doanh thu' })
+          .send({ workspaceId: wsId, filename: 'doanh-thu.csv' })
       ).status,
     ).toBe(201);
 
@@ -255,7 +258,6 @@ describe('§6.4 middleware authorize gác đúng endpoint', () => {
 
   it('viewer bị chặn ở mọi thao tác ghi', async () => {
     const calls: [string, string][] = [
-      ['post', '/api/v1/projects'],
       ['post', '/api/v1/workspaces'],
       ['post', '/api/v1/members'],
       ['delete', '/api/v1/members/1'],

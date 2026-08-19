@@ -16,14 +16,14 @@ import type { ColumnRole } from '@bi/shared';
 export const NODE_W = 220;
 export const HEADER_H = 34;
 export const ROW_H = 22;
-/** Quá số này thì thẻ liệt kê "+ N cột nữa" thay vì cao vô tận. */
-export const MAX_ROWS = 8;
 export const CORNER_R = 8;
 
 export interface CanvasColumn {
   id: number;
   name: string;
   role: ColumnRole;
+  /** Khoá chính nghiệp vụ khai ở tab Schemas — vẽ dấu `PK` ở mép phải. */
+  isPrimary?: boolean;
 }
 
 export interface CanvasNode {
@@ -33,6 +33,15 @@ export interface CanvasNode {
   columns: CanvasColumn[];
   x: number;
   y: number;
+  /**
+   * Số cột KHÔNG vẽ ra vì thẻ đang thu gọn.
+   *
+   * Thẻ thu gọn nhận sẵn một `columns` đã rút bớt (xem `RelationshipCanvas`),
+   * nên mọi phép hình học bên dưới không phải biết gì về việc thu gọn. Con số
+   * này chỉ để vẽ thêm MỘT dòng "còn N cột" ở đáy — và vì nó chiếm một dòng
+   * thật nên `nodeHeight` phải cộng vào, nếu không viền thẻ cắt ngang chữ.
+   */
+  hiddenCount?: number;
 }
 
 export interface Point {
@@ -40,25 +49,31 @@ export interface Point {
   y: number;
 }
 
+/**
+ * Cột vẽ được của một thẻ.
+ *
+ * Chỉ lọc theo vai trò `Ẩn` — đó là lựa chọn của người dùng ở tab Schemas. Việc
+ * thu gọn thẻ KHÔNG xử lý ở đây: `RelationshipCanvas` rút `columns` trước khi
+ * đưa xuống, nên hàm này (và `anchorFor`, `columnAt`, `nodeHeight`) không cần
+ * biết thẻ đang mở hay đang gọn.
+ */
 export function visibleColumns(node: CanvasNode): CanvasColumn[] {
-  return node.columns.filter((c) => c.role !== 'hidden').slice(0, MAX_ROWS);
-}
-
-export function hiddenCount(node: CanvasNode): number {
-  return Math.max(0, node.columns.filter((c) => c.role !== 'hidden').length - MAX_ROWS);
+  return node.columns.filter((c) => c.role !== 'hidden');
 }
 
 export function nodeHeight(node: CanvasNode): number {
-  const rows = visibleColumns(node).length + (hiddenCount(node) > 0 ? 1 : 0);
-  return HEADER_H + rows * ROW_H + 6;
+  const summaryRow = (node.hiddenCount ?? 0) > 0 ? ROW_H : 0;
+  return HEADER_H + visibleColumns(node).length * ROW_H + summaryRow + 6;
 }
 
 /**
  * Điểm neo của đường nối.
  *
- * Neo vào ĐÚNG DÒNG của cột khoá khi cột đó nằm trong phần hiện ra — đó là thứ
- * khiến bức tranh nói được điều mà một bảng danh sách không nói: nhìn là thấy
- * NỐI BẰNG CỘT NÀO. Cột bị cắt khỏi danh sách thì neo vào giữa phần tiêu đề.
+ * Neo vào ĐÚNG DÒNG của cột khoá — đó là thứ khiến bức tranh nói được điều mà
+ * một bảng danh sách không nói: nhìn là thấy NỐI BẰNG CỘT NÀO.
+ *
+ * Nhánh `-1` giờ chỉ còn xảy ra với cột đặt vai trò `Ẩn`: nó không hiện thành
+ * dòng nào nên đường nối neo vào giữa phần tiêu đề thay vì rơi ra ngoài thẻ.
  */
 export function anchorFor(node: CanvasNode, columnId: number, side: 'l' | 'r'): Point {
   const index = visibleColumns(node).findIndex((c) => c.id === columnId);
@@ -94,6 +109,36 @@ export function edgePath(a: Point, b: Point): string {
     `Q ${mx} ${b.y} ${mx + CORNER_R} ${b.y} ` +
     `H ${b.x}`
   );
+}
+
+/**
+ * Cột nằm dưới một điểm — dùng để thả chuột khi KÉO NỐI hai bảng.
+ *
+ * Dò bằng SỐ HỌC chứ không bằng `document.elementFromPoint`: trong lúc kéo,
+ * `setPointerCapture` chuyển hướng mọi sự kiện về phần tử nguồn, nên trình duyệt
+ * không cho biết con trỏ đang ở trên phần tử nào. Kích thước thẻ là hằng số
+ * (xem đầu file) nên phép dò này chỉ là vài phép so sánh.
+ *
+ * Duyệt NGƯỢC danh sách: thẻ vẽ sau nằm đè lên thẻ vẽ trước, nên khi hai thẻ
+ * chồng nhau thì thẻ ở trên phải thắng — đúng thứ mắt người dùng thấy.
+ */
+export function columnAt(
+  nodes: readonly CanvasNode[],
+  point: Point,
+): { nodeId: number; columnId: number } | null {
+  for (let i = nodes.length - 1; i >= 0; i -= 1) {
+    const node = nodes[i];
+    if (node === undefined) continue;
+    if (point.x < node.x || point.x > node.x + NODE_W) continue;
+
+    const rows = visibleColumns(node);
+    const top = node.y + HEADER_H;
+    if (point.y < top || point.y >= top + rows.length * ROW_H) continue;
+
+    const column = rows[Math.floor((point.y - top) / ROW_H)];
+    if (column !== undefined) return { nodeId: node.id, columnId: column.id };
+  }
+  return null;
 }
 
 /** Hai thẻ nối nhau nên dùng mép nào. */

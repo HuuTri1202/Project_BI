@@ -26,7 +26,7 @@ export function WorkspaceSwitcher(): React.ReactElement {
   const items: SwitcherOption[] = options.map((w) => ({
     id: w.id,
     label: w.name,
-    meta: `${w.projectCount} project`,
+    meta: w.reportCount === 0 ? 'Trống' : `${w.reportCount} báo cáo`,
   }));
 
   const selected = current ? (items.find((i) => i.id === current.id) ?? null) : null;

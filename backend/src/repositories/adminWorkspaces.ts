@@ -31,18 +31,22 @@ interface WorkspaceListRow extends RowDataPacket {
   description: string | null;
   is_active: number;
   created_at: Date;
-  project_count: number;
+  report_count: number;
 }
 
+/*
+ * Đếm bằng CÂU CON, không phải `LEFT JOIN` + `GROUP BY`.
+ *
+ * Bản trước đếm project bằng phép nối, và phải kéo theo một hằng `GROUP_BY`
+ * liệt kê lại mọi cột — thêm một cột vào danh sách là phải nhớ sửa hai chỗ.
+ * Câu con giữ nguyên "một workspace một dòng" nên không cần gộp nhóm gì cả.
+ */
 const SELECT_LIST = `SELECT w.id, w.name, w.slug, w.description, w.is_active, w.created_at,
-            COUNT(p.id) AS project_count
-       FROM workspaces w
-       LEFT JOIN projects p
-              ON p.workspace_id = w.id
-             AND p.tenant_id = w.tenant_id
-             AND p.deleted_at IS NULL`;
-
-const GROUP_BY = 'GROUP BY w.id, w.name, w.slug, w.description, w.is_active, w.created_at';
+            (SELECT COUNT(*) FROM reports r
+              WHERE r.workspace_id = w.id
+                AND r.tenant_id = w.tenant_id
+                AND r.deleted_at IS NULL) AS report_count
+       FROM workspaces w`;
 
 function toDto(row: WorkspaceListRow): AdminWorkspaceDto {
   return {
@@ -51,29 +55,25 @@ function toDto(row: WorkspaceListRow): AdminWorkspaceDto {
     slug: row.slug,
     description: row.description,
     isActive: row.is_active === 1,
-    projectCount: Number(row.project_count),
+    reportCount: Number(row.report_count),
     createdAt: row.created_at.toISOString(),
   };
 }
 
 /**
- * Danh sách workspace kèm số project còn sống.
+ * Danh sách workspace kèm số BÁO CÁO còn sống.
  *
- * `LEFT JOIN ... GROUP BY` chứ không phải đếm từng cái trong vòng lặp: mười
- * workspace là mười vòng đi về database, và đó đúng là kiểu N+1 lặng lẽ trở
- * thành vấn đề khi dữ liệu lớn dần mà không ai để ý.
- *
- * `LEFT` chứ không phải `INNER`: workspace chưa có project nào vẫn phải xuất
- * hiện trong danh sách, với số 0.
+ * Một câu chứ không phải đếm từng cái trong vòng lặp: mười workspace là mười
+ * vòng đi về database, và đó đúng là kiểu N+1 lặng lẽ trở thành vấn đề khi dữ
+ * liệu lớn dần mà không ai để ý.
  */
-export async function listWithProjectCount(
+export async function listWithReportCount(
   db: Db,
   tenantId: number,
 ): Promise<AdminWorkspaceDto[]> {
   const [rows] = await db.query<WorkspaceListRow[]>(
     `${SELECT_LIST}
       WHERE w.tenant_id = ? AND w.deleted_at IS NULL
-      ${GROUP_BY}
       ORDER BY w.name ASC`,
     [tenantId],
   );
@@ -88,7 +88,6 @@ export async function findOne(
   const [rows] = await db.query<WorkspaceListRow[]>(
     `${SELECT_LIST}
       WHERE w.tenant_id = ? AND w.id = ? AND w.deleted_at IS NULL
-      ${GROUP_BY}
       LIMIT 1`,
     [tenantId, id],
   );
@@ -118,14 +117,31 @@ export async function renameWorkspace(
   return result.affectedRows;
 }
 
-/** Số project còn sống — dùng để chặn xoá workspace không rỗng. */
-export async function countLiveProjects(db: Db, tenantId: number, id: number): Promise<number> {
+/**
+ * Số NỘI DUNG còn sống trong workspace — dùng để chặn xoá workspace không rỗng.
+ *
+ * Trước khi bỏ project, hàm này đếm project. Nay nó đếm báo cáo và bộ dữ liệu,
+ * tức là đúng hai thứ người dùng sẽ mất đường vào nếu workspace biến mất. Không
+ * đếm mô hình dữ liệu: mô hình không chứa số liệu, và nó luôn đi kèm ít nhất
+ * một bộ dữ liệu vốn đã được đếm ở đây.
+ */
+export async function countLiveContent(
+  db: Db,
+  tenantId: number,
+  id: number,
+): Promise<{ reports: number; datasets: number }> {
   const [rows] = await db.query<RowDataPacket[]>(
-    `SELECT COUNT(*) AS total FROM projects
-      WHERE tenant_id = ? AND workspace_id = ? AND deleted_at IS NULL`,
-    [tenantId, id],
+    `SELECT
+       (SELECT COUNT(*) FROM reports
+         WHERE tenant_id = ? AND workspace_id = ? AND deleted_at IS NULL) AS reports,
+       (SELECT COUNT(*) FROM datasets
+         WHERE tenant_id = ? AND workspace_id = ? AND deleted_at IS NULL) AS datasets`,
+    [tenantId, id, tenantId, id],
   );
-  return Number(rows[0]?.['total'] ?? 0);
+  return {
+    reports: Number(rows[0]?.['reports'] ?? 0),
+    datasets: Number(rows[0]?.['datasets'] ?? 0),
+  };
 }
 
 /** Số workspace còn sống — dùng để chặn xoá cái CUỐI CÙNG của tổ chức. */

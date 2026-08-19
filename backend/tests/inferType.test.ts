@@ -65,6 +65,40 @@ describe('dấu phân cách hàng nghìn: hai quy ước', () => {
     expect(parseNumber(' 45% ')).toBe(45);
     expect(parseNumber('1 234')).toBe(1234);
   });
+
+  /**
+   * Hồi quy từ dữ liệu thật: `Global-Superstore`, cột `Profit` và `Discount`.
+   *
+   * MỘT nhóm ba chữ số sau dấu chấm KHÔNG đủ để kết luận là phân cách hàng
+   * nghìn — và cách đọc sai nhân giá trị lên đúng 1000 lần rồi đi thẳng vào
+   * biểu đồ mà không có gì báo. Xem chú thích ở `inferType.ts`.
+   */
+  it('MỘT nhóm ba chữ số là thập phân, không phải hàng nghìn', () => {
+    expect(parseNumber('-288.765')).toBe(-288.765);
+    expect(parseNumber('763.155')).toBe(763.155);
+    // Chiết khấu: một cột tỉ lệ 0..1, đọc sai thành 402 thì vô nghĩa ngay.
+    expect(parseNumber('0.402')).toBe(0.402);
+    // Vẫn phải được nhận là SỐ, không rơi về text.
+    expect(looksLikeNumber('-288.765')).toBe(true);
+    expect(looksLikeNumber('0.402')).toBe(true);
+  });
+
+  it('hai nhóm trở lên thì chắc chắn là hàng nghìn', () => {
+    // Không đọc thành thập phân được: một số chỉ có một dấu thập phân.
+    expect(parseNumber('1.234.567')).toBe(1234567);
+    expect(parseNumber('12.345.678,90')).toBe(12345678.9);
+  });
+
+  it('dấu phẩy thập phân đi kèm cũng là bằng chứng đủ', () => {
+    // `,56` đã chiếm chỗ dấu thập phân, nên dấu chấm buộc phải là hàng nghìn.
+    expect(parseNumber('1.234,56')).toBe(1234.56);
+  });
+
+  it('`1.234` trơ trọi: chọn phía KHÔNG biến đổi dữ liệu', () => {
+    // Ca thật sự mơ hồ. Đọc thành 1234 thì sai gấp 1000 lần khi đoán nhầm;
+    // đọc thành 1,234 thì sai đúng phần lẻ. Chọn cái sau.
+    expect(parseNumber('1.234')).toBe(1.234);
+  });
 });
 
 describe('ngày', () => {

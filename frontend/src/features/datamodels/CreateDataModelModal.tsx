@@ -8,6 +8,7 @@ import { Modal } from '../../components/ui/Modal';
 import { ErrorState } from '../../components/ui/states';
 import { useDatasets } from '../tenant/hooks';
 import { getApiError } from '../../services/apiClient';
+import { useWorkspace } from '../../workspace/useWorkspace';
 import { useCreateDataModel } from './hooks';
 
 /**
@@ -19,6 +20,18 @@ import { useCreateDataModel } from './hooks';
  * khi bộ dữ liệu được nạp (§9). Bộ chưa nạp vẫn HIỆN RA nhưng bị vô hiệu kèm
  * lý do — giấu hẳn thì người dùng tìm mãi không thấy bộ dữ liệu họ vừa tải lên
  * và không có gì giải thích vì sao.
+ *
+ * ─── `workspaceId` BẮT BUỘC phải gửi ────────────────────────────────────────
+ *
+ * Mô hình thuộc về một workspace, và danh sách ở trang Mô hình dữ liệu lọc theo
+ * workspace đang mở. Bỏ trống trường này thì backend rơi vào `resolveWorkspace`
+ * với `undefined`, và nhánh đó chọn workspace ĐẦU TIÊN THEO TÊN (`ORDER BY
+ * w.name ASC`) — không liên quan gì tới workspace người dùng đang xem.
+ *
+ * Tổ chức một workspace thì hai thứ đó tình cờ trùng nhau và lỗi không lộ ra.
+ * Tổ chức hai workspace trở lên thì mô hình vừa tạo rơi vào workspace khác, biến
+ * mất khỏi danh sách ngay lập tức, và người dùng thấy đúng một điều: công sức
+ * của họ không được lưu.
  */
 
 interface Props {
@@ -29,6 +42,7 @@ interface Props {
 export function CreateDataModelModal({ open, onClose }: Props): React.ReactElement {
   const navigate = useNavigate();
   const create = useCreateDataModel();
+  const { current: workspace } = useWorkspace();
 
   const [name, setName] = useState('');
   const [selected, setSelected] = useState<Set<number>>(new Set());
@@ -74,9 +88,13 @@ export function CreateDataModelModal({ open, onClose }: Props): React.ReactEleme
       setFormError('Hãy chọn ít nhất một bộ dữ liệu.');
       return;
     }
+    if (workspace === null) {
+      setFormError('Chưa chọn được workspace. Hãy tải lại trang.');
+      return;
+    }
 
     create.mutate(
-      { name: name.trim(), datasetIds: [...selected] },
+      { name: name.trim(), workspaceId: workspace.id, datasetIds: [...selected] },
       {
         onSuccess: (model) => {
           setName('');
@@ -120,6 +138,14 @@ export function CreateDataModelModal({ open, onClose }: Props): React.ReactEleme
             onChange={(e) => setName(e.target.value)}
             className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
           />
+          {/* Nói ra workspace đích. Mô hình chỉ hiện trong danh sách của đúng
+              workspace này, nên đó là thông tin người dùng cần TRƯỚC khi bấm
+              tạo, không phải sau khi đi tìm mãi không thấy. */}
+          {workspace !== null && (
+            <span className="mt-1 block text-xs text-slate-500">
+              Mô hình sẽ nằm trong workspace <strong>{workspace.name}</strong>.
+            </span>
+          )}
         </label>
 
         <div>

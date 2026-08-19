@@ -34,7 +34,6 @@ export async function resetDatabase(): Promise<void> {
     'dataset_columns',
     'datasets',
     'connections',
-    'projects',
     'workspaces',
     'memberships',
     'users',
