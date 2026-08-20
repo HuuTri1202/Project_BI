@@ -1,9 +1,14 @@
+import { readFile } from 'node:fs/promises';
+import path from 'node:path';
+
 import type { RowDataPacket } from 'mysql2';
 import request from 'supertest';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 
 import { createApp } from '../src/app';
+import { env } from '../src/config/env';
 import { closeMysql, mysqlPool } from '../src/config/mysql';
+import { cubeFileNameFor } from '../src/services/datamodel/cubeName';
 import { closeRedis } from '../src/config/redis';
 import { resetDatabase } from './helpers/db';
 import {
@@ -454,6 +459,101 @@ describe('§10 vòng đời mô hình', () => {
       .send({ primaryColumnId: b.columnIds[0] });
 
     expect(res.status).toBe(400);
+  });
+
+  /*
+   * §8.3.1 — mô tả của TỪNG CỘT.
+   *
+   * Ba ca dưới đây đi qua đúng đường mà giao diện đi (`PATCH /schema`), vì đó là
+   * chỗ duy nhất ghi được mô tả. Ca thứ ba kiểm tới tận FILE TRÊN ĐĨA: lưu vào
+   * MySQL mà không phát ra file cube nghĩa là câu mô tả không bao giờ tới được
+   * Explorer, và cả hai ca trên vẫn xanh trong tình huống đó.
+   */
+  it('§8.3.1 lưu mô tả của cột rồi đọc lại được', async () => {
+    const { columnIds } = await attachDataset(f.tenantA, f.modelA, f.datasetA);
+
+    const res = await request(app)
+      .patch(`/api/v1/datamodels/${f.modelA}/schema`)
+      .set(bearer(f.tokenAdminA))
+      .send({
+        columns: [
+          {
+            columnId: columnIds[0],
+            alias: 'Mã đơn',
+            description: 'Mã đơn hàng do hệ thống bán hàng cấp, KHÔNG phải mã hoá đơn.',
+            role: 'dimension',
+          },
+        ],
+      });
+
+    expect(res.status).toBe(200);
+    const column = res.body.datasets[0].columns.find(
+      (c: { id: number }) => c.id === columnIds[0],
+    );
+    expect(column.description).toBe(
+      'Mã đơn hàng do hệ thống bán hàng cấp, KHÔNG phải mã hoá đơn.',
+    );
+  });
+
+  it('§8.3.1 gửi thiếu `description` thì GIỮ NGUYÊN, gửi null thì xoá', async () => {
+    // Ba trạng thái, và cái ở giữa là cái dễ mất nhất: một hộp thoại chỉ đổi
+    // vai trò cột mà ghi đè vô điều kiện sẽ xoá trắng câu người dùng vừa viết,
+    // không có thao tác nào trên màn hình giải thích được vì sao chữ biến mất.
+    const { columnIds } = await attachDataset(f.tenantA, f.modelA, f.datasetA);
+    const token = bearer(f.tokenAdminA);
+    const url = `/api/v1/datamodels/${f.modelA}/schema`;
+    const id = columnIds[0];
+
+    await request(app)
+      .patch(url)
+      .set(token)
+      .send({ columns: [{ columnId: id, alias: null, description: 'Câu gốc', role: 'dimension' }] });
+
+    // Không nhắc tới `description` -> phải còn nguyên.
+    const giu = await request(app)
+      .patch(url)
+      .set(token)
+      .send({ columns: [{ columnId: id, alias: null, role: 'measure' }] });
+    expect(giu.body.datasets[0].columns[0].description).toBe('Câu gốc');
+    expect(giu.body.datasets[0].columns[0].role).toBe('measure');
+
+    // `null` -> xoá thật.
+    const xoa = await request(app)
+      .patch(url)
+      .set(token)
+      .send({ columns: [{ columnId: id, alias: null, description: null, role: 'measure' }] });
+    expect(xoa.body.datasets[0].columns[0].description).toBeNull();
+  });
+
+  it('§8.3.1 mô tả đi vào FILE CUBE, không chỉ nằm trong MySQL', async () => {
+    const { columnIds } = await attachDataset(f.tenantA, f.modelA, f.datasetA);
+
+    await request(app)
+      .patch(`/api/v1/datamodels/${f.modelA}/schema`)
+      .set(bearer(f.tokenAdminA))
+      .send({
+        columns: [
+          {
+            columnId: columnIds[0],
+            alias: null,
+            description: 'Chỉ tính đơn đã giao, không tính đơn huỷ.',
+            role: 'dimension',
+          },
+        ],
+      });
+
+    // `CUBE_SCHEMA_DIR` đã trỏ tới `model/tenants`; mỗi tổ chức một thư mục con.
+    // Dựng đường dẫn ở đây thay vì gọi hàm nội bộ của `cubeSchemaStore` là chủ
+    // ý: nếu quy ước thư mục đổi mà không ai sửa ca này thì ca này phải ĐỎ, chứ
+    // không âm thầm đi theo.
+    const duong = path.resolve(
+      process.cwd(),
+      env.CUBE_SCHEMA_DIR,
+      String(f.tenantA),
+      cubeFileNameFor(f.modelA),
+    );
+    const noiDung = await readFile(duong, 'utf8');
+    expect(noiDung).toContain('description: "Chỉ tính đơn đã giao, không tính đơn huỷ."');
   });
 
   it('sắp xếp theo cột không hợp lệ -> 400 kèm danh sách cột nhận được', async () => {

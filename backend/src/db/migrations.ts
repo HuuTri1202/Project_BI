@@ -1769,4 +1769,35 @@ export const migrations: readonly Migration[] = [
          ADD UNIQUE KEY uq_datamodel_measures_alive (datamodel_id, name_alive)`,
     ],
   },
+  {
+    id: 25,
+    name: 'column_description',
+    statements: [
+      // ═══ Mô tả cho TỪNG CỘT của mô hình (§8.3.1) ═══════════════════════════
+      //
+      // Mô hình đã có ba thứ nói về một cột: tên trong kho (`column_name`), tên
+      // hiển thị (`alias`) và vai trò (`role`). Cả ba đều ngắn, và không cái nào
+      // trả lời được câu hỏi hay gặp nhất khi người thứ hai mở mô hình lên:
+      // `SL_BAN` là số lượng bán trong kỳ hay số lượng bán luỹ kế?
+      //
+      // Đó là kiến thức chỉ người dựng mô hình có, và nếu không có chỗ để viết
+      // ra thì nó nằm trong đầu họ hoặc trong một file Excel nào đó — nghĩa là
+      // người dùng sau tự đoán, và một phép cộng trên cột đoán sai vẫn ra số.
+      //
+      // ─── Vì sao ở `datamodel_columns` chứ không ở `dataset_columns` ───────
+      //
+      // Cùng lập luận đã ghi cho chính bảng này ở migration 10: `dataset_columns`
+      // mô tả NGUỒN và dùng chung cho mọi mô hình, còn nghĩa thì thuộc về MÔ
+      // HÌNH. Cùng một cột `SL_BAN` là "số lượng bán" trong mô hình bán hàng và
+      // là "số lượng xuất kho" trong mô hình kho — hai câu đúng, và nhét vào
+      // bảng nguồn là bắt chúng đè lên nhau.
+      //
+      // 500 ký tự, khớp `description` của `datamodels` và của
+      // `datamodel_datasets`. NULL = chưa ai viết, khác chuỗi rỗng chỉ ở chỗ
+      // giao diện không phải phân biệt — nó hiện ô trống trong cả hai trường
+      // hợp, và `saveSchema` quy chuỗi rỗng về NULL trước khi ghi.
+      `ALTER TABLE datamodel_columns
+         ADD COLUMN description VARCHAR(500) NULL AFTER alias`,
+    ],
+  },
 ];

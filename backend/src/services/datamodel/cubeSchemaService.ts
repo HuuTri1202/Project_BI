@@ -91,6 +91,7 @@ async function buildModelFile(
       id: Number(c.id),
       columnName: c.column_name,
       label: c.alias ?? c.column_name,
+      description: c.description,
       role: c.role,
       cubeType: cubeTypeOf(c.ch_type),
     }));
@@ -101,6 +102,16 @@ async function buildModelFile(
         id: m.id,
         name: m.name,
         agg: m.agg,
+        /*
+         * Mô tả THỪA KẾ từ cột nguồn — §8.3.1.
+         *
+         * Thước đo dựng-trên-cột không có ô mô tả riêng, và không nên có: nó
+         * chính là cột đó cộng lại, nên bắt người dùng viết câu giải thích lần
+         * thứ hai là hỏi cùng một câu hai lần rồi để hai câu trả lời trôi ra
+         * khỏi nhau. Thước đo tính toán và đếm dòng thì `columnId` là null,
+         * và chúng không thừa kế của ai cả.
+         */
+        description: m.columnId === null ? null : columnById.get(m.columnId)?.description ?? null,
         // Biến thể phép gộp — §10.7, để Explorer đổi phép tại chỗ.
         //
         // CHỈ thước đo dựng-trên-cột mới có. Thước đo tính toán thì hai vế đã

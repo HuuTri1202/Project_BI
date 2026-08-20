@@ -803,6 +803,17 @@ export default function ExplorerTab(): React.ReactElement {
           selected={dimensions}
           onToggle={(id) => toggle('dimension', id)}
           emptyHint="Không có chiều nào. Kiểm vai trò cột ở tab Schemas."
+          /*
+           * Câu người dựng mô hình viết ở tab Schemas — §8.3.1.
+           *
+           * Ô `moTa` của nhóm thước đo đã bị PHÉP TÍNH chiếm chỗ, và đó là lựa
+           * chọn đúng ở đó: hai dòng "Doanh thu" cạnh nhau mà một cái là tiền
+           * một đơn còn cái kia là tổng cả nhóm thì phép tính là thứ phải nói
+           * trước. Chiều không có phép tính nào, nên ô đó đang trống — và câu
+           * hỏi người dùng mang tới đây ("cột này có gồm hàng trả lại không")
+           * chính là câu mô tả trả lời.
+           */
+          moTa={(field) => field.description}
         />
         {/*
          * Mỗi thước đo mang theo PHÉP TÍNH của nó ngay dưới tên.

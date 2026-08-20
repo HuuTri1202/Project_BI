@@ -380,6 +380,16 @@ export interface DataModelColumnDto {
   columnName: string;
   /** Tên người dùng muốn thấy. Trống thì lấy `columnName`. */
   alias: string | null;
+  /**
+   * Cột này NGHĨA LÀ GÌ — §8.3.1.
+   *
+   * Không phải trang trí. Tên cột trong kho thường là viết tắt (`SL_BAN`,
+   * `DT_LK`) và tên hiển thị chỉ nới nó ra được vài chữ; câu "số lượng bán
+   * trong kỳ, KHÔNG gồm hàng trả lại" thì không có chỗ nào khác để viết. Nó đi
+   * thẳng vào `description` của Cube, nên Explorer đọc lại đúng câu đó khi
+   * người dùng rê chuột lên trường.
+   */
+  description: string | null;
   role: ColumnRole;
   /** Kiểu ClickHouse đầy đủ, đọc từ `system.columns` lúc xem. */
   chType: string;
@@ -567,6 +577,15 @@ export interface ExplorerFieldDto {
   label: string;
   /** Tên bảng, để bộ chọn gom nhóm cho dễ tìm. */
   datasetName: string;
+  /**
+   * Mô tả viết ở tab Schemas — §8.3.1. `null` = chưa ai viết.
+   *
+   * Đây là chỗ nó ĐÁNG GIÁ nhất: người chọn trường trong Explorer thường không
+   * phải người dựng mô hình, và câu hỏi họ đang có là "cột này có gồm hàng trả
+   * lại không". Bắt họ mở tab Schemas để đọc câu trả lời là bắt họ rời khỏi
+   * việc đang làm.
+   */
+  description: string | null;
   cubeType: CubeType;
   /**
    * Phép gộp mô hình đang khai cho thước đo này. Chiều không có.
@@ -709,6 +728,12 @@ export interface SaveSchemaInput {
     columnId: number;
     alias: string | null;
     role: ColumnRole;
+    /**
+     * Mô tả của cột — cùng ba trạng thái với `measureAgg` ngay dưới.
+     *
+     * `undefined` = không đụng tới, `null` = xoá trống, chuỗi = đặt nó.
+     */
+    description?: string | null;
     /**
      * Phép gộp của thước đo dựng trên cột này.
      *

@@ -326,6 +326,61 @@ function parses(source: string): boolean {
   }
 }
 
+describe('§8.3.1 mô tả của cột đi vào file cube', () => {
+  it('có mô tả thì phát ra `description:`, và Cube đọc được nó', () => {
+    const out = build({
+      columns: [column({ description: 'Số lượng bán trong kỳ, KHÔNG gồm hàng trả lại.' })],
+    });
+    expect(out).toContain('description: "Số lượng bán trong kỳ, KHÔNG gồm hàng trả lại."');
+    expect(parses(out)).toBe(true);
+  });
+
+  it('KHÔNG có mô tả thì không phát ra dòng nào', () => {
+    // `description: null` cũng chạy, nhưng `/meta` khi đó trả một trường null
+    // cho mọi cột và giao diện phải phân biệt "chưa viết" với "viết rỗng" — một
+    // phân biệt không mang nghĩa gì.
+    expect(build({ columns: [column()] })).not.toContain('description:');
+    expect(build({ columns: [column({ description: null })] })).not.toContain('description:');
+    // Chuỗi toàn khoảng trắng cũng là chưa viết gì. Không lọc thì một lần bấm
+    // phím cách nhầm cho ra `description: "   "` nằm trong file cube vĩnh viễn.
+    expect(build({ columns: [column({ description: '   ' })] })).not.toContain('description:');
+  });
+
+  it('mô tả là VĂN BẢN TỰ DO, nên nó cũng là một đường chèn mã', () => {
+    /*
+     * Cùng cái bẫy đã ghi ở đầu `buildCubeSchema.ts`, chỉ khác chỗ vào: trước
+     * đây mọi chuỗi từ người dùng đi vào file đều là TÊN (tên cột, tên thước
+     * đo), và tên thì còn bị các luật khác giới hạn. Mô tả thì không — nó là
+     * một ô nhập 500 ký tự bất kỳ, tức là đường ngắn nhất từ bàn phím tới một
+     * file JS mà Cube sắp `require()`.
+     */
+    const out = build({
+      columns: [column({ description: '`, sql: `1=1`, x: process.exit(), y: `' })],
+    });
+    expect(parses(out)).toBe(true);
+    // Không có `process.exit()` nào lọt ra ngoài chuỗi: nó vẫn nằm nguyên
+    // trong một string literal.
+    expect(out).toContain(JSON.stringify('`, sql: `1=1`, x: process.exit(), y: `'));
+  });
+
+  it('thước đo THỪA KẾ mô tả của cột nguồn', () => {
+    const out = build({
+      measures: [
+        {
+          id: 58,
+          name: 'Tổng tiền',
+          agg: 'sum',
+          columnName: 'doanh_thu',
+          formula: null,
+          description: 'Doanh thu đã trừ chiết khấu.',
+        },
+      ],
+    });
+    expect(out).toContain('description: "Doanh thu đã trừ chiết khấu."');
+    expect(parses(out)).toBe(true);
+  });
+});
+
 describe('§10.6 gộp trên BIỂU THỨC DÒNG', () => {
   /*
    * Đây là chỗ khác giữa hai con số, không phải hai lối viết cho cùng một số.

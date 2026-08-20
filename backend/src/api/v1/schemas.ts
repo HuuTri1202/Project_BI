@@ -416,6 +416,15 @@ export const saveSchemaBodySchema = z.object({
       z.object({
         columnId: z.coerce.number().int().positive(),
         alias: z.string().trim().max(255).nullable(),
+        /*
+         * Mô tả của cột — §8.3.1.
+         *
+         * Ba trạng thái, đúng khuôn `measureAgg` ngay dưới: vắng mặt là "đừng
+         * đụng tới", `null` là "xoá trống", chuỗi là "đặt nó". Không dùng
+         * `.default(null)`: default biến một trường vắng mặt thành lệnh XOÁ, tức
+         * là biến ba trạng thái thành hai và mất đúng cái ở giữa.
+         */
+        description: z.string().trim().max(500).nullable().optional(),
         role: z.enum(COLUMN_ROLES),
         // `.optional().nullable()` chứ không `.nullish()` gộp một chỗ: ba
         // trạng thái ở đây mang ba nghĩa khác nhau — vắng mặt là "đừng đụng

@@ -91,6 +91,14 @@ export interface SchemaColumn {
   columnName: string;
   /** Tên hiển thị đã giải sẵn (`alias ?? columnName`). */
   label: string;
+  /**
+   * Mô tả người dùng viết ở tab Schemas — §8.3.1. `null` = chưa ai viết.
+   *
+   * Nó đi vào `description:` của Cube chứ không chỉ nằm trong MySQL, vì đó là
+   * nơi Explorer đọc được nó. Viết một câu giải thích rồi nó chỉ hiện lại ở
+   * đúng ô vừa gõ thì không ai buồn viết lần thứ hai.
+   */
+  description?: string | null | undefined;
   role: 'dimension' | 'measure' | 'hidden';
   cubeType: CubeType;
 }
@@ -99,6 +107,8 @@ export interface SchemaMeasure {
   id: number;
   name: string;
   agg: MeasureAgg;
+  /** Thừa kế từ cột nguồn — xem `cubeSchemaService`. `null` với thước đo tính toán. */
+  description?: string | null | undefined;
   /**
    * Các phép gộp KHÁC cũng phát ra cho cùng cột này, để Explorer đổi tại chỗ.
    *
@@ -225,12 +235,31 @@ function comment(text: string): string {
   return text.replace(/[\r\n]+/g, ' ').slice(0, 120);
 }
 
+/**
+ * Dòng `description:` — CHỈ khi có chữ.
+ *
+ * Phát ra `description: null` cũng chạy, nhưng `/meta` của Cube khi đó trả về
+ * một trường `description` mang giá trị null cho mọi cột, và giao diện phải
+ * phân biệt "không có mô tả" với "có mô tả rỗng" — một phân biệt không mang
+ * nghĩa gì. Vắng mặt hẳn thì `field.description === undefined` là câu trả lời
+ * duy nhất và đúng.
+ *
+ * `js()` chứ không phải ghép chuỗi: mô tả là văn bản TỰ DO người dùng gõ, nên
+ * nó là đường ngắn nhất từ một ô input tới mã trong file cube — đúng cái bẫy đã
+ * ghi ở đầu file này, chỉ khác chỗ vào.
+ */
+function descriptionLine(text: string | null | undefined, indent: string): string[] {
+  if (text === null || text === undefined || text.trim() === '') return [];
+  return [`${indent}description: ${js(text)},`];
+}
+
 function dimensionBlock(column: SchemaColumn): string {
   const name = dimensionNameFor(column.id);
   return [
     `    // ${comment(column.columnName)}`,
     `    ${name}: {`,
     `      title: ${js(column.label)},`,
+    ...descriptionLine(column.description, '      '),
     `      sql: ${cubeColumn(column.columnName)},`,
     `      type: ${js(column.cubeType)},`,
     `    },`,
@@ -362,7 +391,11 @@ function measureBlocks(measure: SchemaMeasure): string {
 
 function measureBlock(measure: SchemaMeasure & { variantAgg?: MeasureAgg }): string {
   const name = measureNameFor(measure.id, measure.variantAgg);
-  const lines = [`    ${name}: {`, `      title: ${js(measure.name)},`];
+  const lines = [
+    `    ${name}: {`,
+    `      title: ${js(measure.name)},`,
+    ...descriptionLine(measure.description, '      '),
+  ];
 
   if (measure.formula !== null) {
     const left = measureNameFor(measure.formula.leftId);

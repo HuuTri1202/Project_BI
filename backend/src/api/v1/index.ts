@@ -516,6 +516,7 @@ async function readDataModelDetail(tenantId: number, id: number): Promise<DataMo
       id: Number(row.id),
       columnName: row.column_name,
       alias: row.alias,
+      description: row.description,
       role: row.role,
       chType: row.ch_type,
       cubeType: cubeTypeOf(row.ch_type),
@@ -1921,6 +1922,13 @@ v1Router.patch(
           // tên ở nguồn sẽ kéo theo nhãn hiển thị, thay vì đóng băng một bản chép.
           alias: column.alias === null || column.alias === '' ? null : column.alias,
           role: column.role,
+          // Vắng mặt thì KHÔNG truyền tiếp, để repository giữ nguyên dòng cũ.
+          // Chuỗi rỗng quy về `null` — cùng lý lẽ với alias ngay trên: ô trống
+          // trên màn hình phải cho ra cùng một giá trị dù người dùng chưa gõ gì
+          // hay vừa xoá sạch những gì đã gõ.
+          ...(column.description === undefined
+            ? {}
+            : { description: column.description === '' ? null : column.description }),
         });
         // Id không thuộc mô hình này -> 0 dòng. Từ chối cả lô thay vì lưu một
         // phần: người dùng bấm Lưu một lần và phải nhận một kết quả duy nhất.

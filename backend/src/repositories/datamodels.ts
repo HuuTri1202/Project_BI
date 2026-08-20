@@ -391,6 +391,7 @@ export interface ModelColumnRow extends RowDataPacket {
   datamodel_dataset_id: number;
   column_name: string;
   alias: string | null;
+  description: string | null;
   role: ColumnRole;
   ch_type: string;
   ordinal: number;
@@ -402,7 +403,8 @@ export async function listColumns(
   dataModelId: number,
 ): Promise<ModelColumnRow[]> {
   const [rows] = await db.query<ModelColumnRow[]>(
-    `SELECT c.id, c.datamodel_dataset_id, c.column_name, c.alias, c.role, c.ch_type, c.ordinal
+    `SELECT c.id, c.datamodel_dataset_id, c.column_name, c.alias, c.description,
+            c.role, c.ch_type, c.ordinal
        FROM datamodel_columns c
        JOIN datamodel_datasets dmd ON dmd.id = c.datamodel_dataset_id
       WHERE c.tenant_id = ? AND dmd.datamodel_id = ?
@@ -419,7 +421,7 @@ export async function listColumnsOfDataset(
   datamodelDatasetId: number,
 ): Promise<ModelColumnRow[]> {
   const [rows] = await db.query<ModelColumnRow[]>(
-    `SELECT id, datamodel_dataset_id, column_name, alias, role, ch_type, ordinal
+    `SELECT id, datamodel_dataset_id, column_name, alias, description, role, ch_type, ordinal
        FROM datamodel_columns
       WHERE tenant_id = ? AND datamodel_dataset_id = ?
       ORDER BY ordinal ASC`,
@@ -462,24 +464,43 @@ export async function insertColumns(
 }
 
 /**
- * Sửa alias và vai trò — §10.3.
+ * Sửa alias, mô tả và vai trò — §10.3, §8.3.1.
  *
  * `WHERE tenant_id = ?` một mình chưa đủ ở đây: người gọi truyền vào một mảng id
  * cột, và một id thuộc mô hình KHÁC trong cùng tổ chức vẫn khớp. Nên câu này
  * kèm luôn ràng buộc "cột phải thuộc mô hình đang mở" bằng một truy vấn con.
+ *
+ * `description` VẮNG MẶT nghĩa là "đừng đụng tới", khác hẳn `null` là "xoá
+ * trống" — cùng ba-trạng-thái mà `updateModelDatasetBodySchema` đang dùng. Ghi
+ * đè vô điều kiện sẽ khiến một client cũ (hoặc một hộp thoại chỉ sửa vai trò)
+ * xoá trắng đoạn mô tả người dùng vừa viết, mà không có thao tác nào trên màn
+ * hình giải thích được vì sao chữ biến mất.
  */
 export async function updateColumn(
   db: Db,
   tenantId: number,
   dataModelId: number,
-  input: { columnId: number; alias: string | null; role: ColumnRole },
+  input: {
+    columnId: number;
+    alias: string | null;
+    role: ColumnRole;
+    description?: string | null;
+  },
 ): Promise<number> {
+  const sets = ['c.alias = ?', 'c.role = ?'];
+  const params: (string | number | null)[] = [input.alias, input.role];
+
+  if (input.description !== undefined) {
+    sets.push('c.description = ?');
+    params.push(input.description);
+  }
+
   const [result] = await db.query<ResultSetHeader>(
     `UPDATE datamodel_columns c
        JOIN datamodel_datasets dmd ON dmd.id = c.datamodel_dataset_id
-        SET c.alias = ?, c.role = ?
+        SET ${sets.join(', ')}
       WHERE c.tenant_id = ? AND c.id = ? AND dmd.datamodel_id = ?`,
-    [input.alias, input.role, tenantId, input.columnId, dataModelId],
+    [...params, tenantId, input.columnId, dataModelId],
   );
   return result.affectedRows;
 }

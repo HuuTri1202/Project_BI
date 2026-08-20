@@ -41,13 +41,25 @@ import { loadFromCube, sqlFromCube, type CubeQuery } from './cubeClient';
 
 interface ModelIndex {
   /** id dòng `datamodel_columns` -> mọi thứ cần để dựng tên và nhãn. */
-  columns: Map<number, { cubeName: string; label: string; chType: string; datasetName: string }>;
+  columns: Map<
+    number,
+    {
+      cubeName: string;
+      label: string;
+      chType: string;
+      datasetName: string;
+      /** Mô tả viết ở tab Schemas — §8.3.1. */
+      description: string | null;
+    }
+  >;
   measures: Map<
     number,
     {
       cubeName: string;
       label: string;
       datasetName: string;
+      /** Thừa kế từ cột nguồn; `null` với thước đo tính toán và đếm dòng. */
+      description: string | null;
       format: MeasureFormat;
       /** Phép gộp mô hình đang khai. */
       agg: MeasureAgg;
@@ -127,6 +139,7 @@ async function indexModel(tenantId: number, dataModelId: number): Promise<ModelI
       label: row.alias ?? row.column_name,
       chType: row.ch_type,
       datasetName: cube.datasetName,
+      description: row.description,
     });
   }
 
@@ -135,6 +148,8 @@ async function indexModel(tenantId: number, dataModelId: number): Promise<ModelI
   // thứ hai. Tra vào đó sẽ ra `undefined` cho mọi thước đo thật.
   const chTypeByColumnId = new Map(columnRows.map((c) => [Number(c.id), c.ch_type]));
   const nhanCotById = new Map(columnRows.map((c) => [Number(c.id), c.alias ?? c.column_name]));
+  // Cùng bảng tra, cho mô tả thừa kế xuống thước đo dựng-trên-cột — §8.3.1.
+  const moTaById = new Map(columnRows.map((c) => [Number(c.id), c.description]));
   // `'—'` chứ không ném: một thước đo trỏ vào cột đã biến mất là dữ liệu lệch,
   // và nó không được phép làm hỏng cả bộ chọn — người dùng vẫn phải mở được
   // Explorer để thấy mà xoá nó đi.
@@ -155,6 +170,7 @@ async function indexModel(tenantId: number, dataModelId: number): Promise<ModelI
       cubeName: cube.cubeName,
       label: m.name,
       datasetName: cube.datasetName,
+      description: m.columnId === null ? null : (moTaById.get(m.columnId) ?? null),
       format: m.format,
       agg: m.agg,
       availableAggs,
@@ -177,12 +193,14 @@ export async function explorerFields(
       id,
       label: c.label,
       datasetName: c.datasetName,
+      description: c.description,
       cubeType: cubeTypeOf(c.chType),
     })),
     measures: [...index.measures.entries()].map(([id, m]) => ({
       id,
       label: m.label,
       datasetName: m.datasetName,
+      description: m.description,
       cubeType: 'number' as const,
       agg: m.agg,
       availableAggs: m.availableAggs,
