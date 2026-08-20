@@ -5,6 +5,7 @@ import type {
   DataModelRelationshipDto,
   MeasureAgg,
   MeasureFormat,
+  MeasureKind,
   MeasureOp,
   RelationshipKind,
 } from '@bi/shared';
@@ -176,53 +177,14 @@ export async function create(
     name: string;
     description: string | null;
     createdBy: number | null;
-    /** Xem `findAutoModelByBatch`. `null` = mô hình do người dùng tự tạo. */
-    autoBatchKey?: string | null;
   },
 ): Promise<number> {
   const [result] = await db.query<ResultSetHeader>(
-    `INSERT INTO datamodels (tenant_id, workspace_id, name, description, auto_batch_key, created_by)
-     VALUES (?, ?, ?, ?, ?, ?)`,
-    [
-      tenantId,
-      input.workspaceId,
-      input.name,
-      input.description,
-      input.autoBatchKey ?? null,
-      input.createdBy,
-    ],
+    `INSERT INTO datamodels (tenant_id, workspace_id, name, description, created_by)
+     VALUES (?, ?, ?, ?, ?)`,
+    [tenantId, input.workspaceId, input.name, input.description, input.createdBy],
   );
   return result.insertId;
-}
-
-/**
- * Mô hình TỰ SINH của một lần tải file / một schema — migration 19.
- *
- * Bảng thứ hai của cùng một workbook dùng hàm này để tìm mô hình mà bảng thứ
- * nhất vừa tạo, thay vì dựng thêm một mô hình rời. Các job nạp chạy tuần tự nên
- * thứ tự luôn là "tạo rồi mới thêm", không có hai bảng cùng vào một lúc.
- *
- * Lọc theo cả `workspace_id`: cùng một schema đồng bộ vào hai workspace là hai
- * mô hình, vì mô hình thuộc về workspace.
- *
- * ⚠️ `deleted_at IS NULL` là phần KHÔNG được bỏ. Thiếu nó thì sau khi người dùng
- * xoá mô hình tự sinh, mọi lần nạp sau sẽ tìm thấy cái đã xoá và đi thêm bảng
- * vào một mô hình không còn hiện ở đâu cả.
- */
-export async function findAutoModelByBatch(
-  db: Db,
-  tenantId: number,
-  workspaceId: number,
-  autoBatchKey: string,
-): Promise<DataModelDto | null> {
-  const [rows] = await db.query<ModelRow[]>(
-    `${MODEL_SELECT} WHERE dm.tenant_id = ? AND dm.workspace_id = ? AND dm.auto_batch_key = ?
-       AND dm.deleted_at IS NULL
-     ORDER BY dm.id ASC LIMIT 1`,
-    [tenantId, workspaceId, autoBatchKey],
-  );
-  const row = rows[0];
-  return row ? toModelDto(row) : null;
 }
 
 export async function update(
@@ -542,12 +504,15 @@ interface MeasureRow extends RowDataPacket {
   id: number;
   name: string;
   agg: MeasureAgg;
-  expr_kind: 'column' | 'formula';
+  expr_kind: MeasureKind;
   expr_op: MeasureOp | null;
   expr_left_id: number | null;
   expr_right_id: number | null;
+  /** ⚠️ Trỏ CỘT, khác hẳn `expr_right_id` trỏ THƯỚC ĐO. Xem migration 23. */
+  expr_right_column_id: number | null;
   left_name: string | null;
   right_name: string | null;
+  right_column_name: string | null;
   display_format: MeasureFormat;
   datamodel_dataset_id: number;
   dataset_name: string;
@@ -559,14 +524,17 @@ interface MeasureRow extends RowDataPacket {
 // Tự nối hai lần để lấy TÊN hai vế của công thức. Không có nó thì giao diện
 // phải tự ghép id với tên, và mọi nơi hiển thị công thức lại tự ghép một lần.
 const MEASURE_SELECT = `SELECT m.id, m.name, m.agg, m.datamodel_dataset_id,
-         m.expr_kind, m.expr_op, m.expr_left_id, m.expr_right_id, m.display_format,
+         m.expr_kind, m.expr_op, m.expr_left_id, m.expr_right_id,
+         m.expr_right_column_id, m.display_format,
          ml.name AS left_name, mr.name AS right_name,
+         rc.column_name AS right_column_name,
          d.name AS dataset_name, m.datamodel_column_id AS column_id,
          c.column_name, m.created_at
     FROM datamodel_measures m
     JOIN datamodel_datasets dmd ON dmd.id = m.datamodel_dataset_id
     JOIN datasets d ON d.id = dmd.dataset_id
     LEFT JOIN datamodel_columns c ON c.id = m.datamodel_column_id
+    LEFT JOIN datamodel_columns rc ON rc.id = m.expr_right_column_id
     LEFT JOIN datamodel_measures ml ON ml.id = m.expr_left_id
     LEFT JOIN datamodel_measures mr ON mr.id = m.expr_right_id`;
 
@@ -588,13 +556,27 @@ function toMeasureDto(row: MeasureRow): DataModelMeasureDto {
         }
       : null;
 
+  // Cùng luật "đủ mảnh mới dựng" như `formula`: thiếu một mảnh thì hiện như
+  // thước đo thường, đừng vẽ ra một biểu thức có ô trống.
+  const rowExpr =
+    row.expr_kind === 'rowExpr' && row.expr_right_column_id !== null && row.expr_op !== null
+      ? {
+          op: row.expr_op,
+          rightColumnId: Number(row.expr_right_column_id),
+          rightColumnName: row.right_column_name ?? '—',
+        }
+      : null;
+
   return {
     id: Number(row.id),
     name: row.name,
     agg: row.agg,
-    kind: formula === null ? 'column' : 'formula',
+    // Đọc thẳng `expr_kind` chứ không suy từ `formula !== null` — đúng cái bẫy
+    // mà ghi chú ở `DataModelMeasureDto.kind` đã cảnh báo khi có kiểu thứ ba.
+    kind: rowExpr !== null ? 'rowExpr' : formula !== null ? 'formula' : 'column',
     format: row.display_format,
     formula,
+    rowExpr,
     datamodelDatasetId: Number(row.datamodel_dataset_id),
     datasetName: row.dataset_name,
     columnId: row.column_id === null ? null : Number(row.column_id),
@@ -801,6 +783,49 @@ export async function createFormulaMeasure(
   return result.insertId;
 }
 
+/**
+ * Thước đo GỘP TRÊN BIỂU THỨC DÒNG — `sum(Số lượng × Đơn giá)`.
+ *
+ * Ngược hẳn `createFormulaMeasure` ở chỗ `agg` là THẬT: nó là phép gộp áp lên
+ * kết quả biểu thức, và đổi nó đổi hẳn con số. Hai vế là cột chưa gộp, nên
+ * `datamodel_column_id` mang vế trái đúng như thước đo thường.
+ */
+export async function createRowExprMeasure(
+  db: Db,
+  tenantId: number,
+  input: {
+    dataModelId: number;
+    datamodelDatasetId: number;
+    name: string;
+    agg: MeasureAgg;
+    leftColumnId: number;
+    op: MeasureOp;
+    rightColumnId: number;
+    format: MeasureFormat;
+    createdBy: number | null;
+  },
+): Promise<number> {
+  const [result] = await db.query<ResultSetHeader>(
+    `INSERT INTO datamodel_measures
+       (tenant_id, datamodel_id, datamodel_dataset_id, datamodel_column_id, name, agg,
+        expr_kind, expr_op, expr_right_column_id, display_format, created_by)
+     VALUES (?, ?, ?, ?, ?, ?, 'rowExpr', ?, ?, ?, ?)`,
+    [
+      tenantId,
+      input.dataModelId,
+      input.datamodelDatasetId,
+      input.leftColumnId,
+      input.name,
+      input.agg,
+      input.op,
+      input.rightColumnId,
+      input.format,
+      input.createdBy,
+    ],
+  );
+  return result.insertId;
+}
+
 // ─── Quan hệ ─────────────────────────────────────────────────────────────────
 
 interface RelationshipRow extends RowDataPacket {
@@ -905,28 +930,6 @@ export async function softDeleteRelationship(
     [tenantId, dataModelId, id],
   );
   return result.affectedRows;
-}
-
-/**
- * Bộ dữ liệu này đã nằm trong mô hình nào chưa.
- *
- * Chặn việc mỗi lần nạp lại lại đẻ thêm một mô hình, và cũng chặn việc sinh
- * thêm mô hình riêng cho một bộ dữ liệu người dùng đã tự đưa vào mô hình nhiều
- * bảng của họ.
- */
-export async function countModelsUsingDataset(
-  db: Db,
-  tenantId: number,
-  datasetId: number,
-): Promise<number> {
-  const [rows] = await db.query<RowDataPacket[]>(
-    `SELECT COUNT(*) AS total
-       FROM datamodel_datasets dmd
-       JOIN datamodels dm ON dm.id = dmd.datamodel_id AND dm.deleted_at IS NULL
-      WHERE dmd.tenant_id = ? AND dmd.dataset_id = ?`,
-    [tenantId, datasetId],
-  );
-  return Number(rows[0]?.['total'] ?? 0);
 }
 
 /** Mọi tổ chức có mô hình còn sống — dùng để sinh lại toàn bộ file lúc boot. */

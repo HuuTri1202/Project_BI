@@ -52,6 +52,25 @@ const app = createApp();
 
 const CH_ENABLED = process.env['INGEST_CH_TESTS'] === '1';
 
+/**
+ * ⚠️ Nhánh này bị bỏ qua khi không có cờ, và việc bỏ qua đó PHẢI được nói to.
+ *
+ * Không lệnh nào từng đặt cờ này, nên trên thực tế nhánh ClickHouse gần như
+ * không bao giờ chạy — và hai bài trong đó đã khẳng định ngược lại thiết kế
+ * suốt nhiều tháng mà không ai biết. `describe.skipIf` chỉ in ra chữ "skipped"
+ * mờ nhạt giữa hàng trăm dòng xanh; không ai đọc nó.
+ *
+ * Câu cảnh báo nằm ở `vitest.integration.config.ts`, KHÔNG ở đây: vitest chặn
+ * `console` của file test và chỉ nhả ra khi bài đó đỏ, nên một `console.warn`
+ * đặt ở chỗ này sẽ không bao giờ tới mắt ai — đúng cái bệnh nó sinh ra để chữa.
+ * Config thì chạy trong tiến trình chính nên nói được.
+ *
+ * Cổng vẫn TƯỜNG MINH, không đổi thành tự dò ClickHouse rồi lặng lẽ bỏ qua:
+ * lập luận ở docblock đầu file vẫn đúng. Vấn đề chưa bao giờ nằm ở chỗ cổng
+ * tường minh, mà ở chỗ nó im lặng.
+ */
+
+
 interface Fixture {
   tenantA: number;
   tenantB: number;
@@ -444,6 +463,121 @@ describe('đọc file Excel để nạp', () => {
     expect(cell).not.toBe('41121');
     expect(cell).toBe('2012-07-31');
   });
+
+  /**
+   * File nhiều sheet với `Target` TUYỆT ĐỐI trong `xl/_rels/workbook.xml.rels`.
+   *
+   * ─── Lỗi này đã xảy ra trên dữ liệu thật ───────────────────────────────────
+   *
+   * Một file `database.xlsx` 5 sheet do openpyxl ghi: cả 8 bộ dữ liệu sinh ra
+   * từ nó đều `failed` với `rows_read = 0` và thông điệp "Không tìm thấy sheet".
+   *
+   * exceljs ghép tên sheet bằng đúng một phép so sánh chuỗi và chỉ nhận dạng
+   * TƯƠNG ĐỐI (`worksheets/sheet1.xml`). Chuẩn OPC cho phép cả dạng tuyệt đối
+   * (`/xl/worksheets/sheet1.xml`), openpyxl ghi dạng đó, nên phép ghép trượt và
+   * mọi sheet mang tên mặc định `Sheet1`, `Sheet2`, …
+   *
+   * Nhánh phân tích (§7) dùng `workbook.xlsx.load` nên nó thấy tên thật và lưu
+   * đúng vào `datasets.sheet_name`. Chỉ nhánh nạp hỏng — hai đường bất đồng mà
+   * bước tải lên không có dấu hiệu gì.
+   *
+   * Ca này dựng lại đúng hình dạng đó: ghi bằng exceljs rồi VIẾT LẠI phần rels
+   * sang dạng tuyệt đối, nên nó kiểm cách ta ghép tên chứ không kiểm một bản
+   * ghi giả.
+   */
+  it('sheet vẫn tìm ra khi rels ghi đường dẫn TUYỆT ĐỐI — file kiểu openpyxl', async () => {
+    const ExcelJS = await import('exceljs');
+    const JSZip = (await import('jszip')).default;
+
+    const wb = new ExcelJS.default.Workbook();
+    // Ô TOÀN SỐ là có chủ đích: có ô chữ thì exceljs ghi thêm
+    // `xl/sharedStrings.xml`, và file người dùng gặp lỗi thật KHÔNG có phần đó.
+    // Sự vắng mặt của nó đổi hẳn đường đi bên trong `WorkbookReader`, nên một
+    // bàn thử có chuỗi sẽ kiểm một thứ khác với thứ đã hỏng.
+    for (const [ten, gia] of [
+      ['Khach', 111],
+      ['Don', 222],
+      ['Tra hang', 333],
+    ] as const) {
+      const s = wb.addWorksheet(ten);
+      s.addRow([0, 0]);
+      s.addRow([gia / 10, gia]);
+    }
+
+    const zip = await JSZip.loadAsync(Buffer.from(await wb.xlsx.writeBuffer()));
+    const rels = await zip.file('xl/_rels/workbook.xml.rels')!.async('string');
+    // `Target="worksheets/sheet2.xml"` -> `Target="/xl/worksheets/sheet2.xml"`
+    const tuyetDoi = rels.replace(/Target="worksheets\//g, 'Target="/xl/worksheets/');
+    expect(tuyetDoi).not.toBe(rels);
+    zip.file('xl/_rels/workbook.xml.rels', tuyetDoi);
+    const buffer = await zip.generateAsync({ type: 'nodebuffer' });
+
+    const key = 'test/rels-tuyet-doi.xlsx';
+    memoryStorage.putForTest(key, buffer);
+
+    // Sheet THỨ HAI, không phải sheet đầu: đọc đúng sheet đầu có thể chỉ là ăn
+    // may vì nó là cái được phát ra trước tiên.
+    const batches: unknown[][][] = [];
+    for await (const batch of readFileRows(key, 'xlsx', {
+      sheetName: 'Don',
+      columns: [
+        { ordinal: 0, semanticType: 'number' },
+        { ordinal: 1, semanticType: 'number' },
+      ],
+      batchSize: 100,
+      maxRows: 100,
+    })) {
+      batches.push(batch);
+    }
+
+    expect(batches.flat()).toEqual([[22.2, 222]]);
+  });
+
+  /**
+   * V-04, giờ tái hiện được CHẮC CHẮN thay vì chập chờn.
+   *
+   * `WorkbookReader` ném `Cannot read properties of undefined (reading 'sheets')`
+   * — nó đọc `this.model.sheets` khi `xl/workbook.xml` chưa được phân tích. Lỗi
+   * nằm trong ruột exceljs và xảy ra TRƯỚC khi trả về worksheet nào, nên không
+   * vá từ ngoài được; đường lùi `workbook.xlsx.load` là cách duy nhất.
+   *
+   * Bàn thử: workbook TOÀN SỐ do chính exceljs ghi. Không có ô chữ thì exceljs
+   * không xuất `xl/sharedStrings.xml`, và chính sự vắng mặt đó đưa trình đọc
+   * vào nhánh hỏng. Trước bản vá, ca này ném lỗi ngay lần chạy đầu — không cần
+   * chạy lại nhiều lần để bắt như ca ngày tháng.
+   */
+  it('bộ đọc dòng ném lỗi thì lùi về đọc cả file, không làm hỏng lần nạp', async () => {
+    const ExcelJS = await import('exceljs');
+    const wb = new ExcelJS.default.Workbook();
+    for (const [ten, gia] of [
+      ['Khach', 111],
+      ['Don', 222],
+      ['Tra hang', 333],
+    ] as const) {
+      const s = wb.addWorksheet(ten);
+      s.addRow([0, 0]);
+      s.addRow([gia / 10, gia]);
+    }
+    const buffer = Buffer.from(await wb.xlsx.writeBuffer());
+
+    const key = 'test/khong-co-shared-strings.xlsx';
+    memoryStorage.putForTest(key, buffer);
+
+    const batches: unknown[][][] = [];
+    for await (const batch of readFileRows(key, 'xlsx', {
+      sheetName: 'Tra hang',
+      columns: [
+        { ordinal: 0, semanticType: 'number' },
+        { ordinal: 1, semanticType: 'number' },
+      ],
+      batchSize: 100,
+      maxRows: 100,
+    })) {
+      batches.push(batch);
+    }
+
+    expect(batches.flat()).toEqual([[33.3, 333]]);
+  });
 });
 
 describe.skipIf(!CH_ENABLED)('nạp thật vào ClickHouse', () => {
@@ -657,7 +791,18 @@ describe.skipIf(!CH_ENABLED)('nạp thật vào ClickHouse', () => {
     expect(await rs.json()).toHaveLength(0);
   });
 
-  it('xoá bộ dữ liệu thì bảng trong kho biến mất ngay', async () => {
+  it('xoá bộ dữ liệu KHÔNG đụng tới bảng trong kho', async () => {
+    // ⚠️ Bài này từng khẳng định điều NGƯỢC LẠI — "bảng biến mất ngay" — và giữ
+    // nguyên khẳng định đó rất lâu sau khi `dropTables.ts` bỏ hẳn lớp xoá ngay.
+    // Nó sống sót được vì cả khối `describe` này nằm sau cờ `INGEST_CH_TESTS`
+    // mà không lệnh nào bật, nên nó chưa từng chạy để mà đỏ.
+    //
+    // Thiết kế hiện tại: xoá dataset là thao tác THUẦN MySQL. Bảng `raw_*` ở lại
+    // để "xoá mềm" đúng nghĩa xoá mềm — khôi phục chỉ là gỡ `deleted_at` ra, và
+    // dữ liệu đã nạp còn nguyên chứ không phải nạp lại từ đầu.
+    //
+    // Khối `dọn kho: xoá dataset KHÔNG đụng tới ClickHouse` ở trên đã kiểm phần
+    // MySQL của luật này. Bài này là nửa còn lại: xác nhận trên ClickHouse thật.
     await seedRows(f.datasetA, [{ 'Khu vực': 'A', 'Ngày bán': '2026-01-01', 'Doanh thu': 1 }]);
     const runId = await loadsRepo.enqueue(mysqlPool, f.tenantA, f.datasetA, f.alice);
     const table = (await loadDataset(runId, f.tenantA, f.datasetA)).chTable;
@@ -668,13 +813,23 @@ describe.skipIf(!CH_ENABLED)('nạp thật vào ClickHouse', () => {
       .set(bearer(f.tokenAlice))
       .expect(204);
 
-    expect(await tableExists(table)).toBe(false);
+    // Bảng còn, và còn cả DỮ LIỆU trong đó — "bảng vẫn tồn tại" mà rỗng ruột
+    // thì cũng không khôi phục được gì.
+    expect(await tableExists(table)).toBe(true);
+    expect(await count(table)).toBe(1);
 
     const [rows] = await mysqlPool.query<RowDataPacket[]>(
-      'SELECT load_status, ch_table FROM datasets WHERE id = ?',
+      'SELECT deleted_at FROM datasets WHERE id = ?',
       [f.datasetA],
     );
-    expect(rows[0]).toMatchObject({ load_status: 'idle', ch_table: null });
+    expect(rows[0]?.['deleted_at']).not.toBeNull();
+
+    // Cố ý KHÔNG kiểm `load_status` / `ch_table` ở đây. Bài này gọi thẳng
+    // `loadDataset()` để khỏi phải chờ vòng lặp nền, mà cờ nạp lại do `runner`
+    // ghi chứ không phải `loadDataset` — nên hai cột đó vẫn ở giá trị khởi tạo
+    // và kiểm chúng ở đây chỉ đo được cách dựng hiện trường của chính bài test.
+    // Việc xoá dataset không dọn cờ đã có bài riêng ở khối `dọn kho` phía trên,
+    // nơi trạng thái được đặt tường minh bằng `markLoadStatus`.
   });
 
   it('janitor dọn bảng mồ côi nhưng KHÔNG đụng bảng còn sống', async () => {
@@ -682,21 +837,38 @@ describe.skipIf(!CH_ENABLED)('nạp thật vào ClickHouse', () => {
     const runA = await loadsRepo.enqueue(mysqlPool, f.tenantA, f.datasetA, f.alice);
     const tableA = (await loadDataset(runA, f.tenantA, f.datasetA)).chTable;
 
-    // Bộ B xoá mềm THẲNG trong database, không qua `deleteDataset`. Đó là chủ ý:
-    // bài này phải kiểm đúng janitor, chứ không kiểm lại đường xoá ngay — và nó
-    // dựng lại đúng hiện trường của ba lỗ mà xoá ngay không bịt được.
+    // ⚠️ Bài này từng XOÁ MỀM bộ B rồi đợi janitor dọn bảng của nó. Đó là hành
+    // vi cũ, và nó mâu thuẫn thẳng với bài `listKnownIds GIỮ bộ đã xoá mềm` ở
+    // khối trên — hai bài trong cùng một file nói ngược nhau, suốt nhiều tháng,
+    // vì bài này nằm sau cờ `INGEST_CH_TESTS` nên không bao giờ chạy.
+    //
+    // Nghĩa hiện tại của "mồ côi" hẹp hơn nhiều: KHÔNG CÒN DÒNG NÀO trong
+    // `datasets` nhận bảng đó — kể cả dòng đã xoá mềm. Thực tế chỉ xảy ra khi
+    // dòng bị xoá CỨNG theo dây chuyền, ví dụ một tổ chức bị xoá cứng.
     const datasetB = await makeFileDataset(f.tenantA, f.workspaceA, f.alice);
     await seedRows(datasetB, [{ 'Khu vực': 'B', 'Ngày bán': '2026-01-02', 'Doanh thu': 2 }]);
     const runB = await loadsRepo.enqueue(mysqlPool, f.tenantA, datasetB, f.alice);
     const tableB = (await loadDataset(runB, f.tenantA, datasetB)).chTable;
+
+    // Bộ C: xoá MỀM. Bảng của nó phải sống sót qua lượt quét — đây chính là chỗ
+    // bản cũ sai, nên phải có một bài canh cửa.
+    const datasetC = await makeFileDataset(f.tenantA, f.workspaceA, f.alice);
+    await seedRows(datasetC, [{ 'Khu vực': 'C', 'Ngày bán': '2026-01-03', 'Doanh thu': 3 }]);
+    const runC = await loadsRepo.enqueue(mysqlPool, f.tenantA, datasetC, f.alice);
+    const tableC = (await loadDataset(runC, f.tenantA, datasetC)).chTable;
     await mysqlPool.query('UPDATE datasets SET deleted_at = CURRENT_TIMESTAMP(3) WHERE id = ?', [
-      datasetB,
+      datasetC,
     ]);
+
+    // Chỉ bộ B biến mất HẲN khỏi MySQL. Xoá cứng thẳng trong database, không qua
+    // `deleteDataset` — bài này kiểm janitor, không kiểm lại đường xoá.
+    await mysqlPool.query('DELETE FROM datasets WHERE id = ?', [datasetB]);
 
     expect(await sweepOrphanTables()).toBeGreaterThanOrEqual(1);
 
     expect(await tableExists(tableA)).toBe(true);
     expect(await tableExists(tableB)).toBe(false);
+    expect(await tableExists(tableC)).toBe(true);
   });
 
   it('janitor dọn cả bảng tạm `__new` bỏ lại của bộ đã xoá', async () => {

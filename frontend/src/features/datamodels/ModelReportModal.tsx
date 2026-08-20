@@ -1,6 +1,7 @@
 import {
   CHART_TYPES,
   CHART_TYPE_LABELS,
+  COLUMN_ROLE_LABELS,
   type ChartType,
   type ExplorerFieldDto,
 } from '@bi/shared';
@@ -174,7 +175,7 @@ export function ModelReportModal({
           <>
             <div className="grid gap-4 sm:grid-cols-2">
               <SearchSelect
-                label="Chiều — nhóm theo"
+                label={`${COLUMN_ROLE_LABELS.dimension} — nhóm theo`}
                 value={dimensionId}
                 noun="chiều"
                 rows={5}
@@ -190,7 +191,7 @@ export function ModelReportModal({
               />
 
               <SearchSelect
-                label="Thước đo — đo cái gì"
+                label={`${COLUMN_ROLE_LABELS.measure} — đo cái gì`}
                 value={measureId}
                 noun="thước đo"
                 rows={5}

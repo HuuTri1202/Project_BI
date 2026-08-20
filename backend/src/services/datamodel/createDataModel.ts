@@ -155,13 +155,6 @@ export interface CreateInput {
    * chỉ vì không biết ai đứng tên là bỏ mất cả một luồng.
    */
   createdBy: number | null;
-  /**
-   * Khoá gom nhóm của mô hình TỰ SINH — migration 19.
-   *
-   * Bỏ trống với mô hình do người dùng tự tạo: cột này vừa là dấu "do máy tạo"
-   * vừa là khoá để bảng thứ hai của cùng một lần tải tìm về đúng mô hình.
-   */
-  autoBatchKey?: string | null;
 }
 
 export async function createDataModel(input: CreateInput): Promise<number> {
@@ -179,7 +172,6 @@ export async function createDataModel(input: CreateInput): Promise<number> {
       workspaceId: input.workspaceId,
       name: input.name,
       description: input.description,
-      autoBatchKey: input.autoBatchKey ?? null,
       createdBy: input.createdBy,
     });
 
@@ -237,8 +229,8 @@ export async function addDatasets(
   tenantId: number,
   dataModelId: number,
   datasetIds: readonly number[],
-  // `null` hợp lệ, cùng lý do đã ghi ở `CreateInput.createdBy`: đường tự sinh
-  // gọi hàm này cho bộ dữ liệu đồng bộ từ CSDL, vốn không có `created_by`.
+  // `null` hợp lệ, cùng lý do đã ghi ở `CreateInput.createdBy`: bộ dữ liệu đồng
+  // bộ từ CSDL (§8) không ghi `created_by` bao giờ.
   createdBy: number | null,
 ): Promise<void> {
   const schemas = new Map<number, WarehouseSchemaDto>();

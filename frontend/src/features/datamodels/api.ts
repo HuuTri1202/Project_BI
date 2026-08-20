@@ -1,6 +1,7 @@
 import type {
   CreateDataModelInput,
   CreateFormulaMeasureInput,
+  CreateRowExprMeasureInput,
   CreateRelationshipInput,
   DataModelDetailDto,
   DataModelDto,
@@ -165,6 +166,17 @@ export async function createFormulaMeasure(
 ): Promise<DataModelMeasureDto> {
   const { data } = await apiClient.post<DataModelMeasureDto>(
     `/v1/datamodels/${id}/measures/formula`,
+    input,
+  );
+  return data;
+}
+
+export async function createRowExprMeasure(
+  id: number,
+  input: CreateRowExprMeasureInput,
+): Promise<DataModelMeasureDto> {
+  const { data } = await apiClient.post<DataModelMeasureDto>(
+    `/v1/datamodels/${id}/measures/row-expr`,
     input,
   );
   return data;

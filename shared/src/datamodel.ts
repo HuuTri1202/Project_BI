@@ -31,10 +31,41 @@
 export const COLUMN_ROLES = ['dimension', 'measure', 'hidden'] as const;
 export type ColumnRole = (typeof COLUMN_ROLES)[number];
 
+/**
+ * Tên hiện ra cho người dùng, KÈM từ tiếng Anh trong ngoặc.
+ *
+ * ─── Vì sao mang theo từ tiếng Anh ─────────────────────────────────────────
+ *
+ * "Chiều" và "Thước đo" là hai từ dịch, và người dùng gặp chúng lần đầu ngay ở
+ * màn hình phải ra quyết định — chọn vai trò cho từng cột. Ai đã dùng Power BI
+ * hay Metabase thì nhận ra ngay khi thấy "Dimension"/"Measure"; ai chưa dùng
+ * thì cũng không mất gì, vì từ tiếng Việt vẫn đứng trước.
+ *
+ * ⚠️ Đây là NGUỒN DUY NHẤT của hai từ này trong giao diện. Explorer và hộp
+ * thoại báo cáo đọc từ đây chứ không viết lại chuỗi của mình — hai bản sao sẽ
+ * lệch nhau ngay lần đầu ai đó sửa một chỗ.
+ *
+ * Chỉ dùng cho NHÃN. Câu văn xuôi vẫn viết "chiều", "thước đo" bình thường:
+ * chèn ngoặc vào giữa một câu thì câu đó không đọc được nữa.
+ */
 export const COLUMN_ROLE_LABELS: Record<ColumnRole, string> = {
-  dimension: 'Chiều',
-  measure: 'Thước đo',
-  hidden: 'Ẩn',
+  dimension: 'Chiều (Dimension)',
+  measure: 'Thước đo (Measure)',
+  hidden: 'Ẩn (Hidden)',
+};
+
+/**
+ * Một câu nói NÓ LÀ GÌ, cho người chưa từng dùng công cụ BI nào.
+ *
+ * Từ tiếng Anh trong ngoặc chỉ giúp người đã biết khái niệm mà quen tên khác.
+ * Người chưa biết thì cần một câu, và câu đó phải nói bằng ví dụ chứ không phải
+ * định nghĩa: "cột để chia nhóm" hiểu được ngay, "thuộc tính phân rã dữ liệu
+ * theo trục ngữ nghĩa" thì không.
+ */
+export const COLUMN_ROLE_HINTS: Record<ColumnRole, string> = {
+  dimension: 'Cột để chia nhóm — theo khu vực, theo tháng, theo sản phẩm.',
+  measure: 'Con số để tính — tổng doanh thu, số đơn, giá trung bình.',
+  hidden: 'Không đưa vào mô hình. Vẫn nằm trong kho, chỉ không hiện ra để chọn.',
 };
 
 /**
@@ -48,17 +79,139 @@ export const COLUMN_ROLE_LABELS: Record<ColumnRole, string> = {
 export const CUBE_TYPES = ['string', 'number', 'time', 'boolean'] as const;
 export type CubeType = (typeof CUBE_TYPES)[number];
 
-/** Phép tổng hợp của một thước đo (§10.6). Khớp `AGGREGATES` của báo cáo. */
-export const MEASURE_AGGS = ['sum', 'avg', 'count', 'min', 'max'] as const;
+/**
+ * Phép tổng hợp của một thước đo (§10.6).
+ *
+ * ⚠️ CỐ Ý không còn khớp `AGGREGATES` của `report.ts` nữa. Hai danh sách phục vụ
+ * hai đường khác hẳn nhau: `AGGREGATES` là phép gộp mà `aggregate.ts` tự tính
+ * bằng TypeScript trên `dataset_rows` cho báo cáo dựng thẳng từ file (§7), còn
+ * danh sách này đi vào file cube rồi thành SQL trên ClickHouse. `countDistinct`
+ * có ở đây vì ClickHouse làm được; thêm nó vào `AGGREGATES` là hứa một phép
+ * tính mà nhánh kia chưa hiện thực.
+ */
+export const MEASURE_AGGS = [
+  'sum',
+  'avg',
+  'count',
+  'countDistinct',
+  'min',
+  'max',
+  'median',
+  'p90',
+] as const;
 export type MeasureAgg = (typeof MEASURE_AGGS)[number];
 
+/**
+ * Tên hiện ra cho người dùng.
+ *
+ * `p90` KHÔNG mang tên đúng của nó trong thống kê ("phân vị 90"). Người đọc
+ * báo cáo bán hàng không có khái niệm phân vị, nên cái tên đúng ấy không dẫn
+ * tới bất kỳ hành động nào — còn "ngưỡng top 10%" thì nói thẳng ra thứ họ định
+ * làm với con số: lấy mốc để tách nhóm cao nhất.
+ *
+ * `count` cũng đổi tên, và vì một lý do nặng hơn: nhãn cũ "Đếm dòng" MÔ TẢ SAI
+ * việc nó làm khi gắn vào một cột. `count(cột)` bỏ qua ô trống, nên nó đếm ô
+ * chứ không đếm dòng — trên bảng Orders trong máy là 9.994 so với 51.290. Một
+ * người tin vào nhãn cũ sẽ đọc con số đó như tổng số đơn hàng.
+ */
 export const MEASURE_AGG_LABELS: Record<MeasureAgg, string> = {
   sum: 'Tổng',
   avg: 'Trung bình',
-  count: 'Đếm dòng',
+  count: 'Đếm ô có dữ liệu',
+  countDistinct: 'Đếm giá trị khác nhau',
   min: 'Nhỏ nhất',
   max: 'Lớn nhất',
+  median: 'Trung vị',
+  p90: 'Ngưỡng top 10%',
 };
+
+/**
+ * Một câu giải thích cho mỗi phép, hiện khi rê chuột lên nút.
+ *
+ * ─── Vì sao nhãn thôi là không đủ ──────────────────────────────────────────
+ *
+ * "Trung vị" và "Trung bình" lệch nhau đúng một chữ và nằm sát nhau trong hàng
+ * nút. Người đọc lướt sẽ nhìn nhầm, rồi kết luận là hệ thống trả sai số. Câu
+ * giải thích không sửa được cái nhìn lướt, nhưng nó có mặt đúng lúc người dùng
+ * dừng lại vì đã thấy nghi.
+ *
+ * Câu của `avg` cố ý nói ra ĐIỂM YẾU của chính nó, chứ không mô tả cách tính —
+ * cách tính thì ai cũng biết rồi, còn chuyện nó bị kéo lệch mới là thứ khiến
+ * người ta đi tìm trung vị.
+ */
+export const MEASURE_AGG_HINTS: Record<MeasureAgg, string> = {
+  sum: 'Cộng tất cả giá trị lại.',
+  avg: 'Cộng tất cả rồi chia đều. Chỉ vài giá trị rất lớn hoặc rất nhỏ cũng đủ kéo lệch con số này.',
+  count:
+    'Đếm số dòng CÓ ĐIỀN cột này. Ô trống không được tính, nên con số này có thể nhỏ hơn thước đo "Số dòng".',
+  countDistinct: 'Đếm xem có bao nhiêu giá trị khác nhau. Trùng nhau chỉ tính một lần.',
+  min: 'Giá trị nhỏ nhất.',
+  max: 'Giá trị lớn nhất.',
+  median:
+    'Giá trị đứng giữa: một nửa số dòng thấp hơn mức này, một nửa cao hơn. Không bị vài giá trị cực lớn kéo lệch như trung bình.',
+  p90: 'Mức mà 90% số dòng nằm dưới — tức ngưỡng bắt đầu của 10% cao nhất.',
+};
+
+/**
+ * Phép gộp nào hợp lệ với cột kiểu nào — §10.6.
+ *
+ * ═══ Vì sao phải có bảng này, thay vì cứ cho chọn hết ══════════════════════
+ *
+ * `sum` trên một cột `String` không phải một lựa chọn tồi, nó là một câu SQL
+ * KHÔNG CHẠY. ClickHouse ném lỗi lúc truy vấn, tức là người dùng đặt xong,
+ * lưu xong, rồi mới thấy hỏng ở tab Explorer — cách xa chỗ họ gây ra lỗi hai
+ * màn hình. Chặn ngay lúc chọn thì lỗi không bao giờ tồn tại.
+ *
+ * ═══ `count` ở đây KHÁC `count` của thước đo "Số dòng" ═════════════════════
+ *
+ * Bản trước cấm hẳn `count` trên cột, với lý lẽ rằng nó sẽ đẻ ra một thước đo
+ * thứ hai đếm đúng con số của "Số dòng" nhưng mang tên một cột. Lý lẽ đó dựa
+ * trên một tiền đề SAI: `count` gắn vào cột không sinh ra `COUNT(*)`.
+ *
+ * Cube sinh `count(<cột>)` khi khối thước đo có `sql`, và `count(<cột>)` của
+ * ClickHouse BỎ QUA ô trống. Mọi cột `raw_*` đều `Nullable` (§9), nên hai con
+ * số này lệch nhau thật sự — đo trên bảng Orders trong máy:
+ *
+ *     Số dòng                51.290
+ *     count(`Postal Code`)    9.994
+ *
+ * Tức đây là hai câu hỏi khác nhau: "có bao nhiêu đơn" và "bao nhiêu đơn có
+ * điền mã bưu chính". Câu thứ hai là cách duy nhất đo được ĐỘ ĐẦY của dữ liệu
+ * — thứ người ta cần ngay khi nghi ngờ một cột nhập thiếu.
+ *
+ * Thước đo "Số dòng" (`ROW_COUNT_MEASURE_NAME`) vẫn giữ nguyên nghĩa cũ: nó đi
+ * cùng `columnId = null`, không có `sql`, nên Cube đếm theo khoá chính. Cái
+ * tách hai nghĩa là SỰ CÓ MẶT CỦA CỘT, không phải tên phép.
+ *
+ * ─── Bốn dòng dưới, mỗi dòng một lý lẽ ─────────────────────────────────────
+ *
+ *   number  — cộng, trung bình, nhỏ/lớn nhất đều có nghĩa. `countDistinct`
+ *             cũng có: "bao nhiêu mức giá khác nhau". `median` và `p90` CHỈ ở
+ *             dòng này: trung vị của một chuỗi hay của một mốc thời gian là
+ *             khái niệm không ai đi tìm, còn ClickHouse thì vẫn tính ra được —
+ *             tức là mở ra chỉ để sinh một con số không ai đọc.
+ *   time    — `min`/`max` là "lần đầu tiên" và "gần nhất", hai câu hỏi rất hay
+ *             gặp mà trước bản này KHÔNG hỏi được. Cộng hai mốc thời gian thì
+ *             vô nghĩa nên không có `sum`; trung bình của thời điểm cũng vậy.
+ *   string  — đếm được số giá trị khác nhau ("bao nhiêu khách hàng") và số ô
+ *             có dữ liệu ("bao nhiêu đơn có ghi tên khách").
+ *   boolean — như string. Ít dùng, nhưng chặn hẳn thì lại phải giải thích vì
+ *             sao ô này trống.
+ *
+ * `count` có ở CẢ BỐN dòng: "cột này thiếu dữ liệu bao nhiêu" là câu hỏi không
+ * phụ thuộc kiểu cột.
+ */
+export const MEASURE_AGGS_BY_CUBE_TYPE: Record<CubeType, readonly MeasureAgg[]> = {
+  number: ['sum', 'avg', 'median', 'p90', 'min', 'max', 'count', 'countDistinct'],
+  time: ['min', 'max', 'count', 'countDistinct'],
+  string: ['count', 'countDistinct'],
+  boolean: ['count', 'countDistinct'],
+};
+
+/** Phép gộp này đặt lên cột kiểu kia được không. Dùng ở CẢ hai đầu. */
+export function measureAggAllowed(cubeType: CubeType, agg: MeasureAgg): boolean {
+  return MEASURE_AGGS_BY_CUBE_TYPE[cubeType].includes(agg);
+}
 
 /**
  * Phép nối hai thước đo trong một thước đo TÍNH TOÁN — §10.6.
@@ -78,12 +231,114 @@ export const MEASURE_AGG_LABELS: Record<MeasureAgg, string> = {
 export const MEASURE_OPS = ['add', 'sub', 'mul', 'div'] as const;
 export type MeasureOp = (typeof MEASURE_OPS)[number];
 
+/**
+ * Ba cách một thước đo ra đời — §10.6.
+ *
+ *   column   `sum(Doanh thu)`                    gộp MỘT cột
+ *   formula  `sum(Lợi nhuận) / sum(Doanh thu)`   nối hai thước đo ĐÃ GỘP
+ *   rowExpr  `sum(Số lượng × Đơn giá)`           tính từng DÒNG rồi mới gộp
+ *
+ * ═══ Vì sao `formula` một mình là không đủ ═════════════════════════════════
+ *
+ * `formula` gộp trước rồi mới tính, nên với phép NHÂN nó cho ra
+ * `sum(a) × avg(b)` — một con số không ai đi hỏi. Đo trên bảng `Orders_detail`
+ * của tổ chức 4, 22.463 dòng:
+ *
+ *     sum(Số lượng × Đơn giá)      39.379.467.000   đúng
+ *     sum(Số lượng) × avg(Đơn giá) 39.398.064.742   lệch 0,047%
+ *
+ * Lệch 0,047% là chỗ nguy hiểm, không phải chỗ may mắn: không ai phát hiện ra.
+ * Chia theo sản phẩm thì lệch 1,4–1,9%, vẫn không ai phát hiện.
+ *
+ * ─── Và vì sao `rowExpr` một mình cũng không đủ ────────────────────────────
+ *
+ * Với phép CHIA thì gộp-trước mới đúng: tỷ suất lợi nhuận là
+ * `sum(lợi nhuận) / sum(doanh thu)`, KHÔNG phải trung bình của tỷ suất từng
+ * dòng — dòng doanh thu 10 đồng và dòng doanh thu 10 triệu không được cân bằng
+ * nhau. Hai kiểu này bù cho nhau chứ không thay thế nhau.
+ */
+export const MEASURE_KINDS = ['column', 'formula', 'rowExpr'] as const;
+export type MeasureKind = (typeof MEASURE_KINDS)[number];
+
+/**
+ * Kiểu nào là MẶC ĐỊNH cho một phép toán, khi người dùng chọn hai cột.
+ *
+ * Luật này đến từ ĐẠI SỐ, không từ nghiệp vụ — nên nó đúng với mọi ngành:
+ *
+ *   ×   hai đại lượng trên CÙNG một dòng nhân với nhau thì có nghĩa trên dòng
+ *       đó; `sum(a) × avg(b)` thì không có nghĩa gì cả.
+ *   ÷   tỷ số của hai TỔNG là thứ người ta hỏi (tỷ suất, đơn giá bình quân);
+ *       trung bình của các tỷ số từng dòng cân bằng sai trọng số.
+ *   + − cộng trừ hai tổng.
+ *
+ * Chỉ là MẶC ĐỊNH. Hộp thoại viết cả hai công thức ra cho người dùng đối chiếu
+ * và đổi được cả hai chiều — vì có những ca ngược lại, và đoán sai mà không nói
+ * ra thì lại thành đúng cái bẫy `formula` đang mắc.
+ */
+export function defaultKindForOp(op: MeasureOp): MeasureKind {
+  return op === 'mul' ? 'rowExpr' : 'formula';
+}
+
 export const MEASURE_OP_LABELS: Record<MeasureOp, string> = {
   add: '+',
   sub: '−',
   mul: '×',
   div: '÷',
 };
+
+/**
+ * NGUỒN của một thước đo — biểu thức mà phép gộp áp lên.
+ *
+ * ═══ Vì sao thứ này phải đi kèm mọi thước đo ═══════════════════════════════
+ *
+ * Thước đo gieo sẵn mang ĐÚNG TÊN CỘT: bảng Orders có cột `Total amount` thì
+ * mô hình có thước đo `Total amount`. Trên màn hình chúng là hai dòng chữ y hệt
+ * nhau, nên không có gì nói cho người dùng biết rằng cái thứ hai là
+ * `sum(Total amount)`.
+ *
+ * Hậu quả không phải là khó dùng, mà là ĐỌC SAI: `Total amount` trong dữ liệu
+ * là số tiền của MỘT đơn, còn `Total amount` trong Explorer là tổng tiền của
+ * mọi đơn trong nhóm. Người dùng nhìn thấy một con số hàng tỉ ở chỗ họ chờ một
+ * con số hàng trăm nghìn, và không có gì trên màn hình giải thích khoảng cách
+ * đó. Tự động gieo thước đo mà không nói ra phép tính là bắt người dùng đoán.
+ *
+ * ─── Vì sao là NGUỒN, không phải một câu mô tả sẵn ─────────────────────────
+ *
+ * Explorer cho đổi phép gộp TẠI CHỖ (§10.7). Một câu dựng sẵn ở backend sẽ nói
+ * "Tổng của Total amount" trong khi người dùng vừa bấm sang Trung bình — sai
+ * ngay lúc họ cần đọc nhất. Nên backend gửi phần KHÔNG đổi (biểu thức), còn câu
+ * chữ thì `moTaThuocDo` dựng lại mỗi lần render với phép đang chọn.
+ */
+export interface MeasureSourceDto {
+  /** `rows` = đếm dòng: không gộp cột nào, nên `expr` là `null`. */
+  kind: MeasureKind | 'rows';
+  expr: string | null;
+}
+
+/**
+ * Câu trả lời cho "con số này tính từ đâu ra".
+ *
+ * Dạng `<Phép> của <biểu thức>` chứ không phải dạng hàm `Tổng( … )`: khối này
+ * để GIẢI THÍCH, và tám nhãn phép gộp đọc trôi hết ở dạng này —
+ * "Đếm ô có dữ liệu của Postal Code" là một câu, còn
+ * "Đếm ô có dữ liệu( Postal Code )" thì không. Dạng hàm vẫn dùng ở hộp thoại
+ * dựng công thức, nơi người dùng đang GHÉP một biểu thức chứ không đọc nó.
+ *
+ * Thước đo TÍNH TOÁN trả về thẳng biểu thức, không kèm phép gộp: hai vế của nó
+ * đã gộp xong rồi, nên "Tổng của Lợi nhuận ÷ Doanh thu" sẽ mô tả một phép tính
+ * không tồn tại.
+ */
+export function moTaThuocDo(nguon: MeasureSourceDto, agg: MeasureAgg, tenBang: string): string {
+  if (nguon.kind === 'rows') return `Đếm số dòng của bảng ${tenBang}`;
+  if (nguon.expr === null) return MEASURE_AGG_LABELS[agg];
+  if (nguon.kind === 'formula') return nguon.expr;
+
+  // Ngoặc cho biểu thức dòng, vì đó chính là chỗ hay bị đọc ngược: "Tổng của
+  // Số lượng × Đơn giá" có thể hiểu thành `sum(Số lượng) × Đơn giá`, mà đó lại
+  // đúng là phép tính SAI mà loại thước đo này sinh ra để tránh.
+  const bieuThuc = nguon.kind === 'rowExpr' ? `(${nguon.expr})` : nguon.expr;
+  return `${MEASURE_AGG_LABELS[agg]} của ${bieuThuc}`;
+}
 
 /** Cách ĐỌC con số, không đổi con số. `percent` hiển thị 0,283 thành 28,3 %. */
 export const MEASURE_FORMATS = ['number', 'percent'] as const;
@@ -184,13 +439,13 @@ export interface DataModelMeasureDto {
   columnId: number | null;
   columnName: string | null;
   /**
-   * `column` = gộp một cột (`sum(Sales)`). `formula` = ghép hai thước đo khác.
+   * Ba cách một thước đo ra đời — xem `MEASURE_KINDS`.
    *
    * Một trường thay vì đoán qua `formula !== null`: mã đọc dữ liệu này nằm ở
    * bốn chỗ, và "suy ra kiểu từ việc một trường có null hay không" là thứ sẽ
-   * lệch nhau ngay khi thêm kiểu thứ ba.
+   * lệch nhau ngay khi thêm kiểu thứ ba — mà kiểu thứ ba đã tới thật.
    */
-  kind: 'column' | 'formula';
+  kind: MeasureKind;
   format: MeasureFormat;
   /** Chỉ có khi `kind === 'formula'`. Tên hai vế kèm sẵn để khỏi tra lại. */
   formula: {
@@ -199,6 +454,17 @@ export interface DataModelMeasureDto {
     op: MeasureOp;
     rightId: number;
     rightName: string;
+  } | null;
+  /**
+   * Chỉ có khi `kind === 'rowExpr'`. Hai vế là CỘT, không phải thước đo.
+   *
+   * Cột trái nằm ở `columnId`/`columnName` phía trên — `rowExpr` chỉ khác
+   * `column` ở chỗ có thêm một vế phải và một phép nối.
+   */
+  rowExpr: {
+    op: MeasureOp;
+    rightColumnId: number;
+    rightColumnName: string;
   } | null;
   createdAt: string;
 }
@@ -302,6 +568,29 @@ export interface ExplorerFieldDto {
   /** Tên bảng, để bộ chọn gom nhóm cho dễ tìm. */
   datasetName: string;
   cubeType: CubeType;
+  /**
+   * Phép gộp mô hình đang khai cho thước đo này. Chiều không có.
+   *
+   * Explorer cần nó để tô đậm đúng nút đang chọn khi người dùng chưa đổi gì —
+   * nếu không thì hàng nút mở ra với không nút nào sáng, và con số hiện trên
+   * bảng lại đang tính bằng một phép mà giao diện không nói ra.
+   */
+  agg?: MeasureAgg | undefined;
+  /**
+   * Các phép ĐỔI ĐƯỢC ngay trong Explorer, không phải quay về tab Schemas.
+   *
+   * Rỗng nghĩa là không đổi được, và có hai loại như vậy: thước đo TÍNH TOÁN
+   * (hai vế đã gộp sẵn, gộp thêm lần nữa là sai) và thước đo ĐẾM DÒNG (không
+   * đo cột nào để mà đổi phép).
+   */
+  availableAggs?: readonly MeasureAgg[] | undefined;
+  /**
+   * Biểu thức mà phép gộp áp lên — xem `MeasureSourceDto`. Chiều không có.
+   *
+   * Bộ chọn dùng nó để viết ra "Tổng của Total amount" ngay dưới tên thước đo,
+   * nên người dùng không phải suy ra phép tính từ một cái tên trùng với tên cột.
+   */
+  nguon?: MeasureSourceDto | undefined;
 }
 
 export interface ExplorerFieldsDto {
@@ -339,6 +628,17 @@ export interface ExplorerQueryDto {
    */
   timeDimension?: { dimensionId: number; granularity: TimeGranularity } | undefined;
   limit?: number | undefined;
+  /**
+   * Đổi phép gộp của một thước đo CHỈ CHO truy vấn này — §10.7.
+   *
+   * Không ghi gì vào mô hình: hai người mở cùng một mô hình có thể muốn hai
+   * phép khác nhau trong cùng một lúc, và một cú bấm ở Explorer sửa cấu hình
+   * chung là thứ người thứ hai không có cách nào biết.
+   *
+   * Danh sách chứ không phải object: khoá số trong JSON luôn về chuỗi, và một
+   * `Record<number, ...>` sẽ bắt cả hai đầu tự ép kiểu qua lại.
+   */
+  measureAggs?: readonly { id: number; agg: MeasureAgg }[] | undefined;
 }
 
 /** Kết quả đã dịch ngược về id — Explorer không cần biết Cube gọi chúng là gì. */
@@ -366,6 +666,14 @@ export interface ExplorerResultDto {
     kind: 'dimension' | 'measure';
     /** Chỉ có ở thước đo — quyết định cách ĐỌC con số, không đổi con số. */
     format?: MeasureFormat;
+    /**
+     * "Tổng của Total amount" — phép tính đã tạo ra cột này.
+     *
+     * Đi theo KẾT QUẢ chứ không chỉ nằm ở bộ chọn, vì tiêu đề cột mới là chỗ
+     * một con số bị đọc sai thành một kết luận. Dựng ở backend với phép gộp
+     * thật sự đã chạy, nên nó không thể lệch với con số bên dưới.
+     */
+    mota?: string;
   }[];
   rows: (string | number | null)[][];
   /** Đã chạm trần số dòng: còn dữ liệu mà truy vấn không lấy hết. */
@@ -417,6 +725,21 @@ export interface CreateFormulaMeasureInput {
   leftId: number;
   op: MeasureOp;
   rightId: number;
+  format: MeasureFormat;
+}
+
+/**
+ * ⚠️ Hai vế là ID CỘT, không phải ID thước đo như `CreateFormulaMeasureInput`.
+ *
+ * Và `agg` ở đây mang nghĩa THẬT: nó là phép gộp áp lên kết quả biểu thức, đổi
+ * nó là đổi hẳn con số. Ở `formula` thì `agg` chỉ là giá trị giữ chỗ.
+ */
+export interface CreateRowExprMeasureInput {
+  name: string;
+  agg: MeasureAgg;
+  leftColumnId: number;
+  op: MeasureOp;
+  rightColumnId: number;
   format: MeasureFormat;
 }
 

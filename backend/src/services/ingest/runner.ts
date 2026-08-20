@@ -2,7 +2,6 @@ import { isTest } from '../../config/env';
 import { mysqlPool } from '../../config/mysql';
 import * as loadsRepo from '../../repositories/datasetLoads';
 import * as datasetsRepo from '../../repositories/datasets';
-import { ensureAutoDataModel } from '../datamodel/autoDataModel';
 import { sweepOrphanTables } from './dropTables';
 import { loadDataset } from './loadDataset';
 
@@ -147,11 +146,9 @@ async function tick(): Promise<void> {
         (outcome.rowsFailed > 0 ? `, ${outcome.rowsFailed} ô lỗi` : ''),
     );
 
-    // Nạp xong -> có ngay một mô hình dùng được (§10). SAU khi đã đánh dấu
-    // `loaded`, vì hàm này đọc lại trạng thái đó để biết có nên tạo hay không.
-    // Nó tự nuốt mọi lỗi: sinh mô hình hỏng không được phép biến một lần nạp
-    // thành công thành thất bại.
-    await ensureAutoDataModel(tenantId, datasetId, null);
+    // Nạp xong là HẾT việc của vòng lặp này. Không sinh mô hình dữ liệu ở đây —
+    // xem `docs/` và migration 20: mô hình giờ chỉ ra đời khi người dùng chọn
+    // đúng những bộ dữ liệu họ muốn hỏi cùng nhau.
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error(`[ingest] dataset ${datasetId}: nạp hỏng —`, err);

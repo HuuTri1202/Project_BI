@@ -1,4 +1,9 @@
-import type { CubeType, RelationshipKind } from '@bi/shared';
+import {
+  MEASURE_AGG_LABELS,
+  type CubeType,
+  type MeasureAgg,
+  type RelationshipKind,
+} from '@bi/shared';
 
 import { quoteIdent } from '../ingest/typeMap';
 import { ROW_INDEX_COLUMN } from '../ingest/buildDdl';
@@ -93,7 +98,17 @@ export interface SchemaColumn {
 export interface SchemaMeasure {
   id: number;
   name: string;
-  agg: 'sum' | 'avg' | 'count' | 'min' | 'max';
+  agg: MeasureAgg;
+  /**
+   * Các phép gộp KHÁC cũng phát ra cho cùng cột này, để Explorer đổi tại chỗ.
+   *
+   * Cube chỉ hỏi được thước đo đã KHAI SẴN — không có cách nào bảo nó "gộp cột
+   * kia kiểu khác" lúc chạy. Nên "đổi phép" ở giao diện thật ra là "hỏi một
+   * thước đo khác", và những thước đo đó phải có mặt trong file từ trước.
+   *
+   * Rỗng với thước đo TÍNH TOÁN (hai vế đã gộp rồi) và thước đo ĐẾM DÒNG.
+   */
+  altAggs?: readonly MeasureAgg[] | undefined;
   /** `null` khi và chỉ khi `agg === 'count'`. */
   columnName: string | null;
   /**
@@ -103,6 +118,16 @@ export interface SchemaMeasure {
    * xem ghi chú ở migration 13 về việc không nhận công thức dạng văn bản.
    */
   formula: { op: 'add' | 'sub' | 'mul' | 'div'; leftId: number; rightId: number } | null;
+  /**
+   * Gộp trên BIỂU THỨC DÒNG — `sum(Số lượng × Đơn giá)`.
+   *
+   * Khác `formula` ở đúng một chỗ, và chỗ đó đổi hẳn con số: hai vế ở đây là
+   * CỘT chưa gộp, nên phép nhân chạy trên từng dòng rồi `agg` mới chạy trên kết
+   * quả. `formula` thì ngược lại — hai vế đã gộp xong.
+   *
+   * Vế trái là `columnName` phía trên; đây chỉ là vế phải và phép nối.
+   */
+  rowExpr?: { op: 'add' | 'sub' | 'mul' | 'div'; rightColumnName: string } | null | undefined;
 }
 
 export interface SchemaJoin {
@@ -174,7 +199,20 @@ function sqlIdentInTemplate(name: string): string {
  * nên mơ hồ trong truy vấn nhiều bảng, và ClickHouse lặng lẽ chọn bảng đầu.
  */
 function cubeColumn(name: string): string {
-  return '`${CUBE}.' + sqlIdentInTemplate(name) + '`';
+  return '`' + cubeColumnInner(name) + '`';
+}
+
+/**
+ * Phần RUỘT của một tham chiếu cột — chưa bọc backtick của template literal.
+ *
+ * Tách ra vì phân vị cần nhét tham chiếu đó vào GIỮA một biểu thức
+ * (`quantile(0.5)(<ở đây>)`), mà `cubeColumn` thì đã đóng sẵn hai đầu. Ghép
+ * chuỗi ở đây chứ không lồng template literal trong template literal: lồng vào
+ * là phải escape backtick thêm một tầng nữa, và đó đúng là tầng mà ghi chú đầu
+ * file cảnh báo không được làm sai.
+ */
+function cubeColumnInner(name: string): string {
+  return '${CUBE}.' + sqlIdentInTemplate(name);
 }
 
 /**
@@ -213,8 +251,117 @@ const OP_SQL: Record<'add' | 'sub' | 'mul' | 'div', string> = {
   div: '/',
 };
 
-function measureBlock(measure: SchemaMeasure): string {
-  const name = measureNameFor(measure.id);
+/**
+ * Tên phép gộp theo cách CUBE viết.
+ *
+ * Chỉ MỘT dòng khác `MEASURE_AGGS`, nhưng đó là lý do bảng này tồn tại: Cube
+ * gọi phép đếm giá trị khác nhau là `count_distinct` (snake_case, cùng lối với
+ * `sql_table` và `primary_key` ở phần còn lại của file), còn ta lưu
+ * `countDistinct` trong database. Nội suy thẳng `measure.agg` vào file cube sẽ
+ * sinh `type: "countDistinct"` — Cube không nhận, và nó hỏng lúc BIÊN DỊCH
+ * schema, tức là chết cả tổ chức chứ không riêng thước đo đó.
+ *
+ * Giữ hai từ vựng tách nhau chứ không đổi database sang `count_distinct`: tên
+ * của một công cụ bên ngoài không nên nằm trong dữ liệu của mình.
+ */
+const CUBE_AGG: Record<MeasureAgg, string> = {
+  sum: 'sum',
+  avg: 'avg',
+  count: 'count',
+  countDistinct: 'count_distinct',
+  min: 'min',
+  max: 'max',
+  // Hai phép dưới KHÔNG phải kiểu của Cube — chúng phát ra `type: "number"` kèm
+  // một biểu thức `quantile(...)`, xem `QUANTILE_OF`. Giá trị ở đây chỉ để
+  // `Record<MeasureAgg, string>` đủ khoá; `measureBlock` rẽ nhánh trước khi đọc
+  // tới, và bài test "mọi phép đều sinh ra khối hợp lệ" canh điều đó.
+  median: 'number',
+  p90: 'number',
+};
+
+/**
+ * Phép gộp phải viết bằng BIỂU THỨC, vì Cube không có kiểu cho nó.
+ *
+ * Cube chỉ có bảy kiểu tổng hợp dựng sẵn: count, count_distinct,
+ * count_distinct_approx, sum, avg, min, max. Trung vị không nằm trong đó. Cách
+ * chính thức là khai `type: "number"` rồi tự viết hàm gộp vào `sql` — Cube đặt
+ * nguyên biểu thức đó vào mệnh đề SELECT cạnh `GROUP BY` của các chiều.
+ *
+ * ─── Câu hỏi lớn khi làm bản này, và câu trả lời ĐÃ ĐO ────────────────────
+ *
+ * Cube khử nhân bản dòng khi JOIN bằng cách bọc một truy vấn con theo
+ * `primary_key`. Cơ chế đó có tài liệu cho các kiểu DỰNG SẴN, nhưng không nói
+ * gì về biểu thức tự viết — nên một truy vấn kéo bảng phía "một" qua quan hệ
+ * `one_to_many` HOÀN TOÀN CÓ THỂ tính trung vị trên tập dòng đã bị nhân lên,
+ * và sai kiểu đó thì không có lỗi nào cả, con số vẫn nằm trong khoảng hợp lý.
+ *
+ * Đo thật trên bàn thử lệch có chủ đích (ca TD-13 của `mod-thuocdo.mjs`):
+ * 3 khách với Diem 10/20/30, khách đầu có 5 đơn, gộp theo một cột hằng để cả
+ * 7 dòng đã nối rơi vào một nhóm.
+ *
+ *     tổng      60   (nhân dòng sẽ là 100)
+ *     trung vị  20   (nhân dòng sẽ là 10)
+ *
+ * Kết luận: biểu thức tự viết ĐƯỢC hưởng cùng cơ chế khử trùng lặp. Nhưng đó là
+ * hành vi quan sát được của phiên bản Cube hiện tại, không phải lời hứa trong
+ * tài liệu — nên ca TD-13 phải ở lại làm cửa canh, và chạy lại mỗi lần nâng cấp
+ * Cube. Nếu nó đỏ, mọi con số trung vị trên mô hình nhiều bảng đều đáng ngờ.
+ *
+ * ⚠️ `quantileExact`, KHÔNG phải `quantile`.
+ *
+ * `quantile` của ClickHouse lấy mẫu theo hồ chứa và tài liệu của nó nói thẳng:
+ * kết quả PHỤ THUỘC THỨ TỰ CHẠY và không tất định. Nghĩa là mở cùng một báo cáo
+ * hai lần cho ra hai con số hơi khác nhau — không sai đủ để ai nghi ngờ, nhưng
+ * đủ để người dùng mất lòng tin vào cả hệ thống. Cùng loại vấn đề mà `order` ở
+ * `explorer.ts` tồn tại để chặn.
+ *
+ * Cái giá của bản chính xác là bộ nhớ O(n) cho mỗi nhóm. Chấp nhận được ở quy
+ * mô này: §7 chặn file ở 50.000 dòng, và `users.d/limits.xml` cho container 1GB.
+ */
+const QUANTILE_OF: Partial<Record<MeasureAgg, string>> = {
+  median: '0.5',
+  p90: '0.9',
+};
+
+/**
+ * Nhãn cho `title:` của biến thể — dùng CHUNG bảng của giao diện.
+ *
+ * Trước đây đây là một bảng riêng, chép lại y hệt, với lý do "file cube chỉ để
+ * đọc nên đặt tên gì cũng được". Lý do đó hỏng ngay lần đầu một nhãn đổi: giao
+ * diện gọi `p90` là "Ngưỡng top 10%" còn file cube vẫn ghi "Phân vị 90", nên
+ * người đi dò lỗi phải tự đoán hai cái tên chỉ cùng một thứ. Một tên cho một
+ * khái niệm, ở mọi nơi.
+ */
+const AGG_TITLE = MEASURE_AGG_LABELS;
+
+/**
+ * Một thước đo, kèm mọi biến thể phép gộp của nó.
+ *
+ * Biến thể chỉ khác khối gốc ở hai chỗ: khoá (`m237_avg`) và `type`. Cùng cột,
+ * cùng cube, nên `sql` y hệt.
+ */
+function measureBlocks(measure: SchemaMeasure): string {
+  const blocks = [measureBlock(measure)];
+
+  for (const agg of measure.altAggs ?? []) {
+    if (agg === measure.agg) continue;
+    blocks.push(
+      measureBlock({
+        ...measure,
+        agg,
+        // Nhãn nói rõ phép nào, vì file cube là thứ người ta mở ra khi đi tìm
+        // lỗi và ba dòng `title: "Doanh thu"` cạnh nhau thì không lần được.
+        name: `${measure.name} (${AGG_TITLE[agg]})`,
+        variantAgg: agg,
+      }),
+    );
+  }
+
+  return blocks.join('\n');
+}
+
+function measureBlock(measure: SchemaMeasure & { variantAgg?: MeasureAgg }): string {
+  const name = measureNameFor(measure.id, measure.variantAgg);
   const lines = [`    ${name}: {`, `      title: ${js(measure.name)},`];
 
   if (measure.formula !== null) {
@@ -243,21 +390,89 @@ function measureBlock(measure: SchemaMeasure): string {
     return lines.join('\n');
   }
 
-  // `count` là đếm DÒNG — không có cột nào để đo, và khai `sql` cho nó sẽ biến
-  // phép đếm thành `count(cột)`, tức là bỏ qua dòng có ô trống. Hai con số khác
-  // nhau, và người dùng chọn "Số dòng" thì họ muốn con số thứ nhất. Trên chính
-  // bảng Orders trong máy: 51.290 dòng, nhưng `count(Postal Code)` ra 9.994.
-  //
+  /*
+   * Gộp trên BIỂU THỨC DÒNG — `sum(Số lượng × Đơn giá)`.
+   *
+   * ─── Vì sao `type` là phép gộp thật, không phải "number" ───────────────────
+   *
+   * Đây là chỗ khác hẳn nhánh `formula` ngay bên trên. Ở đó hai vế đã gộp xong
+   * nên Cube chỉ còn tính biểu thức trên kết quả — `type: "number"`. Ở đây hai
+   * vế là CỘT THÔ, nên `sql` chạy trên từng dòng và `type` mới là thứ gộp lại.
+   * Khai nhầm `number` sẽ khiến Cube không gộp gì cả và ném lỗi khi có GROUP BY.
+   *
+   * Vì `sum`/`avg`/`min`/`max` là kiểu DỰNG SẴN, biểu thức này được hưởng cơ chế
+   * khử nhân bản dòng khi JOIN của Cube — cùng thứ mà TD-13 đã đo cho `sum`.
+   * Trung vị và phân vị đi đường `QUANTILE_OF` ở dưới nên không tới đây.
+   */
+  // ⚠️ `?? null` chứ không so thẳng `!== null`: trường này KHÔNG BẮT BUỘC, nên
+  // nơi gọi bỏ trống sẽ cho `undefined`, và `undefined !== null` là ĐÚNG — cả
+  // nhánh dưới sẽ chạy cho mọi thước đo thường rồi đọc thuộc tính của
+  // `undefined`. Bộ test bắt được đúng lỗi này.
+  const rowExpr = measure.rowExpr ?? null;
+  if (rowExpr !== null && measure.columnName !== null) {
+    const trai = cubeColumnInner(measure.columnName);
+    const phai = cubeColumnInner(rowExpr.rightColumnName);
+    const op = OP_SQL[rowExpr.op];
+    // Chia cho 0 thì bọc `nullIf` — cùng lý lẽ với nhánh `formula` bên trên.
+    const mau = rowExpr.op === 'div' ? 'nullIf(' + phai + ', 0)' : phai;
+    const bieuThuc = trai + ' ' + op + ' ' + mau;
+
+    // ⚠️ Phân vị phải xét TRƯỚC, và đây là chỗ rất dễ sai: `CUBE_AGG.median` là
+    // chuỗi `'number'`, nên rơi xuống nhánh dưới sẽ phát ra một thước đo KHÔNG
+    // gộp gì cả — Cube nhận, ClickHouse ném lỗi lúc có GROUP BY, và lỗi hiện ra
+    // cách chỗ khai báo hai màn hình.
+    const quantile = QUANTILE_OF[measure.agg];
+    lines.push(
+      quantile === undefined
+        ? '      sql: `' + bieuThuc + '`,'
+        : '      sql: `quantileExact(' + quantile + ')(' + bieuThuc + ')`,',
+      quantile === undefined ? `      type: ${js(CUBE_AGG[measure.agg])},` : `      type: "number",`,
+      `    },`,
+    );
+    return lines.join('\n');
+  }
+
   // ⚠️ Cube KHÔNG sinh `count(*)` cho `type: "count"` — nó nở ra
   // `count(<primary_key>)`, ở đây là `count(\`_row_index\`)`. Con số vẫn đúng,
   // nhưng CHỈ VÌ `_row_index` khai `UInt64` chứ không phải `Nullable(UInt64)`
   // (xem `buildDdl`). Nếu khoá chính ẩn có ngày nào thành nullable thì mọi phép
   // đếm âm thầm hụt đi đúng số dòng thiếu khoá — không lỗi, không cảnh báo.
-  if (measure.agg !== 'count' && measure.columnName !== null) {
+  // Phân vị: Cube không có kiểu, nên tự viết hàm gộp vào `sql`.
+  //
+  // `quantile` của ClickHouse BỎ QUA NULL, và mọi cột `raw_*` đều `Nullable`
+  // (§9) — nên một ô trống không kéo trung vị về 0, nó chỉ không được tính. Đó
+  // là hành vi đúng: câu trả lời là "một nửa số dòng CÓ SỐ LIỆU nằm dưới mức
+  // này", không phải "một nửa số dòng, coi ô trống là 0".
+  const quantile = QUANTILE_OF[measure.agg];
+  if (quantile !== undefined && measure.columnName !== null) {
+    lines.push(
+      '      sql: `quantileExact(' + quantile + ')(' + cubeColumnInner(measure.columnName) + ')`,',
+      `      type: "number",`,
+      `    },`,
+    );
+    return lines.join('\n');
+  }
+
+  /*
+   * SỰ CÓ MẶT CỦA CỘT là thứ tách hai nghĩa của `count`, không phải tên phép.
+   *
+   *   columnName === null  →  không có `sql`  →  `count(<primary_key>)`  →  đếm
+   *                           DÒNG. Đây là thước đo "Số dòng" gieo sẵn cho mọi
+   *                           bảng (`ROW_COUNT_MEASURE_NAME`).
+   *   columnName !== null  →  có `sql`        →  `count(<cột>)`          →  đếm
+   *                           ô CÓ DỮ LIỆU, vì `count(cột)` của ClickHouse bỏ
+   *                           qua NULL và mọi cột `raw_*` đều `Nullable` (§9).
+   *
+   * Hai con số lệch nhau thật: trên bảng Orders trong máy là 51.290 so với
+   * 9.994 cho `count(\`Postal Code\`)`. Nhãn phải nói ra khác biệt đó — xem
+   * `MEASURE_AGG_LABELS.count`, đọc là "Đếm ô có dữ liệu" chứ không phải "Đếm
+   * dòng". Nhãn cũ mô tả sai đúng cái nhánh dưới đây.
+   */
+  if (measure.columnName !== null) {
     lines.push(`      sql: ${cubeColumn(measure.columnName)},`);
   }
 
-  lines.push(`      type: ${js(measure.agg)},`, `    },`);
+  lines.push(`      type: ${js(CUBE_AGG[measure.agg])},`, `    },`);
   return lines.join('\n');
 }
 
@@ -337,7 +552,7 @@ function cubeBlock(cube: SchemaCube): string {
     '  },',
     '',
     '  measures: {',
-    cube.measures.map(measureBlock).join('\n'),
+    cube.measures.map(measureBlocks).join('\n'),
     '  },',
     '});',
   ];

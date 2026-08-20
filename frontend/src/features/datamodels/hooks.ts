@@ -1,5 +1,6 @@
 import type {
   CreateFormulaMeasureInput,
+  CreateRowExprMeasureInput,
   DataModelDetailDto,
   DataModelDto,
   DataModelMeasureDto,
@@ -248,6 +249,16 @@ export function useCreateFormulaMeasure(
   const invalidate = useInvalidateDataModel();
   return useMutation({
     mutationFn: (input) => api.createFormulaMeasure(id, input),
+    onSuccess: invalidate,
+  });
+}
+
+export function useCreateRowExprMeasure(
+  id: number,
+): UseMutationResult<DataModelMeasureDto, unknown, CreateRowExprMeasureInput> {
+  const invalidate = useInvalidateDataModel();
+  return useMutation({
+    mutationFn: (input) => api.createRowExprMeasure(id, input),
     onSuccess: invalidate,
   });
 }

@@ -217,14 +217,177 @@ async function* csvRows(buffer: Buffer): AsyncGenerator<string[][], void, undefi
  * `WorkbookReader` đọc theo luồng và tự nó đã là async iterable, nên không cần
  * bắc cầu như CSV — điều tiết có sẵn trong `for await`.
  *
- * `worksheet.name` phải khớp `sheetName`: một file nhiều sheet sinh ra nhiều bộ
- * dữ liệu trỏ chung MỘT object trên S3, nên đọc nhầm sheet là nạp dữ liệu của bộ
- * khác vào bảng này — sai mà không có lỗi nào.
+ * Tên sheet phải khớp `sheetName`: một file nhiều sheet sinh ra nhiều bộ dữ liệu
+ * trỏ chung MỘT object trên S3, nên đọc nhầm sheet là nạp dữ liệu của bộ khác
+ * vào bảng này — sai mà không có lỗi nào.
+ *
+ * ⚠️ Tên lấy qua `sheetNameOf`, KHÔNG phải `worksheet.name` — đọc ghi chú ở hàm
+ * đó trước khi sửa gì quanh đây.
  */
 /** Gom bấy nhiêu dòng rồi mới phát một lần — cùng lý do với `chunk` của CSV. */
 const XLSX_GROUP = 2_000;
 
+/**
+ * `/xl/worksheets/sheet1.xml` và `worksheets/sheet1.xml` là CÙNG một phần.
+ *
+ * Quan hệ trong gói OPC được phép ghi đích ở dạng tuyệt đối (bắt đầu bằng `/`,
+ * tính từ gốc gói) hoặc tương đối (tính từ thư mục chứa `workbook.xml`). Cả hai
+ * đều đúng chuẩn; công cụ nào ghi kiểu nào là tuỳ nó.
+ */
+function opcTarget(target: string | undefined): string {
+  return target === undefined ? '' : target.replace(/^\/?xl\//, '');
+}
+
+/**
+ * Tên THẬT của sheet đang được phát ra — tự nối lấy, không tin `worksheet.name`.
+ *
+ * ═══ Vì sao không dùng thẳng `worksheet.name` ══════════════════════════════
+ *
+ * exceljs 4.4 nối tên sheet bằng đúng một phép so sánh CHUỖI (xem
+ * `stream/xlsx/workbook-reader.js`, hàm `_parseWorksheet`):
+ *
+ *     rel.Target === `worksheets/sheet${sheetNo}.xml`
+ *
+ * Nó chỉ nhận dạng TƯƠNG ĐỐI. File do openpyxl ghi dùng dạng tuyệt đối
+ * `/xl/worksheets/sheet1.xml`, nên phép so sánh không bao giờ khớp, tên không
+ * bao giờ được gán, và `WorksheetReader` giữ nguyên giá trị mặc định của nó:
+ * `Sheet1`, `Sheet2`, … theo số thứ tự FILE.
+ *
+ * Đo trên file `database.xlsx` thật của người dùng:
+ *
+ *     workbook.xlsx.load()  ->  "Customers", "Products", "Orders", …
+ *     WorkbookReader        ->  "Sheet1",    "Sheet2",   "Sheet3",  …
+ *
+ * Hậu quả không phải đọc nhầm sheet mà là KHÔNG TÌM THẤY sheet nào: nhánh phân
+ * tích (§7) dùng `workbook.xlsx.load` nên `datasets.sheet_name` lưu tên thật,
+ * còn nhánh nạp (§9) đi tìm tên đó giữa `Sheet1…Sheet5`. Cả 8 bộ dữ liệu của
+ * một file 5 sheet đều `failed` với `rows_read = 0`.
+ *
+ * ─── Vì sao nối lại được, và nối bằng gì ───────────────────────────────────
+ *
+ * Bản thân `WorkbookReader` VẪN đọc đúng cả hai mảnh cần thiết — nó chỉ ghép
+ * sai. `worksheet.workbook` trỏ ngược về chính trình đọc đó, nên ta lấy lại
+ * `workbookRels` (từ `xl/_rels/workbook.xml.rels`) và `model.sheets` (từ
+ * `xl/workbook.xml`) rồi tự ghép, với đích đã chuẩn hoá.
+ *
+ * `worksheet.id` là số trong tên file (`sheet3.xml` → `3`) và luôn được đặt,
+ * kể cả khi phép ghép của exceljs trượt — đó là khoá ghép đáng tin ở đây.
+ *
+ * Trả về `worksheet.name` khi thiếu mảnh nào: file một sheet vẫn nạp được bằng
+ * đường `sheetName === null`, và một tên sai vẫn hơn là ném lỗi.
+ */
+function sheetNameOf(worksheet: unknown): string | undefined {
+  const ws = worksheet as {
+    id?: number | string;
+    name?: string;
+    workbook?: {
+      workbookRels?: { Id?: string; Target?: string }[];
+      model?: { sheets?: { rId?: string; name?: string }[] };
+    };
+  };
+
+  const rels = ws.workbook?.workbookRels;
+  const sheets = ws.workbook?.model?.sheets;
+  if (rels === undefined || sheets === undefined) return ws.name;
+
+  const dich = `worksheets/sheet${String(ws.id)}.xml`;
+  const rel = rels.find((r) => opcTarget(r.Target) === dich);
+  if (rel === undefined) return ws.name;
+
+  return sheets.find((s) => s.rId === rel.Id)?.name ?? ws.name;
+}
+
+/**
+ * Đọc theo luồng trước, hỏng thì lùi về đọc cả file.
+ *
+ * ═══ Vì sao phải có đường lùi ══════════════════════════════════════════════
+ *
+ * `WorkbookReader` của exceljs 4.4 hỏng theo HAI kiểu khác nhau, cả hai đều đo
+ * được và cả hai đều làm cả lần nạp trắng tay:
+ *
+ *   1. Ghép sai TÊN sheet khi quan hệ ghi đường dẫn tuyệt đối — `sheetNameOf`
+ *      chữa được kiểu này, vì exceljs vẫn đọc đủ mảnh, chỉ ghép sai.
+ *
+ *   2. NÉM LỖI trước khi trả về dòng nào:
+ *
+ *          TypeError: Cannot read properties of undefined (reading 'sheets')
+ *            at WorkbookReader._parseWorksheet  workbook-reader.js:303
+ *
+ *      Nó đọc `this.model.sheets` trong khi `xl/workbook.xml` chưa được phân
+ *      tích. Lỗi nằm trong ruột exceljs, xảy ra TRƯỚC khi ta cầm được worksheet
+ *      nào, nên không có chỗ nào để vá từ bên ngoài.
+ *
+ * ─── Vì sao đường lùi này an toàn ──────────────────────────────────────────
+ *
+ * `workbook.xlsx.load` chính là thứ nhánh phân tích (§7) đã dùng trên đúng file
+ * đó lúc tải lên. Nếu bước phân tích đọc được thì đường lùi cũng đọc được — nó
+ * không phải một cách đọc mới chưa ai thử.
+ *
+ * Cái giá là bộ nhớ: nó dựng cả workbook lên RAM. Chấp nhận được vì §7 chặn ở
+ * 50.000 dòng, và vì đây là đường HIẾM — chỉ chạy khi đường luồng đã hỏng.
+ *
+ * ⚠️ Chỉ lùi khi CHƯA phát ra dòng nào. Dòng đã phát thì đã nằm trong lô ghi
+ * vào ClickHouse rồi; đọc lại từ đầu sẽ nạp đúp phần đầu bảng.
+ */
 async function* xlsxRows(
+  buffer: Buffer,
+  sheetName: string | null,
+): AsyncGenerator<string[][], void, undefined> {
+  let daPhat = false;
+  try {
+    for await (const group of xlsxStreamRows(buffer, sheetName)) {
+      daPhat = true;
+      yield group;
+    }
+    return;
+  } catch (err) {
+    if (daPhat) throw err;
+  }
+
+  yield* xlsxLoadRows(buffer, sheetName);
+}
+
+/** Một dòng exceljs, đã cắt bỏ phần tử 0 của mảng 1-INDEXED. */
+function rowText(values: unknown): string[] {
+  // `row.values` là mảng 1-INDEXED — phần tử 0 luôn `undefined`. Cắt bỏ nó, nếu
+  // không mọi cột lệch một vị trí và cột cuối biến mất. Cùng một cái bẫy đã ghi
+  // trong `parseFile.ts`.
+  return (Array.isArray(values) ? values.slice(1) : []).map(cellText);
+}
+
+/**
+ * Đường lùi: dựng cả workbook lên bộ nhớ rồi đọc.
+ *
+ * Không có `styles: 'cache'` nào phải khai ở đây — `workbook.xlsx.load` LUÔN
+ * đọc styles, nên ô ngày ra đúng ngày chứ không ra số sê-ri.
+ */
+async function* xlsxLoadRows(
+  buffer: Buffer,
+  sheetName: string | null,
+): AsyncGenerator<string[][], void, undefined> {
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(buffer as unknown as ArrayBuffer);
+
+  const sheet =
+    sheetName === null ? workbook.worksheets[0] : workbook.getWorksheet(sheetName);
+  if (sheet === undefined) {
+    throw new Error(`Không tìm thấy sheet "${sheetName ?? ''}" trong file.`);
+  }
+
+  let group: string[][] = [];
+  sheet.eachRow((row, soDong) => {
+    if (soDong === 1) return;
+    group.push(rowText(row.values));
+  });
+
+  // `eachRow` là ĐỒNG BỘ nên không cắt lô được ở giữa như nhánh luồng; cắt sau.
+  for (let i = 0; i < group.length; i += XLSX_GROUP) {
+    yield group.slice(i, i + XLSX_GROUP);
+  }
+  group = [];
+}
+
+async function* xlsxStreamRows(
   buffer: Buffer,
   sheetName: string | null,
 ): AsyncGenerator<string[][], void, undefined> {
@@ -253,9 +416,9 @@ async function* xlsxRows(
   let found = false;
 
   for await (const worksheet of reader) {
-    // `.name` CÓ trên đối tượng runtime nhưng thiếu trong khai báo kiểu của
-    // exceljs 4.4 cho `WorksheetReader`. Thu hẹp tại chỗ thay vì ép `any`.
-    const name = (worksheet as unknown as { name?: string }).name;
+    // KHÔNG đọc `worksheet.name` — exceljs ghép sai tên với file do openpyxl
+    // ghi. Xem `sheetNameOf`.
+    const name = sheetNameOf(worksheet);
 
     if (sheetName !== null && name !== sheetName) {
       // Vẫn phải rút cạn sheet không dùng: bỏ qua mà không đọc sẽ khiến luồng
@@ -273,11 +436,7 @@ async function* xlsxRows(
         first = false;
         continue;
       }
-      // `row.values` là mảng 1-INDEXED — phần tử 0 luôn `undefined`. Cắt bỏ nó,
-      // nếu không mọi cột lệch một vị trí và cột cuối biến mất. Cùng một cái bẫy
-      // đã ghi trong `parseFile.ts`.
-      const values = Array.isArray(row.values) ? row.values.slice(1) : [];
-      group.push(values.map(cellText));
+      group.push(rowText(row.values));
 
       if (group.length >= XLSX_GROUP) {
         yield group;

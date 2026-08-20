@@ -442,6 +442,27 @@ export const createFormulaMeasureBodySchema = z.object({
 });
 
 /**
+ * Thước đo GỘP TRÊN BIỂU THỨC DÒNG — §10.6.
+ *
+ * Trông giống `createFormulaMeasureBodySchema` nhưng hai vế là ID CỘT chứ không
+ * phải ID thước đo, và `agg` ở đây mang nghĩa thật — nó là phép gộp áp lên kết
+ * quả biểu thức. Hai schema riêng chứ không một schema có trường tuỳ chọn:
+ * trộn lại thì không còn ràng buộc nào để zod chặn, và mã đọc phải tự nhớ
+ * trường nào đi với `kind` nào.
+ *
+ * Vẫn không có ô nào nhận biểu thức dạng chữ — hai vế là ID, phép nằm trong
+ * ENUM. Cùng nguyên tắc đã ghi ở migration 13.
+ */
+export const createRowExprMeasureBodySchema = z.object({
+  name: z.string().trim().min(1).max(MEASURE_NAME_MAX),
+  agg: z.enum(MEASURE_AGGS),
+  leftColumnId: z.coerce.number().int().positive(),
+  op: z.enum(MEASURE_OPS),
+  rightColumnId: z.coerce.number().int().positive(),
+  format: z.enum(MEASURE_FORMATS),
+});
+
+/**
  * Sửa một BẢNG trong mô hình — §10.3.
  *
  * Cả ba trường đều `optional()`: hộp thoại "Đặt khoá chính" chỉ gửi
@@ -510,6 +531,25 @@ export const explorerQueryBodySchema = z
       })
       .optional(),
     limit: z.coerce.number().int().positive().max(5000).optional(),
+    /*
+     * Đổi phép gộp cho riêng truy vấn này — §10.7.
+     *
+     * Vẫn TOÀN ID: `agg` là một giá trị trong `MEASURE_AGGS`, tức từ vựng của
+     * ta chứ không phải chuỗi tự do, và Express còn đối chiếu tiếp với các phép
+     * mà cột đó thật sự nhận trước khi dựng tên cube.
+     *
+     * Trần bằng `measureIds`: nhiều hơn thế là những id không được chọn, và
+     * chúng bị bỏ qua chứ không có tác dụng gì.
+     */
+    measureAggs: z
+      .array(
+        z.object({
+          id: z.coerce.number().int().positive(),
+          agg: z.enum(MEASURE_AGGS),
+        }),
+      )
+      .max(20)
+      .optional(),
   })
   .refine((q) => q.dimensionIds.length + q.measureIds.length > 0, {
     message: 'Hãy chọn ít nhất một chiều hoặc một thước đo',

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { ModelReportModal } from '../datamodels/ModelReportModal';
-import { ReportWizard } from '../datasets/wizard/ReportWizard';
+import { UploadWizard } from '../datasets/wizard/UploadWizard';
 
 /**
  * Nút "Tạo báo cáo" — §4.9, nay chọn theo NGUỒN SỐ LIỆU (§10.8).
@@ -28,7 +28,7 @@ const ITEMS = [
   {
     key: 'file' as const,
     label: 'Dùng file Excel/CSV',
-    hint: 'Tải file lên rồi dựng biểu đồ từ nó',
+    hint: 'Tải file lên để tạo bộ dữ liệu, rồi dựng mô hình trên nó',
     icon: 'M13 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9l-6-6Zm0 0v6h6',
   },
   {
@@ -148,7 +148,7 @@ export function CreateReportMenu({
         </div>
       )}
 
-      <ReportWizard open={wizardOpen} onClose={() => setWizardOpen(false)} />
+      <UploadWizard open={wizardOpen} onClose={() => setWizardOpen(false)} />
       <ModelReportModal open={modelOpen} onClose={() => setModelOpen(false)} />
     </div>
   );
