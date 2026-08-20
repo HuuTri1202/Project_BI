@@ -1,3 +1,5 @@
+import type { MeasureAgg } from '@bi/shared';
+
 /**
  * Sinh định danh cho file cube schema — §10, TOÀN BỘ hàm thuần.
  *
@@ -55,10 +57,38 @@ export function dimensionNameFor(columnId: number): string {
   return `d${columnId}`;
 }
 
-/** Khoá của một thước đo. `m` + id dòng `datamodel_measures`. */
-export function measureNameFor(measureId: number): string {
+/**
+ * Hậu tố của một biến thể phép gộp.
+ *
+ * Bảng ĐÓNG, không nội suy thẳng chuỗi `agg` vào tên. Sáu giá trị hiện tại đều
+ * là chữ cái nên nội suy cũng chạy, nhưng cả file này đứng trên đúng một luật:
+ * định danh trong file cube sinh từ từ vựng của HỆ THỐNG, không từ một chuỗi
+ * đi ngang qua. Một phép gộp mới thêm vào `MEASURE_AGGS` mà quên dòng ở đây là
+ * lỗi BIÊN DỊCH nhờ `Record<MeasureAgg, string>`, chứ không phải một định danh
+ * lạ lọt vào file rồi Cube từ chối cả tổ chức.
+ */
+const AGG_SUFFIX: Record<MeasureAgg, string> = {
+  sum: 'sum',
+  avg: 'avg',
+  count: 'cnt',
+  countDistinct: 'cntd',
+  min: 'min',
+  max: 'max',
+  median: 'med',
+  p90: 'p90',
+};
+
+/**
+ * Khoá của một thước đo. `m` + id dòng `datamodel_measures`.
+ *
+ * Có `agg` = khoá của BIẾN THỂ dùng phép gộp đó (`m237_avg`). File cube phát ra
+ * một biến thể cho mỗi phép mà cột nhận được, để Explorer đổi phép tại chỗ:
+ * Cube chỉ hỏi được những thước đo đã KHAI SẴN trong schema, nên "gộp kiểu khác"
+ * lúc chạy thật ra là "hỏi một thước đo khác đã dựng sẵn".
+ */
+export function measureNameFor(measureId: number, agg?: MeasureAgg): string {
   assertPositiveInt(measureId, 'measureId');
-  return `m${measureId}`;
+  return agg === undefined ? `m${measureId}` : `m${measureId}_${AGG_SUFFIX[agg]}`;
 }
 
 /**

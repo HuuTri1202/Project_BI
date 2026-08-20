@@ -1,3 +1,10 @@
+import {
+  CUBE_TYPES,
+  MEASURE_AGGS,
+  MEASURE_AGG_LABELS,
+  measureAggAllowed,
+  moTaThuocDo,
+} from '@bi/shared';
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -131,6 +138,94 @@ describe('§10.2 phép gộp mặc định', () => {
     expect(defaultAggOf('Quantity')).toBe('sum');
     expect(defaultAggOf('Shipping Cost')).toBe('sum');
   });
+
+  it('ĐƠN GIÁ lấy trung bình', () => {
+    // Đo trên dữ liệu thật: cột `price` của bảng sản phẩm từng được gieo thành
+    // `sum`. Cộng đơn giá cả danh mục ra một số phụ thuộc vào danh mục có bao
+    // nhiêu mặt hàng, không phải hàng đắt hay rẻ.
+    expect(defaultAggOf('price')).toBe('avg');
+    expect(defaultAggOf('Unit Price')).toBe('avg');
+    expect(defaultAggOf('Đơn giá')).toBe('avg');
+  });
+
+  it('THÀNH TIỀN vẫn lấy tổng — ranh giới quan trọng nhất của luật đơn giá', () => {
+    // Nếu danh sách nới tay tới `amount` / `total` thì doanh thu biến thành
+    // doanh thu trung bình mỗi dòng: sai mà vẫn nằm trong khoảng hợp lý, tức là
+    // không ai phát hiện.
+    expect(defaultAggOf('total_amount')).toBe('sum');
+    expect(defaultAggOf('Thành tiền')).toBe('sum');
+    expect(defaultAggOf('Doanh thu')).toBe('sum');
+  });
+});
+
+describe('§10.2 cột số KHÔNG đáng cộng thì không thành thước đo', () => {
+  it('UInt8 là chiều — boolean hoặc mã nhỏ, cộng kiểu nào cũng vô nghĩa', () => {
+    // `tinyint(1)` của MySQL và cột boolean của §7 đều nạp thành `UInt8`. Trước
+    // bản này chúng được gieo thành `sum` và nằm lẫn cạnh `Doanh thu` trong bộ
+    // chọn: đo trên tổ chức 4 thì 7 trên 14 thước đo cột là loại đó.
+    expect(defaultRoleOf('is_active', 'Nullable(UInt8)')).toBe('dimension');
+    expect(defaultRoleOf('has_options', 'UInt8')).toBe('dimension');
+    expect(defaultRoleOf('Returned', 'Nullable(UInt8)')).toBe('dimension');
+  });
+
+  it('UInt8 vẫn mang cubeType number, nên người dùng đổi lại được', () => {
+    // `dimension` chứ không phải `hidden`, và kiểu vẫn là số — hai điều đó cùng
+    // giữ cho ô chọn phép gộp ở tab Schemas vẫn mời đủ sum/avg cho ai thật sự
+    // muốn cộng.
+    expect(cubeTypeOf('Nullable(UInt8)')).toBe('number');
+  });
+
+  it('số THỨ TỰ là chiều', () => {
+    expect(defaultRoleOf('sort_order', 'Nullable(Int32)')).toBe('dimension');
+    expect(defaultRoleOf('display_position', 'Int32')).toBe('dimension');
+    expect(defaultRoleOf('STT', 'Int32')).toBe('dimension');
+  });
+
+  it('số nhiều `orders` KHÔNG bị bắt — `Total Orders` vẫn là thước đo', () => {
+    // Từ `order` là từ rủi ro nhất trong danh sách định danh. Ca này là thứ giữ
+    // cho việc thêm nó không nuốt luôn một cột đếm hợp lệ.
+    expect(defaultRoleOf('Total Orders', 'Nullable(Int64)')).toBe('measure');
+  });
+
+  it('Int khác vẫn là thước đo — luật UInt8 không lan sang kiểu số khác', () => {
+    expect(defaultRoleOf('Quantity', 'Nullable(Int32)')).toBe('measure');
+    expect(defaultRoleOf('so_luong', 'Nullable(Int64)')).toBe('measure');
+  });
+});
+
+describe('§10.6 phép gộp phải hợp với kiểu cột', () => {
+  it('cột chữ chỉ đếm được giá trị khác nhau', () => {
+    expect(measureAggAllowed('string', 'countDistinct')).toBe(true);
+    // Đây là ca sinh ra cả bảng tra: `sum` trên `String` không phải lựa chọn
+    // tồi, nó là một câu SQL KHÔNG CHẠY.
+    expect(measureAggAllowed('string', 'sum')).toBe(false);
+    expect(measureAggAllowed('string', 'avg')).toBe(false);
+  });
+
+  it('cột ngày nhận min/max — "đơn đầu tiên" và "đơn gần nhất"', () => {
+    expect(measureAggAllowed('time', 'min')).toBe(true);
+    expect(measureAggAllowed('time', 'max')).toBe(true);
+    // Cộng hai mốc thời gian, hay lấy trung bình của chúng, đều không có nghĩa.
+    expect(measureAggAllowed('time', 'sum')).toBe(false);
+    expect(measureAggAllowed('time', 'avg')).toBe(false);
+  });
+
+  it('cột số nhận đủ, kể cả đếm giá trị khác nhau', () => {
+    for (const agg of ['sum', 'avg', 'min', 'max', 'countDistinct'] as const) {
+      expect(measureAggAllowed('number', agg)).toBe(true);
+    }
+  });
+
+  it('MỌI kiểu đều nhận `count` — "cột này thiếu bao nhiêu" không phụ thuộc kiểu', () => {
+    // Bản trước cấm hẳn `count` trên cột, vì tin rằng nó sẽ đẻ ra một thước đo
+    // thứ hai đếm đúng con số của "Số dòng". Tiền đề đó sai: `count` gắn vào
+    // cột sinh ra `count(<cột>)`, mà `count(<cột>)` của ClickHouse bỏ qua NULL —
+    // trên bảng Orders trong máy là 9.994 so với 51.290 dòng. Hai câu hỏi khác
+    // nhau, và câu thứ hai là cách duy nhất đo được độ đầy của một cột.
+    for (const cubeType of CUBE_TYPES) {
+      expect(measureAggAllowed(cubeType, 'count')).toBe(true);
+    }
+  });
 });
 
 describe('§10.6 tên thước đo duy nhất trong phạm vi MÔ HÌNH', () => {
@@ -230,6 +325,128 @@ function parses(source: string): boolean {
     return false;
   }
 }
+
+describe('§10.6 gộp trên BIỂU THỨC DÒNG', () => {
+  /*
+   * Đây là chỗ khác giữa hai con số, không phải hai lối viết cho cùng một số.
+   *
+   *     sum(Số lượng × Đơn giá)      39.379.467.000   đúng
+   *     sum(Số lượng) × avg(Đơn giá) 39.398.064.742   lệch 0,047%
+   *
+   * (đo trên `Orders_detail` của tổ chức 4, 22.463 dòng). Lệch 0,047% thì không
+   * ai phát hiện — nên cái canh cửa duy nhất là bộ test này.
+   */
+  const rowExprMeasure = {
+    id: 70,
+    name: 'Doanh thu',
+    agg: 'sum',
+    columnName: 'So luong',
+    formula: null,
+    rowExpr: { op: 'mul', rightColumnName: 'Don gia' },
+  } as const;
+
+  it('nhân TRƯỚC rồi mới gộp — `type` là phép gộp thật, không phải "number"', () => {
+    const out = build({ measures: [rowExprMeasure] });
+
+    expect(parses(out)).toBe(true);
+    // Dấu huyền bị escape vì cả khối nằm trong một template literal — đó cũng
+    // là thứ ca này ghim luôn.
+    expect(out).toContain('${CUBE}.\\`So luong\\` * ${CUBE}.\\`Don gia\\`');
+    // `type: "sum"` mới là thứ gộp. Khai `"number"` như nhánh `formula` sẽ
+    // khiến Cube không gộp gì cả và ClickHouse ném lỗi khi có GROUP BY.
+    expect(out).toContain('type: "sum",');
+    // Và KHÔNG được nở ra thành phép gộp trên từng vế.
+    expect(out).not.toContain('sum(${CUBE}.\\`So luong\\`)');
+  });
+
+  it('chia thì bọc nullIf — ClickHouse không ném lỗi khi chia cho 0', () => {
+    const out = build({
+      measures: [{ ...rowExprMeasure, agg: 'avg', rowExpr: { op: 'div', rightColumnName: 'So ngay' } }],
+    });
+    expect(out).toContain('nullIf(${CUBE}.\\`So ngay\\`, 0)');
+    expect(out).toContain('type: "avg",');
+  });
+
+  it('trung vị trên biểu thức vẫn ra quantileExact, KHÔNG ra type "number" trần', () => {
+    // Bẫy: `CUBE_AGG.median` là chuỗi `'number'`, nên quên xét phân vị trước sẽ
+    // phát ra một thước đo không gộp gì cả — Cube nhận, ClickHouse mới ném lỗi.
+    const out = build({ measures: [{ ...rowExprMeasure, agg: 'median' }] });
+
+    expect(out).toContain('quantileExact(0.5)(${CUBE}.\\`So luong\\` * ${CUBE}.\\`Don gia\\`)');
+    expect(out).not.toContain('type: "median"');
+  });
+
+  it('tên cột vế PHẢI cũng được escape', () => {
+    // Vế phải đi qua một đường nối chuỗi riêng, nên nó là chỗ dễ quên
+    // `sqlIdentInTemplate` thứ hai trong file này.
+    const out = build({
+      measures: [{ ...rowExprMeasure, rowExpr: { op: 'mul', rightColumnName: 'a`, y: process.exit(), z: `' } }],
+    });
+
+    expect(parses(out)).toBe(true);
+    expect(out).not.toMatch(/^\s*y: process\.exit\(\)/m);
+  });
+
+  it('thước đo thường KHÔNG lọt vào nhánh biểu thức', () => {
+    // `rowExpr` là trường KHÔNG bắt buộc, nên nơi gọi bỏ trống sẽ cho
+    // `undefined` — và `undefined !== null` là đúng. Ca này canh đúng cái bẫy đó.
+    const out = build({
+      measures: [{ id: 58, name: 'Tổng tiền', agg: 'sum', columnName: 'doanh_thu', formula: null }],
+    });
+
+    // Một cột, không có phép nhân nào — và tuyệt đối không có chữ `undefined`
+    // lọt vào SQL, thứ sẽ xảy ra nếu nhánh biểu thức chạy nhầm.
+    expect(out).toContain('sql: `${CUBE}.\\`doanh_thu\\``,');
+    expect(out).toContain('type: "sum",');
+    expect(out).not.toContain('undefined');
+    expect(out).not.toContain(' * ');
+  });
+});
+
+describe('§10.7 phân vị phát ra bằng BIỂU THỨC, không phải kiểu của Cube', () => {
+  it('trung vị và phân vị 90 sinh quantileExact với type number', () => {
+    const out = build({
+      measures: [
+        { id: 58, name: 'Lợi nhuận', agg: 'median', columnName: 'Loi nhuan', formula: null },
+        { id: 59, name: 'Lợi nhuận p90', agg: 'p90', columnName: 'Loi nhuan', formula: null },
+      ],
+    });
+
+    expect(parses(out)).toBe(true);
+    expect(out).toContain('quantileExact(0.5)(${CUBE}.');
+    expect(out).toContain('quantileExact(0.9)(${CUBE}.');
+    // `type: "number"` chứ không phải `"median"` — Cube không có kiểu đó, và
+    // khai sai thì nó hỏng lúc BIÊN DỊCH schema, tức chết cả tổ chức.
+    expect(out).not.toContain('type: "median"');
+    expect(out).not.toContain('type: "p90"');
+  });
+
+  it('KHÔNG dùng `quantile` xấp xỉ — nó không tất định giữa hai lần chạy', () => {
+    // `quantile` của ClickHouse lấy mẫu theo hồ chứa; tài liệu nói thẳng là kết
+    // quả phụ thuộc thứ tự chạy. Một báo cáo đổi số mỗi lần mở là thứ không ai
+    // tin được nữa. Ca này canh cho lần sửa sau không lỡ tay bỏ chữ `Exact`.
+    const out = build({
+      measures: [{ id: 58, name: 'Lợi nhuận', agg: 'median', columnName: 'Loi nhuan', formula: null }],
+    });
+    expect(out).not.toMatch(/[^t]quantile\(/);
+  });
+
+  it('tên cột trong biểu thức phân vị vẫn được escape', () => {
+    // Biểu thức nối chuỗi bằng tay, nên nó là chỗ dễ quên `sqlIdentInTemplate`
+    // nhất trong cả file — và quên ở đây là mở lại đúng lỗ hổng chèn mã.
+    const evil = 'a`, y: process.exit(), z: `';
+    const out = build({
+      measures: [{ id: 58, name: 'X', agg: 'median', columnName: evil, formula: null }],
+    });
+
+    expect(parses(out), 'file sinh ra phải còn là JS hợp lệ').toBe(true);
+    // Chuỗi `process.exit()` VẪN nằm trong file — nó là một phần của tên cột đã
+    // được escape, và đó là điều đúng. Thứ phải không xảy ra là nó thoát ra
+    // thành một khoá object ở đầu dòng, tức là thành mã thật. Cùng cách khẳng
+    // định với ca chống chèn mã của chiều.
+    expect(out).not.toMatch(/^\s*y: process\.exit\(\)/m);
+  });
+});
 
 describe('§10 bộ sinh cube schema — chống chèn mã', () => {
   it('file bình thường là JavaScript hợp lệ', () => {
@@ -348,15 +565,34 @@ describe('§10 bộ sinh cube schema — nội dung', () => {
     expect(out).not.toContain('d2: {');
   });
 
-  it('thước đo count KHÔNG khai sql — đếm dòng chứ không đếm ô có giá trị', () => {
+  /*
+   * `count` mang HAI nghĩa, và thứ tách chúng là sự có mặt của cột.
+   *
+   * Cặp test này đứng cạnh nhau vì chúng chỉ khác nhau đúng một trường, mà một
+   * trường đó đổi hẳn con số Cube trả về. Tách rời ra thì lần sửa sau rất dễ
+   * làm hỏng một nửa mà nửa kia vẫn xanh.
+   */
+  it('count KHÔNG có cột thì không khai sql — đếm DÒNG', () => {
     const out = build({
       measures: [{ id: 60, name: 'Số đơn', agg: 'count', columnName: null, formula: null }],
     });
     expect(out).toContain('m60: {');
     expect(out).toContain('type: "count"');
-    // `count(cột)` bỏ qua dòng có ô trống — một con số khác hẳn.
+    // Không có `sql` thì Cube đếm theo khoá chính — đúng số dòng của bảng.
     const block = out.slice(out.indexOf('m60: {'));
     expect(block.slice(0, block.indexOf('},'))).not.toContain('sql:');
+  });
+
+  it('count CÓ cột thì khai sql — đếm ô CÓ DỮ LIỆU, một con số khác hẳn', () => {
+    const out = build({
+      measures: [{ id: 61, name: 'Có mã bưu chính', agg: 'count', columnName: 'Postal Code', formula: null }],
+    });
+    const block = out.slice(out.indexOf('m61: {'));
+    const than = block.slice(0, block.indexOf('},'));
+    expect(than).toContain('sql:');
+    expect(than).toContain('${CUBE}.');
+    expect(than).toContain('Postal Code');
+    expect(than).toContain('type: "count"');
   });
 
   it('thước đo đếm dòng không mang columnId, nên không có gì để khai sql', () => {
@@ -486,5 +722,67 @@ describe('§10.6 thước đo tính toán', () => {
     const block = out.slice(out.indexOf('m3: {'));
     expect(block).toContain('type: "number"');
     expect(block).not.toContain('type: "sum"');
+  });
+});
+
+/**
+ * §10.7 — thước đo phải TỰ NÓI RA phép tính của nó.
+ *
+ * ═══ Vì sao nhóm ca này tồn tại ════════════════════════════════════════════
+ *
+ * Thước đo gieo sẵn mang đúng tên cột nó gộp: bảng Orders có cột
+ * `Total amount` thì mô hình có thước đo `Total amount`. Trên màn hình đó là
+ * hai dòng chữ y hệt nhau, nên không có gì nói rằng cái thứ hai là
+ * `sum(Total amount)` — người dùng nhìn thấy một con số hàng tỉ ở chỗ họ chờ
+ * một con số hàng trăm nghìn.
+ *
+ * Đây là lỗi ĐỌC SAI, không phải lỗi khó dùng, nên không cảnh báo nào chữa
+ * được: con số vẫn đúng, chỉ có nghĩa của nó là bị hiểu khác.
+ */
+describe('moTaThuocDo — con số này tính từ đâu ra', () => {
+  it('thước đo dựng-trên-cột nói rõ phép gộp, vì tên nó trùng tên cột', () => {
+    expect(moTaThuocDo({ kind: 'column', expr: 'Total amount' }, 'sum', 'Orders')).toBe(
+      'Tổng của Total amount',
+    );
+  });
+
+  it('đọc trôi với CẢ TÁM phép gộp, không riêng phép tổng', () => {
+    /*
+     * Dạng `<Phép> của <biểu thức>` được chọn thay cho dạng hàm `Tổng( … )`
+     * chính vì ràng buộc này: `Đếm ô có dữ liệu( Postal Code )` không phải một
+     * câu tiếng Việt, còn `Đếm ô có dữ liệu của Postal Code` thì có.
+     *
+     * Ca này chặn việc ai đó đổi sang dạng hàm cho "gọn và giống hộp thoại
+     * công thức" — hộp thoại đó đang GHÉP biểu thức, còn khối này đang GIẢI
+     * THÍCH một biểu thức đã có.
+     */
+    for (const agg of MEASURE_AGGS) {
+      expect(moTaThuocDo({ kind: 'column', expr: 'X' }, agg, 'B')).toBe(
+        `${MEASURE_AGG_LABELS[agg]} của X`,
+      );
+    }
+  });
+
+  it('biểu thức dòng có NGOẶC — thiếu nó là mô tả đúng cái phép tính sai', () => {
+    // "Tổng của Số lượng × Đơn giá" đọc được thành `sum(Số lượng) × Đơn giá`,
+    // mà đó đúng là phép tính sai — lệch 0,047% trên dữ liệu thật, đủ nhỏ để
+    // không ai nhận ra — mà loại thước đo này sinh ra để tránh.
+    expect(moTaThuocDo({ kind: 'rowExpr', expr: 'Số lượng × Đơn giá' }, 'sum', 'Chi tiết')).toBe(
+      'Tổng của (Số lượng × Đơn giá)',
+    );
+  });
+
+  it('thước đo tính toán KHÔNG kèm phép gộp — hai vế đã gộp xong', () => {
+    // "Tổng của Lợi nhuận ÷ Doanh thu" mô tả một phép tính không tồn tại, và
+    // nó là đúng cái hiểu nhầm khiến `formula` bị dùng nhầm cho phép nhân.
+    expect(moTaThuocDo({ kind: 'formula', expr: 'Lợi nhuận ÷ Doanh thu' }, 'sum', 'Orders')).toBe(
+      'Lợi nhuận ÷ Doanh thu',
+    );
+  });
+
+  it('đếm dòng nói tên BẢNG, vì nó không gộp cột nào', () => {
+    expect(moTaThuocDo({ kind: 'rows', expr: null }, 'count', 'Orders')).toBe(
+      'Đếm số dòng của bảng Orders',
+    );
   });
 });

@@ -1580,4 +1580,193 @@ export const migrations: readonly Migration[] = [
          ADD KEY idx_datamodels_auto_batch (tenant_id, workspace_id, auto_batch_key)`,
     ],
   },
+  {
+    id: 20,
+    name: 'drop_auto_datamodel',
+    statements: [
+      // ═══ Bỏ hẳn việc tự sinh mô hình dữ liệu ═══════════════════════
+      //
+      // Từ §10, mỗi lần nạp xong một bộ dữ liệu là hệ thống tự dựng cho người
+      // dùng một mô hình. Lý lẽ khi đó: đừng đặt thêm một cánh cửa giữa "dữ liệu
+      // đã sẵn sàng" và "hỏi được nó". Migration 19 vá thêm một lần nữa — gom theo
+      // LẦN TẢI thay vì theo từng bảng — vì mỗi workbook ba sheet đang đẻ ra ba mô
+      // hình một bảng, rời nhau.
+      //
+      // Cả hai bản đều trả lời hộ một câu chỉ người dùng biết: NHỮNG BẢNG NÀO
+      // ĐÁNG HỎI CÙNG NHAU. Máy chỉ đoán được bằng chuyện chúng đi chung một file
+      // hay chung một schema, mà đó là trùng hợp về xuất xứ chứ không phải quan hệ
+      // về nghĩa. Nên mô hình giờ chỉ ra đời qua §10.2: người dùng tích đúng những
+      // bộ dữ liệu họ muốn nối.
+      //
+      // ⚠️ Mô hình ĐÃ được tự sinh trước đây KHÔNG bị đụng tới. Chúng trở thành
+      // mô hình bình thường — sửa được, xoá được, không khác gì mô hình tự dựng.
+      // Xoá hộ dữ liệu người dùng đang dùng chỉ vì bỏ một tính năng là việc khác hẳn
+      // với bỏ tính năng.
+      //
+      // Cột thì phải đi: không còn dòng mã nào ghi hay đọc nó. Giữ lại một cột
+      // chết là để người đọc schema sau này tin rằng có một cơ chế tự sinh đâu đó
+      // trong hệ thống. Cùng lý lẽ với `DROP TABLE projects` ở migration 17.
+      //
+      // Phải gỡ KHOÁ trước: cột nằm trong `idx_datamodels_auto_batch`, và MySQL
+      // tự thu hẹp chỉ mục thay vì báo lỗi, để lại một chỉ mục hai cột không ai dùng.
+      `ALTER TABLE datamodels
+         DROP KEY idx_datamodels_auto_batch,
+         DROP COLUMN auto_batch_key`,
+    ],
+  },
+  {
+    id: 21,
+    name: 'measure_count_distinct',
+    statements: [
+      // ═══ Thêm `countDistinct` vào từ vựng phép gộp ═════════════════════════
+      //
+      // Trước bản này bảng chỉ có sum/avg/count/min/max, nên KHÔNG có cách nào
+      // hỏi "bao nhiêu khách hàng", "bao nhiêu mã đơn khác nhau" — đếm giá trị
+      // khác nhau là thước đo hay dùng thứ nhì trong BI sau phép cộng, và nó
+      // thiếu hẳn chứ không phải bị đặt mặc định sai.
+      //
+      // Hệ quả kéo theo ở tầng trên: cột CHỮ và cột NGÀY lần đầu tiên trở thành
+      // thước đo được. `min`/`max` trên cột ngày là "đơn đầu tiên" và "đơn gần
+      // nhất"; hai câu đó backend vốn thừa sức trả lời, chỉ là giao diện chưa
+      // bao giờ cho chọn.
+      //
+      // ⚠️ Tên viết HOA-thường theo đúng chuỗi trong `MEASURE_AGGS` của
+      // @bi/shared. MySQL so khớp ENUM có phân biệt hoa thường khi ghi, nên
+      // `countdistinct` ở đây mà `countDistinct` ở kia là một lỗi ghi im lặng
+      // rơi vào chuỗi rỗng. Cube nhận `count_distinct` — phép đổi tên đó nằm ở
+      // `buildCubeSchema.ts`, cố ý KHÔNG để tên của Cube rò vào database.
+      //
+      // Chỉ NỚI RA, không bỏ giá trị nào, nên mọi dòng đang có vẫn hợp lệ.
+      `ALTER TABLE datamodel_measures
+         MODIFY COLUMN agg ENUM('sum','avg','count','countDistinct','min','max') NOT NULL`,
+    ],
+  },
+  {
+    id: 22,
+    name: 'measure_quantiles',
+    statements: [
+      // ═══ Trung vị và phân vị 90 ═══════════════════════════════════════════
+      //
+      // Thêm sau khi đo trên dữ liệu thật (Global-Superstore, 51.290 dòng của
+      // tổ chức 4). Lợi nhuận trung bình một đơn là 28,61 nhưng TRUNG VỊ chỉ
+      // 9,24 — lệch hơn ba lần, vì vài đơn cỡ 8.399,98 kéo cả cột lên. Theo
+      // nhóm hàng: Technology 65,45 so 29,94; Office Supplies 16,58 so 6,55.
+      //
+      // Nghĩa là mọi báo cáo dùng `avg` trên dữ liệu này đang nói một điều sai
+      // về hoạt động thật, và không có phép nào trong bảng cũ nói đúng được.
+      // Đây là thống kê THIẾU, không phải thống kê thêm cho dài danh sách.
+      //
+      // ⚠️ Cube KHÔNG có kiểu `median`. Hai phép này phát ra dưới dạng
+      // `type: "number"` kèm `sql: quantile(...)` — xem `buildCubeSchema.ts`.
+      // Đó cũng là lý do chúng chỉ mở cho cột SỐ: `quantile` chạy được trên cả
+      // cột ngày nhưng "trung vị của ngày đặt hàng" không phải câu ai đi hỏi.
+      //
+      // Chỉ NỚI RA, mọi dòng đang có vẫn hợp lệ.
+      `ALTER TABLE datamodel_measures
+         MODIFY COLUMN agg
+         ENUM('sum','avg','count','countDistinct','min','max','median','p90') NOT NULL`,
+    ],
+  },
+  {
+    id: 23,
+    name: 'measure_row_expression',
+    statements: [
+      // ═══ Gộp trên BIỂU THỨC DÒNG ══════════════════════════════════════════
+      //
+      // `expr_kind = 'formula'` ghép hai thước đo ĐÃ GỘP: `sum(a) × avg(b)`.
+      // Với phép chia thì đó đúng là thứ người ta muốn — tỷ suất lợi nhuận là
+      // `sum(lợi nhuận) / sum(doanh thu)`. Với phép NHÂN thì gần như không bao
+      // giờ đúng, và nó sai theo kiểu nguy hiểm nhất: ra một con số hợp lý.
+      //
+      // Đo trên `Orders_detail` của tổ chức 4, 22.463 dòng:
+      //
+      //     sum(Quantity × Unit price)      39.379.467.000   <- đúng
+      //     sum(Quantity) × avg(Unit price) 39.398.064.742   <- lệch 0,047%
+      //
+      // Lệch 0,047% thì không ai phát hiện. Chia theo sản phẩm thì lệch 1,4–1,9%
+      // — vẫn không ai phát hiện. Đây là cả một lớp câu hỏi mà mô hình cũ KHÔNG
+      // trả lời đúng được, chứ không phải một tiện ích thêm vào cho đủ.
+      //
+      // Phép này không thuộc ngành nào: bán lẻ là `số lượng × đơn giá`, y tế là
+      // `số ngày × chi phí ngày`, giáo dục là `số tín chỉ × điểm`.
+      //
+      // ─── Vì sao dùng lại `datamodel_column_id` cho vế trái ────────────────
+      //
+      // Nó vốn đã mang đúng nghĩa "một cột của mô hình này", và `agg` vốn đã là
+      // phép gộp áp lên nó. Một thước đo `rowExpr` chỉ khác `column` ở chỗ có
+      // thêm một vế phải. Thêm cả cặp cột mới sẽ tạo ra hai đường biểu diễn cho
+      // cùng một thứ, và mã đọc phải nhớ dùng đường nào theo `expr_kind`.
+      //
+      // ⚠️ `expr_right_id` (trỏ THƯỚC ĐO) và `expr_right_column_id` (trỏ CỘT)
+      // là hai trường khác nhau, dùng cho hai `expr_kind` khác nhau. Đọc nhầm
+      // một cái sang cái kia sẽ tra id trong sai bảng.
+      //
+      // Chỉ NỚI RA, mọi dòng đang có vẫn hợp lệ.
+      `ALTER TABLE datamodel_measures
+         MODIFY COLUMN expr_kind ENUM('column','formula','rowExpr')
+         NOT NULL DEFAULT 'column'`,
+      `ALTER TABLE datamodel_measures
+         ADD COLUMN expr_right_column_id BIGINT UNSIGNED NULL AFTER expr_right_id`,
+      // Khoá ngoại GHÉP theo `tenant_id`, cùng quy ước với `fk_dmm_column`:
+      // mọi đường đi tới dữ liệu đều phải mang theo tổ chức.
+      `ALTER TABLE datamodel_measures
+         ADD CONSTRAINT fk_dmm_right_column
+         FOREIGN KEY (tenant_id, expr_right_column_id)
+         REFERENCES datamodel_columns (tenant_id, id) ON DELETE CASCADE`,
+    ],
+  },
+  {
+    id: 24,
+    name: 'measure_name_unique_alive_only',
+    statements: [
+      // ═══ Thước đo đã XOÁ vẫn giữ chỗ tên của nó ═══════════════════════════
+      //
+      // `uq_datamodel_measures (datamodel_id, name)` KHÔNG có `deleted_at`, còn
+      // mọi câu kiểm trùng tên trong mã đều lọc `deleted_at IS NULL`. Hai bên
+      // hiểu khác nhau về cùng một luật, và khoảng chênh đó nổ ra như sau:
+      //
+      //   1. Người dùng tạo thước đo "doanh thu"
+      //   2. Xoá nó đi  ->  chỉ đặt `deleted_at`, dòng vẫn nằm trong bảng
+      //   3. Tạo lại "doanh thu"
+      //        · mã tra danh sách CÒN SỐNG  -> không thấy trùng, cho qua
+      //        · MySQL tra CẢ dòng đã xoá   -> ER_DUP_ENTRY
+      //
+      // Người dùng nhận HTTP 500 "Có lỗi xảy ra phía máy chủ" cho một thao tác
+      // hoàn toàn hợp lệ, và không có đường nào ra: cái tên bị một dòng vô hình
+      // chiếm mất, xoá lần nữa cũng không trả lại được.
+      //
+      // ─── Vì sao là cột SINH RA, không phải sửa mã ────────────────────────
+      //
+      // Sửa mã kiểm cả dòng đã xoá thì đúng luật của database nhưng SAI với
+      // người dùng: một cái tên đã xoá phải dùng lại được. Nên phải đổi luật ở
+      // database cho khớp với điều mã vẫn tin.
+      //
+      // Ba cách, chọn cách thứ ba:
+      //
+      //   `(datamodel_id, name, deleted_at)` — HỎNG. MySQL coi mỗi NULL là một
+      //       giá trị riêng, nên mọi dòng còn sống (`deleted_at` NULL) trở nên
+      //       khác nhau hết: hai thước đo trùng tên sẽ lọt qua. Ràng buộc thật
+      //       sự cần thì mất, đúng chiều nguy hiểm.
+      //   cột `deleted_seq` do mã tự điền — cần mọi đường xoá đều nhớ điền.
+      //       Một đường quên là lỗi cũ quay lại, âm thầm.
+      //   cột SINH RA `name_alive` — database tự tính, không đường nào quên
+      //       được. Dòng sống mang chính tên nó; dòng đã xoá mang NULL, mà NULL
+      //       thì lọt qua khoá duy nhất bao nhiêu lần cũng được. Đây chính là
+      //       thứ Postgres gọi là partial unique index, viết bằng đồ nghề MySQL.
+      //
+      // ⚠️ KHÔNG dùng được `id` trong biểu thức: MySQL cấm cột sinh ra tham
+      // chiếu tới cột AUTO_INCREMENT.
+      `ALTER TABLE datamodel_measures
+         ADD COLUMN name_alive VARCHAR(255)
+         COLLATE utf8mb4_unicode_ci
+         GENERATED ALWAYS AS (IF(deleted_at IS NULL, name, NULL)) STORED
+         AFTER name`,
+      // Bỏ khoá cũ TRƯỚC khi thêm khoá mới. Không có dòng nào đang vi phạm luật
+      // mới: luật cũ chặt hơn (bao cả dòng đã xoá) nên mọi thứ nó cho qua thì
+      // luật mới cũng cho qua.
+      `ALTER TABLE datamodel_measures DROP INDEX uq_datamodel_measures`,
+      `ALTER TABLE datamodel_measures
+         ADD UNIQUE KEY uq_datamodel_measures_alive (datamodel_id, name_alive)`,
+    ],
+  },
 ];

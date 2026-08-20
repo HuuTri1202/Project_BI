@@ -84,18 +84,37 @@ export function cubeTypeOf(chType: string): CubeType {
  * dòng bên "một" nối tới N dòng bên "nhiều" sẽ được cộng N lần, và tổng lớn hơn
  * sự thật mà không có lỗi nào.
  *
- * ─── Hai chỗ đoán sai đã biết, và cách xử lý ────────────────────────────────
+ * ─── Chỗ đoán sai còn lại, và cách xử lý ────────────────────────────────────
  *
- *   - Cột boolean của §7 nạp thành `UInt8`, nên bị xếp vào thước đo.
- *   - Cột mã sản phẩm toàn chữ số cũng vậy.
+ * Cột mã sản phẩm toàn chữ số mà tên không kết thúc bằng một từ định danh —
+ * `Mã hàng` chẳng hạn, từ cuối là `hàng` — vẫn lọt vào thước đo.
  *
- * Cả hai đều sửa được ở tab Schemas, và việc sửa tay là CÁCH XỬ LÝ chính thức
- * chứ không phải cách chữa cháy cho một thuật toán đoán tồi — cùng lập luận đã
- * ghi ở `inferType.ts` của §7.
+ * Sửa được ở tab Schemas, và việc sửa tay là CÁCH XỬ LÝ chính thức chứ không
+ * phải cách chữa cháy cho một thuật toán đoán tồi — cùng lập luận đã ghi ở
+ * `inferType.ts` của §7. Điều đó chỉ đúng chừng nào tỉ lệ đoán sai còn NHỎ;
+ * lúc quá nửa số thước đo phải sửa tay thì nó không còn là mặc định nữa mà là
+ * một danh sách việc, và đó chính là lý do có hai luật `UInt8` và nhóm thứ tự
+ * ở trên.
  */
 export function defaultRoleOf(columnName: string, chType: string): ColumnRole {
   if (columnName === ROW_INDEX_COLUMN) return 'hidden';
   if (cubeTypeOf(chType) !== 'number') return 'dimension';
+
+  // `UInt8` -> chiều, không phải thước đo.
+  //
+  // Trong hệ này `UInt8` chỉ ra đời từ hai chỗ (xem `typeMap.ts`): `tinyint(1)`
+  // — quy ước boolean của MySQL — và `tinyint unsigned`, một mã nhỏ 0…255.
+  // Cộng cả hai đều vô nghĩa, chỉ vô nghĩa theo hai kiểu khác nhau.
+  //
+  // Đây không phải suy đoán. Đo trên tổ chức 4 trước bản này: `is_active`,
+  // `has_options`, `is_best_seller`, `Returned` đều được gieo thành `sum` và
+  // nằm lẫn trong bộ chọn cạnh `Doanh thu` — bảy trên mười bốn thước đo cột
+  // sinh tự động là một phép cộng không trả lời câu hỏi nào.
+  //
+  // Chọn `dimension` chứ không phải `hidden`: "đơn đã trả hàng hay chưa" là một
+  // tiêu chí NHÓM rất hay dùng. Ai thật sự muốn cộng thì đổi lại ở tab Schemas
+  // — `cubeType` vẫn là `number` nên ô chọn phép gộp vẫn mời đủ sum/avg.
+  if (unwrapChType(chType) === 'UInt8') return 'dimension';
 
   // Số nhưng là ĐỊNH DANH -> chiều, không phải thước đo. Xem `looksLikeIdentifier`.
   return looksLikeIdentifier(columnName) ? 'dimension' : 'measure';
@@ -122,7 +141,18 @@ export function defaultRoleOf(columnName: string, chType: string): ColumnRole {
  *
  * Danh sách cố ý NGẮN. Mỗi từ thêm vào là một khả năng bắt nhầm.
  */
-const IDENTIFIER_WORDS = new Set(['id', 'ids', 'code', 'key', 'no', 'num', 'zip', 'zipcode']);
+const IDENTIFIER_WORDS = new Set([
+  'id', 'ids', 'code', 'key', 'no', 'num', 'zip', 'zipcode',
+  // Nhóm THỨ TỰ, thêm sau khi thấy `sort_order` bị gieo thành `sum` trên dữ
+  // liệu thật. Một số thứ tự cộng lại không ra gì cả — cùng loại vô nghĩa với
+  // `sum(Row ID)` đã nói ở trên, chỉ khác cái tên.
+  //
+  // `order` là từ cân nhắc lâu nhất vì tiếng Anh dùng nó cho cả ĐƠN HÀNG. Nhưng
+  // ngay cả khi cột tên đúng là "Order" thì `sum(Order)` cũng chưa bao giờ là
+  // thứ ai muốn — số đơn thì đếm dòng, giá trị đơn thì nằm ở cột khác. Dạng số
+  // nhiều `orders` KHÔNG có trong danh sách, nên `Total Orders` vẫn là thước đo.
+  'order', 'ordinal', 'position', 'index', 'seq', 'stt',
+]);
 
 export function looksLikeIdentifier(columnName: string): boolean {
   const last = columnName.trim().toLowerCase().split(/[\s_\-.]+/).filter(Boolean).pop();
@@ -132,20 +162,37 @@ export function looksLikeIdentifier(columnName: string): boolean {
 /**
  * Phép gộp MẶC ĐỊNH cho một cột số.
  *
- * `sum` đúng với tiền và số lượng, nhưng vô nghĩa với TỈ LỆ: `Discount` của
- * `Global-Superstore` nhận giá trị 0…0,85, và cộng 51.290 giá trị đó lại cho ra
- * một con số không trả lời câu hỏi nào. `avg` mới là con số người ta muốn.
+ * Danh sách dưới đây trả lời đúng một câu: cột nào mà TRUNG BÌNH có nghĩa còn
+ * TỔNG thì không. Mọi cột khác về `sum`.
+ *
+ * ─── Hai nhóm, hai lý do khác nhau ─────────────────────────────────────────
+ *
+ * **Tỉ lệ.** `Discount` của `Global-Superstore` nhận giá trị 0…0,85, và cộng
+ * 51.290 giá trị đó lại cho ra một con số không trả lời câu hỏi nào.
+ *
+ * **Đơn giá.** Thêm sau khi thấy cột `price` của bảng sản phẩm bị gieo thành
+ * `sum` trên dữ liệu thật. Cộng đơn giá của cả danh mục hàng ra một số vừa lớn
+ * vừa vô nghĩa — nó phụ thuộc vào việc danh mục có bao nhiêu mặt hàng chứ không
+ * phải hàng đắt hay rẻ. Thứ người ta muốn là giá trung bình.
+ *
+ * ⚠️ Chỉ bắt từ ĐƠN GIÁ, không bắt `amount` / `total` / `thành tiền`. Đó là
+ * ranh giới quan trọng nhất của luật này: `total_amount` PHẢI là `sum`, và một
+ * danh sách rộng tay hơn sẽ biến doanh thu thành doanh thu trung bình mỗi dòng
+ * — sai theo kiểu vẫn nằm trong khoảng hợp lý, tức là không ai phát hiện.
  *
  * Cũng là ĐOÁN, và cũng sửa được ở tab Schemas — nhưng đoán đúng ngay từ đầu
  * tiết kiệm cho người dùng đúng cái lần họ chưa biết là mình cần sửa.
  */
-const RATIO_WORDS = new Set([
+const AVG_WORDS = new Set([
+  // Tỉ lệ
   'discount', 'rate', 'ratio', 'percent', 'percentage', 'pct', 'margin', 'lệ', 'suất',
+  // Đơn giá
+  'price', 'giá', 'unitprice',
 ]);
 
 export function defaultAggOf(columnName: string): MeasureAgg {
   const last = columnName.trim().toLowerCase().split(/[\s_\-.]+/).filter(Boolean).pop();
-  return last !== undefined && RATIO_WORDS.has(last) ? 'avg' : 'sum';
+  return last !== undefined && AVG_WORDS.has(last) ? 'avg' : 'sum';
 }
 
 /**

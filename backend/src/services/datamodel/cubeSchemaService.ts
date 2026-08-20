@@ -1,3 +1,5 @@
+import { MEASURE_AGGS_BY_CUBE_TYPE } from '@bi/shared';
+
 import { mysqlPool } from '../../config/mysql';
 import { env } from '../../config/env';
 import * as datamodelsRepo from '../../repositories/datamodels';
@@ -99,6 +101,18 @@ async function buildModelFile(
         id: m.id,
         name: m.name,
         agg: m.agg,
+        // Biến thể phép gộp — §10.7, để Explorer đổi phép tại chỗ.
+        //
+        // CHỈ thước đo dựng-trên-cột mới có. Thước đo tính toán thì hai vế đã
+        // gộp rồi, gộp thêm lần nữa là sai; thước đo đếm dòng không đo cột nào
+        // để mà đổi. `columnId === null` bắt đúng cả hai trường hợp đó.
+        //
+        // Danh sách lấy từ KIỂU của cột, cùng bảng mà tab Schemas dùng — nên
+        // một phép hiện ra ở Explorer là một phép chắc chắn chạy được.
+        altAggs:
+          m.columnId === null
+            ? []
+            : MEASURE_AGGS_BY_CUBE_TYPE[cubeTypeOf(columnById.get(m.columnId)?.ch_type ?? '')],
         columnName: m.columnName,
         // Hai vế của công thức LUÔN thuộc cùng cube này — ràng buộc đó do
         // `createFormulaMeasure` giữ, và nó là lý do khối `sql` bên dưới tham
@@ -107,6 +121,13 @@ async function buildModelFile(
           m.formula === null
             ? null
             : { op: m.formula.op, leftId: m.formula.leftId, rightId: m.formula.rightId },
+        // Vế phải đi bằng TÊN CỘT chứ không bằng id: `buildCubeSchema` dựng SQL
+        // và nó không có bảng tra id, cũng không nên có — cùng lý lẽ với
+        // `columnName` ngay bên trên.
+        rowExpr:
+          m.rowExpr === null
+            ? null
+            : { op: m.rowExpr.op, rightColumnName: m.rowExpr.rightColumnName },
       }));
 
     return {

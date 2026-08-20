@@ -1,0 +1,1234 @@
+<title>Hồ Sơ Kiểm Thử BI Platform</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+<style>
+  :root {
+    --ground: #f6f7f5;
+    --surface: #ffffff;
+    --surface-2: #eff1ee;
+    --ink: #151a17;
+    --muted: #5c6660;
+    --faint: #8b948e;
+    --rule: #dce1dc;
+    --rule-soft: #e8ebe7;
+    --accent: #1b6b54;
+    --accent-soft: #e4efe9;
+    --pass: #2f7d5c;
+    --pass-bg: #e3f0e8;
+    --fail: #b04226;
+    --fail-bg: #f8e5df;
+    --warn: #8a6d2f;
+    --warn-bg: #f4ecd9;
+    --shadow: 0 1px 2px rgba(21, 26, 23, .05), 0 8px 24px -16px rgba(21, 26, 23, .3);
+
+    --f-display: "Newsreader", Georgia, "Times New Roman", serif;
+    --f-body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+    --f-mono: "IBM Plex Mono", "Cascadia Mono", Consolas, monospace;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #121513;
+      --surface: #1a1e1b;
+      --surface-2: #222724;
+      --ink: #e8ede8;
+      --muted: #a3ada7;
+      --faint: #7d867f;
+      --rule: #2e3430;
+      --rule-soft: #262b28;
+      --accent: #5fbf9c;
+      --accent-soft: #1c2c26;
+      --pass: #6cc296;
+      --pass-bg: #1b2c23;
+      --fail: #e08064;
+      --fail-bg: #33201a;
+      --warn: #d3ae63;
+      --warn-bg: #2e2718;
+      --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 8px 24px -16px rgba(0, 0, 0, .8);
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --ground: #121513;
+    --surface: #1a1e1b;
+    --surface-2: #222724;
+    --ink: #e8ede8;
+    --muted: #a3ada7;
+    --faint: #7d867f;
+    --rule: #2e3430;
+    --rule-soft: #262b28;
+    --accent: #5fbf9c;
+    --accent-soft: #1c2c26;
+    --pass: #6cc296;
+    --pass-bg: #1b2c23;
+    --fail: #e08064;
+    --fail-bg: #33201a;
+    --warn: #d3ae63;
+    --warn-bg: #2e2718;
+    --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 8px 24px -16px rgba(0, 0, 0, .8);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--f-body);
+    font-size: 15px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap {
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 0 24px 96px;
+  }
+
+  /* ── Đầu trang ─────────────────────────────────────────────── */
+
+  header.masthead {
+    padding: 72px 0 40px;
+    border-bottom: 2px solid var(--ink);
+  }
+
+  .eyebrow {
+    font-family: var(--f-mono);
+    font-size: 11.5px;
+    letter-spacing: .13em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin: 0 0 18px;
+  }
+
+  h1 {
+    font-family: var(--f-display);
+    font-weight: 500;
+    font-size: clamp(2.1rem, 5vw, 3.1rem);
+    line-height: 1.08;
+    letter-spacing: -.018em;
+    margin: 0 0 18px;
+    text-wrap: balance;
+  }
+
+  .standfirst {
+    font-family: var(--f-display);
+    font-size: clamp(1.02rem, 2vw, 1.2rem);
+    line-height: 1.55;
+    color: var(--muted);
+    max-width: 62ch;
+    margin: 0;
+  }
+
+  .meta-strip {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 28px;
+    margin-top: 28px;
+    font-family: var(--f-mono);
+    font-size: 12px;
+    color: var(--faint);
+  }
+  .meta-strip b { color: var(--muted); font-weight: 500; }
+
+  /* ── Thẻ số tổng kết ───────────────────────────────────────── */
+
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(168px, 1fr));
+    gap: 1px;
+    background: var(--rule);
+    border: 1px solid var(--rule);
+    margin: 40px 0 0;
+  }
+  .stat {
+    background: var(--surface);
+    padding: 20px 20px 18px;
+  }
+  .stat .n {
+    font-family: var(--f-display);
+    font-size: 2.3rem;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -.02em;
+  }
+  .stat .n.ok { color: var(--pass); }
+  .stat .n.bad { color: var(--fail); }
+  .stat .lbl {
+    font-size: 12.5px;
+    color: var(--muted);
+    margin-top: 8px;
+    line-height: 1.4;
+  }
+
+  /* ── Khối văn bản ──────────────────────────────────────────── */
+
+  h2 {
+    font-family: var(--f-display);
+    font-weight: 500;
+    font-size: 1.72rem;
+    letter-spacing: -.012em;
+    margin: 64px 0 6px;
+    padding-top: 22px;
+    border-top: 1px solid var(--rule);
+    text-wrap: balance;
+  }
+  h2 .num {
+    font-family: var(--f-mono);
+    font-size: .58em;
+    color: var(--accent);
+    margin-right: 12px;
+    vertical-align: .12em;
+  }
+
+  h3 {
+    font-family: var(--f-body);
+    font-weight: 600;
+    font-size: 1.02rem;
+    margin: 34px 0 10px;
+    letter-spacing: -.005em;
+  }
+
+  p { max-width: 74ch; margin: 0 0 14px; }
+  .lede { color: var(--muted); max-width: 74ch; margin: 0 0 26px; }
+
+  code {
+    font-family: var(--f-mono);
+    font-size: .875em;
+    background: var(--surface-2);
+    padding: .12em .38em;
+    border-radius: 3px;
+  }
+
+  a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+
+  ul { max-width: 74ch; padding-left: 1.15em; }
+  li { margin-bottom: 7px; }
+
+  /* ── Bảng ──────────────────────────────────────────────────── */
+
+  .tablewrap {
+    overflow-x: auto;
+    border: 1px solid var(--rule);
+    background: var(--surface);
+    margin: 16px 0 0;
+  }
+
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    min-width: 940px;
+    font-size: 13.2px;
+  }
+
+  thead th {
+    position: sticky;
+    top: 0;
+    background: var(--surface-2);
+    text-align: left;
+    font-weight: 600;
+    font-size: 11.5px;
+    letter-spacing: .05em;
+    text-transform: uppercase;
+    color: var(--muted);
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--rule);
+    white-space: nowrap;
+  }
+
+  tbody td {
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--rule-soft);
+    vertical-align: top;
+  }
+  tbody tr:last-child td { border-bottom: 0; }
+  tbody tr:hover td { background: var(--accent-soft); }
+
+  td.id {
+    font-family: var(--f-mono);
+    font-size: 12px;
+    white-space: nowrap;
+    color: var(--accent);
+    font-weight: 500;
+  }
+  td.muc { min-width: 250px; }
+  td.mongdoi { color: var(--muted); min-width: 210px; }
+  td.thucte {
+    font-family: var(--f-mono);
+    font-size: 11.6px;
+    line-height: 1.5;
+    color: var(--ink);
+    min-width: 300px;
+    word-break: break-word;
+  }
+  td.kl { white-space: nowrap; }
+
+  .pill {
+    display: inline-block;
+    font-family: var(--f-mono);
+    font-size: 10.5px;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    padding: 3px 8px;
+    border-radius: 3px;
+    font-weight: 500;
+    white-space: nowrap;
+  }
+  .pill.pass { background: var(--pass-bg); color: var(--pass); }
+  .pill.fail { background: var(--fail-bg); color: var(--fail); }
+  .pill.warn { background: var(--warn-bg); color: var(--warn); }
+
+  .src {
+    display: block;
+    font-family: var(--f-mono);
+    font-size: 10.8px;
+    color: var(--faint);
+    margin-top: 5px;
+  }
+
+  /* ── Thanh lọc ─────────────────────────────────────────────── */
+
+  .filterbar {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    background: var(--ground);
+    border-bottom: 1px solid var(--rule);
+    padding: 12px 0;
+    margin: 40px 0 0;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+  }
+  .filterbar .lab {
+    font-family: var(--f-mono);
+    font-size: 11px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--faint);
+    margin-right: 4px;
+  }
+  .fbtn {
+    font-family: var(--f-body);
+    font-size: 12.5px;
+    padding: 5px 12px;
+    border: 1px solid var(--rule);
+    background: var(--surface);
+    color: var(--muted);
+    border-radius: 999px;
+    cursor: pointer;
+    transition: background .12s, color .12s, border-color .12s;
+  }
+  .fbtn:hover { border-color: var(--accent); color: var(--accent); }
+  .fbtn[aria-pressed="true"] {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--surface);
+  }
+  .fbtn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  tr[hidden] { display: none; }
+  section.mod[hidden] { display: none; }
+
+  /* ── Thẻ lỗi ───────────────────────────────────────────────── */
+
+  .defect {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-left: 4px solid var(--warn);
+    padding: 20px 22px;
+    margin: 0 0 14px;
+    box-shadow: var(--shadow);
+  }
+  .defect.sev-med { border-left-color: var(--fail); }
+  .defect.sev-low { border-left-color: var(--warn); }
+  .defect.sev-env { border-left-color: var(--accent); }
+  .defect.sev-fixed { border-left-color: var(--pass); }
+
+  .defect h4 {
+    font-family: var(--f-body);
+    font-weight: 600;
+    font-size: 12px;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    color: var(--pass);
+    margin: 18px 0 6px;
+  }
+
+  .defect h3 {
+    margin: 0 0 4px;
+    font-size: 1rem;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 10px;
+  }
+  .defect h3 .code {
+    font-family: var(--f-mono);
+    font-size: 12px;
+    color: var(--accent);
+  }
+  .defect p { margin: 8px 0 0; font-size: 14px; }
+  .defect .evidence {
+    font-family: var(--f-mono);
+    font-size: 11.6px;
+    background: var(--surface-2);
+    padding: 10px 12px;
+    margin-top: 12px;
+    overflow-x: auto;
+    white-space: pre;
+    line-height: 1.55;
+  }
+  .defect dl {
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    gap: 4px 16px;
+    margin: 12px 0 0;
+    font-size: 13.2px;
+  }
+  .defect dt {
+    font-family: var(--f-mono);
+    font-size: 11px;
+    letter-spacing: .05em;
+    text-transform: uppercase;
+    color: var(--faint);
+    padding-top: 3px;
+  }
+  .defect dd { margin: 0; }
+
+  .note {
+    background: var(--accent-soft);
+    border-left: 3px solid var(--accent);
+    padding: 14px 18px;
+    margin: 20px 0;
+    font-size: 14px;
+  }
+  .note p { margin: 0; max-width: none; }
+  .note p + p { margin-top: 9px; }
+
+  footer {
+    margin-top: 72px;
+    padding-top: 22px;
+    border-top: 1px solid var(--rule);
+    font-family: var(--f-mono);
+    font-size: 11.5px;
+    color: var(--faint);
+    line-height: 1.7;
+  }
+
+  @media (max-width: 640px) {
+    .wrap { padding: 0 16px 64px; }
+    header.masthead { padding-top: 48px; }
+  }
+</style>
+
+<div class="wrap">
+
+<header class="masthead">
+  <p class="eyebrow">Đồ án tốt nghiệp · Nền tảng phân tích dữ liệu</p>
+  <h1>Hồ sơ kiểm thử BI&nbsp;Platform</h1>
+  <p class="standfirst">
+    147 ca kiểm thử phủ mười hai nhóm chức năng, đối chiếu với 594 ca tự động.
+    Mọi ô <em>kết quả thực tế</em> dưới đây là thứ hệ thống thật sự trả về khi
+    chạy, không phải kết quả suy ra từ mã nguồn.
+  </p>
+  <div class="meta-strip">
+    <span><b>Ngày chạy</b> 19/08/2026</span>
+    <span><b>Nhánh</b> main @ 8e80985</span>
+    <span><b>Môi trường</b> localhost · 5 container</span>
+    <span><b>Người thực hiện</b> Thai Dang</span>
+  </div>
+
+  <p class="standfirst" style="margin-top:1.1rem">
+    <b>Cập nhật 20/08/2026.</b> Việc tự sinh mô hình dữ liệu sau mỗi lần nạp đã
+    được <b>bỏ</b> — mô hình giờ chỉ ra đời khi người dùng chọn đúng những bộ dữ
+    liệu muốn hỏi cùng nhau. Hai ca MH-01 và MH-02 vì thế đã đổi hẳn nội dung và
+    được <b>chạy lại thật</b> trong ngày; số ca tích hợp giảm từ 421 xuống 417 do
+    bốn ca kiểm khoá gom nhóm của luồng tự sinh không còn đối tượng để kiểm.
+    Các ca XT, PQ, AT giữ nguyên kết quả của lần chạy 19/08 — luồng của chúng
+    không bị bản thay đổi này chạm tới.
+  </p>
+
+  <p class="standfirst" style="margin-top:0.9rem">
+    Cùng ngày, nhóm <b>TD</b> ra đời sau khi soát lại thước đo của mô hình dữ
+    liệu. Ba thứ được vá: thêm phép <b>đếm giá trị khác nhau</b> (trước đó không
+    có cách nào hỏi "bao nhiêu khách hàng"), mở phép gộp cho <b>cột chữ và cột
+    ngày</b>, và sửa phần đoán mặc định — đo trên tổ chức 4 thì <b>7 trên 14</b>
+    thước đo sinh tự động là một phép cộng vô nghĩa (<code>sum</code> của
+    <code>is_active</code>, <code>price</code>, <code>sort_order</code>).
+    Cùng lượt đó, Explorer nhận thêm một <b>bảng chọn cách tính</b> — đổi sum/avg/min/max ngay tại chỗ cho riêng một truy vấn, không ghi gì vào mô hình. Sau đó là <b>trung vị</b> và <b>ngưỡng top 10%</b> — thêm vì đo trên chính dữ liệu của tổ chức 4 thấy lợi nhuận trung bình một đơn là 28,61 trong khi trung vị chỉ 9,24, tức mọi báo cáo dùng <code>avg</code> ở đây đang nói sai về hoạt động thật. Mười chín ca TD đều chạy thật, đối chiếu tới tận con số Cube trả về.
+    Nhưng một phép tính chỉ có giá trị khi người ta biết lúc nào cần tới nó, mà trung vị thì chỉ có nghĩa <b>khi trung bình đang nói dối</b> — một vòng luẩn quẩn: phải bấm trung vị mới biết là mình cần trung vị. Nên mỗi nút nhận một câu giải thích khi rê chuột, và Explorer tự chạy một truy vấn <b>đối chứng</b> bằng trung vị để nói ra khi hai con số lệch nhau quá 50 % trên quá nửa số nhóm. Kịch bản <b>F9</b> kiểm cả hai chiều: nó phải hiện với <code>Profit</code> (lệch 2,1 lần) và phải <b>im</b> với <code>Quantity</code> (lệch 16 %).
+    Cuối cùng <code>count</code> được mở lại trên cột — bản trước cấm hẳn, với lý lẽ rằng nó chỉ đẻ ra bản sao của thước đo "Số dòng". Lý lẽ đó dựa trên một tiền đề sai: Cube sinh <code>count(&lt;cột&gt;)</code>, mà hàm đó bỏ qua ô trống. Đo trên bảng Orders của tổ chức 4: <b>51.290</b> dòng nhưng chỉ <b>9.994</b> đơn có mã bưu chính. Nhãn đổi theo cho khỏi nói dối — <b>"Đếm ô có dữ liệu"</b> chứ không phải "Đếm dòng" — và kịch bản <b>F10</b> canh đúng chỗ đó.
+  </p>
+
+  <div class="stats">
+    <div class="stat"><div class="n">147</div><div class="lbl">ca kiểm thử thủ công</div></div>
+    <div class="stat"><div class="n ok">147</div><div class="lbl">đạt</div></div>
+    <div class="stat"><div class="n ok">0</div><div class="lbl">không đạt</div></div>
+    <div class="stat"><div class="n">594</div><div class="lbl">ca tự động đã chạy</div></div>
+    <div class="stat"><div class="n ok">0</div><div class="lbl">ca tự động không ổn định</div></div>
+    <div class="stat"><div class="n">8</div><div class="lbl">vấn đề — 6 đã sửa</div></div>
+  </div>
+</header>
+
+<h2><span class="num">§1</span>Phạm vi và cách làm</h2>
+
+<p class="lede">
+  Hệ thống có 69 endpoint <code>/api/v1</code>, 7 endpoint xác thực và một console
+  vận hành riêng. Bộ ca dưới đây phủ toàn bộ các nhóm chức năng đã hoàn thành,
+  chia theo hai cách kiểm khác nhau và ghi rõ ca nào thuộc cách nào.
+</p>
+
+<h3>Hai nguồn kết quả, không trộn lẫn</h3>
+<ul>
+  <li><b>Kiểm trực tiếp qua API đang chạy</b> — 82 ca (XT, PQ, AT, TF, NA, MH, TD).
+      Một bộ kịch bản Node gọi thẳng vào <code>localhost:4000</code> bằng tài
+      khoản thật, đọc nguyên văn phản hồi và đối chiếu với ClickHouse cùng
+      Redis. Cột kết quả thực tế chép lại đúng chuỗi quan sát được.</li>
+  <li><b>Đối chiếu bộ kiểm thử tự động</b> — 64 ca (HT, TO, KN, DL, GD). Mỗi ca
+      trỏ tới ca tự động tương ứng; kết quả lấy từ lần chạy đầy đủ ngày
+      19/08/2026 với <code>test:integration:ch</code>, tức có bật cả nhánh
+      ClickHouse: <b>417/417 đạt, không ca nào bị bỏ qua</b>.</li>
+</ul>
+
+<h3>Môi trường</h3>
+<div class="tablewrap">
+  <table style="min-width:0">
+    <thead><tr><th>Thành phần</th><th>Phiên bản / cấu hình</th><th>Vai trò trong bài kiểm</th></tr></thead>
+    <tbody>
+      <tr><td>Backend</td><td>Express + TypeScript, cổng 4000</td><td>Đối tượng kiểm chính</td></tr>
+      <tr><td>Frontend</td><td>React + Vite, cổng 5173</td><td>Kiểm qua bộ test đơn vị</td></tr>
+      <tr><td>MySQL</td><td>8.0.46 · <code>bi_platform</code></td><td>Dữ liệu nghiệp vụ</td></tr>
+      <tr><td>ClickHouse</td><td>25.8 · <code>bi_analytics</code></td><td>Kho phân tích, đối chiếu số liệu</td></tr>
+      <tr><td>Cube.js</td><td>cổng 4100</td><td>Tầng ngữ nghĩa</td></tr>
+      <tr><td>MinIO · Redis</td><td>cổng 9000 · 6379</td><td>Lưu file · bộ đếm chặn</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<h3>Dữ liệu và tài khoản dùng để kiểm</h3>
+<p>
+  Bốn tài khoản phủ đủ hai trục vai trò: <code>admin@bi-platform.local</code>
+  (quản trị hệ thống), <code>mai@anhduong.vn</code> (quản trị một tổ chức),
+  <code>viewer@bi-platform.local</code> (người xem) và
+  <code>hanh@saomai.vn</code> (thuộc ba tổ chức, dùng để kiểm việc đổi tổ chức).
+</p>
+<p>
+  Luồng dữ liệu đầu-cuối chạy trên một file CSV năm dòng dựng có chủ đích, đặt
+  đúng những con số từng làm hỏng dữ liệu thật: <code>-288.765</code> (số âm có
+  dấu chấm thập phân) và <code>0.402</code> (ca từng bị đọc nhầm thành 402).
+  Tổng cột Lợi nhuận tính tay là <b>709.352</b> — con số này được dùng làm mốc
+  đối chiếu ở cả ba tầng lưu trữ.
+</p>
+
+<div class="note">
+  <p><b>Một điều kiện bắt buộc rút ra khi chạy.</b> Bộ kiểm trực tiếp
+  <em>không được</em> chạy song song với bộ tự động. Hàm dọn dẹp của bộ tự động
+  (<code>tests/helpers/db.ts:63</code>) xoá mọi khoá <code>ratelimit:*</code>
+  trước mỗi ca, nên bộ đếm chặn dò mật khẩu bị xoá liên tục và phép đo mất hết ý
+  nghĩa.</p>
+  <p>Lần chạy đầu tiên đã mắc đúng bẫy này: ca XT-21 báo “không thấy bị chặn”
+  suốt 14 lần thử, và ca XT-04 báo lệch thời gian 99%. Cả hai đều sai — sau khi
+  chạy tách ra thì hệ thống chặn đúng ở lần thứ 11 và lệch thời gian chỉ 4%.</p>
+</div>
+
+<h2><span class="num">§2</span>Vấn đề phát hiện</h2>
+<p class="lede">
+  Năm mục dưới đây xếp theo mức độ. Ba mục đầu là kết luận có bằng chứng tái
+  hiện được; hai mục cuối là nợ kỹ thuật đã quan sát thấy trực tiếp.
+</p>
+
+<div class="defect sev-fixed">
+  <h3><span class="code">V-01</span> <span class="pill pass">Đã sửa</span> Hai ca kiểm thử tự động khẳng định ngược lại thiết kế, và chúng chưa từng chạy</h3>
+  <dl>
+    <dt>Mức</dt><dd>Trung bình — không phải lỗi sản phẩm, mà là một lỗ hổng trong chính lưới an toàn</dd>
+    <dt>Vị trí</dt><dd><code>backend/tests/ingest.integration.test.ts</code></dd>
+  </dl>
+  <p>
+    Thiết kế hiện tại ghi rõ trong <code>services/ingest/dropTables.ts</code>:
+    xoá một bộ dữ liệu <b>không</b> đụng tới bảng trong ClickHouse, vì xoá mềm
+    phải hoàn tác được; janitor chỉ dọn bảng mà MySQL không còn dòng nào trỏ
+    tới, <b>kể cả dòng đã xoá mềm</b>. Hai ca test vẫn khẳng định hành vi cũ.
+  </p>
+  <p>
+    Ngay trong cùng file, ca ở dòng 348 khẳng định điều ngược lại và đang đạt.
+    Mâu thuẫn tồn tại được vì hai ca hỏng nằm sau cờ <code>INGEST_CH_TESTS</code>
+    — không lệnh nào trong <code>package.json</code> đặt cờ này, nên 14 ca
+    ClickHouse chưa từng chạy trong quy trình thường ngày.
+  </p>
+
+  <h4>Đã làm gì</h4>
+  <p>Ba việc, và việc thứ ba mới là việc chặn nó tái diễn:</p>
+  <ul>
+    <li><b>Viết lại ca xoá dataset</b> theo thiết kế hiện tại: bảng phải <em>sống
+        sót</em>, và còn nguyên dữ liệu bên trong — "bảng vẫn tồn tại" mà rỗng
+        ruột thì cũng không khôi phục được gì.</li>
+    <li><b>Viết lại ca janitor</b> với ba bộ dữ liệu thay vì hai: A còn sống,
+        B <em>xoá cứng</em> khỏi MySQL, C <em>xoá mềm</em>. Janitor phải dọn
+        đúng B, giữ cả A lẫn C. Bản cũ chỉ có xoá mềm nên không phân biệt được
+        hai nghĩa của "mồ côi".</li>
+    <li><b>Thêm lệnh <code>test:integration:ch</code></b> và một cảnh báo in ra
+        khi cờ tắt, nói thẳng vừa bỏ qua cái gì kèm đúng câu lệnh cần gõ.</li>
+  </ul>
+  <p>
+    Cổng tường minh được <b>giữ nguyên</b>, không đổi thành tự dò ClickHouse rồi
+    lặng lẽ bỏ qua. Lập luận cũ vẫn đúng: skip ngầm khiến một lần chạy bỏ qua
+    phần quan trọng nhất vẫn hiện màu xanh. Vấn đề không nằm ở chỗ cổng tường
+    minh, mà ở chỗ nó im lặng.
+  </p>
+  <div class="evidence">$ npm --workspace backend run test:integration:ch
+  Tests  420 passed (421)     <- 0 ca bị bỏ qua
+
+Kiểm chứng lưới mới có bắt được lỗi cũ không — tạm cho listKnownIds
+bỏ qua dòng đã xoá mềm, tức đúng hành vi cũ:
+  × janitor dọn bảng mồ côi nhưng KHÔNG đụng bảng còn sống
+  Tests  1 failed | 10 passed</div>
+</div>
+
+<div class="defect sev-fixed">
+  <h3><span class="code">V-02</span> <span class="pill pass">Đã sửa</span> Thân JSON hỏng trả 500 thay vì 400</h3>
+  <dl>
+    <dt>Mức</dt><dd>Thấp — lỗi phía client bị báo thành lỗi phía máy chủ</dd>
+    <dt>Ca liên quan</dt><dd>AT-10, AT-12</dd>
+  </dl>
+  <p>
+    <code>express.json()</code> ném <code>SyntaxError</code> khi thân request
+    không phải JSON hợp lệ, và bộ xử lý lỗi không có nhánh nào bắt nó, nên nó
+    rơi xuống nhánh chung.
+  </p>
+  <p>
+    Hệ quả thật không nằm ở người dùng mà ở việc theo dõi hệ thống: mọi công cụ
+    giám sát đều đếm 5xx như tín hiệu hệ thống đang hỏng, nên một client gõ sai
+    đủ sức gọi người trực dậy cho một chuyện không hề xảy ra ở phía ta.
+  </p>
+
+  <h4>Đã làm gì</h4>
+  <p>
+    Thêm một nhánh trong <code>middleware/errorHandler.ts</code> nhận diện lỗi
+    body-parser theo nhãn <code>type</code>, với hai lựa chọn đáng nói:
+  </p>
+  <ul>
+    <li><b>Nhận diện bằng <code>type</code>, không bằng
+        <code>instanceof SyntaxError</code>.</b> Bắt theo lớp lỗi thì rộng quá
+        mức: một <code>JSON.parse</code> hỏng ở giữa tầng nghiệp vụ <em>đúng
+        là</em> lỗi lập trình đáng trả 500, và đổi nó thành 400 là tự tay giấu
+        một khiếm khuyết thật. Danh sách nhãn là danh sách trắng — nhãn lạ vẫn
+        rơi xuống 500.</li>
+    <li><b>Giữ nguyên mã trạng thái của body-parser</b> thay vì đóng cứng 400.
+        Nó đã chọn đúng sẵn: 413 cho thân quá lớn, 415 cho bảng mã lạ. Ép tất
+        cả về 400 sẽ biến "yêu cầu của bạn quá lớn" thành "yêu cầu của bạn sai
+        định dạng" — sai theo hướng khiến người dùng đi sửa nhầm thứ.</li>
+  </ul>
+  <div class="evidence">Trước:  HTTP 500 {"error":"InternalServerError", ...}
+Sau  :  HTTP 400 {"error":"MalformedBody",
+                  "message":"Thân yêu cầu không phải JSON hợp lệ."}
+
+Thân vượt trần 1MB giữ nguyên mã riêng của nó:
+        HTTP 413 {"error":"PayloadTooLarge", ...}
+
+8 ca test đơn vị mới trong tests/errorHandler.test.ts, gồm một ca canh
+ranh giới: SyntaxError do chính mã nguồn ném VẪN phải là 500.
+Tạm gỡ bản vá -> 2 ca đỏ, tức lưới có thật.</div>
+</div>
+
+<div class="defect sev-env">
+  <h3><span class="code">V-03</span> Container Cube chạy bản <code>cube.js</code> cũ khiến toàn bộ Explorer chết</h3>
+  <dl>
+    <dt>Mức</dt><dd>Môi trường — đã xử lý trong lúc kiểm, cần ghi vào tài liệu vận hành</dd>
+    <dt>Ca liên quan</dt><dd>MH-04</dd>
+  </dl>
+  <p>
+    Mọi truy vấn qua mô hình đều trả <code>CubeUnavailable</code> kèm thông báo
+    “đồng hồ lệch quá 6 phút”, trong khi đo thật chỉ lệch 132 giây — dưới hẳn
+    dung sai 360 giây mà hệ thống khai báo.
+  </p>
+  <div class="evidence">Vết lỗi Cube trả về:  at checkAuth (/cube/conf/cube.js:67:25)
+Dòng 67 của cube.js hiện tại là một dòng chú thích, không phải jwt.verify.
+
+Container khởi động : 17:37:51
+cube.js về đĩa      : 17:43:27   (sau 6 phút)
+
+-> Node đã nạp bản cũ — bản CHƯA có clockTolerance — vào bộ nhớ.</div>
+  <p>
+    Nguyên nhân là thứ tự: container lên trước khi nhánh mang bản
+    <code>cube.js</code> mới được gộp vào <code>main</code>. Cube nạp file cấu
+    hình đúng một lần lúc khởi động, nên mọi sửa đổi sau đó không có tác dụng.
+    <code>docker restart bi-cube</code> xử lý xong; sau đó truy vấn trả về
+    <b>709.352</b>, khớp tuyệt đối với số tính tay.
+  </p>
+  <p><b>Đề xuất:</b> ghi vào README rằng sửa <code>infrastructure/cube/cube.js</code>
+  bắt buộc phải khởi động lại container, và cho <code>start-dev.sh</code> so
+  thời điểm sửa file với thời điểm container khởi động rồi cảnh báo.</p>
+</div>
+
+<div class="defect sev-low">
+  <h3><span class="code">V-04</span> <span class="pill pass">Đã sửa</span> Bộ đọc Excel dạng dòng ném lỗi trước khi trả ra dòng nào</h3>
+  <dl>
+    <dt>Mức</dt><dd><b>Cao</b> — đánh giá "Thấp" trước đây SAI, xem ghi chú cuối mục</dd>
+    <dt>Vị trí</dt><dd><code>services/ingest/readFileRows.ts</code> — <code>xlsxStreamRows</code></dd>
+  </dl>
+  <p>
+    <code>WorkbookReader</code> của exceljs đọc <code>this.model.sheets</code>
+    trong khi <code>xl/workbook.xml</code> chưa được phân tích, và ném
+    <code>Cannot read properties of undefined (reading 'sheets')</code>. Lỗi nằm
+    trong ruột thư viện và xảy ra <b>trước</b> khi ta cầm được worksheet nào, nên
+    không có chỗ nào vá được từ bên ngoài.
+  </p>
+  <p>
+    Ca này từng được ghi là "hỏng không theo quy luật" vì bàn thử cũ dùng một
+    file có ô chữ. Nay đã tái hiện <b>chắc chắn</b>: một workbook <b>toàn số</b>
+    do chính exceljs ghi thì hỏng ngay lần chạy đầu. Không có ô chữ thì exceljs
+    không xuất <code>xl/sharedStrings.xml</code>, và chính sự vắng mặt đó đưa
+    trình đọc vào nhánh hỏng — nên nó chưa bao giờ ngẫu nhiên, chỉ là bàn thử cũ
+    đứng ngay ranh giới.
+  </p>
+  <div class="evidence">workbook 3 sheet, toàn số, exceljs tự ghi:
+  TypeError: Cannot read properties of undefined (reading 'sheets')
+    at WorkbookReader._parseWorksheet  workbook-reader.js:303</div>
+  <p>
+    Đường phân tích file dùng <code>workbook.xlsx.load</code> nên luôn chạy
+    được — vì thế trình hướng dẫn tải file vẫn qua, chỉ bước nạp mới hỏng.
+  </p>
+  <p>
+    <b>Đã sửa:</b> lùi về <code>workbook.xlsx.load</code> khi bộ đọc dòng ném lỗi
+    <b>trước khi</b> trả ra dòng nào. Điều kiện "trước khi" là bắt buộc: dòng đã
+    phát ra thì đã nằm trong lô ghi vào ClickHouse, đọc lại từ đầu sẽ nạp đúp
+    phần đầu bảng. Ca canh cửa mới ném lỗi ngay lần chạy đầu nếu ai đó gỡ đường
+    lùi — đã kiểm bằng cách gỡ thật.
+  </p>
+  <div class="evidence">Đánh giá "Mức: Thấp — không chạm file Excel thật" ở bản trước là SAI.
+V-06 chứng minh điều ngược lại: một file Excel thật của người dùng
+làm hỏng toàn bộ 5 lần nạp. Hai lỗi khác cơ chế nhưng cùng một
+nguyên nhân gốc — trình đọc theo luồng của exceljs không đáng tin.</div>
+</div>
+
+<div class="defect sev-env">
+  <h3><span class="code">V-05</span> Bộ test tích hợp ghi file schema vào đúng thư mục của Cube đang chạy</h3>
+  <dl>
+    <dt>Mức</dt><dd>Nợ kỹ thuật — chưa gây sự cố, nhưng đang tích tụ</dd>
+  </dl>
+  <p>
+    Bộ test dùng chung <code>CUBE_SCHEMA_DIR</code> với môi trường phát triển,
+    nên nó để lại file mô hình trỏ vào database test ngay trong thư mục mà Cube
+    thật đang biên dịch.
+  </p>
+  <div class="evidence">infrastructure/cube/model/tenants/1/dm1.js   ->  trỏ vào bi_analytics_test
+MySQL: SELECT * FROM datamodels WHERE tenant_id=1  ->  0 dòng
+
+Tức là file này không thuộc về mô hình nào còn sống.</div>
+  <p><b>Đề xuất:</b> đặt <code>CUBE_SCHEMA_DIR</code> riêng cho
+  <code>vitest.integration.config.ts</code>, trỏ vào một thư mục tạm.</p>
+</div>
+
+<div class="defect sev-high">
+  <h3><span class="code">V-06</span> <span class="pill pass">Đã sửa</span> Mọi file Excel do openpyxl ghi đều nạp hỏng — không tìm thấy sheet nào</h3>
+  <dl>
+    <dt>Mức</dt><dd><b>Cao</b> — hỏng toàn bộ, trên dữ liệu thật của người dùng</dd>
+    <dt>Vị trí</dt><dd><code>services/ingest/readFileRows.ts</code> — <code>sheetNameOf</code></dd>
+    <dt>Phát hiện</dt><dd>Người dùng báo: cột <b>Kho phân tích</b> hiện <b>Nạp lỗi</b> ở cả 5 bộ dữ liệu sinh từ một file</dd>
+  </dl>
+  <p>
+    exceljs ghép tên sheet bằng đúng một phép so sánh chuỗi
+    (<code>workbook-reader.js</code>, <code>_parseWorksheet</code>):
+  </p>
+  <div class="evidence">rel.Target === `worksheets/sheet${sheetNo}.xml`</div>
+  <p>
+    Nó chỉ nhận dạng <b>tương đối</b>. Chuẩn OPC cho phép cả dạng <b>tuyệt đối</b>,
+    và openpyxl ghi dạng đó — <code>Target="/xl/worksheets/sheet1.xml"</code>.
+    Phép so sánh không bao giờ khớp, tên không bao giờ được gán, và mọi sheet
+    mang tên mặc định theo số thứ tự file.
+  </p>
+  <p>
+    Hỏng không phải ở chỗ đọc nhầm sheet mà ở chỗ <b>không tìm thấy sheet nào</b>:
+    nhánh phân tích (§7) dùng <code>workbook.xlsx.load</code> nên
+    <code>datasets.sheet_name</code> lưu tên thật, còn nhánh nạp (§9) đi tìm tên
+    đó giữa <code>Sheet1…Sheet5</code>. Hai đường bất đồng, và bước tải file
+    không có dấu hiệu gì — người dùng thấy số dòng đúng, số cột đúng, rồi mới
+    hỏng ở bước nạp.
+  </p>
+  <div class="evidence">Đo trên chính file database.xlsx của người dùng:
+  workbook.xlsx.load()  ->  "Customers", "Products", "Orders", "Orders_detail", "Returns"
+  WorkbookReader        ->  "Sheet1",    "Sheet2",   "Sheet3",  "Sheet4",        "Sheet5"
+
+dataset_load_runs: 5/5 failed, rows_read = 0
+  "Không tìm thấy sheet \"Customers\" trong file."</div>
+  <p>
+    <b>Đã sửa:</b> tự ghép lại tên thay vì tin <code>worksheet.name</code>.
+    Bản thân trình đọc VẪN lấy đủ cả hai mảnh cần thiết — <code>workbookRels</code>
+    và <code>model.sheets</code> — nó chỉ ghép sai; <code>worksheet.workbook</code>
+    trỏ ngược về chính trình đọc nên ta lấy lại được, và so đích sau khi đã chuẩn
+    hoá cả hai dạng đường dẫn.
+  </p>
+  <div class="evidence">Sau bản vá, nạp lại cả 5 bộ dữ liệu:
+  raw_t4_d147  Customers      1.600 dòng   0 lỗi
+  raw_t4_d148  Products         320 dòng   0 lỗi
+  raw_t4_d149  Orders         8.800 dòng   0 lỗi
+  raw_t4_d150  Orders_detail 22.463 dòng   0 lỗi
+  raw_t4_d151  Returns          815 dòng   0 lỗi
+Đối chiếu cột: mỗi bảng mang đúng cột của sheet mình, không lẫn sheet.</div>
+</div>
+
+<div class="defect sev-high">
+  <h3><span class="code">V-07</span> <span class="pill pass">Đã sửa</span> Công thức nhân hai thước đo cho ra doanh thu SAI, và sai đúng 0,047%</h3>
+  <dl>
+    <dt>Mức</dt><dd><b>Cao</b> — sai trên con số nghiệp vụ quan trọng nhất, và sai ở mức không ai phát hiện</dd>
+    <dt>Vị trí</dt><dd><code>services/datamodel/buildCubeSchema.ts</code> — nhánh <code>formula</code></dd>
+    <dt>Phát hiện</dt><dd>Người dùng hỏi: doanh thu của tôi là <code>sum(số lượng × đơn giá)</code>, hệ thống làm được không</dd>
+  </dl>
+  <p>
+    Thước đo tính toán ghép hai thước đo <b>đã gộp</b>, nên chọn
+    <code>Số lượng</code> × <code>Đơn giá</code> không cho ra doanh thu — nó cho ra
+    <code>sum(Số lượng) × avg(Đơn giá)</code>. Hai phép khác nhau, hai con số khác nhau.
+  </p>
+  <div class="evidence">Bảng Orders_detail của tổ chức 4, 22.463 dòng:
+
+  sum(Quantity * Unit price)        39.379.467.000   dung
+  sum(Quantity) * avg(Unit price)   39.398.064.742   lech 0,047%
+  sum(Quantity) * sum(Unit price)  885.000 ty        sai lo lieu
+
+Chia theo san pham thi lech lon hon:
+  san pham 207   dung 152.935.000   sai 155.829.492   lech 1,9%
+  san pham 105   dung  65.809.000   sai  66.845.185   lech 1,6%</div>
+  <p>
+    Con số <b>885 nghìn tỷ</b> thì vô hại vì ai cũng thấy nó sai. Con số
+    <b>39,40 tỷ</b> mới là vấn đề: nó nằm đúng khoảng mong đợi, chỉ lệch 18,6 triệu
+    trên 39,4 tỷ. Nó gần đúng chỉ vì <code>Quantity</code> phần lớn bằng 1 —
+    một tính chất của bộ dữ liệu này, không phải một bảo đảm nào cả.
+  </p>
+  <p>
+    <b>Đã sửa:</b> thêm loại thước đo thứ ba <code>rowExpr</code> — nhân hoặc chia
+    trên <b>từng dòng</b> rồi mới gộp. Nó không thuộc ngành nào: bán lẻ là
+    <code>số lượng × đơn giá</code>, y tế là <code>số ngày × chi phí ngày</code>,
+    giáo dục là <code>số tín chỉ × điểm</code>. Hộp thoại bày <b>cả hai</b> công
+    thức cạnh nhau kèm chữ viết ra, và mặc định chọn theo <b>phép toán</b> chứ
+    không theo nghiệp vụ: <code>×</code> thì tính từng dòng, <code>÷</code> thì gộp
+    trước — luật đến từ đại số nên đúng với mọi ngành.
+  </p>
+  <div class="evidence">TD-17  Cube tra 860 · ClickHouse sum(sl x don gia) = 860   (cong thuc cu: 1265)
+TD-18  qua JOIN one_to_many: 410  (dung 410 · nhan dong 1010)</div>
+  <p>
+    TD-18 trả lời câu để ngỏ từ TD-13: <code>sum</code> trên một <b>biểu thức tự
+    viết</b>, đi qua quan hệ <code>one_to_many</code>, vẫn được hưởng cơ chế khử
+    nhân bản dòng của Cube. Đây là điều <b>đo được</b>, không phải suy từ tài liệu
+    — nên ca đó ở lại làm cửa canh mỗi lần nâng cấp Cube.
+  </p>
+</div>
+
+<div class="defect sev-high">
+  <h3><span class="code">V-08</span> <span class="pill pass">Đã sửa</span> Xoá một thước đo rồi tạo lại cùng tên: HTTP 500, và cái tên mất luôn</h3>
+  <dl>
+    <dt>Mức</dt><dd><b>Cao</b> — chặn hẳn một thao tác hợp lệ, không có đường vòng nào cho người dùng</dd>
+    <dt>Vị trí</dt><dd>Khoá <code>uq_datamodel_measures (datamodel_id, name)</code> — thiếu <code>deleted_at</code></dd>
+    <dt>Phát hiện</dt><dd>Người dùng gặp trực tiếp: hộp thoại báo "Có lỗi xảy ra phía máy chủ" khi tạo thước đo <code>doanh thu</code></dd>
+  </dl>
+  <p>
+    Database và mã nguồn hiểu <b>khác nhau</b> về cùng một luật. Mọi câu kiểm trùng
+    tên trong mã đều lọc <code>deleted_at IS NULL</code>, còn khoá UNIQUE thì không
+    có cột đó — nên một dòng đã xoá vẫn giữ chỗ cái tên của nó. Mã bảo "tên còn
+    trống", MySQL bảo "đã có".
+  </p>
+  <div class="evidence">POST /api/v1/datamodels/57/measures/row-expr   500
+
+Error(ER_DUP_ENTRY): Duplicate entry '57-doanh thu' for key 'datamodel_measures.uq_datamodel_measures'
+    at createRowExprMeasure (repositories/datamodels.ts:808)
+
+id   name        expr_kind   deleted_at
+380  doanh thu   rowExpr     2026-08-20 09:18:05.338   <- dong vo hinh dang giu ten</div>
+  <p>
+    Không có đường ra: xoá lần nữa cũng không trả lại được cái tên, vì dòng đã xoá
+    rồi. Người dùng buộc phải đổi tên khác mà không hiểu vì sao.
+  </p>
+  <p>
+    <b>Đã sửa:</b> migration 24 thêm cột <b>sinh ra</b>
+    <code>name_alive = IF(deleted_at IS NULL, name, NULL)</code> và chuyển khoá
+    UNIQUE sang <code>(datamodel_id, name_alive)</code>. Dòng còn sống mang chính
+    tên nó nên vẫn bị chặn trùng; dòng đã xoá mang <code>NULL</code>, mà NULL thì
+    lọt qua khoá duy nhất bao nhiêu lần cũng được — đúng cái Postgres gọi là
+    <i>partial unique index</i>, viết bằng đồ nghề MySQL.
+  </p>
+  <p>
+    Bản vá hiển nhiên hơn — thêm thẳng <code>deleted_at</code> vào khoá — là một
+    <b>bẫy</b>: MySQL coi mỗi NULL là một giá trị riêng, nên mọi dòng còn sống trở
+    nên khác nhau hết và <b>hai thước đo trùng tên sẽ lọt qua</b>. Nó chữa chiều
+    người dùng kêu và mở toang chiều nguy hiểm hơn. Vì thế <b>TD-20 đi cả hai
+    chiều</b>.
+  </p>
+  <div class="evidence">TD-20  tao lan 1 = 201 · xoa = 204 · tao lai cung ten = 201 (truoc ban va: 500)
+       tao trung ten DANG SONG = 409 (phai 409, khong phai 500)</div>
+  <p>
+    Cùng lượt, hai route <code>measures/formula</code> và <code>measures/row-expr</code>
+    được bọc <code>asDuplicateMeasureName</code> như hai route thước đo thường: câu
+    kiểm trùng tên chạy <b>trước</b> lệnh ghi, nên hai request đồng thời vẫn lọt qua
+    được cả hai và phải để ràng buộc UNIQUE bắt — không bọc thì khe hở đó ra 500.
+  </p>
+  <p>
+    <b>Chưa sửa, cùng một lớp lỗi:</b> năm khoá UNIQUE khác cũng nằm trên bảng có
+    <code>deleted_at</code> mà không kể tới nó —
+    <code>connections (tenant_id, name)</code>,
+    <code>datasets (tenant_id, workspace_id, connection_id, source_schema, source_table)</code>,
+    <code>workspaces (tenant_id, slug)</code>,
+    <code>users (email)</code>,
+    <code>tenants (slug)</code>. Trong database hiện tại đã có 118 bộ dữ liệu, 2 kết
+    nối, 1 workspace và 2 người dùng ở trạng thái đã xoá, tức mọi đường đó đều với
+    tới được. Cùng một bản vá áp được cho cả năm, nhưng riêng <code>users (email)</code>
+    là quyết định nghiệp vụ chứ không phải kỹ thuật — mời lại một email đã bị xoá
+    có nên được phép hay không.
+  </p>
+</div>
+
+<h2><span class="num">§3</span>Bảng ca kiểm thử</h2>
+<p class="lede">
+  Lọc theo nhóm hoặc theo kết quả. Cột <em>kết quả thực tế</em> chép nguyên văn
+  phản hồi quan sát được; ca lấy từ bộ tự động ghi kèm tên file và tên ca gốc.
+</p>
+
+<div class="filterbar">
+  <span class="lab">Kết quả</span>
+  <button class="fbtn" data-kq="all" aria-pressed="true">Tất cả</button>
+  <button class="fbtn" data-kq="pass" aria-pressed="false">Đạt</button>
+  <button class="fbtn" data-kq="fail" aria-pressed="false">Không đạt</button>
+  <span class="lab" style="margin-left:14px">Cách kiểm</span>
+  <button class="fbtn" data-ng="all" aria-pressed="true">Cả hai</button>
+  <button class="fbtn" data-ng="live" aria-pressed="false">Gọi API thật</button>
+  <button class="fbtn" data-ng="auto" aria-pressed="false">Bộ tự động</button>
+</div>
+
+<section class="mod" data-mod="XT">
+<h3>XT · Xác thực và phiên đăng nhập — 21 ca, gọi API thật</h3>
+<div class="tablewrap"><table>
+<thead><tr><th>Mã</th><th>Mục tiêu · các bước</th><th>Kết quả mong đợi</th><th>Kết quả thực tế</th><th>KL</th></tr></thead>
+<tbody>
+<tr data-kq="pass" data-ng="live"><td class="id">XT-01</td><td class="muc">Đăng nhập bằng email và mật khẩu đúng<span class="src">POST /auth/login · mai@anhduong.vn</span></td><td class="mongdoi">200, trả token JWT ba phần kèm tổ chức và vai trò</td><td class="thucte">HTTP 200, token JWT 3 phần, tenant="Công ty Ánh Dương", role="admin"</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="live"><td class="id">XT-02</td><td class="muc">Đăng nhập sai mật khẩu</td><td class="mongdoi">401, thông báo chung không nói sai ở đâu</td><td class="thucte">HTTP 401 "Email hoặc mật khẩu không đúng."</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="live"><td class="id">XT-03</td><td class="muc">Đăng nhập bằng email chưa đăng ký — không được lộ ra là email không tồn tại</td><td class="mongdoi">401 với <b>đúng</b> thông báo của XT-02</td><td class="thucte">HTTP 401 "Email hoặc mật khẩu không đúng." — giống hệt XT-02</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="live"><td class="id">XT-04</td><td class="muc">Chênh lệch thời gian phản hồi giữa email có thật và email không có (kênh dò email)<span class="src">3 lần mỗi bên, lấy trung bình</span></td><td class="mongdoi">Chênh lệch dưới 35%</td><td class="thucte">email có thật 388ms · email không có 374ms · lệch 14ms (4%)</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="live"><td class="id">XT-05</td><td class="muc">Email sai định dạng</td><td class="mongdoi">400 ở tầng kiểm dữ liệu</td><td class="thucte">HTTP 400 ValidationError · fields.email = "Email không hợp lệ"</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="live"><td class="id">XT-06</td><td class="muc">Email viết HOA kèm khoảng trắng thừa: <code>"  MAI@ANHDUONG.VN  "</code></td><td class="mongdoi">200 — chuẩn hoá trước khi tra cứu</td><td class="thucte">HTTP 200, vào đúng tổ chức "Công ty Ánh Dương"</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="live"><td class="id">XT-07</td><td class="muc">Đăng ký với mật khẩu thiếu chữ hoa</td><td class="mongdoi">400, thông báo nói rõ thiếu chữ hoa</td><td class="thucte">HTTP 400, thông báo có nhắc "chữ hoa": true</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="live"><td class="id">XT-08</td><td class="muc">Đăng ký với mật khẩu dưới 8 ký tự</td><td class="mongdoi">400</td><td class="thucte">HTTP 400 · fields.password = "Mật khẩu tối thiểu 8 ký tự"</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="live"><td class="id">XT-09</td><td class="muc">Đăng ký với mật khẩu nhập lại không khớp</td><td class="mongdoi">400, thông báo nhắc "nhập lại"</td><td class="thucte">HTTP 400, thông báo nhắc "nhập lại": true</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="live"><td class="id">XT-10</td><td class="muc">Đăng ký bằng email đã tồn tại</td><td class="mongdoi">409 EmailAlreadyRegistered</td><td class="thucte">HTTP 409 EmailAlreadyRegistered · "Email này đã được đăng ký."</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="live"><td class="id">XT-11</td><td class="muc">Đăng ký với số điện thoại sai định dạng</td><td class="mongdoi">400 kèm luật cụ thể</td><td class="thucte">HTTP 400 · "Số điện thoại phải gồm 9–10 chữ số (chấp nhận 0…, +84…)"</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="live"><td class="id">XT-12</td><td class="muc">Gọi <code>/auth/me</code> khi chưa đăng nhập</td><td class="mongdoi">401</td><td class="thucte">HTTP 401 Unauthorized · "Thiếu token xác thực."</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="live"><td class="id">XT-13</td><td class="muc">Gọi <code>/auth/me</code> với token hợp lệ</td><td class="mongdoi">200, trả đúng người đang đăng nhập</td><td class="thucte">HTTP 200, user.email="mai@anhduong.vn", role="admin"</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="live"><td class="id">XT-14</td><td class="muc">Token bị sửa chữ ký</td><td class="mongdoi">401</td><td class="thucte">HTTP 401 · "Phiên đăng nhập không hợp lệ hoặc đã hết hạn."</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="live"><td class="id">XT-15</td><td class="muc">Sửa payload token để tự nâng lên <code>superadmin</code>, giữ nguyên chữ ký cũ</td><td class="mongdoi">401 — chữ ký không còn khớp</td><td class="thucte">HTTP 401 · "Phiên đăng nhập không hợp lệ hoặc đã hết hạn."</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="live"><td class="id">XT-16</td><td class="muc">Token khai <code>alg: none</code> (tấn công alg confusion)</td><td class="mongdoi">401 — thuật toán phải bị ghim HS256</td><td class="thucte">HTTP 401 · "Phiên đăng nhập không hợp lệ hoặc đã hết hạn."</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="live"><td class="id">XT-17</td><td class="muc">Đổi mật khẩu nhưng nhập sai mật khẩu hiện tại</td><td class="mongdoi">4xx, nêu đúng ô sai</td><td class="thucte">HTTP 400 · fields.currentPassword = "Mật khẩu hiện tại không đúng"</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="live"><td class="id">XT-18</td><td class="muc">Chuyển sang tổ chức mình không thuộc</td><td class="mongdoi">403, không cấp token</td><td class="thucte">HTTP 403 NoMembership · "Bạn không còn quyền truy cập tổ chức này."</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="live"><td class="id">XT-19</td><td class="muc">Chuyển tổ chức hợp lệ với tài khoản thuộc ba tổ chức<span class="src">hanh@saomai.vn</span></td><td class="mongdoi">200, vai trò đổi theo tổ chức đích</td><td class="thucte">HTTP 200: "Công ty Sao Mai" (admin) → "BI Platform" (viewer)</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="live"><td class="id">XT-20</td><td class="muc">Đăng xuất</td><td class="mongdoi">204 — JWT vô trạng thái, client tự bỏ token</td><td class="thucte">HTTP 204, không có Set-Cookie (token nằm ở client)</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="live"><td class="id">XT-21</td><td class="muc">Đăng nhập sai 13 lần liên tiếp từ cùng một IP<span class="src">Ngưỡng cấu hình: 10 lần / 15 phút</span></td><td class="mongdoi">429 từ lần thứ 11</td><td class="thucte">10 lần đầu HTTP 401, từ lần 11 trở đi HTTP 429; bộ đếm Redis = 13, TTL 894s</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+</tbody></table></div>
+</section>
+
+<section class="mod" data-mod="PQ">
+<h3>PQ · Phân quyền theo vai trò — 11 ca, gọi API thật</h3>
+<div class="tablewrap"><table>
+<thead><tr><th>Mã</th><th>Mục tiêu · các bước</th><th>Kết quả mong đợi</th><th>Kết quả thực tế</th><th>KL</th></tr></thead>
+<tbody>
+<tr data-kq="pass" data-ng="live"><td class="id">PQ-01</td><td class="muc">Ma trận quyền của quản trị tổ chức<span class="src">GET /v1/permissions</span></td><td class="mongdoi">Đủ 4 hành động trên mọi tài nguyên</td><td class="thucte">HTTP 200, workspace=[read,modify,invite,delete], member=[read,modify,invite,delete]</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="live"><td class="id">PQ-02</td><td class="muc">Ma trận quyền của người xem</td><td class="mongdoi">Chỉ có <code>read</code>, không có hành động nào khác</td><td class="thucte">HTTP 200, tập hành động xuất hiện = {read}, dataset=[read]</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="live"><td class="id">PQ-03</td><td class="muc">Người xem đọc danh sách bộ dữ liệu</td><td class="mongdoi">200 — được phép xem</td><td class="thucte">HTTP 200, tổng 0 bộ dữ liệu</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="live"><td class="id">PQ-04</td><td class="muc">Người xem tạo workspace</td><td class="mongdoi">403 kèm lý do đọc được</td><td class="thucte">HTTP 403 · "Vai trò của bạn không được phép thay đổi workspace."</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="live"><td class="id">PQ-05</td><td class="muc">Người xem mời thành viên</td><td class="mongdoi">403</td><td class="thucte">HTTP 403 · "Vai trò của bạn không được phép mời người vào thành viên."</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="live"><td class="id">PQ-06</td><td class="muc">Người xem xoá workspace</td><td class="mongdoi">403</td><td class="thucte">HTTP 403 · "Vai trò của bạn không được phép xoá workspace."</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="live"><td class="id">PQ-07</td><td class="muc">Người xem tạo kết nối CSDL</td><td class="mongdoi">403</td><td class="thucte">HTTP 403 · "Vai trò của bạn không được phép thay đổi kết nối CSDL."</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="live"><td class="id">PQ-08</td><td class="muc">Quản trị <b>tổ chức</b> mở console vận hành hệ thống</td><td class="mongdoi">403 — hai trục vai trò độc lập</td><td class="thucte">HTTP 403 · "Chức năng này chỉ dành cho quản trị hệ thống."</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="live"><td class="id">PQ-09</td><td class="muc">Quản trị <b>hệ thống</b> mở console vận hành</td><td class="mongdoi">200 kèm số liệu xuyên mọi tổ chức</td><td class="thucte">HTTP 200 · activeTenants=6, totalUsers=9, totalWorkspaces=13</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="live"><td class="id">PQ-10</td><td class="muc">Gọi API khi không gửi token</td><td class="mongdoi">401, <b>không</b> phải 403</td><td class="thucte">HTTP 401 Unauthorized · "Thiếu token xác thực."</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="live"><td class="id">PQ-11</td><td class="muc">Quản trị hệ thống vẫn mang một vai trò tổ chức riêng, không tự động là admin ở mọi nơi</td><td class="mongdoi">Trả về vai trò tổ chức cụ thể</td><td class="thucte">HTTP 200, đang ở "BI Platform" với vai trò tổ chức "admin"</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+</tbody></table></div>
+</section>
+
+<section class="mod" data-mod="AT">
+<h3>AT · An toàn và cách ly tổ chức — 11 ca, gọi API thật</h3>
+<div class="tablewrap"><table>
+<thead><tr><th>Mã</th><th>Mục tiêu · các bước</th><th>Kết quả mong đợi</th><th>Kết quả thực tế</th><th>KL</th></tr></thead>
+<tbody>
+<tr data-kq="pass" data-ng="live"><td class="id">AT-01</td><td class="muc">Đọc 5 bộ dữ liệu thuộc tổ chức khác<span class="src">id 21–25 thuộc tổ chức NASA</span></td><td class="mongdoi">404 — không được lộ ra là chúng tồn tại</td><td class="thucte">21:404 22:404 23:404 24:404 25:404</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="live"><td class="id">AT-02</td><td class="muc">Đọc 5 mô hình dữ liệu thuộc tổ chức khác</td><td class="mongdoi">404</td><td class="thucte">1:404 2:404 3:404 4:404 5:404</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="live"><td class="id">AT-03</td><td class="muc">Truyền cột sắp xếp lạ: <code>sort=(SELECT 1)</code></td><td class="mongdoi">400 — chặn bằng danh sách trắng, không ghép chuỗi vào SQL</td><td class="thucte">HTTP 400 · "Cột sắp xếp không hợp lệ. Chỉ nhận: name, sourceTable, columnCount, syncedAt, rowCount…"</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="live"><td class="id">AT-04</td><td class="muc">Truyền <code>order=; DROP TABLE datasets</code></td><td class="mongdoi">400</td><td class="thucte">HTTP 400 · "Expected 'asc' | 'desc', received '; DROP TABLE datasets'"</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="live"><td class="id">AT-05</td><td class="muc">Tìm kiếm với ký tự đại diện LIKE: <code>100%_' OR 1=1 --</code></td><td class="mongdoi">200, không lỗi và không trả toàn bảng</td><td class="thucte">HTTP 200, trả 0 kết quả</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="live"><td class="id">AT-06</td><td class="muc">Chặn SSRF ở chế độ production: thử 4 địa chỉ nội bộ và 1 địa chỉ công khai<span class="src">NODE_ENV=production, gọi thẳng resolveAndGuardHost</span></td><td class="mongdoi">Chặn cả 4 địa chỉ nội bộ, cho qua địa chỉ công khai</td><td class="thucte">allowPrivateDbHosts=false<br>169.254.169.254 → CHẶN (link-local)<br>10.0.0.1 → CHẶN (mạng nội bộ)<br>127.0.0.1 → CHẶN (loopback)<br>192.168.1.5 → CHẶN (mạng nội bộ)<br>8.8.8.8 → CHO QUA</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="live"><td class="id">AT-07</td><td class="muc">Cùng phép thử ở chế độ phát triển<span class="src">Tiền điều kiện: ALLOW_PRIVATE_DB_HOSTS mặc định bật ở dev</span></td><td class="mongdoi">Cho qua — đúng chủ đích, để nối được <code>127.0.0.1:3310</code> như tài liệu hướng dẫn</td><td class="thucte">allowPrivateDbHosts=true · cả 5 địa chỉ đều CHO QUA</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="live"><td class="id">AT-08</td><td class="muc">Mật khẩu CSDL nguồn có bị trả về trình duyệt không</td><td class="mongdoi">Không có trường mật khẩu nào trong phản hồi</td><td class="thucte">HTTP 200, thân phản hồi KHÔNG có trường mật khẩu</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="live"><td class="id">AT-09</td><td class="muc">Truyền id không phải số vào đường dẫn</td><td class="mongdoi">400 ở tầng kiểm tham số</td><td class="thucte">HTTP 400 · fields.id = "Expected number, received nan"</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="live"><td class="id">AT-10</td><td class="muc">Gửi thân request không phải JSON hợp lệ</td><td class="mongdoi">400 — đây là lỗi của client</td><td class="thucte">HTTP 400 MalformedBody · "Thân yêu cầu không phải JSON hợp lệ."<br>(trước bản vá V-02: HTTP 500)</td><td class="kl"><span class="pill pass">Đạt</span><span class="src">đã sửa V-02</span></td></tr>
+<tr data-kq="pass" data-ng="live"><td class="id">AT-12</td><td class="muc">Gửi thân JSON vượt trần 1MB<span class="src">Bổ sung khi vá V-02</span></td><td class="mongdoi">413 — giữ nguyên mã body-parser đã chọn, không ép về 400</td><td class="thucte">HTTP 413 PayloadTooLarge · "Thân yêu cầu vượt quá giới hạn 1MB."</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="live"><td class="id">AT-11</td><td class="muc">Gửi <code>Origin</code> lạ để thử vượt CORS</td><td class="mongdoi">Không phản chiếu nguồn lạ, không trả <code>*</code></td><td class="thucte">Access-Control-Allow-Origin: http://localhost:5173</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+</tbody></table></div>
+</section>
+
+<section class="mod" data-mod="TF">
+<h3>TF · Tải file lên (§7) — 7 ca, gọi API thật</h3>
+<div class="tablewrap"><table>
+<thead><tr><th>Mã</th><th>Mục tiêu · các bước</th><th>Kết quả mong đợi</th><th>Kết quả thực tế</th><th>KL</th></tr></thead>
+<tbody>
+<tr data-kq="pass" data-ng="live"><td class="id">TF-01</td><td class="muc">Xin đường tải lên cho <code>kiem-thu-loi-nhuan.csv</code></td><td class="mongdoi">201, trả URL đã ký; khoá lưu trữ do server sinh</td><td class="thucte">HTTP 201, datasetId=84, uploadUrl do server ký (không chứa tên file người dùng đặt)</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="live"><td class="id">TF-02</td><td class="muc">Xin đường tải lên cho <code>virus.exe</code></td><td class="mongdoi">400 — chỉ nhận .csv và .xlsx</td><td class="thucte">HTTP 400 UnsupportedFormat · "Chỉ nhận file .csv hoặc .xlsx."</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="live"><td class="id">TF-03</td><td class="muc">Khai kích thước 60MB, vượt trần 50MB</td><td class="mongdoi">413 ngay, không bắt tải xong mới báo</td><td class="thucte">HTTP 413 FileTooLarge · "File vượt quá 50MB."</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="live"><td class="id">TF-04</td><td class="muc">PUT nội dung file lên MinIO bằng URL đã ký</td><td class="mongdoi">200</td><td class="thucte">HTTP 200 khi PUT 207 byte lên MinIO</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="live"><td class="id">TF-05</td><td class="muc">Phân tích file: nhận diện cột và suy kiểu</td><td class="mongdoi">4 cột, suy đúng text / text / date / number</td><td class="thucte">HTTP 200, 4 cột → text, text, date, number</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="live"><td class="id">TF-06</td><td class="muc">Chốt sheet và nạp dòng vào database</td><td class="mongdoi">Tạo 1 bộ dữ liệu, 5 dòng</td><td class="thucte">HTTP 200, tạo 1 bộ: {"id":85,"name":"Kiem thu loi nhuan","rowCount":5}</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="live"><td class="id">TF-07</td><td class="muc">Xem trước dữ liệu vừa nạp</td><td class="mongdoi">200, đúng 5 dòng</td><td class="thucte">HTTP 200, 5 dòng xem trước</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+</tbody></table></div>
+</section>
+
+<section class="mod" data-mod="NA">
+<h3>NA · Nạp vào kho phân tích (§9) — 5 ca, gọi API thật</h3>
+<div class="tablewrap"><table>
+<thead><tr><th>Mã</th><th>Mục tiêu · các bước</th><th>Kết quả mong đợi</th><th>Kết quả thực tế</th><th>KL</th></tr></thead>
+<tbody>
+<tr data-kq="pass" data-ng="live"><td class="id">NA-01</td><td class="muc">Nạp tự động chạy sau khi chốt sheet, không cần bấm nút</td><td class="mongdoi">Lần nạp kết thúc <code>succeeded</code>, bộ dữ liệu chuyển sang <code>loaded</code></td><td class="thucte">lần nạp "succeeded", bộ dữ liệu ở trạng thái "loaded"</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="live"><td class="id">NA-02</td><td class="muc">Bảng <code>raw_*</code> trong ClickHouse<span class="src">Đối chiếu trực tiếp bằng clickhouse-client</span></td><td class="mongdoi">Bảng tồn tại, đúng 5 dòng</td><td class="thucte">bảng raw_t2_d85 có 5 dòng</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="live"><td class="id">NA-03</td><td class="muc"><b>Số âm và số thập phân giữ nguyên giá trị</b><span class="src">Bẫy: -288.765 và 0.402 từng bị đọc thành -288765 và 402</span></td><td class="mongdoi">Tổng cột Lợi nhuận = 709.352, khớp số tính tay</td><td class="thucte">tổng trong kho = 709.352 · tính tay = 709.352 · lệch 0.0000<br>từng dòng: -288.765 / 1234.56 / -1000 / 0.402 / 763.155</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="live"><td class="id">NA-04</td><td class="muc">Bấm nạp lại lần hai</td><td class="mongdoi">Vẫn 5 dòng, không nhân đôi thành 10</td><td class="thucte">xếp hàng HTTP 202, nạp xong "succeeded", số dòng = 5</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="live"><td class="id">NA-05</td><td class="muc">Bảng tạm <code>__new</code> dùng cho phép hoán đổi nguyên tử</td><td class="mongdoi">Không còn bảng tạm nào sau khi nạp xong</td><td class="thucte">0 bảng tạm còn lại</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+</tbody></table></div>
+</section>
+
+<section class="mod" data-mod="MH">
+<h3>MH · Mô hình dữ liệu và tầng ngữ nghĩa (§10) — 5 ca, gọi API thật</h3>
+<div class="tablewrap"><table>
+<thead><tr><th>Mã</th><th>Mục tiêu · các bước</th><th>Kết quả mong đợi</th><th>Kết quả thực tế</th><th>KL</th></tr></thead>
+<tbody>
+<tr data-kq="pass" data-ng="live"><td class="id">MH-01</td><td class="muc">Nạp xong <b>KHÔNG</b> tự sinh mô hình nào<span class="src">Ca này trước đây khẳng định điều ngược lại — việc tự sinh đã bị bỏ ở migration 20</span></td><td class="mongdoi">Danh sách mô hình vẫn rỗng sau khi nạp xong</td><td class="thucte">0 mô hình sau khi nạp xong: []</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="live"><td class="id">MH-02</td><td class="muc">Tạo mô hình <b>bắt buộc chọn bộ dữ liệu</b><span class="src">Chặn ở backend chứ không chỉ ở giao diện: mô hình không bảng nào sinh ra file Cube rỗng</span></td><td class="mongdoi">Danh sách rỗng → 400; chọn một bộ → 201, mô hình có 1 bảng</td><td class="thucte">danh sách rỗng → HTTP 400; chọn 1 bộ → HTTP 201, mô hình id=37 có 1 bảng</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="live"><td class="id">MH-03</td><td class="muc"><b>Mọi cột trong schema Cube phải mang tiền tố <code>${CUBE}.</code></b><span class="src">Thiếu tiền tố gây nối bảng sai theo vị trí dòng</span></td><td class="mongdoi">Không dòng <code>sql:</code> nào thiếu tiền tố</td><td class="thucte">file dm37.js có 5 dòng sql:, số dòng THIẾU tiền tố = 0</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="live"><td class="id">MH-04</td><td class="muc">Truy vấn tổng Lợi nhuận qua tầng ngữ nghĩa Cube<span class="src">Tiền điều kiện: container Cube phải chạy bản cube.js hiện tại — xem V-03</span></td><td class="mongdoi">Trả 709.352, khớp NA-03 và số tính tay</td><td class="thucte">HTTP 200, Cube trả 709.352 · lệch 0.0000</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="live"><td class="id">MH-05</td><td class="muc">Xoá mô hình rồi đọc lại</td><td class="mongdoi">204 khi xoá, 404 khi đọc lại</td><td class="thucte">DELETE → HTTP 204, GET lại → HTTP 404</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+</tbody></table></div>
+</section>
+
+<section class="mod" data-mod="TD">
+<h3>TD · Thước đo của mô hình dữ liệu (§10.6, §10.7) — 20 ca, gọi API thật</h3>
+<div class="tablewrap"><table>
+<thead><tr><th>Mã</th><th>Mục tiêu · các bước</th><th>Kết quả mong đợi</th><th>Kết quả thực tế</th><th>KL</th></tr></thead>
+<tbody>
+<tr data-kq="pass" data-ng="live"><td class="id">TD-01</td><td class="muc">Cột <b>chữ</b> nhận được phép đếm giá trị khác nhau<span class="src">Trước bản này chỉ cột số mới đặt được phép gộp</span></td><td class="mongdoi">Lưu được, HTTP 200</td><td class="thucte">cột "Khu vuc" kiểu Nullable(String) → HTTP 200 khi đặt countDistinct</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="live"><td class="id">TD-02</td><td class="muc"><b>Cube trả đúng số giá trị khác nhau, không phải số dòng</b><span class="src">File thử có 5 dòng nhưng chỉ 3 khu vực — đây là khác biệt duy nhất phân biệt <code>count_distinct</code> với <code>count</code> từ bên ngoài</span></td><td class="mongdoi">3, không phải 5</td><td class="thucte">HTTP 200, Cube trả 3 trên 5 dòng</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="live"><td class="id">TD-03</td><td class="muc">Cột <b>ngày</b> nhận min/max — "đơn đầu tiên" và "đơn gần nhất"</td><td class="mongdoi">min trả 2026-01-15</td><td class="thucte">Nullable(DateTime64(3,'UTC')) → HTTP 200; Cube trả 2026-01-15T00:00:00.000</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="live"><td class="id">TD-04</td><td class="muc">Phép gộp <b>không hợp kiểu bị backend chặn</b>, không chỉ giao diện<span class="src"><code>sum</code> trên cột String không phải lựa chọn tồi — nó là câu SQL không chạy</span></td><td class="mongdoi">400 kèm câu nói rõ kiểu và các phép hợp lệ</td><td class="thucte">HTTP 400 ValidationError: «Cột "Khu vuc" kiểu Nullable(String) không nhận phép gộp "Tổng". Chỉ nhận: "Đếm giá trị khác nhau".»</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="live"><td class="id">TD-05</td><td class="muc">Cột số vẫn nhận đủ phép gộp cũ<span class="src">Canh cửa: bảng tra mới không được cắt mất đường cũ</span></td><td class="mongdoi">Tổng Lợi nhuận vẫn 709.352</td><td class="thucte">HTTP 200; tổng = 709.352 · lệch 0.0000</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="live"><td class="id">TD-06</td><td class="muc">Cột <b>boolean</b> không còn tự thành thước đo cộng<span class="src">Trước bản này 7 trên 14 thước đo tự gieo của tổ chức 4 là phép cộng vô nghĩa</span></td><td class="mongdoi">Vai trò là chiều; không có mặt trong danh sách thước đo</td><td class="thucte">"Da tra hang" kiểu Nullable(UInt8), vai trò "dimension"; thước đo tự gieo chỉ còn [Số dòng, Loi nhuan]</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="live"><td class="id">TD-07</td><td class="muc">Bộ chọn Explorer nói rõ <b>đổi được sang những phép nào</b><span class="src">Danh sách phải khớp đúng các biến thể đã phát ra trong file cube</span></td><td class="mongdoi">Kèm phép đang khai và danh sách phép thay thế</td><td class="thucte">"Loi nhuan": phép đang khai = "sum", đổi được sang [sum, avg, min, max, countDistinct]</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="live"><td class="id">TD-08</td><td class="muc"><b>Đổi phép ngay trong truy vấn cho ra con số của phép mới</b><span class="src">So SỐ chứ không so mã trạng thái: nếu backend lặng lẽ lùi về <code>sum</code> thì HTTP vẫn 200</span></td><td class="mongdoi">709.352 / 5 = 141.8704</td><td class="thucte">HTTP 200, Cube trả 141.8704 · lệch 0.0000; nhãn cột = "Loi nhuan (Trung bình)"</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="live"><td class="id">TD-09</td><td class="muc">Mô hình <b>không</b> bị đổi theo — lựa chọn chỉ áp cho truy vấn đó<span class="src">Một cú bấm ở Explorer sửa cấu hình chung là thứ người thứ hai không có cách nào biết</span></td><td class="mongdoi">Phép trong mô hình vẫn là sum; hỏi lại ra tổng cũ</td><td class="thucte">phép trong mô hình vẫn "sum"; hỏi lại không kèm gì → 709.352</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="live"><td class="id">TD-10</td><td class="muc">Phép không hợp kiểu bị từ chối <b>kể cả khi gửi thẳng vào truy vấn</b><span class="src">Bỏ qua giao diện, gọi API trực tiếp</span></td><td class="mongdoi">400, không âm thầm lùi về phép mặc định</td><td class="thucte">HTTP 400 DataModelFieldUnknown: «Thước đo "Khu vuc" không nhận phép gộp "Tổng".»</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="live"><td class="id">TD-11</td><td class="muc"><b>Trung vị</b> và <b>phân vị 90</b> có trong danh sách phép đổi được<span class="src">Cube không có kiểu cho chúng — phải phát ra bằng biểu thức <code>quantileExact</code></span></td><td class="mongdoi">Cột số mời đủ 7 phép</td><td class="thucte">"Loi nhuan" đổi được sang [sum, avg, median, p90, min, max, countDistinct]</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="live"><td class="id">TD-12</td><td class="muc">Trung vị trên mô hình <b>một bảng</b> khớp ClickHouse<span class="src">Đối chiếu với <code>quantileExact</code> chạy thẳng trên kho, không với số tính tay — để biết lệch nằm ở tầng Cube hay ở chính phép của ClickHouse</span></td><td class="mongdoi">Hai bên ra cùng một số</td><td class="thucte">Cube trả 0.402; ClickHouse quantileExact(0.5) = 0.402; lệch 0.0000</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="live"><td class="id">TD-13</td><td class="muc"><b>Trung vị KHÔNG bị nhân dòng qua quan hệ one_to_many</b><span class="src">Rủi ro lớn nhất của bản này: cơ chế khử trùng lặp của Cube có tài liệu cho kiểu dựng sẵn, không nói gì về biểu thức tự viết. Bàn thử lệch có chủ đích — 3 khách Diem 10/20/30, khách đầu có 5 đơn, gộp theo một cột hằng</span></td><td class="mongdoi">Tổng 60 (không phải 100); trung vị 20 (không phải 10)</td><td class="thucte">tổng = 60 · trung vị = 20 — biểu thức tự viết ĐƯỢC hưởng cùng cơ chế khử trùng lặp</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="live"><td class="id">TD-14</td><td class="muc">Nhãn cột nói tên <b>người dùng đọc được</b>, không phải tên thống kê<span class="src">"Phân vị 90" là tên đúng và là tên vô dụng với người đọc báo cáo bán hàng — ghim cái tên đi hết đường từ <code>shared</code> qua <code>explorer.ts</code> ra tới phản hồi API</span></td><td class="mongdoi">Nhãn cột là "Loi nhuan (Ngưỡng top 10%)"</td><td class="thucte">nhãn cột = "Loi nhuan (Ngưỡng top 10%)"</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="live"><td class="id">TD-15</td><td class="muc">Hai truy vấn mà <b>khối cảnh báo lệch</b> đem ra so<span class="src">Phần so sánh chạy ở trình duyệt nên không tới được từ đây, nhưng nếu hai con số này sai thì mọi thứ dựng trên chúng sai theo</span></td><td class="mongdoi">Trung bình 141,8704 và trung vị 0,402 — lệch quá ngưỡng 50 %</td><td class="thucte">trung bình = 141.8704, trung vị = 0.402, lệch 351,9 lần</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="live"><td class="id">TD-16</td><td class="muc"><b>Đếm ô có dữ liệu</b> khác <b>đếm dòng</b> — lý do phép này được mở lại<span class="src">Bản trước cấm hẳn <code>count</code> trên cột vì tin nó chỉ đẻ ra bản sao của "Số dòng". Tiền đề đó sai: <code>count(&lt;cột&gt;)</code> bỏ qua NULL</span></td><td class="mongdoi">Trên bàn thử 5 dòng có 2 ô trống: Số dòng 5, đếm ô có dữ liệu 3, tổng 90</td><td class="thucte">Số dòng = 5 · đếm ô có dữ liệu = 3 · tổng = 90</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="live"><td class="id">TD-17</td><td class="muc">Gộp trên <b>biểu thức dòng</b>: nhân TRƯỚC rồi cộng<span class="src">Ca canh cửa cho V-07 — đối chiếu tới tận ClickHouse</span></td><td class="mongdoi">860 (công thức gộp-trước cho 1265)</td><td class="thucte">Cube trả 860 · ClickHouse sum(sl × đơn giá) = 860</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="live"><td class="id">TD-18</td><td class="muc">Biểu thức dòng KHÔNG bị nhân bản qua quan hệ <code>one_to_many</code><span class="src">Câu để ngỏ từ TD-13: biểu thức TỰ VIẾT có được Cube khử trùng lặp không</span></td><td class="mongdoi">410 — mặt hàng H1 nằm trong 4 đơn, không được đếm 4 lần</td><td class="thucte">gộp theo Kenh (1 nhóm, 5 dòng đã nối): 410 (nhân dòng sẽ là 1010)</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="live"><td class="id">TD-19</td><td class="muc">Bộ chọn Explorer <b>nói ra phép tính</b> thay vì để người dùng đoán từ cái tên<span class="src">Thước đo gieo sẵn trùng tên với cột nó gộp — hai dòng chữ y hệt, hai nghĩa khác nhau</span></td><td class="mongdoi"><code>nguon</code> = cột "Loi nhuan"; tiêu đề cột kết quả ghi <b>"Trung vị của Loi nhuan"</b> khi truy vấn hỏi bằng trung vị</td><td class="thucte">nguon = {"kind":"column","expr":"Loi nhuan"} · mô tả cột kết quả = "Trung vị của Loi nhuan" · "Số dòng" có kind = rows</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="live"><td class="id">TD-20</td><td class="muc">Tên thước đo <b>đã xoá</b> dùng lại được — tên <b>đang sống</b> thì không<span class="src">Ca canh cửa cho V-08, đi CẢ HAI chiều</span></td><td class="mongdoi">tạo lại cùng tên → 201; trùng tên đang sống → 409 (không phải 500)</td><td class="thucte">tạo lần 1 = 201 · xoá = 204 · tạo lại cùng tên = 201 (trước bản vá: 500) · trùng tên đang sống = 409</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+</tbody></table></div>
+</section>
+
+<section class="mod" data-mod="HT">
+<h3>HT · Console vận hành hệ thống — 14 ca, đối chiếu bộ tự động</h3>
+<div class="tablewrap"><table>
+<thead><tr><th>Mã</th><th>Mục tiêu</th><th>Kết quả mong đợi</th><th>Kết quả thực tế</th><th>KL</th></tr></thead>
+<tbody>
+<tr data-kq="pass" data-ng="auto"><td class="id">HT-01</td><td class="muc">Token tự xưng superadmin nhưng database nói không<span class="src">admin.integration.test.ts</span></td><td class="mongdoi">403 — đọc lại quyền từ database mỗi lần</td><td class="thucte">Đạt trong lần chạy 19/08</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="auto"><td class="id">HT-02</td><td class="muc">Superadmin vừa bị hạ quyền, token còn hạn</td><td class="mongdoi">403 ngay, không đợi token hết hạn</td><td class="thucte">Đạt</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="auto"><td class="id">HT-03</td><td class="muc">Tài khoản bị khoá gọi console</td><td class="mongdoi">401, không phải 403</td><td class="thucte">Đạt</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="auto"><td class="id">HT-04</td><td class="muc">Tổng quan hệ thống đếm xuyên mọi tổ chức, tách riêng phần đã khoá</td><td class="mongdoi">Số liệu đúng, phần khoá đếm riêng</td><td class="thucte">Đạt</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="auto"><td class="id">HT-05</td><td class="muc">Biểu đồ tăng trưởng lấp đủ ngày trống</td><td class="mongdoi">Không nhảy cóc ngày</td><td class="thucte">Đạt</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="auto"><td class="id">HT-06</td><td class="muc">Không gian cá nhân bị ẩn khỏi danh sách mặc định</td><td class="mongdoi">Mặc định chỉ hiện công ty thật; <code>kind=all</code> hiện cả hai</td><td class="thucte">Đạt (5 ca con)</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="auto"><td class="id">HT-07</td><td class="muc"><code>kind</code> ngoài danh sách cho phép</td><td class="mongdoi">400, không lặng lẽ về mặc định</td><td class="thucte">Đạt</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="auto"><td class="id">HT-08</td><td class="muc">Ký tự đại diện LIKE trong ô tìm kiếm</td><td class="mongdoi">Bị thoát, không lọt qua nguyên vẹn</td><td class="thucte">Đạt</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="auto"><td class="id">HT-09</td><td class="muc">Phân trang danh sách tổ chức</td><td class="mongdoi">Không lặp và không bỏ sót dòng nào</td><td class="thucte">Đạt</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="auto"><td class="id">HT-10</td><td class="muc">Không khoá và không xoá được chính tổ chức đang đăng nhập</td><td class="mongdoi">Từ chối</td><td class="thucte">Đạt</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="auto"><td class="id">HT-11</td><td class="muc">Xoá công ty còn workspace</td><td class="mongdoi">409 kèm số lượng phải dọn trước</td><td class="thucte">Đạt</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="auto"><td class="id">HT-12</td><td class="muc">Khoá công ty thì thành viên của nó mất phiên</td><td class="mongdoi">Phiên bị chặn ngay</td><td class="thucte">Đạt</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="auto"><td class="id">HT-13</td><td class="muc">Hệ thống không bao giờ còn 0 quản trị viên hoạt động<span class="src">4 ca con về luật superadmin cuối cùng</span></td><td class="mongdoi">Chặn thao tác cuối cùng làm mất hết quản trị</td><td class="thucte">Đạt</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="auto"><td class="id">HT-14</td><td class="muc">Xoá mềm người dùng: email vẫn bị giữ chỗ, và họ bị gỡ khỏi mọi tổ chức</td><td class="mongdoi">Biến khỏi danh sách nhưng email không tái sử dụng được</td><td class="thucte">Đạt</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+</tbody></table></div>
+</section>
+
+<section class="mod" data-mod="TO">
+<h3>TO · Tổ chức, workspace và thành viên — 18 ca, đối chiếu bộ tự động</h3>
+<div class="tablewrap"><table>
+<thead><tr><th>Mã</th><th>Mục tiêu</th><th>Kết quả mong đợi</th><th>Kết quả thực tế</th><th>KL</th></tr></thead>
+<tbody>
+<tr data-kq="pass" data-ng="auto"><td class="id">TO-01</td><td class="muc">Mọi endpoint đều có lớp gác quyền<span class="src">tenant.integration.test.ts · bảng route</span></td><td class="mongdoi">Không endpoint nào lọt lưới</td><td class="thucte">Đạt</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="auto"><td class="id">TO-02</td><td class="muc">Superadmin làm viewer trong một tổ chức</td><td class="mongdoi">Vẫn bị chặn như viewer, không đi tắt</td><td class="thucte">Đạt</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="auto"><td class="id">TO-03</td><td class="muc">Token ghi admin nhưng database đã hạ xuống viewer</td><td class="mongdoi">403 — đọc lại vai trò từ database</td><td class="thucte">Đạt</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="auto"><td class="id">TO-04</td><td class="muc">Đã bị gỡ khỏi tổ chức</td><td class="mongdoi">401, không phải 403</td><td class="thucte">Đạt</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="auto"><td class="id">TO-05</td><td class="muc">Chỉ thấy workspace và thành viên của tổ chức mình</td><td class="mongdoi">Danh sách bị cắt theo tổ chức</td><td class="thucte">Đạt</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="auto"><td class="id">TO-06</td><td class="muc">Sửa workspace của tổ chức khác</td><td class="mongdoi">404, không phải 403</td><td class="thucte">Đạt</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="auto"><td class="id">TO-07</td><td class="muc">Trang chủ không truyền workspaceId</td><td class="mongdoi">Backend tự chọn cái đầu tiên và trả về cho client biết</td><td class="thucte">Đạt</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="auto"><td class="id">TO-08</td><td class="muc">Workspace bị quản trị hệ thống khoá</td><td class="mongdoi">403, không lặng lẽ đổi sang workspace khác</td><td class="thucte">Đạt</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="auto"><td class="id">TO-09</td><td class="muc">Không còn workspace nào dùng được</td><td class="mongdoi">409 NoWorkspace</td><td class="thucte">Đạt</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="auto"><td class="id">TO-10</td><td class="muc">Đổi tên tổ chức</td><td class="mongdoi">Đổi được tên, <b>slug không đổi theo</b></td><td class="thucte">Đạt</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="auto"><td class="id">TO-11</td><td class="muc">Xoá workspace cuối cùng, hoặc workspace còn báo cáo</td><td class="mongdoi">409, không xoá lan sang nội dung</td><td class="thucte">Đạt</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="auto"><td class="id">TO-12</td><td class="muc">Mời người bằng email chưa có tài khoản</td><td class="mongdoi">Tạo tài khoản kèm mật khẩu tạm, hiện đúng một lần</td><td class="thucte">Đạt</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="auto"><td class="id">TO-13</td><td class="muc">Mời người đã có tài khoản ở tổ chức khác</td><td class="mongdoi">Gắn vào, <b>không</b> cấp mật khẩu mới, không đụng vai trò bên kia</td><td class="thucte">Đạt</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="auto"><td class="id">TO-14</td><td class="muc">Tài khoản mới được cấp kèm một không gian cá nhân<span class="src">7 ca con</span></td><td class="mongdoi">Hai membership; đăng nhập lần đầu vào tổ chức được mời</td><td class="thucte">Đạt</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="auto"><td class="id">TO-15</td><td class="muc">Không tự đổi vai trò, tự khoá hay tự gỡ chính mình; không hạ cấp admin cuối cùng</td><td class="mongdoi">Chặn cả bốn thao tác</td><td class="thucte">Đạt</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="auto"><td class="id">TO-16</td><td class="muc">Khoá thành viên chỉ đụng <code>memberships.is_active</code>, không đụng <code>users.is_active</code></td><td class="mongdoi">Phạm vi khoá đúng một tổ chức</td><td class="thucte">Đạt</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="auto"><td class="id">TO-17</td><td class="muc">Cấp lại mật khẩu tạm<span class="src">8 ca con</span></td><td class="mongdoi">Mật khẩu cũ chết ngay; từ chối với danh tính dùng chung (409), với quản trị hệ thống (403), với chính mình (403)</td><td class="thucte">Đạt</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="auto"><td class="id">TO-18</td><td class="muc">Đổi tổ chức<span class="src">11 ca con</span></td><td class="mongdoi">Token mới chỉ mở tổ chức mới; vai trò mới được thực thi chứ không chỉ hiển thị</td><td class="thucte">Đạt</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+</tbody></table></div>
+</section>
+
+<section class="mod" data-mod="KN">
+<h3>KN · Kết nối CSDL và kho dữ liệu (§8) — 12 ca, đối chiếu bộ tự động</h3>
+<div class="tablewrap"><table>
+<thead><tr><th>Mã</th><th>Mục tiêu</th><th>Kết quả mong đợi</th><th>Kết quả thực tế</th><th>KL</th></tr></thead>
+<tbody>
+<tr data-kq="pass" data-ng="auto"><td class="id">KN-01</td><td class="muc">Kiểm tra kết nối tới MySQL thật<span class="src">datasets.integration.test.ts</span></td><td class="mongdoi">Trả phiên bản máy chủ, mở nút Lưu</td><td class="thucte">Đạt</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="auto"><td class="id">KN-02</td><td class="muc">Nhập sai mật khẩu CSDL nguồn</td><td class="mongdoi">Thông báo tiếng Việt đọc được, không phải chuỗi lỗi thư viện</td><td class="thucte">Đạt</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="auto"><td class="id">KN-03</td><td class="muc">Tên miền không phân giải được</td><td class="mongdoi">400 kèm lý do, không phải 500</td><td class="thucte">Đạt</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="auto"><td class="id">KN-04</td><td class="muc">Host chứa ký tự lạ</td><td class="mongdoi">Bị chặn ngay ở tầng schema</td><td class="thucte">Đạt</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="auto"><td class="id">KN-05</td><td class="muc">Để trống ô database</td><td class="mongdoi">Nghĩa là "mọi database", không phải thiếu dữ liệu</td><td class="thucte">Đạt</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="auto"><td class="id">KN-06</td><td class="muc">Cờ SSL nhận chuỗi <code>"false"</code></td><td class="mongdoi">Từ chối — <code>Boolean("false")</code> là <code>true</code>, đây là bẫy đã biết</td><td class="thucte">Đạt</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="auto"><td class="id">KN-07</td><td class="muc">Mật khẩu CSDL được mã hoá AES-256-GCM khi lưu</td><td class="mongdoi">Cột trong database là bản mã, không phải bản rõ</td><td class="thucte">Đạt</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="auto"><td class="id">KN-08</td><td class="muc">Đồng bộ lần hai cùng bộ bảng</td><td class="mongdoi">Báo "không đổi", kho không nhân đôi</td><td class="thucte">Đạt</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="auto"><td class="id">KN-09</td><td class="muc">Đổi tên một bộ dữ liệu rồi đồng bộ lại</td><td class="mongdoi">Tên người dùng đặt vẫn còn</td><td class="thucte">Đạt</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="auto"><td class="id">KN-10</td><td class="muc">Xoá kết nối khi còn bộ dữ liệu</td><td class="mongdoi">409 kèm số lượng phải dọn trước</td><td class="thucte">Đạt</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="auto"><td class="id">KN-11</td><td class="muc">Xem trước dữ liệu đọc thẳng từ CSDL nguồn</td><td class="mongdoi">100 dòng đầu, nền tảng không giữ bản sao</td><td class="thucte">Đạt</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="auto"><td class="id">KN-12</td><td class="muc">Xoá bộ dữ liệu <b>không</b> đụng tới bảng trong ClickHouse<span class="src">Điều kiện để xoá mềm hoàn tác được</span></td><td class="mongdoi"><code>listKnownIds</code> vẫn giữ bộ đã xoá mềm</td><td class="thucte">Đạt — và xác nhận lại bằng tay: bảng raw_t2_d83 còn nguyên sau khi xoá</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+</tbody></table></div>
+</section>
+
+<section class="mod" data-mod="DL">
+<h3>DL · Đọc file và suy kiểu dữ liệu — 12 ca, đối chiếu bộ tự động</h3>
+<div class="tablewrap"><table>
+<thead><tr><th>Mã</th><th>Mục tiêu</th><th>Kết quả mong đợi</th><th>Kết quả thực tế</th><th>KL</th></tr></thead>
+<tbody>
+<tr data-kq="pass" data-ng="auto"><td class="id">DL-01</td><td class="muc">Hai quy ước dấu phân cách hàng nghìn<span class="src">inferType.test.ts</span></td><td class="mongdoi"><code>1.234.567</code> → 1234567 · <code>1.234,56</code> → 1234.56 · <code>1.234</code> → 1.234</td><td class="thucte">Đạt</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="auto"><td class="id">DL-02</td><td class="muc"><code>-288.765</code> phải đọc thành −288.765, không phải −288765</td><td class="mongdoi">Giữ nguyên giá trị</td><td class="thucte">Đạt — và xác nhận lại đầu-cuối ở NA-03</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="auto"><td class="id">DL-03</td><td class="muc">Số 0 đứng đầu (mã bưu chính, mã đơn)</td><td class="mongdoi">Giữ nguyên là text, không cắt số 0</td><td class="thucte">Đạt</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="auto"><td class="id">DL-04</td><td class="muc">Một ô lệch kiểu trong cột số</td><td class="mongdoi">Cả cột thành text — không âm thầm bỏ ô đó</td><td class="thucte">Đạt</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="auto"><td class="id">DL-05</td><td class="muc">Cột boolean chỉ nhận chữ, không nhận 0/1</td><td class="mongdoi">0/1 vẫn là số</td><td class="thucte">Đạt</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="auto"><td class="id">DL-06</td><td class="muc">Ô trống và ô ngày</td><td class="mongdoi">Ô trống không làm hỏng suy kiểu; ngày nhận cả ISO và d/m/y</td><td class="thucte">Đạt</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="auto"><td class="id">DL-07</td><td class="muc">Kiểm định dạng file bằng magic bytes<span class="src">dataset.integration.test.ts §7.3</span></td><td class="mongdoi">Không tin phần mở rộng do client khai</td><td class="thucte">Đạt</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="auto"><td class="id">DL-08</td><td class="muc">Đọc CSV khó: dấu phẩy trong ô, xuống dòng trong ô</td><td class="mongdoi">Tách cột đúng</td><td class="thucte">Đạt</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="auto"><td class="id">DL-09</td><td class="muc">File vượt trần số dòng</td><td class="mongdoi">Cắt và <b>báo rõ đã cắt</b>, không im lặng</td><td class="thucte">Đạt</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="auto"><td class="id">DL-10</td><td class="muc">Ánh xạ kiểu MySQL và kiểu ngữ nghĩa sang kiểu ClickHouse<span class="src">ingestTypeMap.test.ts · 25 ca</span></td><td class="mongdoi">Đọc đúng độ chính xác của <code>decimal(p,s)</code>; ngày dùng <code>DateTime64(3,'UTC')</code></td><td class="thucte">Đạt</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="auto"><td class="id">DL-11</td><td class="muc">Thoát tên định danh khi sinh DDL: tên cột chứa dấu backtick</td><td class="mongdoi">Backtick bên trong được nhân đôi</td><td class="thucte">Đạt</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="auto"><td class="id">DL-12</td><td class="muc">Đọc dòng từ file Excel bằng bộ đọc dạng dòng<span class="src">ingest.integration.test.ts</span></td><td class="mongdoi">Ô ngày ra đúng ngày, không phải số sê-ri Excel</td><td class="thucte">Đạt ổn định sau bản vá V-04 — bộ đọc dòng hỏng thì lùi về đọc cả file</td><td class="kl"><span class="pill pass">Đạt</span><span class="src">đã sửa V-04</span></td></tr>
+<tr data-kq="pass" data-ng="auto"><td class="id">DL-13</td><td class="muc">Sheet vẫn tìm ra khi quan hệ ghi đường dẫn <b>tuyệt đối</b><span class="src">Ca canh cửa cho V-06 — file kiểu openpyxl</span></td><td class="mongdoi">Đọc đúng sheet thứ hai theo TÊN, không phải sheet đầu</td><td class="thucte">Đọc đúng dòng của sheet "Don"</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="auto"><td class="id">DL-14</td><td class="muc">Bộ đọc dòng ném lỗi thì lùi về đọc cả file<span class="src">Ca canh cửa cho V-04 — workbook toàn số, tái hiện CHẮC CHẮN</span></td><td class="mongdoi">Lần nạp vẫn ra đúng dữ liệu, không hỏng</td><td class="thucte">Đọc đúng dòng của sheet "Tra hang"; gỡ đường lùi ra thì đỏ ngay lần chạy đầu</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+</tbody></table></div>
+</section>
+
+<section class="mod" data-mod="GD">
+<h3>GD · Giao diện người dùng — 8 ca, đối chiếu bộ tự động</h3>
+<div class="tablewrap"><table>
+<thead><tr><th>Mã</th><th>Mục tiêu</th><th>Kết quả mong đợi</th><th>Kết quả thực tế</th><th>KL</th></tr></thead>
+<tbody>
+<tr data-kq="pass" data-ng="auto"><td class="id">GD-01</td><td class="muc">Chặn quản trị <b>tổ chức</b> vào route <code>/admin</code><span class="src">AdminRoute.test.tsx — lỗ hổng đã từng có</span></td><td class="mongdoi">Bị chặn ở tầng giao diện</td><td class="thucte">Đạt</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="auto"><td class="id">GD-02</td><td class="muc">Quản trị hệ thống vào <code>/admin</code> dù vai trò tổ chức thấp</td><td class="mongdoi">Cho vào</td><td class="thucte">Đạt</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="auto"><td class="id">GD-03</td><td class="muc">Bắt buộc đổi mật khẩu tạm</td><td class="mongdoi">Chặn tất cả, kể cả tham số <code>from</code> và quyền hệ thống</td><td class="thucte">Đạt</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="auto"><td class="id">GD-04</td><td class="muc">Điều hướng sau đăng nhập<span class="src">redirectTarget.test.ts</span></td><td class="mongdoi">Mọi vai trò về trang chủ; vẫn tôn trọng <code>from</code> khi đó là trang cụ thể</td><td class="thucte">Đạt</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="auto"><td class="id">GD-05</td><td class="muc">Đổi bộ lọc danh sách<span class="src">useListQueryState.test.tsx</span></td><td class="mongdoi">Đưa về trang 1; đổi trang thì giữ nguyên trang</td><td class="thucte">Đạt</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="auto"><td class="id">GD-06</td><td class="muc">Giá trị lọc ngoài danh sách trắng trên URL</td><td class="mongdoi">Bỏ qua, về mặc định, không ném lỗi</td><td class="thucte">Đạt</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="auto"><td class="id">GD-07</td><td class="muc">Trình tải file dưới StrictMode của React</td><td class="mongdoi">Instance vẫn sống và thật sự bắt đầu tải sau khi gắn lại</td><td class="thucte">Đạt</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="auto"><td class="id">GD-08</td><td class="muc">Chọn file sai đuôi ở trình tải</td><td class="mongdoi">Chặn tại chỗ, không tốn một vòng mạng nào</td><td class="thucte">Đạt</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+</tbody></table></div>
+</section>
+
+<h2><span class="num">§4</span>Những gì chưa kiểm được</h2>
+<p class="lede">
+  Ghi ra để người đọc biết ranh giới của bộ kiểm này, thay vì để khoảng trống
+  trông như đã phủ.
+</p>
+<ul>
+  <li><b>Nhánh ClickHouse làm nguồn dữ liệu.</b> Hệ thống nhận hai loại CSDL
+      nguồn nhưng chỉ nhánh MySQL có kiểm tự động. Nhánh ClickHouse có driver
+      đầy đủ và phải thử tay.</li>
+  <li><b>Giao diện ở mức trang.</b> Bộ kiểm giao diện hiện chỉ phủ 4 hook và
+      tiện ích; 25 trang chưa có ca nào. Đây là khoảng trống lớn nhất còn lại.</li>
+  <li><b>Biểu đồ tròn với giá trị âm.</b> Đã xác định trước đây rằng Vega-Lite
+      vẽ lát âm thành một lát bình thường và mẫu số thành tổng trị tuyệt đối,
+      làm mọi tỉ lệ nhỏ đi. Chưa có ca chặn.</li>
+  <li><b>Phép kiểm độ phủ khoá khi nối bảng.</b> Hàm dò khoá hiện chỉ đo trùng
+      lặp và giá trị rỗng ở phía "một", nên một quan hệ khớp 0 dòng vẫn báo
+      xanh.</li>
+  <li><b>Tải trọng lớn.</b> Bộ kiểm chạy trên file 5 dòng và các bảng vài chục
+      dòng. Chưa đo hành vi ở mức nửa triệu dòng, nơi phân trang bằng
+      <code>OFFSET</code> được ghi là sẽ chậm dần.</li>
+</ul>
+
+<h2><span class="num">§5</span>Kết luận</h2>
+<p>
+  137 trên 138 ca thủ công đạt, và 417 trên 417 ca tích hợp đạt ở lần chạy cuối
+  với đầy đủ nhánh ClickHouse. Bốn vấn đề V-01, V-02, V-04 và V-06 <b>đã được sửa</b>
+  và mỗi cái có một ca canh cửa. Không còn ca tự động nào đỏ.
+</p>
+<p>
+  Điểm đáng ghi nhận nhất không nằm ở tỉ lệ đạt mà ở chỗ chuỗi số liệu
+  <b>709.352</b> giữ nguyên qua cả năm tầng — file CSV, MinIO, MySQL, ClickHouse
+  và Cube — không lệch một phần nghìn. Đó là phép kiểm có ý nghĩa nhất với một
+  nền tảng phân tích: dữ liệu đi hết đường ống mà không bị biến dạng.
+</p>
+<p>
+  Bài học lớn nhất của đợt kiểm này không phải một lỗi nào cụ thể, mà là
+  <b>một lưới an toàn có lỗ mà không ai biết</b>. 14 ca ClickHouse nằm sau một
+  cờ không lệnh nào bật, và hai trong số đó đã mâu thuẫn với thiết kế từ lâu.
+  Một ca test không chạy thì không khác gì không tồn tại — chỉ tệ hơn ở chỗ nó
+  tạo cảm giác đã được phủ. Vì vậy bản vá không dừng ở việc sửa hai ca sai: nó
+  thêm một lệnh chạy riêng và một câu cảnh báo in ra mỗi lần nhánh đó bị bỏ qua.
+</p>
+
+<footer>
+  Chạy ngày 19/08/2026 trên nhánh <code>main</code> @ 8e80985 · Kịch bản kiểm
+  trực tiếp gọi <code>localhost:4000</code> bằng tài khoản thật, đối chiếu
+  ClickHouse qua <code>clickhouse-client</code> và Redis qua
+  <code>redis-cli</code>.<br>
+  Dữ liệu thử nghiệm đã được dọn sạch sau khi chạy; tổ chức dùng để kiểm trở về
+  trạng thái rỗng như trước.<br>
+  Cập nhật 19/08/2026: V-01 và V-02 đã sửa, bảng ca kiểm thử và số liệu tổng kết
+  đã chạy lại theo bản vá.<br>
+  Cập nhật 20/08/2026: <b>V-06</b> — người dùng báo cả 5 bộ dữ liệu từ một file
+  Excel đều <em>Nạp lỗi</em>; truy ra exceljs ghép sai tên sheet với file do
+  openpyxl ghi. Sửa xong, nạp lại đủ 5 bộ (1.600 · 320 · 8.800 · 22.463 · 815
+  dòng, 0 lỗi). Trong lúc truy lỗi thì <b>V-04</b> cũng tái hiện được chắc chắn
+  và được sửa cùng — hai lỗi khác cơ chế, chung một nguyên nhân gốc.
+</footer>
+
+</div>
+
+<script>
+  (function () {
+    var kq = 'all', ng = 'all';
+    var rows = Array.prototype.slice.call(document.querySelectorAll('tbody tr[data-kq]'));
+    var mods = Array.prototype.slice.call(document.querySelectorAll('section.mod'));
+
+    function apply() {
+      rows.forEach(function (tr) {
+        var hop = (kq === 'all' || tr.dataset.kq === kq) && (ng === 'all' || tr.dataset.ng === ng);
+        tr.hidden = !hop;
+      });
+      mods.forEach(function (s) {
+        var con = s.querySelectorAll('tbody tr[data-kq]:not([hidden])').length;
+        s.hidden = con === 0;
+      });
+    }
+
+    document.querySelectorAll('.fbtn').forEach(function (b) {
+      b.addEventListener('click', function () {
+        var nhom = b.dataset.kq !== undefined ? 'kq' : 'ng';
+        if (nhom === 'kq') kq = b.dataset.kq; else ng = b.dataset.ng;
+        document.querySelectorAll('.fbtn').forEach(function (o) {
+          if ((o.dataset.kq !== undefined ? 'kq' : 'ng') === nhom) {
+            o.setAttribute('aria-pressed', String(o === b));
+          }
+        });
+        apply();
+      });
+    });
+  })();
+</script>

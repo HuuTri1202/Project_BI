@@ -77,7 +77,9 @@ import { checkPrimaryKey } from '../../services/datamodel/primaryKeyCheck';
 import { createRelationship } from '../../services/datamodel/relationships';
 import {
   applyColumnMeasures,
+  assertAggFitsColumn,
   createFormulaMeasure,
+  createRowExprMeasure,
   deleteMeasure,
 } from '../../services/datamodel/measures';
 import { aggregateFromModel } from '../../services/datamodel/modelReportData';
@@ -117,6 +119,7 @@ import {
   renameDatasetBodySchema,
   saveLayoutBodySchema,
   createFormulaMeasureBodySchema,
+  createRowExprMeasureBodySchema,
   saveSchemaBodySchema,
   setActiveBodySchema,
   syncBodySchema,
@@ -1993,6 +1996,20 @@ v1Router.post(
     await requireDataModel(auth.tenantId, id);
     const columnId = validateMeasure(body.agg, body.columnId);
 
+    // Cột phải THUỘC mô hình này, và kiểu của nó phải nhận được phép gộp.
+    //
+    // `createMeasure` chỉ chèn một dòng, nó không tra gì cả — nên không có đoạn
+    // này thì một `columnId` của mô hình khác đi thẳng vào bảng, và file cube
+    // sinh ra tham chiếu một cột không có trong cube đó. Cùng lúc, đây là chỗ
+    // duy nhất còn lại tạo được `sum` trên cột chữ.
+    if (columnId !== null) {
+      const column = (await datamodelsRepo.listColumns(mysqlPool, auth.tenantId, id)).find(
+        (c) => Number(c.id) === columnId,
+      );
+      if (column === undefined) throw badRequest('Cột này không thuộc mô hình đang mở.');
+      assertAggFitsColumn(column, body.agg);
+    }
+
     try {
       const measureId = await datamodelsRepo.createMeasure(mysqlPool, auth.tenantId, {
         dataModelId: id,
@@ -2087,18 +2104,62 @@ v1Router.post(
     const body = createFormulaMeasureBodySchema.parse(req.body);
 
     await requireDataModel(auth.tenantId, id);
-    const measureId = await createFormulaMeasure(auth.tenantId, id, auth.userId, body);
 
-    await datamodelsRepo.touch(mysqlPool, auth.tenantId, id);
-    await regenerateTenant(auth.tenantId);
+    // Bọc như hai route thước đo thường: câu kiểm trùng tên trong `services`
+    // chạy TRƯỚC lệnh ghi, nên hai request đồng thời vẫn lọt qua được cả hai và
+    // để ràng buộc UNIQUE bắt. Không bọc thì khe hở đó ra HTTP 500.
+    try {
+      const measureId = await createFormulaMeasure(auth.tenantId, id, auth.userId, body);
 
-    res
-      .status(201)
-      .json(
-        (await datamodelsRepo.listMeasures(mysqlPool, auth.tenantId, id)).find(
-          (m) => m.id === measureId,
-        ),
-      );
+      await datamodelsRepo.touch(mysqlPool, auth.tenantId, id);
+      await regenerateTenant(auth.tenantId);
+
+      res
+        .status(201)
+        .json(
+          (await datamodelsRepo.listMeasures(mysqlPool, auth.tenantId, id)).find(
+            (m) => m.id === measureId,
+          ),
+        );
+    } catch (err) {
+      throw asDuplicateMeasureName(err);
+    }
+  }),
+);
+
+/**
+ * Thước đo gộp trên BIỂU THỨC DÒNG — `sum(Số lượng × Đơn giá)`.
+ *
+ * Route thứ ba chứ không thêm nhánh vào hai route trên, cùng lý lẽ: ba loại
+ * thước đo nhận ba bộ đầu vào không giao nhau. Ở đây là hai ID CỘT, một phép
+ * nối và một phép gộp — khác hẳn `formula` vốn nhận hai ID THƯỚC ĐO.
+ */
+v1Router.post(
+  '/datamodels/:id/measures/row-expr',
+  authorize('datamodel', 'modify'),
+  asyncHandler(async (req, res) => {
+    const auth = requireAuth(req);
+    const { id } = idParamSchema.parse(req.params);
+    const body = createRowExprMeasureBodySchema.parse(req.body);
+
+    await requireDataModel(auth.tenantId, id);
+
+    try {
+      const measureId = await createRowExprMeasure(auth.tenantId, id, auth.userId, body);
+
+      await datamodelsRepo.touch(mysqlPool, auth.tenantId, id);
+      await regenerateTenant(auth.tenantId);
+
+      res
+        .status(201)
+        .json(
+          (await datamodelsRepo.listMeasures(mysqlPool, auth.tenantId, id)).find(
+            (m) => m.id === measureId,
+          ),
+        );
+    } catch (err) {
+      throw asDuplicateMeasureName(err);
+    }
   }),
 );
 

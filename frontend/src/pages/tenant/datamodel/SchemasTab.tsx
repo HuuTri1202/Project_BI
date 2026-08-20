@@ -2,7 +2,7 @@ import {
   COLUMN_ROLE_LABELS,
   COLUMN_ROLES,
   MEASURE_AGG_LABELS,
-  MEASURE_AGGS,
+  MEASURE_AGGS_BY_CUBE_TYPE,
   type ColumnRole,
   type DataModelDatasetDto,
   type DataModelDetailDto,
@@ -316,8 +316,17 @@ export default function SchemasTab(): React.ReactElement {
               <Th>Cột trong kho</Th>
               <Th>Kiểu ClickHouse</Th>
               <Th>Tên hiển thị</Th>
-              <Th>Vai trò</Th>
-              <Th>Thước đo</Th>
+              <Th>Vai trò (Role)</Th>
+              {/*
+               * "Phép gộp", KHÔNG phải "Thước đo" như trước.
+               *
+               * Cột bên trái nhận giá trị "Thước đo (Measure)", nên đặt cùng
+               * một từ lên tiêu đề cột bên phải là bày ra hai thứ khác nhau
+               * dưới một cái tên, cạnh nhau, trên cùng một hàng. Ô select ở đây
+               * chọn PHÉP GỘP — và `aria-label` của chính nó vẫn luôn đọc là
+               * "Phép gộp của cột …", tức là hai nhãn đang nói hai đằng.
+               */}
+              <Th>Phép gộp (Aggregation)</Th>
             </Tr>
           </THead>
           <TBody>
@@ -328,10 +337,21 @@ export default function SchemasTab(): React.ReactElement {
                 agg: savedAgg.get(column.id) ?? null,
               };
               const isKey = opened.primaryColumnId === column.id;
-              // Chỉ cột SỐ mới gộp được. Cột chữ và cột ngày thì ô này để trống
-              // hẳn chứ không hiện một ô chọn không bấm được — một điều khiển
-              // vô hiệu vẫn mời người ta thử.
-              const numeric = column.cubeType === 'number';
+              /*
+               * Phép gộp nào bấm được, tuỳ KIỂU của cột.
+               *
+               * Bản trước chỉ cột số mới có ô chọn, cột chữ và cột ngày để
+               * trống hẳn. Điều đó khoá mất hai câu hỏi rất hay gặp mà backend
+               * vốn trả lời được: "bao nhiêu khách hàng khác nhau"
+               * (`countDistinct` trên cột chữ) và "đơn đầu tiên / gần nhất"
+               * (`min`/`max` trên cột ngày).
+               *
+               * Danh sách lấy từ @bi/shared để giao diện và tầng dịch vụ không
+               * bao giờ nói hai điều khác nhau — backend chặn lại bằng đúng
+               * bảng đó, nên một lựa chọn hiện ra ở đây mà bị 400 khi lưu là
+               * chuyện không xảy ra được.
+               */
+              const aggs = MEASURE_AGGS_BY_CUBE_TYPE[column.cubeType];
               return (
                 <Tr key={column.id}>
                   <Td>
@@ -377,7 +397,7 @@ export default function SchemasTab(): React.ReactElement {
                     </select>
                   </Td>
                   <Td>
-                    {numeric ? (
+                    {aggs.length > 0 ? (
                       <select
                         value={draft.agg ?? ''}
                         disabled={!canEdit}
@@ -390,7 +410,7 @@ export default function SchemasTab(): React.ReactElement {
                         className="rounded-lg border border-slate-300 px-2 py-1 text-sm disabled:bg-slate-50 disabled:text-slate-500"
                       >
                         <option value="">— Không —</option>
-                        {MEASURE_AGGS.filter((a) => a !== 'count').map((agg) => (
+                        {aggs.map((agg) => (
                           <option key={agg} value={agg}>
                             {MEASURE_AGG_LABELS[agg]}
                           </option>

@@ -134,6 +134,17 @@ export interface ApiErrorBody {
 
 export const ERROR_CODES = {
   VALIDATION_ERROR: 'ValidationError',
+  /**
+   * Thân yêu cầu không đọc được — hỏng JSON, sai charset, bị ngắt giữa chừng.
+   *
+   * Khác `VALIDATION_ERROR` ở một điểm quan trọng với client: ở đây request
+   * chưa bao giờ được phân tích thành object, nên KHÔNG có `fields` để tô đỏ
+   * ô nào. Đây gần như luôn là lỗi của tầng gửi request, không phải của người
+   * đang gõ vào form.
+   */
+  MALFORMED_BODY: 'MalformedBody',
+  /** Thân yêu cầu vượt trần 1MB của `express.json()`. */
+  PAYLOAD_TOO_LARGE: 'PayloadTooLarge',
   EMAIL_ALREADY_REGISTERED: 'EmailAlreadyRegistered',
   INVALID_CREDENTIALS: 'InvalidCredentials',
   ACCOUNT_DISABLED: 'AccountDisabled',

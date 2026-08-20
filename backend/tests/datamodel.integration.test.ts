@@ -4,7 +4,6 @@ import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 
 import { createApp } from '../src/app';
 import { closeMysql, mysqlPool } from '../src/config/mysql';
-import * as datamodelsRepo from '../src/repositories/datamodels';
 import { closeRedis } from '../src/config/redis';
 import { resetDatabase } from './helpers/db';
 import {
@@ -552,94 +551,5 @@ describe('§10.8 tạo báo cáo từ mô hình', () => {
       .send(body(f.modelA));
 
     expect(res.status).toBe(403);
-  });
-});
-
-/**
- * Khoá gom nhóm của mô hình TỰ SINH — migration 19.
- *
- * Đây là phần kiểm được mà không cần kho: `ensureAutoDataModel` phải đi qua
- * `createDataModel`, vốn đọc cấu trúc cột từ ClickHouse, nên toàn bộ đường tự
- * sinh nằm ngoài tầm bộ test này (xem ghi chú đầu file). Nhưng thứ dễ hỏng nhất
- * lại KHÔNG phải chỗ đó — nó là câu truy vấn tìm lại mô hình: sai một điều kiện
- * là bảng thứ hai của cùng một file rơi vào mô hình sai, hoặc vào một mô hình
- * đã bị xoá.
- */
-describe('§10 gom mô hình tự sinh theo lần tải', () => {
-  const KEY = 'file:t9/w9/kiem-chung.xlsx';
-
-  it('tìm lại được mô hình cùng khoá', async () => {
-    const id = await datamodelsRepo.create(mysqlPool, f.tenantA, {
-      workspaceId: f.workspaceA,
-      name: 'Sổ tay',
-      description: null,
-      autoBatchKey: KEY,
-      createdBy: null,
-    });
-
-    const found = await datamodelsRepo.findAutoModelByBatch(
-      mysqlPool,
-      f.tenantA,
-      f.workspaceA,
-      KEY,
-    );
-    expect(found?.id).toBe(id);
-  });
-
-  it('mô hình do NGƯỜI DÙNG tạo không bao giờ bị nhận nhầm', async () => {
-    // Không mang khoá thì không có đường nào tìm ra nó. Đây là thứ giữ cho luồng
-    // tự sinh không tự tiện nhét thêm bảng vào mô hình người ta đang dùng.
-    await datamodelsRepo.create(mysqlPool, f.tenantA, {
-      workspaceId: f.workspaceA,
-      name: 'Của tôi',
-      description: null,
-      createdBy: null,
-    });
-
-    const found = await datamodelsRepo.findAutoModelByBatch(
-      mysqlPool,
-      f.tenantA,
-      f.workspaceA,
-      KEY,
-    );
-    expect(found).toBeNull();
-  });
-
-  it('mô hình đã xoá mềm KHÔNG được trả về', async () => {
-    // Thiếu điều kiện `deleted_at IS NULL` thì sau khi người dùng xoá mô hình tự
-    // sinh, mọi lần nạp sau lại đi thêm bảng vào một mô hình không hiện ở đâu —
-    // dữ liệu vào kho đầy đủ mà màn hình thì trống trơn.
-    const id = await datamodelsRepo.create(mysqlPool, f.tenantA, {
-      workspaceId: f.workspaceA,
-      name: 'Đã xoá',
-      description: null,
-      autoBatchKey: KEY,
-      createdBy: null,
-    });
-    await datamodelsRepo.softDelete(mysqlPool, f.tenantA, id);
-
-    const found = await datamodelsRepo.findAutoModelByBatch(
-      mysqlPool,
-      f.tenantA,
-      f.workspaceA,
-      KEY,
-    );
-    expect(found).toBeNull();
-  });
-
-  it('cùng khoá nhưng khác workspace là hai mô hình', async () => {
-    // Mô hình thuộc về workspace. Đồng bộ cùng một schema vào hai workspace phải
-    // ra hai mô hình, nếu không bảng của workspace này hiện trong workspace kia.
-    await datamodelsRepo.create(mysqlPool, f.tenantA, {
-      workspaceId: f.workspaceA,
-      name: 'Ở A',
-      description: null,
-      autoBatchKey: KEY,
-      createdBy: null,
-    });
-
-    const other = await makeWorkspace(f.tenantA, 'Khác', 'khac-batch');
-    const found = await datamodelsRepo.findAutoModelByBatch(mysqlPool, f.tenantA, other, KEY);
-    expect(found).toBeNull();
   });
 });

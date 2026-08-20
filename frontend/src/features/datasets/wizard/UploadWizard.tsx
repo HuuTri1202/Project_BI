@@ -12,7 +12,15 @@ import { StepUpload } from './StepUpload';
 import { useUppyS3 } from './useUppyS3';
 
 /**
- * Quick Create Report Wizard — §7.1.
+ * Hộp thoại tải file lên để tạo bộ dữ liệu — §7.1.
+ *
+ * ─── Tên cũ là `ReportWizard`, và cái tên đó nói dối ────────────────────────
+ *
+ * Nó chưa từng tạo ra một báo cáo nào: bước 3 gọi đúng một hàm, `commitDatasets`,
+ * rồi đưa người dùng sang `/datasets`. Bản trước đã sửa nhãn bước 3 và cả màn
+ * hình tiến trình cho đúng, nhưng tiêu đề hộp thoại vẫn là "Tạo báo cáo nhanh".
+ * Nay hộp thoại này còn mở từ nút "Tạo bộ dữ liệu" trên trang Kho dữ liệu, nên
+ * một cái tên hứa sai là thứ người dùng gặp ngay khi bấm.
  *
  * ─── Vì sao TOÀN BỘ state nằm ở đây ─────────────────────────────────────────
  *
@@ -48,7 +56,7 @@ interface Props {
   onClose: () => void;
 }
 
-export function ReportWizard({ open, onClose }: Props): React.ReactElement {
+export function UploadWizard({ open, onClose }: Props): React.ReactElement {
   const navigate = useNavigate();
   const { current, options, select } = useWorkspace();
   const dialogRef = useRef<HTMLDialogElement>(null);
@@ -140,32 +148,19 @@ export function ReportWizard({ open, onClose }: Props): React.ReactElement {
   }
 
   /**
-   * Bước 3 — hệ thống tự chạy ba việc, hiện trạng thái từng việc (§7.6).
+   * Bước 3 — hệ thống tự chạy, không hỏi gì thêm (§7.6).
    *
-   * ─── Vì sao nối tiếp chứ không `Promise.all` ────────────────────────────────
+   * Đúng MỘT lời gọi: `commitDatasets` đọc các sheet đã tích, nạp dòng vào hệ
+   * thống và ánh xạ cột sang chiều/thước đo trong cùng một transaction. Nên khi
+   * phản hồi về là mọi việc đã xong — không có giai đoạn nào để hiện lần lượt.
    *
-   * `commit` phải xong TRƯỚC khi tạo báo cáo: backend từ chối dựng báo cáo trên
-   * một bộ dữ liệu chưa ở trạng thái `ready` (409 DatasetNotReady). Thứ tự đó là
-   * bắt buộc, không phải lựa chọn.
+   * Cố ý KHÔNG chèn `setTimeout` để các dấu tích nhấp nháy nối nhau cho "đẹp":
+   * một thanh tiến trình nói dối về việc hệ thống đang làm gì thì tệ hơn một
+   * thanh tiến trình chạy nhanh.
    *
-   * Vòng tạo báo cáo cũng tuần tự: pool chỉ có 10 connection, và bắn 20 request
-   * cùng lúc để tiết kiệm vài trăm mili-giây trên một thao tác người dùng làm
-   * vài lần một tuần là đổi chác sai chiều. Tuần tự còn cho đếm được "2/3" trên
-   * màn hình.
-   *
-   * ─── 3a và 3b thường xong cùng lúc, và đó là sự thật ────────────────────────
-   *
-   * Nạp dữ liệu và ánh xạ cột sang chiều/thước đo nằm trong CÙNG một lời gọi
-   * `commit` — cùng một transaction, cùng một lần parse. Khi phản hồi về thì cả
-   * hai đều đã xảy ra, nên cả hai cùng được đánh dấu.
-   *
-   * Cố ý KHÔNG chèn `setTimeout` để chúng nhấp nháy lần lượt cho "đẹp": một
-   * thanh tiến trình nói dối về việc hệ thống đang làm gì thì tệ hơn một thanh
-   * tiến trình chạy nhanh.
-   *
-   * KHÔNG gửi `config` và `chartType` do người dùng chọn: bản cập nhật của §7.6
-   * bỏ hết ô nhập ở bước này. Tên báo cáo mặc định là TÊN SHEET, biểu đồ mặc
-   * định là biểu đồ cột, trục do backend tự suy từ cột của từng bộ dữ liệu.
+   * KHÔNG dựng báo cáo và KHÔNG dựng mô hình dữ liệu ở đây. Cả hai đều là quyết
+   * định của người dùng — mô hình cần biết những bảng nào đáng hỏi cùng nhau,
+   * mà file này không nói được điều đó.
    */
   async function runStep3(): Promise<void> {
     if (upload.state.status !== 'done') return;
@@ -238,7 +233,7 @@ export function ReportWizard({ open, onClose }: Props): React.ReactElement {
     if (busy) return 'Đang xử lý…';
     if (step === 0) return 'Tiếp tục';
     // Chỉ còn hai bước có nút này — bước 3 tự chạy và không có chân điều hướng.
-    return `Tạo báo cáo từ ${sheets.length} bộ dữ liệu`;
+    return `Tạo ${sheets.length} bộ dữ liệu`;
   }
 
   /** Tổng số dòng của các sheet đã tích — cho người dùng biết quy mô trước khi bấm. */
@@ -260,10 +255,10 @@ export function ReportWizard({ open, onClose }: Props): React.ReactElement {
         <div className="flex items-start justify-between gap-4">
           <div>
             <h2 id="wizard-title" className="text-lg font-semibold text-slate-900">
-              Tạo báo cáo nhanh
+              Tạo bộ dữ liệu từ file
             </h2>
             <p className="mt-0.5 text-sm text-slate-500">
-              Tải file Excel hoặc CSV lên và dựng báo cáo trong ba bước.
+              Tải file Excel hoặc CSV lên, chọn sheet, hệ thống nhập vào Kho dữ liệu.
             </p>
           </div>
 

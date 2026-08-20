@@ -1,0 +1,104 @@
+[
+  {
+    "id": "TF-01",
+    "title": "Xin đường tải lên: server tự sinh khoá lưu trữ, client không được đặt",
+    "pass": true,
+    "actual": "HTTP 201, datasetId=99, uploadUrl do server ký (không chứa tên file người dùng đặt: true)"
+  },
+  {
+    "id": "TF-02",
+    "title": "Từ chối đuôi file không được hỗ trợ",
+    "pass": true,
+    "actual": "HTTP 400 {\"error\":\"UnsupportedFormat\",\"message\":\"Chỉ nhận file .csv hoặc .xlsx.\"}"
+  },
+  {
+    "id": "TF-03",
+    "title": "Từ chối sớm file vượt trần 50MB dựa trên kích thước client khai",
+    "pass": true,
+    "actual": "HTTP 413 {\"error\":\"FileTooLarge\",\"message\":\"File vượt quá 50MB.\"}"
+  },
+  {
+    "id": "TF-04",
+    "title": "Tải nội dung file lên kho đối tượng bằng URL đã ký",
+    "pass": true,
+    "actual": "HTTP 200 khi PUT 207 byte lên MinIO"
+  },
+  {
+    "id": "TF-05",
+    "title": "Phân tích file: nhận đúng số cột và suy đúng kiểu từng cột",
+    "pass": true,
+    "actual": "HTTP 200, 4 cột -> undefined:text, undefined:text, undefined:date, undefined:number"
+  },
+  {
+    "id": "TF-06",
+    "title": "Chốt sheet: tạo bộ dữ liệu và nạp dòng vào database",
+    "pass": true,
+    "actual": "HTTP 200, tạo 1 bộ dữ liệu: [{\"id\":100,\"name\":\"Kiem thu loi nhuan\",\"rowCount\":5}]"
+  },
+  {
+    "id": "TF-07",
+    "title": "Xem trước dữ liệu trả đúng số dòng đã nạp",
+    "pass": true,
+    "actual": "HTTP 200, 5 dòng xem trước (mong đợi 5)"
+  },
+  {
+    "id": "NA-01",
+    "title": "Nạp tự động chạy sau khi chốt, không cần bấm nút",
+    "pass": true,
+    "actual": "lần nạp kết thúc với trạng thái \"succeeded\", bộ dữ liệu ở trạng thái \"loaded\""
+  },
+  {
+    "id": "NA-02",
+    "title": "Bảng raw_* xuất hiện trong ClickHouse với đúng số dòng",
+    "pass": true,
+    "actual": "bảng raw_t2_d100 có 5 dòng (mong đợi 5)"
+  },
+  {
+    "id": "NA-03",
+    "title": "Số ÂM và số thập phân giữ nguyên giá trị — không bị nhân 1000",
+    "pass": true,
+    "actual": "tổng cột Lợi nhuận trong kho = 709.352; tính tay từ file nguồn = 709.352; lệch 0.0000"
+  },
+  {
+    "id": "NA-04",
+    "title": "Nạp lại KHÔNG nhân đôi dữ liệu",
+    "pass": true,
+    "actual": "xếp hàng HTTP 202, nạp xong trạng thái \"succeeded\", số dòng sau khi nạp lại = 5 (vẫn 5, không thành 10)"
+  },
+  {
+    "id": "NA-05",
+    "title": "Không có bảng tạm __new nào còn sót lại",
+    "pass": true,
+    "actual": "0 bảng tạm còn lại"
+  },
+  {
+    "id": "MH-01",
+    "title": "Nạp xong KHÔNG tự sinh mô hình nào",
+    "pass": true,
+    "actual": "0 mô hình sau khi nạp xong: []"
+  },
+  {
+    "id": "MH-02",
+    "title": "Tạo mô hình BẮT BUỘC chọn bộ dữ liệu",
+    "pass": true,
+    "actual": "danh sách rỗng -> HTTP 400; chọn 1 bộ -> HTTP 201, mô hình id=37 có 1 bảng"
+  },
+  {
+    "id": "MH-03",
+    "title": "Sinh file schema Cube và MỌI cột đều mang tiền tố ${CUBE}.",
+    "pass": true,
+    "actual": "file dm37.js có 5 dòng sql:, số dòng THIẾU tiền tố ${CUBE}. = 0"
+  },
+  {
+    "id": "MH-04",
+    "title": "Truy vấn qua tầng ngữ nghĩa Cube trả đúng tổng đã kiểm ở NA-03",
+    "pass": true,
+    "actual": "HTTP 200, Cube trả 709.352 — khớp tổng tính tay 709.352 (lệch 0.0000)"
+  },
+  {
+    "id": "MH-05",
+    "title": "Xoá mô hình rồi thì không đọc lại được",
+    "pass": true,
+    "actual": "DELETE -> HTTP 204, GET lại -> HTTP 404"
+  }
+]

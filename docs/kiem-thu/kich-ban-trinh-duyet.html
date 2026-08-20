@@ -1,0 +1,1353 @@
+<title>Kịch Bản Kiểm Thử Trình Duyệt</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+<style>
+  :root {
+    --ground: #f6f7f5;
+    --surface: #ffffff;
+    --surface-2: #eff1ee;
+    --ink: #151a17;
+    --muted: #5c6660;
+    --faint: #8b948e;
+    --rule: #dce1dc;
+    --rule-soft: #e8ebe7;
+    --accent: #1b6b54;
+    --accent-soft: #e4efe9;
+    --pass: #2f7d5c;
+    --pass-bg: #e3f0e8;
+    --fail: #b04226;
+    --fail-bg: #f8e5df;
+    --warn: #8a6d2f;
+    --warn-bg: #f4ecd9;
+    --shadow: 0 1px 2px rgba(21, 26, 23, .05), 0 8px 24px -16px rgba(21, 26, 23, .3);
+
+    --f-display: "Newsreader", Georgia, "Times New Roman", serif;
+    --f-body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+    --f-mono: "IBM Plex Mono", "Cascadia Mono", Consolas, monospace;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #121513; --surface: #1a1e1b; --surface-2: #222724;
+      --ink: #e8ede8; --muted: #a3ada7; --faint: #7d867f;
+      --rule: #2e3430; --rule-soft: #262b28;
+      --accent: #5fbf9c; --accent-soft: #1c2c26;
+      --pass: #6cc296; --pass-bg: #1b2c23;
+      --fail: #e08064; --fail-bg: #33201a;
+      --warn: #d3ae63; --warn-bg: #2e2718;
+      --shadow: 0 1px 2px rgba(0,0,0,.4), 0 8px 24px -16px rgba(0,0,0,.8);
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground: #121513; --surface: #1a1e1b; --surface-2: #222724;
+    --ink: #e8ede8; --muted: #a3ada7; --faint: #7d867f;
+    --rule: #2e3430; --rule-soft: #262b28;
+    --accent: #5fbf9c; --accent-soft: #1c2c26;
+    --pass: #6cc296; --pass-bg: #1b2c23;
+    --fail: #e08064; --fail-bg: #33201a;
+    --warn: #d3ae63; --warn-bg: #2e2718;
+    --shadow: 0 1px 2px rgba(0,0,0,.4), 0 8px 24px -16px rgba(0,0,0,.8);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--f-body);
+    font-size: 15px;
+    line-height: 1.62;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap { max-width: 900px; margin: 0 auto; padding: 0 24px 96px; }
+
+  header.masthead { padding: 68px 0 36px; border-bottom: 2px solid var(--ink); }
+
+  .eyebrow {
+    font-family: var(--f-mono); font-size: 11.5px; letter-spacing: .13em;
+    text-transform: uppercase; color: var(--accent); margin: 0 0 16px;
+  }
+
+  h1 {
+    font-family: var(--f-display); font-weight: 500;
+    font-size: clamp(2rem, 5vw, 2.9rem); line-height: 1.08;
+    letter-spacing: -.018em; margin: 0 0 16px; text-wrap: balance;
+  }
+
+  .standfirst {
+    font-family: var(--f-display); font-size: clamp(1.02rem, 2vw, 1.18rem);
+    line-height: 1.55; color: var(--muted); max-width: 60ch; margin: 0;
+  }
+
+  h2 {
+    font-family: var(--f-display); font-weight: 500; font-size: 1.62rem;
+    letter-spacing: -.012em; margin: 58px 0 8px; padding-top: 20px;
+    border-top: 1px solid var(--rule); text-wrap: balance;
+  }
+  h2 .num {
+    font-family: var(--f-mono); font-size: .56em; color: var(--accent);
+    margin-right: 11px; vertical-align: .12em;
+  }
+
+  h3 { font-weight: 600; font-size: 1rem; margin: 30px 0 8px; }
+
+  p { max-width: 70ch; margin: 0 0 13px; }
+  .lede { color: var(--muted); max-width: 70ch; margin: 0 0 22px; }
+
+  code {
+    font-family: var(--f-mono); font-size: .875em;
+    background: var(--surface-2); padding: .12em .38em; border-radius: 3px;
+  }
+  kbd {
+    font-family: var(--f-body); font-size: .84em; font-weight: 500;
+    background: var(--surface); border: 1px solid var(--rule);
+    border-bottom-width: 2px; border-radius: 4px; padding: .1em .45em;
+    white-space: nowrap;
+  }
+
+  ul, ol { max-width: 70ch; padding-left: 1.2em; }
+  li { margin-bottom: 6px; }
+
+  a { color: var(--accent); text-underline-offset: 2px; }
+
+  /* ── Bảng ───────────────────────────────────────────────────── */
+  .tablewrap { overflow-x: auto; border: 1px solid var(--rule); background: var(--surface); margin: 14px 0; }
+  table { border-collapse: collapse; width: 100%; font-size: 13.4px; }
+  thead th {
+    background: var(--surface-2); text-align: left; font-weight: 600;
+    font-size: 11.5px; letter-spacing: .05em; text-transform: uppercase;
+    color: var(--muted); padding: 9px 13px; border-bottom: 1px solid var(--rule);
+    white-space: nowrap;
+  }
+  tbody td { padding: 10px 13px; border-bottom: 1px solid var(--rule-soft); vertical-align: top; }
+  tbody tr:last-child td { border-bottom: 0; }
+  td.num { font-family: var(--f-mono); font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+
+  /* ── Thẻ kịch bản ───────────────────────────────────────────── */
+  .kb {
+    background: var(--surface); border: 1px solid var(--rule);
+    box-shadow: var(--shadow); margin: 0 0 16px; overflow: hidden;
+  }
+
+  .kb-head {
+    display: flex; align-items: flex-start; gap: 13px;
+    padding: 16px 20px; border-bottom: 1px solid var(--rule-soft);
+    background: var(--surface-2);
+  }
+  .kb-head .ma {
+    font-family: var(--f-mono); font-size: 12px; font-weight: 500;
+    color: var(--accent); padding-top: 2px; white-space: nowrap;
+  }
+  .kb-head .tt { flex: 1; }
+  .kb-head .tt b { display: block; font-size: 15px; font-weight: 600; }
+  .kb-head .tt span { display: block; font-size: 13px; color: var(--muted); margin-top: 2px; }
+
+  .kb-body { padding: 16px 20px 18px; }
+
+  .kb-meta {
+    display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px;
+    font-size: 13px; margin: 0 0 14px; padding-bottom: 13px;
+    border-bottom: 1px dashed var(--rule);
+  }
+  .kb-meta dt {
+    font-family: var(--f-mono); font-size: 10.5px; letter-spacing: .05em;
+    text-transform: uppercase; color: var(--faint); padding-top: 3px;
+  }
+  .kb-meta dd { margin: 0; }
+
+  .kb ol { margin: 0; padding-left: 1.3em; }
+  .kb ol li { margin-bottom: 9px; }
+  .kb ol li::marker { font-family: var(--f-mono); font-size: .85em; color: var(--accent); }
+
+  .mongdoi {
+    background: var(--accent-soft); border-left: 3px solid var(--accent);
+    padding: 11px 15px; margin: 14px 0 0; font-size: 13.6px;
+  }
+  .mongdoi b { display: block; font-family: var(--f-mono); font-size: 10.5px;
+    letter-spacing: .06em; text-transform: uppercase; color: var(--accent); margin-bottom: 5px; }
+  .mongdoi ul { margin: 0; padding-left: 1.15em; max-width: none; }
+  .mongdoi li { margin-bottom: 4px; }
+
+  .canhbao {
+    background: var(--warn-bg); border-left: 3px solid var(--warn);
+    padding: 11px 15px; margin: 14px 0 0; font-size: 13.4px;
+  }
+  .canhbao p { margin: 0; max-width: none; }
+  .canhbao p + p { margin-top: 7px; }
+
+  /* ── Ô đánh dấu kết quả ─────────────────────────────────────── */
+  .ketqua {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+    margin-top: 15px; padding-top: 13px; border-top: 1px dashed var(--rule);
+  }
+  .ketqua .lab {
+    font-family: var(--f-mono); font-size: 10.5px; letter-spacing: .06em;
+    text-transform: uppercase; color: var(--faint); margin-right: 2px;
+  }
+  .kq-btn {
+    font-family: var(--f-body); font-size: 12.5px; padding: 4px 13px;
+    border: 1px solid var(--rule); background: var(--ground);
+    color: var(--muted); border-radius: 999px; cursor: pointer;
+    transition: background .12s, color .12s, border-color .12s;
+  }
+  .kq-btn:hover { border-color: var(--accent); }
+  .kq-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .kq-btn[aria-pressed="true"][data-kq="dat"] { background: var(--pass-bg); border-color: var(--pass); color: var(--pass); font-weight: 600; }
+  .kq-btn[aria-pressed="true"][data-kq="hong"] { background: var(--fail-bg); border-color: var(--fail); color: var(--fail); font-weight: 600; }
+  .ghichu {
+    flex: 1 1 200px; min-width: 160px; font-family: var(--f-body); font-size: 13px;
+    padding: 5px 10px; border: 1px solid var(--rule); border-radius: 4px;
+    background: var(--ground); color: var(--ink);
+  }
+  .ghichu:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+  .kb[data-kq="dat"] { border-left: 4px solid var(--pass); }
+  .kb[data-kq="hong"] { border-left: 4px solid var(--fail); }
+
+  /* ── Thanh tiến độ dính ─────────────────────────────────────── */
+  .thanh {
+    position: sticky; top: 0; z-index: 30; background: var(--ground);
+    border-bottom: 1px solid var(--rule); padding: 11px 0; margin-top: 34px;
+    display: flex; flex-wrap: wrap; align-items: center; gap: 12px;
+  }
+  .thanh .dem { font-family: var(--f-mono); font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .thanh .dem b { color: var(--ink); }
+  .thanh .bar { flex: 1 1 140px; height: 6px; background: var(--surface-2); border-radius: 999px; overflow: hidden; min-width: 100px; }
+  .thanh .bar i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .25s; }
+  .thanh button {
+    font-family: var(--f-body); font-size: 12px; padding: 4px 11px;
+    border: 1px solid var(--rule); background: var(--surface);
+    color: var(--muted); border-radius: 999px; cursor: pointer;
+  }
+  .thanh button:hover { border-color: var(--accent); color: var(--accent); }
+
+  footer {
+    margin-top: 62px; padding-top: 20px; border-top: 1px solid var(--rule);
+    font-family: var(--f-mono); font-size: 11.5px; color: var(--faint); line-height: 1.7;
+  }
+
+  @media (max-width: 640px) {
+    .wrap { padding: 0 15px 60px; }
+    header.masthead { padding-top: 44px; }
+    .kb-meta { grid-template-columns: 1fr; }
+    .kb-meta dt { padding-top: 8px; }
+  }
+
+  @media print {
+    .thanh, .kq-btn { display: none; }
+    .kb { break-inside: avoid; box-shadow: none; }
+    body { background: #fff; }
+  }
+</style>
+
+<div class="wrap">
+
+<header class="masthead">
+  <p class="eyebrow">BI Platform · Kiểm thử thủ công</p>
+  <h1>Kịch bản kiểm thử trình duyệt</h1>
+  <p class="standfirst">
+    53 kịch bản bấm tay, mỗi cái ghi rõ bấm vào đâu và phải thấy gì. Tên nút và
+    tên nhãn lấy thẳng từ mã nguồn giao diện, con số đối chiếu đã chạy thật một
+    lượt trước khi viết ra đây.
+  </p>
+</header>
+
+<h2><span class="num">§0</span>Chuẩn bị</h2>
+
+<p class="lede">
+  Làm hết mục này trước, nếu không phần lớn kịch bản sẽ hỏng vì môi trường chứ
+  không phải vì phần mềm.
+</p>
+
+<h3>1 · Bật hạ tầng và ứng dụng</h3>
+<div class="tablewrap">
+  <table>
+    <thead><tr><th>Bước</th><th>Lệnh</th><th>Chờ tới khi</th></tr></thead>
+    <tbody>
+      <tr><td>Hạ tầng</td><td><code>npm run infra:up</code></td><td>Thấy đủ 5 dòng “sẵn sàng”</td></tr>
+      <tr><td>Ứng dụng</td><td><code>npm run dev</code></td><td>Terminal hiện <code>api</code> và <code>web</code> cùng chạy</td></tr>
+      <tr><td>Mở trình duyệt</td><td><code>http://localhost:5173</code></td><td>Hiện trang đăng nhập</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="canhbao">
+  <p><b>Kiểm đồng hồ trước khi làm §6.</b> Máy Windows hay chạy chậm giờ, và
+  lệch quá sáu phút so với container là <em>toàn bộ</em> tab Explorer chết —
+  triệu chứng không hề giống nguyên nhân.</p>
+  <p>So bằng <code>date -u</code> và <code>docker exec bi-cube date -u</code>.
+  Lệch nhiều thì mở PowerShell quyền quản trị rồi chạy
+  <code>w32tm /resync</code>.</p>
+  <p><b>Và nếu bạn vừa sửa <code>infrastructure/cube/cube.js</code></b> thì phải
+  <code>docker restart bi-cube</code>: Cube chỉ đọc file cấu hình đúng một lần
+  lúc khởi động, nên sửa xong mà không khởi động lại thì nó vẫn chạy bản cũ.</p>
+</div>
+
+<h3>2 · Tài khoản</h3>
+<div class="tablewrap">
+  <table>
+    <thead><tr><th>Dùng để thử</th><th>Email</th><th>Mật khẩu</th></tr></thead>
+    <tbody>
+      <tr><td>Quản trị <b>hệ thống</b> — console <code>/admin</code></td><td><code>admin@bi-platform.local</code></td><td><code>Admin@12345</code></td></tr>
+      <tr><td>Quản trị <b>một tổ chức</b> — dùng cho hầu hết kịch bản</td><td><code>mai@anhduong.vn</code></td><td><code>Matkhau@123</code></td></tr>
+      <tr><td>Người xem — kiểm phân quyền</td><td><code>viewer@bi-platform.local</code></td><td><code>Matkhau@123</code></td></tr>
+      <tr><td>Thuộc <b>3 tổ chức</b> — kiểm bộ chuyển tổ chức</td><td><code>hanh@saomai.vn</code></td><td><code>Matkhau@123</code></td></tr>
+    </tbody>
+  </table>
+</div>
+
+<h3>3 · Hai file dữ liệu mẫu</h3>
+<p>
+  Nằm sẵn ở <code>docs/kiem-thu/du-lieu-thu/</code>. Đáp án dưới đây đã được nạp
+  thật một lượt và đối chiếu với ClickHouse, nên nếu màn hình cho số khác thì
+  đó là lỗi thật chứ không phải tôi tính nhầm.
+</p>
+
+<div class="tablewrap">
+  <table>
+    <thead><tr><th>File</th><th>Dùng cho</th><th>Đáp án phải khớp</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><code>kiem-thu-ban-hang.csv</code><br><span style="color:var(--muted);font-size:12.5px">36 dòng · 6 cột</span></td>
+        <td>Luồng chính: tải lên, nạp kho, dựng mô hình, vẽ biểu đồ</td>
+        <td>
+          Tổng <b>Doanh thu</b> = <code>25.046.000</code><br>
+          Tổng <b>Số lượng</b> = <code>870</code><br>
+          <b>Mã đơn</b> dòng đầu = <code>0001</code> (còn số 0)
+        </td>
+      </tr>
+      <tr>
+        <td><code>kiem-thu-so-am.csv</code><br><span style="color:var(--muted);font-size:12.5px">5 dòng · 4 cột</span></td>
+        <td>Bẫy số: số âm và dấu chấm thập phân</td>
+        <td>
+          Tổng <b>Lợi nhuận</b> = <code>709.352</code><br>
+          Dòng đầu = <code>-288.765</code>, <b>không phải</b> <code>-288765</code>
+        </td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<h3>4 · Cách ghi kết quả</h3>
+<p>
+  Mỗi kịch bản có hai nút <b>Đạt</b> / <b>Không đạt</b> và một ô ghi chú. Bấm
+  vào là lưu ngay trong trình duyệt của bạn, đóng tab mở lại vẫn còn. Thanh tiến
+  độ dính ở đầu trang cho biết đã làm tới đâu.
+</p>
+
+<div class="thanh">
+  <span class="dem">Đã làm <b id="d-xong">0</b>/<b id="d-tong">0</b> · đạt <b id="d-dat">0</b> · không đạt <b id="d-hong">0</b></span>
+  <span class="bar"><i id="d-bar"></i></span>
+  <button type="button" id="nut-xoa">Xoá hết đánh dấu</button>
+</div>
+
+<h2><span class="num">§1</span>Đăng nhập và tài khoản</h2>
+
+<div class="kb" data-ma="A1">
+  <div class="kb-head"><span class="ma">A1</span><span class="tt"><b>Đăng nhập đúng</b><span>Đường vào cơ bản nhất — hỏng cái này thì không thử được gì nữa</span></span></div>
+  <div class="kb-body">
+    <dl class="kb-meta"><dt>Tài khoản</dt><dd><code>mai@anhduong.vn</code> / <code>Matkhau@123</code></dd></dl>
+    <ol>
+      <li>Mở <code>http://localhost:5173</code></li>
+      <li>Nhập email và mật khẩu, bấm đăng nhập</li>
+    </ol>
+    <div class="mongdoi"><b>Phải thấy</b><ul>
+      <li>Vào thẳng <b>Trang chủ</b>, không nhảy vào <code>/admin</code></li>
+      <li>Sidebar hiện đủ: Trang chủ · Kho dữ liệu · Mô hình dữ liệu · Quản lý tổ chức</li>
+      <li>Chân sidebar hiện tên <b>Lê Thị Mai</b> và tổ chức <b>Công ty Ánh Dương</b></li>
+    </ul></div>
+  </div>
+</div>
+
+<div class="kb" data-ma="A2">
+  <div class="kb-head"><span class="ma">A2</span><span class="tt"><b>Sai mật khẩu và email không tồn tại phải giống hệt nhau</b><span>Nếu hai câu khác nhau, kẻ tấn công dò được email nào đã đăng ký</span></span></div>
+  <div class="kb-body">
+    <ol>
+      <li>Đăng xuất. Nhập <code>mai@anhduong.vn</code> với mật khẩu <code>SaiBet@999</code> → ghi lại câu báo lỗi</li>
+      <li>Nhập <code>khongtontai@vidu.vn</code> với cùng mật khẩu sai → ghi lại câu báo lỗi</li>
+    </ol>
+    <div class="mongdoi"><b>Phải thấy</b><ul>
+      <li>Hai câu <b>giống nhau từng chữ</b>: “Email hoặc mật khẩu không đúng.”</li>
+      <li>Không có câu nào kiểu “email này chưa đăng ký”</li>
+    </ul></div>
+  </div>
+</div>
+
+<div class="kb" data-ma="A3">
+  <div class="kb-head"><span class="ma">A3</span><span class="tt"><b>Chặn dò mật khẩu</b><span>Sai liên tục thì phải bị khoá tạm</span></span></div>
+  <div class="kb-body">
+    <ol>
+      <li>Nhập sai mật khẩu <b>11 lần liên tiếp</b> cho cùng một email</li>
+    </ol>
+    <div class="mongdoi"><b>Phải thấy</b><ul>
+      <li>Từ lần thứ <b>11</b>, câu báo đổi thành “Bạn thao tác quá nhanh. Vui lòng thử lại sau ít phút.”</li>
+      <li>Đăng nhập <b>đúng</b> lúc này cũng bị chặn — bộ đếm tính theo địa chỉ máy, không theo tài khoản</li>
+    </ul></div>
+    <div class="canhbao"><p>Sau khi thử xong, chờ 15 phút hoặc chạy lệnh này để mở khoá ngay, nếu không các kịch bản sau sẽ không đăng nhập được:</p>
+    <p><code>docker exec bi-redis redis-cli -a redispassword --no-auth-warning KEYS "ratelimit:login:*"</code> rồi <code>DEL</code> khoá vừa thấy.</p></div>
+  </div>
+</div>
+
+<div class="kb" data-ma="A4">
+  <div class="kb-head"><span class="ma">A4</span><span class="tt"><b>Luật mật khẩu khi đăng ký</b><span>Form phải nói rõ sai chỗ nào</span></span></div>
+  <div class="kb-body">
+    <ol>
+      <li>Mở trang đăng ký, điền đủ thông tin</li>
+      <li>Thử lần lượt ba mật khẩu: <code>matkhau123</code> (không chữ hoa) · <code>Ab1</code> (quá ngắn) · <code>Matkhau@123</code> nhưng ô nhập lại gõ <code>Matkhau@456</code></li>
+    </ol>
+    <div class="mongdoi"><b>Phải thấy</b><ul>
+      <li>Lỗi hiện <b>ngay dưới đúng ô sai</b>, không phải một câu chung ở đầu form</li>
+      <li>Ba câu khác nhau: thiếu chữ hoa · tối thiểu 8 ký tự · mật khẩu nhập lại không khớp</li>
+    </ul></div>
+  </div>
+</div>
+
+<div class="kb" data-ma="A5">
+  <div class="kb-head"><span class="ma">A5</span><span class="tt"><b>Đăng ký tài khoản mới tạo luôn một tổ chức</b><span>Người tự đăng ký là quản trị viên công ty mình vừa lập</span></span></div>
+  <div class="kb-body">
+    <ol>
+      <li>Đăng ký với email chưa từng dùng, tên công ty <code>Công ty Kiểm Thử</code></li>
+      <li>Sau khi đăng ký xong, đăng nhập bằng chính tài khoản đó</li>
+    </ol>
+    <div class="mongdoi"><b>Phải thấy</b><ul>
+      <li>Đăng ký xong <b>không tự đăng nhập</b> — về trang đăng nhập</li>
+      <li>Đăng nhập vào thấy tổ chức <b>Công ty Kiểm Thử</b>, và có quyền quản trị trong đó</li>
+    </ul></div>
+  </div>
+</div>
+
+<h2><span class="num">§2</span>Phân quyền</h2>
+
+<div class="kb" data-ma="B1">
+  <div class="kb-head"><span class="ma">B1</span><span class="tt"><b>Người xem không thấy nút hành động</b><span>Ẩn nút, chứ không phải cho bấm rồi mới báo lỗi</span></span></div>
+  <div class="kb-body">
+    <dl class="kb-meta"><dt>Tài khoản</dt><dd><code>viewer@bi-platform.local</code></dd></dl>
+    <ol>
+      <li>Đăng nhập, vào <b>Kho dữ liệu</b></li>
+      <li>Vào <b>Quản lý tổ chức</b></li>
+      <li>Vào <b>Mô hình dữ liệu</b></li>
+    </ol>
+    <div class="mongdoi"><b>Phải thấy</b><ul>
+      <li>Kho dữ liệu: <b>không</b> có nút “+ Tạo bộ dữ liệu” lẫn “Đồng bộ từ CSDL”</li>
+      <li>Quản lý tổ chức: tab <b>Kết nối</b> biến mất</li>
+      <li>Mô hình dữ liệu: <b>không</b> có nút “+ Tạo mô hình”</li>
+      <li>Danh sách vẫn <b>xem được</b> bình thường — chỉ mất quyền sửa</li>
+    </ul></div>
+  </div>
+</div>
+
+<div class="kb" data-ma="B2">
+  <div class="kb-head"><span class="ma">B2</span><span class="tt"><b>Quản trị tổ chức không vào được console hệ thống</b><span>Hai trục vai trò độc lập nhau</span></span></div>
+  <div class="kb-body">
+    <dl class="kb-meta"><dt>Tài khoản</dt><dd><code>mai@anhduong.vn</code> — quản trị viên của tổ chức mình</dd></dl>
+    <ol>
+      <li>Gõ thẳng <code>http://localhost:5173/admin</code> vào thanh địa chỉ</li>
+    </ol>
+    <div class="mongdoi"><b>Phải thấy</b><ul>
+      <li>Bị chặn — chuyển sang trang báo không đủ quyền, <b>không</b> phải trang trắng</li>
+      <li>Sidebar của Mai chưa bao giờ có mục dẫn tới <code>/admin</code></li>
+    </ul></div>
+  </div>
+</div>
+
+<div class="kb" data-ma="B3">
+  <div class="kb-head"><span class="ma">B3</span><span class="tt"><b>Bộ chuyển tổ chức đổi cả quyền</b><span>Cùng một người, hai tổ chức, hai vai trò khác nhau</span></span></div>
+  <div class="kb-body">
+    <dl class="kb-meta"><dt>Tài khoản</dt><dd><code>hanh@saomai.vn</code> — quản trị ở Sao Mai, người xem ở BI Platform</dd></dl>
+    <ol>
+      <li>Đăng nhập → đang ở <b>Công ty Sao Mai</b>. Vào Quản lý tổ chức, để ý có nút <b>Thêm thành viên</b></li>
+      <li>Bấm bộ chuyển tổ chức trên sidebar, chọn <b>BI Platform</b></li>
+      <li>Vào lại Quản lý tổ chức</li>
+    </ol>
+    <div class="mongdoi"><b>Phải thấy</b><ul>
+      <li>Sau khi đổi, nút <b>Thêm thành viên</b> biến mất — vai trò đổi theo tổ chức</li>
+      <li>Danh sách workspace, thành viên đổi hẳn sang tổ chức mới</li>
+      <li>Trong danh sách còn một dòng ghi <b>Không gian riêng · Quản trị viên</b></li>
+    </ul></div>
+  </div>
+</div>
+
+<h2><span class="num">§3</span>Tải file lên và tạo báo cáo</h2>
+
+<div class="kb" data-ma="C1">
+  <div class="kb-head"><span class="ma">C1</span><span class="tt"><b>Tải file bán hàng lên qua trình hướng dẫn</b><span>Luồng chính của cả hệ thống</span></span></div>
+  <div class="kb-body">
+    <dl class="kb-meta">
+      <dt>Tài khoản</dt><dd><code>mai@anhduong.vn</code></dd>
+      <dt>File</dt><dd><code>docs/kiem-thu/du-lieu-thu/kiem-thu-ban-hang.csv</code></dd>
+    </dl>
+    <ol>
+      <li>Vào <b>Kho dữ liệu</b> ở sidebar, bấm <b>+ Tạo bộ dữ liệu</b></li>
+      <li>Bước <b>Tải file lên</b>: kéo thả file vào, hoặc bấm “chọn file từ máy”</li>
+      <li>Bấm <b>Tiếp tục</b></li>
+      <li>Bước <b>Chọn dữ liệu</b>: xem bảng xem trước, rồi bấm <b>Tạo 1 bộ dữ liệu</b></li>
+    </ol>
+    <div class="mongdoi"><b>Phải thấy</b><ul>
+      <li>Hộp thoại mở ra tên <b>Tạo bộ dữ liệu từ file</b> — không phải “Tạo báo cáo nhanh”</li>
+      <li>Bảng xem trước hiện <b>36 dòng · 6 cột</b>, chữ tiếng Việt có dấu đầy đủ</li>
+      <li>Cột <b>Mã đơn</b> hiện <code>0001</code> — <b>không</b> bị cắt thành <code>1</code></li>
+      <li>Chạy tới bước tiến trình rồi báo <b>Đã tạo bộ dữ liệu thành công!</b></li>
+    </ul></div>
+  </div>
+</div>
+
+<div class="kb" data-ma="C2">
+  <div class="kb-head"><span class="ma">C2</span><span class="tt"><b>Từ chối file sai định dạng ngay tại chỗ</b><span>Không được tốn một vòng mạng nào</span></span></div>
+  <div class="kb-body">
+    <ol>
+      <li>Mở lại trình hướng dẫn, thử chọn một file <code>.txt</code> hoặc <code>.png</code> bất kỳ</li>
+    </ol>
+    <div class="mongdoi"><b>Phải thấy</b><ul>
+      <li>Bị từ chối <b>ngay</b>, kèm câu nói rõ chỉ nhận <code>.csv</code> và <code>.xlsx</code></li>
+      <li>Không có thanh tiến trình tải nào chạy</li>
+    </ul></div>
+  </div>
+</div>
+
+<div class="kb" data-ma="C3">
+  <div class="kb-head"><span class="ma">C3</span><span class="tt"><b>Số âm và số thập phân không bị nhân lên nghìn lần</b><span>Đây là lỗi thật đã từng làm sai toàn bộ số liệu</span></span></div>
+  <div class="kb-body">
+    <dl class="kb-meta"><dt>File</dt><dd><code>docs/kiem-thu/du-lieu-thu/kiem-thu-so-am.csv</code></dd></dl>
+    <ol>
+      <li>Tải file này lên theo đúng luồng C1</li>
+      <li>Ở bước <b>Chọn dữ liệu</b>, nhìn kỹ cột <b>Loi nhuan</b></li>
+    </ol>
+    <div class="mongdoi"><b>Phải thấy</b><ul>
+      <li>Dòng đầu là <code>-288.765</code> — <b>không phải</b> <code>-288765</code></li>
+      <li>Dòng thứ tư là <code>0.402</code> — <b>không phải</b> <code>402</code></li>
+      <li>Cột được nhận là kiểu <b>số</b>, không phải chữ</li>
+    </ul></div>
+  </div>
+</div>
+
+<div class="kb" data-ma="C4">
+  <div class="kb-head"><span class="ma">C4</span><span class="tt"><b>Bộ dữ liệu mới xuất hiện trong Kho dữ liệu</b><span></span></span></div>
+  <div class="kb-body">
+    <ol>
+      <li>Vào <b>Kho dữ liệu</b> ở sidebar</li>
+      <li>Gõ <code>kiem thu</code> vào ô tìm kiếm</li>
+      <li>Bấm nút <b>Xoá lọc</b></li>
+    </ol>
+    <div class="mongdoi"><b>Phải thấy</b><ul>
+      <li>Hai bộ dữ liệu vừa tạo có trong danh sách, cột <b>Nguồn</b> ghi <b>Từ file</b></li>
+      <li>Tìm kiếm lọc đúng; bấm Xoá lọc thì danh sách đầy đủ trở lại</li>
+    </ul></div>
+  </div>
+</div>
+
+<div class="kb" data-ma="C5">
+  <div class="kb-head"><span class="ma">C5</span><span class="tt"><b>Hai lối vào, một luồng</b><span>Nút mới không được làm hỏng đường cũ</span></span></div>
+  <div class="kb-body">
+    <ol>
+      <li>Về <b>Trang chủ</b>, bấm <b>Tạo báo cáo</b> → chọn <b>Dùng file Excel/CSV</b></li>
+      <li>Đóng hộp thoại lại</li>
+    </ol>
+    <div class="mongdoi"><b>Phải thấy</b><ul>
+      <li>Mở ra <b>đúng hộp thoại</b> của C1, cùng tiêu đề <b>Tạo bộ dữ liệu từ file</b></li>
+      <li>Ô chọn workspace ở góc phải hộp thoại vẫn có, và <b>khoá lại</b> từ bước 2 trở đi</li>
+    </ul></div>
+  </div>
+</div>
+
+<h2><span class="num">§4</span>Kết nối cơ sở dữ liệu</h2>
+
+<div class="kb" data-ma="D1">
+  <div class="kb-head"><span class="ma">D1</span><span class="tt"><b>Tạo kết nối tới một CSDL thật</b><span>Trỏ thẳng vào chính MySQL của hệ thống, coi nó như CSDL khách hàng</span></span></div>
+  <div class="kb-body">
+    <ol>
+      <li><b>Quản lý tổ chức</b> → tab <b>Kết nối</b> → <b>Thêm kết nối</b></li>
+      <li>Bước 1 <b>Chuẩn bị</b>: chọn loại <b>MySQL</b>, bấm <b>Tiếp tục</b></li>
+      <li>Bước 2 <b>Thông tin kết nối</b>: điền theo bảng dưới, rồi <b>Tiếp tục</b></li>
+      <li>Bước 3: bấm <b>Kiểm tra kết nối</b></li>
+      <li>Bấm <b>Lưu kết nối</b></li>
+    </ol>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Ô</th><th>Giá trị</th></tr></thead>
+      <tbody>
+        <tr><td>Tên kết nối</td><td><code>CSDL bán hàng</code></td></tr>
+        <tr><td>Máy chủ · Cổng</td><td><code>127.0.0.1</code> · <code>3310</code></td></tr>
+        <tr><td>SSL/TLS</td><td><b>không</b> bật</td></tr>
+        <tr><td>Database</td><td><code>bi_platform</code></td></tr>
+        <tr><td>Tài khoản · Mật khẩu</td><td><code>bi_user</code> · <code>bi_password</code></td></tr>
+      </tbody>
+    </table></div>
+    <div class="mongdoi"><b>Phải thấy</b><ul>
+      <li>Trước khi test: nút <b>Lưu kết nối</b> <b>mờ, không bấm được</b></li>
+      <li>Test xong hiện xanh kèm phiên bản <code>8.0.46</code>, lúc đó nút Lưu mới mở</li>
+    </ul></div>
+  </div>
+</div>
+
+<div class="kb" data-ma="D2">
+  <div class="kb-head"><span class="ma">D2</span><span class="tt"><b>Sai mật khẩu CSDL phải báo bằng tiếng người</b><span>Không được nhả nguyên chuỗi lỗi của thư viện</span></span></div>
+  <div class="kb-body">
+    <ol>
+      <li>Làm lại D1 nhưng mật khẩu gõ <code>saibet</code></li>
+      <li>Bấm <b>Kiểm tra kết nối</b></li>
+    </ol>
+    <div class="mongdoi"><b>Phải thấy</b><ul>
+      <li>Câu tiếng Việt kiểu “Sai tên đăng nhập hoặc mật khẩu…”</li>
+      <li><b>Không</b> thấy <code>ER_ACCESS_DENIED_ERROR</code> hay vết lỗi lập trình</li>
+      <li>Nút <b>Lưu kết nối</b> vẫn khoá</li>
+    </ul></div>
+  </div>
+</div>
+
+<div class="kb" data-ma="D3">
+  <div class="kb-head"><span class="ma">D3</span><span class="tt"><b>Đồng bộ bảng từ CSDL</b><span></span></span></div>
+  <div class="kb-body">
+    <ol>
+      <li><b>Kho dữ liệu</b> → <b>Đồng bộ từ CSDL</b></li>
+      <li>Chọn kết nối vừa tạo, tích ba bảng: <code>users</code>, <code>tenants</code>, <code>workspaces</code></li>
+      <li>Xác nhận đồng bộ</li>
+      <li><b>Làm lại y hệt lần hai</b> với đúng ba bảng đó</li>
+    </ol>
+    <div class="mongdoi"><b>Phải thấy</b><ul>
+      <li>Lần một: kết quả ghi <b>Thêm mới 3</b></li>
+      <li>Lần hai: ghi <b>Không đổi 3</b> — kho <b>không</b> nhân đôi thành 6 bộ dữ liệu</li>
+    </ul></div>
+  </div>
+</div>
+
+<div class="kb" data-ma="D4">
+  <div class="kb-head"><span class="ma">D4</span><span class="tt"><b>Đổi tên bộ dữ liệu rồi đồng bộ lại — tên bạn đặt phải còn</b><span>Đồng bộ không được giẫm lên thứ người dùng đã sửa</span></span></div>
+  <div class="kb-body">
+    <ol>
+      <li>Mở bộ dữ liệu <code>users</code>, bấm <b>Đổi tên</b> thành <code>Danh sách người dùng</code></li>
+      <li>Quay ra Kho dữ liệu, đồng bộ lại đúng ba bảng đó</li>
+    </ol>
+    <div class="mongdoi"><b>Phải thấy</b><ul>
+      <li>Tên <b>Danh sách người dùng</b> vẫn còn, không bị đổi ngược về <code>users</code></li>
+    </ul></div>
+  </div>
+</div>
+
+<div class="kb" data-ma="D5">
+  <div class="kb-head"><span class="ma">D5</span><span class="tt"><b>Xoá kết nối khi còn bộ dữ liệu phải bị chặn</b><span></span></span></div>
+  <div class="kb-body">
+    <ol>
+      <li><b>Quản lý tổ chức</b> → <b>Kết nối</b> → bấm <b>Xoá</b> ở kết nối vừa tạo</li>
+    </ol>
+    <div class="mongdoi"><b>Phải thấy</b><ul>
+      <li>Bị chặn, kèm <b>số lượng</b> bộ dữ liệu phải dọn trước</li>
+      <li>Kết nối vẫn còn nguyên trong danh sách</li>
+    </ul></div>
+  </div>
+</div>
+
+<div class="kb" data-ma="D6">
+  <div class="kb-head"><span class="ma">D6</span><span class="tt"><b>Xem trước dữ liệu đọc thẳng từ nguồn</b><span>Nền tảng không giữ bản sao dòng nào</span></span></div>
+  <div class="kb-body">
+    <ol>
+      <li>Mở một bộ dữ liệu đồng bộ từ CSDL</li>
+      <li>Xem tab <b>Dữ liệu</b>, rồi tab <b>Cấu trúc</b></li>
+    </ol>
+    <div class="mongdoi"><b>Phải thấy</b><ul>
+      <li>Tab Dữ liệu: 100 dòng đầu, và <b>không</b> có tổng số dòng</li>
+      <li>Tab Cấu trúc: danh sách cột kèm kiểu, có ô tìm cột</li>
+    </ul></div>
+  </div>
+</div>
+
+<h2><span class="num">§5</span>Nạp vào kho phân tích</h2>
+
+<div class="kb" data-ma="E1">
+  <div class="kb-head"><span class="ma">E1</span><span class="tt"><b>Trạng thái nạp tự đổi mà không cần bấm F5</b><span>Nạp chạy nền, giao diện tự hỏi lại</span></span></div>
+  <div class="kb-body">
+    <ol>
+      <li>Vào <b>Kho dữ liệu</b>, nhìn cột <b>Kho phân tích</b> của bộ <code>kiem-thu-ban-hang</code></li>
+      <li>Nếu cột đó ghi <b>Chưa nạp</b>, mở bộ dữ liệu ra, sang tab <b>Kho phân tích</b> rồi bấm <b>Nạp vào kho</b></li>
+      <li><b>Đứng yên nhìn</b>, không bấm F5</li>
+    </ol>
+    <div class="mongdoi"><b>Phải thấy</b><ul>
+      <li>Trạng thái tự chạy <b>Đang chờ → Đang nạp → Đã nạp</b></li>
+      <li>Mỗi trạng thái có <b>cả chữ lẫn màu</b>, không chỉ có màu</li>
+    </ul></div>
+  </div>
+</div>
+
+<div class="kb" data-ma="E2">
+  <div class="kb-head"><span class="ma">E2</span><span class="tt"><b>Số liệu trong kho khớp đúng với file gốc</b><span>Phép kiểm quan trọng nhất của cả hệ thống</span></span></div>
+  <div class="kb-body">
+    <ol>
+      <li>Mở bộ <code>kiem-thu-ban-hang</code>, sang tab <b>Kho phân tích</b></li>
+      <li>Đối chiếu số dòng với đáp án ở §0</li>
+    </ol>
+    <div class="mongdoi"><b>Phải thấy</b><ul>
+      <li><b>36</b> dòng</li>
+      <li>Cột <b>Ngày bán</b> hiện ra ngày thật, <b>không</b> phải một con số như <code>45678</code></li>
+      <li>Cột <b>Mã đơn</b> vẫn là <code>0001</code></li>
+    </ul></div>
+  </div>
+</div>
+
+<div class="kb" data-ma="E3">
+  <div class="kb-head"><span class="ma">E3</span><span class="tt"><b>Nạp lại không nhân đôi dữ liệu</b><span></span></span></div>
+  <div class="kb-body">
+    <ol>
+      <li>Ở tab <b>Kho phân tích</b> của bộ đã nạp, bấm <b>Nạp lại</b></li>
+      <li>Chờ tới khi báo đã nạp xong, xem lại số dòng</li>
+    </ol>
+    <div class="mongdoi"><b>Phải thấy</b><ul>
+      <li>Vẫn đúng <b>36</b> dòng — không thành 72</li>
+    </ul></div>
+  </div>
+</div>
+
+<div class="kb" data-ma="E4">
+  <div class="kb-head"><span class="ma">E4</span><span class="tt"><b>Kho tắt thì lỗi phải nói rõ cách sửa</b><span>Không được để lại một câu “lỗi không xác định”</span></span></div>
+  <div class="kb-body">
+    <ol>
+      <li>Chạy <code>docker stop bi-clickhouse</code></li>
+      <li>Vào giao diện bấm nạp một bộ dữ liệu bất kỳ</li>
+      <li>Chạy lại <code>docker start bi-clickhouse</code> sau khi thử xong</li>
+    </ol>
+    <div class="mongdoi"><b>Phải thấy</b><ul>
+      <li>Câu báo lỗi <b>chỉ đích danh</b> việc phải làm — chạy <code>npm run infra:up</code></li>
+      <li>Không phải “Có lỗi xảy ra phía máy chủ”</li>
+    </ul></div>
+  </div>
+</div>
+
+<h2><span class="num">§6</span>Mô hình dữ liệu và Explorer</h2>
+
+<div class="kb" data-ma="F1">
+  <div class="kb-head"><span class="ma">F1</span><span class="tt"><b>Mô hình KHÔNG tự sinh — người dùng chọn bộ dữ liệu</b><span>Ca này từng khẳng định điều ngược lại</span></span></div>
+  <div class="kb-body">
+    <dl>
+      <dt>Tiền điều kiện</dt><dd>Đã làm xong §5 — <code>kiem-thu-ban-hang</code> ở trạng thái <b>Đã nạp</b></dd>
+    </dl>
+    <ol>
+      <li>Vào <b>Mô hình dữ liệu</b> ở sidebar</li>
+      <li>Bấm <b>+ Tạo mô hình</b></li>
+      <li>Đặt tên <code>kiem-thu-ban-hang</code></li>
+      <li>Tích bộ dữ liệu <b>kiem-thu-ban-hang</b> trong danh sách</li>
+      <li>Bấm <b>Tạo mô hình</b></li>
+    </ol>
+    <div class="mongdoi"><b>Phải thấy</b><ul>
+      <li>Trước khi bấm tạo, danh sách mô hình <b>không có</b> mô hình nào tự xuất hiện sau bước nạp ở §5</li>
+      <li>Nút <b>Tạo mô hình</b> bị chặn nếu chưa tích bộ nào — báo “Hãy chọn ít nhất một bộ dữ liệu”</li>
+      <li>Bộ dữ liệu <b>chưa nạp</b> hiện mờ, tích không được, kèm nhãn lý do</li>
+      <li>Tạo xong nhảy thẳng vào mô hình vừa tạo</li>
+      <li>Quay lại danh sách: cột <b>Người tạo</b> ghi <b>Lê Thị Mai</b></li>
+    </ul></div>
+    <div class="canhbao"><p>Trước bản này hệ thống tự dựng một mô hình ngay sau mỗi lần nạp. Nếu bạn đang thử trên một tổ chức đã dùng từ trước thì <b>các mô hình cũ vẫn còn</b> — chúng không bị xoá, chỉ là không có cái mới nào tự sinh thêm. Muốn thấy đúng ca này thì nạp một bộ dữ liệu <b>mới</b> ở §5 rồi kiểm.</p></div>
+  </div>
+</div>
+
+<div class="kb" data-ma="F2">
+  <div class="kb-head"><span class="ma">F2</span><span class="tt"><b>Tab Schemas — vai trò và phép gộp của từng cột</b><span></span></span></div>
+  <div class="kb-body">
+    <ol>
+      <li>Mở mô hình vừa tạo ở F1, tab <b>Schemas</b></li>
+      <li>Xem vai trò hệ thống gán cho từng cột</li>
+    </ol>
+    <div class="mongdoi"><b>Phải thấy</b><ul>
+      <li><b>Doanh thu</b>, <b>Số lượng</b> → thước đo, phép gộp <b>Tổng</b></li>
+      <li><b>Khu vực</b>, <b>Nhóm hàng</b>, <b>Mã đơn</b> → chiều</li>
+      <li><b>Ngày bán</b> → chiều thời gian</li>
+    </ul></div>
+  </div>
+</div>
+
+<div class="kb" data-ma="F3">
+  <div class="kb-head"><span class="ma">F3</span><span class="tt"><b>Explorer trả đúng con số đã biết trước</b><span>Đây là chỗ đối chiếu quan trọng nhất</span></span></div>
+  <div class="kb-body">
+    <ol>
+      <li>Sang tab <b>Explorer</b></li>
+      <li>Chọn thước đo <b>Doanh thu</b>, không chọn chiều nào</li>
+      <li>Chạy truy vấn</li>
+      <li>Thêm chiều <b>Khu vực</b>, chạy lại</li>
+    </ol>
+    <div class="mongdoi"><b>Phải thấy</b><ul>
+      <li>Không chiều: <b>25.046.000</b></li>
+      <li>Theo Khu vực: Miền Trung <b>9.482.000</b> · Miền Nam <b>8.462.000</b> · Miền Bắc <b>7.102.000</b></li>
+      <li>Cộng ba số đó lại đúng bằng tổng ở trên</li>
+    </ul></div>
+    <div class="canhbao"><p>Nếu hiện lỗi nhắc tới <b>đồng hồ lệch</b> — quay lại §0 phần chuẩn bị. Đây là lỗi môi trường, không phải lỗi mô hình, và nó làm chết cả tab Explorer trong khi Schemas với Relationship vẫn chạy bình thường.</p></div>
+  </div>
+</div>
+
+<div class="kb" data-ma="F4">
+  <div class="kb-head"><span class="ma">F4</span><span class="tt"><b>Tự tay gộp nhiều bảng vào một mô hình</b><span></span></span></div>
+  <div class="kb-body">
+    <ol>
+      <li><b>Mô hình dữ liệu</b> → <b>+ Tạo mô hình</b></li>
+      <li>Đặt tên, chọn <b>hai bộ dữ liệu trở lên</b> đã nạp</li>
+      <li>Mở mô hình vừa tạo, sang tab <b>Relationship</b></li>
+    </ol>
+    <div class="mongdoi"><b>Phải thấy</b><ul>
+      <li>Sơ đồ hiện đủ số bảng đã chọn</li>
+      <li>Kéo được các bảng, vị trí giữ nguyên sau khi F5</li>
+      <li>Nối được hai bảng bằng một cặp cột</li>
+    </ul></div>
+  </div>
+</div>
+
+<div class="kb" data-ma="F5">
+  <div class="kb-head"><span class="ma">F5</span><span class="tt"><b>Xoá mô hình</b><span></span></span></div>
+  <div class="kb-body">
+    <ol>
+      <li>Trong danh sách mô hình, mở menu ở dòng của mô hình vừa tạo → <b>Xoá mô hình</b></li>
+    </ol>
+    <div class="mongdoi"><b>Phải thấy</b><ul>
+      <li>Có hộp thoại hỏi lại trước khi xoá</li>
+      <li>Xoá xong mô hình biến khỏi danh sách; bộ dữ liệu <b>vẫn còn</b> trong Kho dữ liệu</li>
+    </ul></div>
+  </div>
+</div>
+
+<div class="kb" data-ma="F6">
+  <div class="kb-head"><span class="ma">F6</span><span class="tt"><b>Đếm giá trị khác nhau trên cột chữ</b><span>Cột chữ và cột ngày trước đây không đặt được thước đo</span></span></div>
+  <div class="kb-body">
+    <dl class="kb-meta"><dt>Tiền điều kiện</dt><dd>Mô hình dựng trên <code>kiem-thu-ban-hang.csv</code> (36 dòng)</dd></dl>
+    <ol>
+      <li>Mở mô hình, tab <b>Schemas</b></li>
+      <li>Dòng cột <b>Khu vực</b>, ô <b>Thước đo</b> — chọn <b>Đếm giá trị khác nhau</b></li>
+      <li>Dòng cột <b>Ngày bán</b> — chọn <b>Nhỏ nhất</b></li>
+      <li><b>Lưu thay đổi</b>, sang tab <b>Explorer</b></li>
+      <li>Chọn thước đo <b>Khu vực</b>, chạy; rồi đổi sang <b>Ngày bán</b>, chạy lại</li>
+    </ol>
+    <div class="mongdoi"><b>Phải thấy</b><ul>
+      <li>Ô Thước đo của cột <b>Khu vực</b> có bấm được — chỉ mời đúng một lựa chọn <b>Đếm giá trị khác nhau</b>, <b>không</b> có Tổng hay Trung bình</li>
+      <li>Cột <b>Ngày bán</b> mời <b>Nhỏ nhất</b> · <b>Lớn nhất</b> · <b>Đếm giá trị khác nhau</b></li>
+      <li>Khu vực trả <b>3</b> — đúng số khu vực, <b>không phải 36</b> là số dòng</li>
+      <li>Ngày bán trả ngày sớm nhất trong file</li>
+      <li>Cột <b>Mã đơn</b> chỉ mời hai phép đếm — <b>Đếm ô có dữ liệu</b> và <b>Đếm giá trị khác nhau</b> — vì nó là chuỗi, không cộng được</li>
+    </ul></div>
+  </div>
+</div>
+
+<div class="kb" data-ma="F7">
+  <div class="kb-head"><span class="ma">F7</span><span class="tt"><b>Đổi cách tính ngay trong Explorer</b><span>Không phải quay về Schemas và Lưu</span></span></div>
+  <div class="kb-body">
+    <dl class="kb-meta"><dt>Tiền điều kiện</dt><dd>Mô hình dựng trên <code>kiem-thu-ban-hang.csv</code> — tổng Doanh thu <b>25.046.000</b> trên <b>36</b> dòng</dd></dl>
+    <ol>
+      <li>Tab <b>Explorer</b>, tích thước đo <b>Doanh thu</b>, không chọn chiều nào</li>
+      <li>Nhìn khối <b>Cách tính</b> hiện ra phía trên bảng kết quả</li>
+      <li>Bấm <b>Chạy truy vấn</b> — ghi lại con số</li>
+      <li>Bấm nút <b>Trung bình</b> trong khối Cách tính, rồi <b>Chạy truy vấn</b> lại</li>
+      <li>Sang tab <b>Schemas</b> xem lại dòng cột <b>Doanh thu</b></li>
+    </ol>
+    <div class="mongdoi"><b>Phải thấy</b><ul>
+      <li>Khối <b>Cách tính</b> bày sẵn <b>tất cả</b> phép hợp với cột này — tám nút cho một cột số — nhìn thấy hết, không phải ô sổ xuống và không phải bấm mở</li>
+      <li>Rê chuột lên nút <b>Trung vị</b> hiện câu giải thích <i>"Giá trị đứng giữa: một nửa số dòng thấp hơn mức này, một nửa cao hơn…"</i></li>
+      <li>Nút <b>Tổng</b> sáng sẵn từ đầu, vì đó là phép mô hình đang khai</li>
+      <li>Lần chạy đầu: <b>25.046.000</b></li>
+      <li>Sau khi đổi: <b>≈ 695.722,22</b> (= 25.046.000 / 36), và tiêu đề cột đổi thành <b>Doanh thu (Trung bình)</b></li>
+      <li>Ở tab Schemas, cột Doanh thu <b>vẫn là Tổng</b> — bấm ở Explorer <b>không</b> sửa mô hình</li>
+      <li>Thước đo <b>Số dòng</b> nếu tích vào thì <b>không</b> có hàng nút, vì nó không đo cột nào</li>
+    </ul></div>
+  </div>
+</div>
+
+<div class="kb" data-ma="F8">
+  <div class="kb-head"><span class="ma">F8</span><span class="tt"><b>Trung vị nói khác trung bình, và đó là chuyện đáng biết</b><span>Vài giá trị lớn kéo lệch số trung bình</span></span></div>
+  <div class="kb-body">
+    <dl class="kb-meta"><dt>Tiền điều kiện</dt><dd>Mô hình dựng trên <code>kiem-thu-ban-hang.csv</code> — 36 dòng</dd></dl>
+    <ol>
+      <li>Tab <b>Explorer</b>, tích thước đo <b>Doanh thu</b>, không chọn chiều nào</li>
+      <li>Trong khối <b>Cách tính</b>, bấm <b>Trung bình</b> → Chạy, rồi <b>Trung vị</b> → Chạy</li>
+      <li>Bấm <b>Ngưỡng top 10%</b> → Chạy</li>
+    </ol>
+    <div class="mongdoi"><b>Phải thấy</b><ul>
+      <li>Cả tám phép nằm sẵn trên màn hình, <b>Ngưỡng top 10%</b> bấm được ngay</li>
+      <li>Trung bình: <b>≈ 695.722,22</b></li>
+      <li>Trung vị: <b>572.000</b> — thấp hơn trung bình khoảng 22 %, vì vài đơn lớn kéo trung bình lên</li>
+      <li>Ngưỡng top 10%: <b>1.728.000</b> — mốc mà 10% đơn lớn nhất bắt đầu</li>
+      <li>Tiêu đề cột đổi theo từng phép: <b>Doanh thu (Trung vị)</b>, <b>Doanh thu (Ngưỡng top 10%)</b></li>
+      <li>Chạy lại cùng một phép hai lần cho <b>đúng cùng một số</b> — trung vị dùng phép chính xác, không phải phép lấy mẫu xấp xỉ</li>
+    </ul></div>
+    <div class="canhbao"><p>Cột <b>Khu vực</b> và <b>Ngày bán</b> <b>không</b> mời Trung vị. Đó là cố ý: trung vị của một chuỗi hay của một mốc thời gian là con số không ai đi tìm, dù ClickHouse vẫn tính ra được.</p></div>
+  </div>
+</div>
+
+<div class="kb" data-ma="F9">
+  <div class="kb-head"><span class="ma">F9</span><span class="tt"><b>Hệ thống tự nói ra khi trung bình đang nói dối</b><span>Và im lặng khi nó không nói dối</span></span></div>
+  <div class="kb-body">
+    <dl class="kb-meta"><dt>Tiền điều kiện</dt><dd>Mô hình dựng trên <code>Global-Superstore</code> — 51.290 dòng, tổ chức 4</dd></dl>
+    <ol>
+      <li>Tab <b>Explorer</b>, tích thước đo <code>Profit</code>, đặt nó ở <b>Trung bình</b>, không chọn chiều nào → <b>Chạy truy vấn</b></li>
+      <li>Bấm <b>Xem bằng trung vị</b> trong khối vàng vừa hiện ra</li>
+      <li>Đặt lại <code>Profit</code> về <b>Trung bình</b>, tích thêm chiều <code>Category</code> → <b>Chạy truy vấn</b></li>
+      <li>Bấm <b>Bỏ qua</b>, rồi bấm <b>Chạy truy vấn</b> lần nữa</li>
+      <li>Bỏ tích <code>Profit</code>, tích <code>Quantity</code> ở <b>Trung bình</b>, bỏ chiều → <b>Chạy truy vấn</b></li>
+    </ol>
+    <div class="mongdoi"><b>Phải thấy</b><ul>
+      <li>Bước 1: khối vàng <b>"Trung bình đang bị kéo lệch"</b> hiện <b>ngay trên bảng</b>, ghi <i>"Profit trung bình 28,61 — nhưng một nửa số dòng dưới 9,24"</i></li>
+      <li>Bước 2: bảng đổi sang <b>9,24</b>, nút <b>Trung vị</b> trong khối Cách tính sáng lên, và khối vàng <b>tự biến mất</b> — không còn gì để cảnh báo nữa</li>
+      <li>Bước 3: khối vàng ghi <i>"Ở Office Supplies: Profit trung bình 16,58 — nhưng một nửa số dòng dưới 6,55. 3/3 nhóm cũng lệch như vậy."</i> — nhóm lệch <b>nặng nhất</b> chứ không phải nhóm đầu bảng</li>
+      <li>Bước 4: khối biến mất và <b>không hiện lại</b> ở lần Chạy sau — bỏ qua một câu hỏi là bỏ qua câu hỏi đó, không phải bỏ qua một lần</li>
+      <li>Bước 5: <b>không có khối vàng nào</b>. <code>Quantity</code> trung bình <b>3,48</b> so trung vị <b>3</b> — lệch 16 %, dưới ngưỡng 50 %</li>
+    </ul></div>
+    <div class="canhbao"><p>Bước 5 mới là ca quan trọng nhất của kịch bản này. Một lời cảnh báo hiện quá tay là thứ người dùng học cách phớt lờ trong ba ngày, và sau đó nó không cảnh báo được gì nữa. Ba điều kiện phải đúng cùng lúc thì khối mới hiện: thước đo đang ở <b>Trung bình</b>, lệch quá <b>50 %</b>, và <b>quá nửa số nhóm</b> cùng lệch.</p></div>
+  </div>
+</div>
+
+<div class="kb" data-ma="F10">
+  <div class="kb-head"><span class="ma">F10</span><span class="tt"><b>Đếm ô có dữ liệu nói ra cột nào đang nhập thiếu</b><span>Ba phép đếm, ba con số khác nhau</span></span></div>
+  <div class="kb-body">
+    <dl class="kb-meta"><dt>Tiền điều kiện</dt><dd>Mô hình dựng trên <code>Global-Superstore</code> — 51.290 dòng, tổ chức 4</dd></dl>
+    <ol>
+      <li>Tab <b>Explorer</b>, tích thước đo <b>Số dòng</b>, không chọn chiều nào → <b>Chạy truy vấn</b></li>
+      <li>Bỏ tích, tích thước đo <code>Postal Code</code>, chọn <b>Đếm ô có dữ liệu</b> → <b>Chạy truy vấn</b></li>
+      <li>Đổi sang <b>Đếm giá trị khác nhau</b> → <b>Chạy truy vấn</b></li>
+      <li>Rê chuột lên nút <b>Đếm ô có dữ liệu</b></li>
+    </ol>
+    <div class="mongdoi"><b>Phải thấy</b><ul>
+      <li>Số dòng: <b>51.290</b></li>
+      <li>Đếm ô có dữ liệu: <b>9.994</b> — <b>không</b> phải 51.290. Hơn 80 % đơn hàng không có mã bưu chính</li>
+      <li>Đếm giá trị khác nhau: <b>631</b> — số mã bưu chính khác nhau, khác hẳn hai con số trên</li>
+      <li>Chú thích khi rê chuột: <i>"Đếm số dòng CÓ ĐIỀN cột này. Ô trống không được tính, nên con số này có thể nhỏ hơn thước đo Số dòng."</i></li>
+      <li>Tiêu đề cột đọc là <b>Postal Code (Đếm ô có dữ liệu)</b>, không phải "Đếm dòng"</li>
+    </ul></div>
+    <div class="canhbao"><p>Nếu con số ở bước 2 ra đúng <b>51.290</b> thì phép đếm đang bám vào khoá chính ẩn chứ không bám vào cột — nghĩa là nó chỉ là bản sao của <b>Số dòng</b> mang tên một cột, và cả kịch bản này mất ý nghĩa. Đây là đúng hình dạng lỗi mà lệnh cấm <code>count</code> ở bản trước lo sợ.</p></div>
+  </div>
+</div>
+
+<div class="kb" data-ma="F11">
+  <div class="kb-head"><span class="ma">F11</span><span class="tt"><b>Tích chọn bộ dữ liệu ngay ở Kho dữ liệu để dựng mô hình</b><span>Không phải rời trang rồi đi tìm lại chúng</span></span></div>
+  <div class="kb-body">
+    <dl class="kb-meta"><dt>Tiền điều kiện</dt><dd>Ít nhất <b>hai</b> bộ dữ liệu ở trạng thái <b>Đã nạp</b>, và ít nhất <b>một</b> bộ <b>chưa nạp</b></dd></dl>
+    <ol>
+      <li>Vào <b>Kho dữ liệu</b>. Nhìn cột ô tích ở đầu bảng</li>
+      <li>Thử bấm ô tích của dòng <b>chưa nạp</b>, rồi rê chuột lên nó</li>
+      <li>Tích hai bộ <b>đã nạp</b></li>
+      <li>Gõ vào ô tìm kiếm một từ chỉ khớp <b>một</b> trong hai bộ vừa tích</li>
+      <li>Bấm <b>Tạo mô hình từ 2 bộ dữ liệu</b></li>
+      <li>Đặt tên rồi bấm <b>Tạo mô hình</b></li>
+      <li>Quay lại Kho dữ liệu, tìm một dòng đã nạp <b>chưa có</b> mô hình, bấm chữ <b>Tạo mô hình</b> ở cột Mô hình dữ liệu</li>
+    </ol>
+    <div class="mongdoi"><b>Phải thấy</b><ul>
+      <li>Bước 2: ô tích <b>bấm không được</b>, và chú thích khi rê chuột ghi <i>"Chưa nạp vào kho phân tích nên chưa dựng mô hình lên được"</i></li>
+      <li>Bước 3: thanh xanh hiện lên trên bảng — <b>Đã chọn 2 bộ dữ liệu</b>, kèm nút <b>Bỏ chọn</b></li>
+      <li>Bước 4: thanh <b>vẫn ghi 2</b> dù bảng chỉ còn một dòng, và có thêm dòng chữ <b>(có bộ nằm ở trang hoặc bộ lọc khác)</b></li>
+      <li>Bước 5: hộp thoại mở ra với <b>cả hai bộ đã tích sẵn</b> — không phải tích lại</li>
+      <li>Bước 6: nhảy thẳng vào mô hình vừa tạo, tab Schemas có cột của <b>cả hai</b> bảng</li>
+      <li>Bước 7: hộp thoại mở ra với <b>đúng một</b> bộ đã tích — bộ ở dòng vừa bấm</li>
+      <li>Ô tích ở hàng tiêu đề chỉ tích những dòng <b>đã nạp của trang đang xem</b>, không đụng lựa chọn ở trang khác</li>
+    </ul></div>
+    <div class="canhbao"><p>Đăng nhập lại bằng tài khoản <b>người xem</b> rồi mở Kho dữ liệu: <b>không được có</b> cột ô tích, không có thanh xanh, và cột Mô hình dữ liệu chỉ hiện chữ chứ không có nút bấm. Người xem không tạo được mô hình, nên một ô tích dẫn tới lỗi 403 là cái bẫy chứ không phải tính năng.</p></div>
+  </div>
+</div>
+
+<div class="kb" data-ma="F12">
+  <div class="kb-head"><span class="ma">F12</span><span class="tt"><b>Doanh thu = số lượng × đơn giá, tính đúng thứ tự</b><span>Hai cách tính cho hai con số khác nhau</span></span></div>
+  <div class="kb-body">
+    <dl class="kb-meta"><dt>Tiền điều kiện</dt><dd>Một mô hình có bảng dòng hàng — cột <b>số lượng</b> và cột <b>đơn giá</b> trên cùng một bảng</dd></dl>
+    <ol>
+      <li>Mở mô hình → <b>Thước đo tính toán</b></li>
+      <li>Đặt tên <code>Doanh thu</code></li>
+      <li>Bấm phép <b>×</b> và nhìn khối <b>Cách tính</b> ở trên</li>
+      <li>Chọn cột thứ nhất <b>số lượng</b>, cột thứ hai <b>đơn giá</b>, phép gộp <b>Tổng</b> → <b>Thêm thước đo</b></li>
+      <li>Sang tab <b>Explorer</b>, tích <code>Doanh thu</code> → <b>Chạy truy vấn</b></li>
+      <li>Đối chiếu bằng ClickHouse: <code>SELECT sum("số lượng" * "đơn giá") FROM bi_analytics."raw_t…"</code></li>
+      <li>Quay lại hộp thoại, đổi phép sang <b>÷</b> và nhìn lại khối <b>Cách tính</b></li>
+    </ol>
+    <div class="mongdoi"><b>Phải thấy</b><ul>
+      <li>Bước 3: bấm <b>×</b> thì ô <b>Tính từng dòng rồi gộp</b> <b>tự sáng lên</b>, và hai ô ghi rõ hai công thức khác nhau — <code>Tổng( số lượng × đơn giá )</code> so với <code>số lượng × đơn giá</code></li>
+      <li>Ô <b>Phép gộp</b> chỉ hiện ở chế độ tính-từng-dòng; chế độ kia không có, vì hai vế đã gộp xong rồi</li>
+      <li>Bước 5 và 6: <b>hai con số khớp nhau</b></li>
+      <li>Bước 7: bấm <b>÷</b> thì tự chuyển về <b>Gộp trước rồi tính</b> — nhưng nếu bạn đã tự bấm chọn một ô thì lựa chọn đó <b>được giữ</b>, không bị kéo đi</li>
+      <li>Trong bảng danh sách ở đầu hộp thoại, thước đo mới hiện công thức <code>Tổng( số lượng × đơn giá )</code>, khác hẳn dòng công thức thường</li>
+    </ul></div>
+    <div class="canhbao"><p>Thử luôn cách <b>sai</b> để thấy vì sao khối này tồn tại: chọn <b>Gộp trước rồi tính</b> với cùng hai vế. Con số ra sẽ <b>gần đúng</b> chứ không lệch lộ liễu — trên dữ liệu thật của tổ chức 4 nó lệch <b>0,047 %</b> (39,40 tỷ so với 39,38 tỷ). Đó chính là lý do hai công thức phải bày cạnh nhau: sai kiểu này không ai phát hiện bằng mắt.</p></div>
+  </div>
+</div>
+
+<div class="kb" data-ma="F13">
+  <div class="kb-head"><span class="ma">F13</span><span class="tt"><b>Thước đo tự nói ra phép tính của nó</b><span>Vì tên thước đo trùng đúng tên cột</span></span></div>
+  <div class="kb-body">
+    <dl class="kb-meta"><dt>Tiền điều kiện</dt><dd>Một mô hình có bảng chứa cột tiền — ví dụ <code>Total amount</code> trên bảng đơn hàng</dd></dl>
+    <ol>
+      <li>Mở mô hình → tab <b>Explorer</b></li>
+      <li>Nhìn cột trái, nhóm <b>Thước đo (Measure)</b>, KHÔNG tích gì cả</li>
+      <li>Tích <code>Total amount</code> → <b>Chạy truy vấn</b></li>
+      <li>Rê chuột lên <b>tiêu đề cột</b> trong bảng kết quả</li>
+      <li>Ở khối <b>Cách tính</b>, bấm sang <b>Trung bình</b> rồi nhìn lại cột trái</li>
+      <li>Tích thêm một thước đo <b>Số dòng</b> và một thước đo tính từng dòng nếu có</li>
+    </ol>
+    <div class="mongdoi"><b>Phải thấy</b><ul>
+      <li>Bước 2: dưới mỗi tên thước đo có một dòng chữ nhỏ ghi phép tính — <code>Tổng của Total amount</code>, <code>Trung bình của Unit price</code></li>
+      <li>Thước đo <b>Số dòng</b> ghi <code>Đếm số dòng của bảng …</code>, không ghi tên cột nào</li>
+      <li>Thước đo tính từng dòng ghi <code>Tổng của (Quantity × Unit price)</code> — <b>có ngoặc</b></li>
+      <li>Bước 4: chú thích của tiêu đề cột nói đúng phép tính đã chạy</li>
+      <li>Bước 5: dòng chữ nhỏ <b>đổi theo</b> thành <code>Trung bình của Total amount</code> ngay, không cần chạy lại</li>
+      <li>Cuối nhóm có một câu nói rõ thước đo <b>từ đâu ra</b>: tạo sẵn lúc thêm bảng, sửa ở tab Schemas</li>
+    </ul></div>
+    <div class="canhbao"><p>Đây là chỗ chữa một hiểu nhầm khó thấy: trong dữ liệu, <code>Total amount</code> là số tiền của <b>một đơn</b>; trong Explorer, <code>Total amount</code> là <b>tổng tiền của cả nhóm</b>. Hai thứ mang y hệt một cái tên. Người dùng nhìn thấy con số hàng tỉ ở chỗ họ chờ hàng trăm nghìn, và trước bản này không có gì trên màn hình giải thích khoảng cách đó — con số vẫn đúng, chỉ nghĩa của nó bị đọc sai.</p></div>
+  </div>
+</div>
+
+<div class="kb" data-ma="F14">
+  <div class="kb-head"><span class="ma">F14</span><span class="tt"><b>Từ vựng của mô hình chỉ có MỘT bản</b><span>Đổi ở shared thì cả ba màn hình đổi theo</span></span></div>
+  <div class="kb-body">
+    <dl class="kb-meta"><dt>Tiền điều kiện</dt><dd>Một mô hình bất kỳ đã có bảng</dd></dl>
+    <ol>
+      <li>Tab <b>Explorer</b> → nhìn hai tiêu đề nhóm ở cột trái</li>
+      <li>Tab <b>Schemas</b> → mở một bảng → nhìn hai tiêu đề cột cuối và ô sổ xuống <b>Vai trò</b></li>
+      <li><b>Tạo báo cáo</b> từ mô hình → nhìn nhãn hai ô chọn</li>
+    </ol>
+    <div class="mongdoi"><b>Phải thấy</b><ul>
+      <li>Cả ba màn hình dùng <b>đúng một</b> cặp chữ: <code>Chiều (Dimension)</code> và <code>Thước đo (Measure)</code></li>
+      <li>Explorer: dưới mỗi tiêu đề nhóm có một câu nói nhóm đó là gì — <i>"Cột để chia nhóm — theo khu vực, theo tháng, theo sản phẩm."</i></li>
+      <li>Schemas: cột cuối tên <b>Phép gộp (Aggregation)</b>, KHÔNG còn tên "Thước đo"</li>
+      <li>Ô sổ xuống <b>Vai trò</b> có ba lựa chọn, cả ba đều kèm từ tiếng Anh</li>
+    </ul></div>
+    <div class="canhbao"><p>Chỗ dễ sai nhất đã được sửa cùng lượt: trước đây cột <b>Vai trò</b> nhận giá trị <i>Thước đo</i>, còn cột ngay bên phải nó cũng mang tiêu đề <i>Thước đo</i> — hai thứ khác nhau, một cái tên, nằm cạnh nhau trên cùng một hàng. Cột bên phải chọn <b>phép gộp</b>, và <code>aria-label</code> của chính ô select luôn đọc là "Phép gộp của cột …", tức hai nhãn vẫn đang nói hai đằng.</p></div>
+  </div>
+</div>
+
+<h2><span class="num">§7</span>Quản lý tổ chức</h2>
+
+<div class="kb" data-ma="G1">
+  <div class="kb-head"><span class="ma">G1</span><span class="tt"><b>Tạo, đổi tên và xoá workspace</b><span>Đổi tên không được đổi đường dẫn</span></span></div>
+  <div class="kb-body">
+    <ol>
+      <li><b>Quản lý tổ chức</b> → tab <b>Workspace</b> → <b>Tạo workspace</b>, tên <code>Phòng Kinh doanh</code></li>
+      <li>Ghi lại cột <b>Đường dẫn</b></li>
+      <li>Đổi tên thành <code>Phòng Kinh doanh 2026</code></li>
+      <li>Xoá workspace đó</li>
+    </ol>
+    <div class="mongdoi"><b>Phải thấy</b><ul>
+      <li>Sau khi đổi tên, cột <b>Đường dẫn</b> <b>không đổi</b> — link cũ ai đó đã lưu vẫn dùng được</li>
+      <li>Xoá được vì nó rỗng</li>
+    </ul></div>
+  </div>
+</div>
+
+<div class="kb" data-ma="G2">
+  <div class="kb-head"><span class="ma">G2</span><span class="tt"><b>Không xoá được workspace cuối cùng</b><span></span></span></div>
+  <div class="kb-body">
+    <ol>
+      <li>Xoá cho tới khi tổ chức chỉ còn <b>một</b> workspace</li>
+      <li>Thử xoá nốt cái cuối</li>
+    </ol>
+    <div class="mongdoi"><b>Phải thấy</b><ul>
+      <li>Bị chặn kèm lý do — tổ chức không được phép không có workspace nào</li>
+    </ul></div>
+  </div>
+</div>
+
+<div class="kb" data-ma="G3">
+  <div class="kb-head"><span class="ma">G3</span><span class="tt"><b>Mời thành viên mới và mật khẩu tạm</b><span>Mật khẩu chỉ hiện đúng một lần</span></span></div>
+  <div class="kb-body">
+    <ol>
+      <li>Tab <b>Thành viên</b> → <b>Thêm thành viên</b></li>
+      <li>Điền email chưa từng có, họ tên, vai trò <b>Người xem</b></li>
+      <li>Chép mật khẩu tạm hiện ra, <b>rồi bấm F5</b></li>
+      <li>Đăng xuất, đăng nhập bằng tài khoản mới đó</li>
+    </ol>
+    <div class="mongdoi"><b>Phải thấy</b><ul>
+      <li>Bảng mật khẩu <b>sống qua F5</b>, và nút đóng chỉ mở sau khi tự tích ô xác nhận</li>
+      <li>Đăng nhập lần đầu bị <b>bắt đổi mật khẩu</b> trước khi vào được đâu</li>
+      <li>Đổi xong vào đúng tổ chức được mời, không phải không gian riêng</li>
+    </ul></div>
+  </div>
+</div>
+
+<div class="kb" data-ma="G4">
+  <div class="kb-head"><span class="ma">G4</span><span class="tt"><b>Cấp lại mật khẩu khi lỡ quên chép</b><span>Là cấp lại, không phải xem lại</span></span></div>
+  <div class="kb-body">
+    <ol>
+      <li>Ở dòng của người vừa mời, chọn <b>Cấp lại mật khẩu tạm</b></li>
+      <li>Thử làm điều đó với <b>chính mình</b></li>
+    </ol>
+    <div class="mongdoi"><b>Phải thấy</b><ul>
+      <li>Sinh mật khẩu <b>mới</b>; mật khẩu cũ chết ngay</li>
+      <li>Với chính mình: bị từ chối, kèm gợi ý dùng trang hồ sơ cá nhân</li>
+    </ul></div>
+  </div>
+</div>
+
+<div class="kb" data-ma="G5">
+  <div class="kb-head"><span class="ma">G5</span><span class="tt"><b>Không tự hạ quyền và không bỏ được admin cuối cùng</b><span></span></span></div>
+  <div class="kb-body">
+    <ol>
+      <li>Thử đổi vai trò của <b>chính mình</b> xuống Người xem</li>
+      <li>Thử khoá hoặc gỡ chính mình</li>
+    </ol>
+    <div class="mongdoi"><b>Phải thấy</b><ul>
+      <li>Cả ba thao tác bị chặn, mỗi cái kèm lý do đọc được</li>
+      <li>Tổ chức không bao giờ rơi vào cảnh không còn quản trị viên nào</li>
+    </ul></div>
+  </div>
+</div>
+
+<div class="kb" data-ma="G6">
+  <div class="kb-head"><span class="ma">G6</span><span class="tt"><b>Đổi tên tổ chức</b><span></span></span></div>
+  <div class="kb-body">
+    <ol>
+      <li>Tab <b>Tổ chức</b> → đổi tên thành <code>Công ty Ánh Dương 2026</code></li>
+      <li>Nhìn tên trên sidebar</li>
+      <li>Đổi trả lại tên cũ</li>
+    </ol>
+    <div class="mongdoi"><b>Phải thấy</b><ul>
+      <li>Tên trên sidebar đổi theo ngay</li>
+      <li>Đường dẫn định danh của tổ chức <b>không</b> đổi</li>
+    </ul></div>
+  </div>
+</div>
+
+<h2><span class="num">§8</span>Console vận hành hệ thống</h2>
+
+<div class="kb" data-ma="H1">
+  <div class="kb-head"><span class="ma">H1</span><span class="tt"><b>Tổng quan nhìn xuyên mọi tổ chức</b><span></span></span></div>
+  <div class="kb-body">
+    <dl class="kb-meta"><dt>Tài khoản</dt><dd><code>admin@bi-platform.local</code> / <code>Admin@12345</code></dd></dl>
+    <ol>
+      <li>Đăng nhập rồi vào <code>/admin</code></li>
+      <li>Xem trang <b>Tổng quan</b></li>
+    </ol>
+    <div class="mongdoi"><b>Phải thấy</b><ul>
+      <li>Thẻ số đếm tổ chức, người dùng, workspace của <b>toàn hệ thống</b></li>
+      <li>Biểu đồ tăng trưởng <b>không nhảy cóc ngày</b> — ngày trống vẫn có cột 0</li>
+      <li>Đăng nhập xong vào <b>Trang chủ</b> trước, không nhảy thẳng vào <code>/admin</code></li>
+    </ul></div>
+  </div>
+</div>
+
+<div class="kb" data-ma="H2">
+  <div class="kb-head"><span class="ma">H2</span><span class="tt"><b>Không gian cá nhân bị ẩn khỏi danh sách tổ chức</b><span>Mỗi người một dòng thì công ty thật bị chôn</span></span></div>
+  <div class="kb-body">
+    <ol>
+      <li>Vào mục <b>Tổ chức</b></li>
+      <li>Đổi bộ lọc <b>Loại</b> sang <b>Không gian cá nhân</b>, rồi sang <b>Tất cả</b></li>
+    </ol>
+    <div class="mongdoi"><b>Phải thấy</b><ul>
+      <li>Mặc định chỉ hiện công ty thật</li>
+      <li>Chọn Tất cả thì hiện thêm các không gian cá nhân, mỗi dòng có nhãn riêng</li>
+    </ul></div>
+  </div>
+</div>
+
+<div class="kb" data-ma="H3">
+  <div class="kb-head"><span class="ma">H3</span><span class="tt"><b>Khoá một tổ chức thì thành viên của nó mất phiên</b><span></span></span></div>
+  <div class="kb-body">
+    <ol>
+      <li>Mở một trình duyệt thứ hai (hoặc cửa sổ ẩn danh), đăng nhập bằng <code>mai@anhduong.vn</code></li>
+      <li>Ở cửa sổ admin, khoá tổ chức <b>Công ty Ánh Dương</b></li>
+      <li>Quay lại cửa sổ của Mai, bấm sang một trang bất kỳ</li>
+      <li>Mở khoá lại sau khi thử xong</li>
+    </ol>
+    <div class="mongdoi"><b>Phải thấy</b><ul>
+      <li>Mai bị đá ra, không phải đợi token hết hạn</li>
+    </ul></div>
+  </div>
+</div>
+
+<div class="kb" data-ma="H4">
+  <div class="kb-head"><span class="ma">H4</span><span class="tt"><b>Không tự khoá và không tự xoá chính mình</b><span></span></span></div>
+  <div class="kb-body">
+    <ol>
+      <li>Vào mục <b>Người dùng</b>, tìm chính tài khoản admin đang đăng nhập</li>
+      <li>Thử khoá, rồi thử xoá</li>
+    </ol>
+    <div class="mongdoi"><b>Phải thấy</b><ul>
+      <li>Cả hai bị chặn — hệ thống không được phép rơi vào cảnh không còn quản trị viên</li>
+    </ul></div>
+  </div>
+</div>
+
+<h2><span class="num">§9</span>Các ca biên đáng thử</h2>
+
+<div class="kb" data-ma="I1">
+  <div class="kb-head"><span class="ma">I1</span><span class="tt"><b>Không xem được dữ liệu của tổ chức khác dù gõ thẳng địa chỉ</b><span>Đây là lỗi nghiêm trọng nhất có thể xảy ra</span></span></div>
+  <div class="kb-body">
+    <ol>
+      <li>Đăng nhập bằng <code>mai@anhduong.vn</code></li>
+      <li>Gõ thẳng vào thanh địa chỉ: <code>/datasets/21</code>, <code>/datasets/22</code>, <code>/datamodels/1</code></li>
+    </ol>
+    <div class="mongdoi"><b>Phải thấy</b><ul>
+      <li>Cả ba đều báo <b>không tìm thấy</b></li>
+      <li><b>Không</b> được báo “bạn không có quyền” — câu đó tự nó xác nhận rằng dữ liệu đó tồn tại</li>
+    </ul></div>
+  </div>
+</div>
+
+<div class="kb" data-ma="I2">
+  <div class="kb-head"><span class="ma">I2</span><span class="tt"><b>Địa chỉ không tồn tại</b><span></span></span></div>
+  <div class="kb-body">
+    <ol>
+      <li>Gõ <code>/khong-co-trang-nay</code></li>
+    </ol>
+    <div class="mongdoi"><b>Phải thấy</b><ul>
+      <li>Trang báo không tìm thấy có thiết kế đàng hoàng, kèm đường về trang chủ</li>
+      <li>Không phải trang trắng hay chuỗi lỗi thô</li>
+    </ul></div>
+  </div>
+</div>
+
+<div class="kb" data-ma="I3">
+  <div class="kb-head"><span class="ma">I3</span><span class="tt"><b>Bấm F5 giữa chừng không mất bộ lọc</b><span>Trạng thái danh sách nằm trên URL</span></span></div>
+  <div class="kb-body">
+    <ol>
+      <li>Vào <b>Kho dữ liệu</b>, gõ từ khoá tìm kiếm, đổi bộ lọc <b>Nguồn</b>, sang trang 2</li>
+      <li>Bấm F5</li>
+      <li>Bấm nút <b>quay lại</b> của trình duyệt</li>
+    </ol>
+    <div class="mongdoi"><b>Phải thấy</b><ul>
+      <li>Sau F5, tìm kiếm và bộ lọc vẫn nguyên</li>
+      <li>Nút quay lại đưa về đúng trạng thái lọc trước đó</li>
+      <li>Đổi bộ lọc thì tự về <b>trang 1</b> — không đứng lại ở trang 2 rỗng</li>
+    </ul></div>
+  </div>
+</div>
+
+<div class="kb" data-ma="I4">
+  <div class="kb-head"><span class="ma">I4</span><span class="tt"><b>Bảng rộng thì bảng tự cuộn, trang không cuộn ngang</b><span></span></span></div>
+  <div class="kb-body">
+    <ol>
+      <li>Mở một bộ dữ liệu nhiều cột, xem tab <b>Dữ liệu</b></li>
+      <li>Thu hẹp cửa sổ trình duyệt còn khoảng nửa màn hình</li>
+    </ol>
+    <div class="mongdoi"><b>Phải thấy</b><ul>
+      <li>Chỉ vùng bảng cuộn ngang; sidebar và tiêu đề đứng yên</li>
+      <li>Cả trang <b>không</b> bị đẩy lệch sang phải</li>
+    </ul></div>
+  </div>
+</div>
+
+<div class="kb" data-ma="I5">
+  <div class="kb-head"><span class="ma">I5</span><span class="tt"><b>Xoá bộ dữ liệu đang có báo cáo dùng</b><span>Không được xoá lan sang nội dung của người khác</span></span></div>
+  <div class="kb-body">
+    <ol>
+      <li>Tạo một báo cáo từ một bộ dữ liệu</li>
+      <li>Quay ra Kho dữ liệu, thử xoá chính bộ đó</li>
+    </ol>
+    <div class="mongdoi"><b>Phải thấy</b><ul>
+      <li>Bị chặn kèm <b>số lượng</b> báo cáo đang dùng</li>
+      <li>Báo cáo không bị xoá theo</li>
+    </ul></div>
+  </div>
+</div>
+
+<div class="kb" data-ma="I6">
+  <div class="kb-head"><span class="ma">I6</span><span class="tt"><b>Mất mạng giữa chừng</b><span>Giao diện phải nói được là đang mất kết nối</span></span></div>
+  <div class="kb-body">
+    <ol>
+      <li>Mở DevTools bằng <kbd>F12</kbd> → tab <b>Network</b> → đặt chế độ <b>Offline</b></li>
+      <li>Bấm sang một trang khác trong ứng dụng</li>
+      <li>Bỏ Offline, bấm thử lại</li>
+    </ol>
+    <div class="mongdoi"><b>Phải thấy</b><ul>
+      <li>Có thông báo lỗi rõ ràng, không phải màn hình trắng hay quay vòng vĩnh viễn</li>
+      <li>Bỏ Offline rồi thao tác lại thì chạy bình thường, không phải tải lại cả trang</li>
+    </ul></div>
+  </div>
+</div>
+
+<h2><span class="num">§10</span>Sau khi kiểm xong</h2>
+<p>
+  Kịch bản này <b>tạo dữ liệu thật</b> trong tổ chức bạn dùng để thử. Dọn lại cho
+  gọn: xoá các bộ dữ liệu <code>kiem-thu-*</code>, các mô hình gắn với chúng,
+  kết nối <code>CSDL bán hàng</code>, workspace và thành viên đã tạo trong §7.
+</p>
+<p>
+  Riêng bảng trong ClickHouse thì <b>cố ý không bị xoá theo</b> khi bạn xoá bộ dữ
+  liệu — đó là điều kiện để xoá mềm hoàn tác được. Muốn dọn hẳn thì phải xoá ở
+  tầng cơ sở dữ liệu.
+</p>
+
+<footer>
+  Tên nút và tên nhãn trong tài liệu này lấy từ mã nguồn giao diện, không phải
+  từ trí nhớ. Các con số đối chiếu ở §0, §5 và §6 đã được nạp thật một lượt qua
+  hệ thống rồi truy vấn lại từ ClickHouse trước khi viết ra đây.<br>
+  Đánh dấu kết quả lưu trong trình duyệt của bạn, không gửi đi đâu.
+</footer>
+
+</div>
+
+<script>
+  (function () {
+    var KHOA = 'bi-kichban-trinhduyet-v1';
+    var luu = {};
+    try { luu = JSON.parse(localStorage.getItem(KHOA) || '{}'); } catch (e) { luu = {}; }
+
+    function ghi() {
+      try { localStorage.setItem(KHOA, JSON.stringify(luu)); } catch (e) { /* chế độ riêng tư */ }
+    }
+
+    var the = Array.prototype.slice.call(document.querySelectorAll('.kb[data-ma]'));
+
+    function capNhatDem() {
+      var dat = 0, hong = 0;
+      the.forEach(function (t) {
+        var kq = t.getAttribute('data-kq');
+        if (kq === 'dat') dat++;
+        else if (kq === 'hong') hong++;
+      });
+      var xong = dat + hong;
+      document.getElementById('d-xong').textContent = String(xong);
+      document.getElementById('d-tong').textContent = String(the.length);
+      document.getElementById('d-dat').textContent = String(dat);
+      document.getElementById('d-hong').textContent = String(hong);
+      document.getElementById('d-bar').style.width = the.length ? (xong / the.length * 100) + '%' : '0';
+    }
+
+    the.forEach(function (t) {
+      var ma = t.getAttribute('data-ma');
+      var truoc = luu[ma] || {};
+
+      var o = document.createElement('div');
+      o.className = 'ketqua';
+      o.innerHTML =
+        '<span class="lab">Kết quả</span>' +
+        '<button type="button" class="kq-btn" data-kq="dat" aria-pressed="false">Đạt</button>' +
+        '<button type="button" class="kq-btn" data-kq="hong" aria-pressed="false">Không đạt</button>' +
+        '<input class="ghichu" type="text" placeholder="Ghi chú — thấy gì khác thường?">';
+      t.querySelector('.kb-body').appendChild(o);
+
+      var nut = o.querySelectorAll('.kq-btn');
+      var oGhi = o.querySelector('.ghichu');
+
+      function ve(kq) {
+        Array.prototype.forEach.call(nut, function (n) {
+          n.setAttribute('aria-pressed', String(n.dataset.kq === kq));
+        });
+        if (kq) t.setAttribute('data-kq', kq);
+        else t.removeAttribute('data-kq');
+      }
+
+      if (truoc.kq) ve(truoc.kq);
+      if (truoc.ghiChu) oGhi.value = truoc.ghiChu;
+
+      Array.prototype.forEach.call(nut, function (n) {
+        n.addEventListener('click', function () {
+          // Bấm lại nút đang chọn thì bỏ chọn — sửa được khi lỡ tay.
+          var moi = t.getAttribute('data-kq') === n.dataset.kq ? null : n.dataset.kq;
+          ve(moi);
+          luu[ma] = luu[ma] || {};
+          luu[ma].kq = moi;
+          ghi();
+          capNhatDem();
+        });
+      });
+
+      oGhi.addEventListener('input', function () {
+        luu[ma] = luu[ma] || {};
+        luu[ma].ghiChu = oGhi.value;
+        ghi();
+      });
+    });
+
+    document.getElementById('nut-xoa').addEventListener('click', function () {
+      luu = {};
+      ghi();
+      the.forEach(function (t) {
+        t.removeAttribute('data-kq');
+        Array.prototype.forEach.call(t.querySelectorAll('.kq-btn'), function (n) {
+          n.setAttribute('aria-pressed', 'false');
+        });
+        t.querySelector('.ghichu').value = '';
+      });
+      capNhatDem();
+    });
+
+    capNhatDem();
+  })();
+</script>

@@ -1,5 +1,5 @@
 import { LOAD_STATUS_LABELS, LOAD_STATUSES_LIVE } from '@bi/shared';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 
 import { Badge } from '../../components/ui/Badge';
@@ -37,9 +37,22 @@ import { useCreateDataModel } from './hooks';
 interface Props {
   open: boolean;
   onClose: () => void;
+  /**
+   * Bộ dữ liệu tích sẵn khi hộp thoại mở.
+   *
+   * Có mặt vì Kho dữ liệu cũng mở hộp thoại này, sau khi người dùng đã tích
+   * xong ngay trên bảng. Bắt họ tích lại lần thứ hai trong danh sách ở dưới là
+   * hỏi cùng một câu hai lần — và lần thứ hai còn ở một danh sách khác, không
+   * có bộ lọc mà họ vừa dùng để tìm ra chúng.
+   */
+  initialSelected?: readonly number[];
 }
 
-export function CreateDataModelModal({ open, onClose }: Props): React.ReactElement {
+export function CreateDataModelModal({
+  open,
+  onClose,
+  initialSelected,
+}: Props): React.ReactElement {
   const navigate = useNavigate();
   const create = useCreateDataModel();
   const { current: workspace } = useWorkspace();
@@ -47,6 +60,23 @@ export function CreateDataModelModal({ open, onClose }: Props): React.ReactEleme
   const [name, setName] = useState('');
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [formError, setFormError] = useState<string | null>(null);
+
+  /*
+   * Nạp lựa chọn mồi mỗi lần hộp thoại mở.
+   *
+   * Hộp thoại này KHÔNG bị tháo khỏi cây khi đóng — `Modal` bọc thẻ <dialog> và
+   * chỉ gọi `close()`, nên `selected` sống qua các lần đóng mở. Không đồng bộ
+   * lại thì lần mở thứ hai vẫn mang lựa chọn của lần đầu.
+   *
+   * Danh sách phụ thuộc dùng CHUỖI chứ không phải mảng: mảng sinh mới mỗi lần
+   * render nên `[initialSelected]` sẽ chạy lại bất tận, còn `[open]` một mình
+   * thì bỏ sót lần người dùng đổi lựa chọn trong khi hộp thoại đang mở.
+   */
+  const moi = (initialSelected ?? []).join(',');
+  useEffect(() => {
+    if (!open) return;
+    setSelected(new Set(moi === '' ? [] : moi.split(',').map(Number)));
+  }, [open, moi]);
 
   // Lấy cả bộ chưa nạp để hiện chúng ở trạng thái vô hiệu kèm lý do.
   const { data, isPending } = useDatasets(
