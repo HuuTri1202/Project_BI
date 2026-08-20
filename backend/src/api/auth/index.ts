@@ -39,6 +39,26 @@ const authRateLimit = (bucket: string) =>
   });
 
 /**
+ * Hạn mức của `/login` — chỉ đếm lần ĐĂNG NHẬP SAI.
+ *
+ * Thứ hạn mức này chặn là dò mật khẩu, mà dò mật khẩu thì luôn thất bại. Đếm cả
+ * lần đăng nhập đúng không chặn thêm được gì, nhưng nó khoá đúng người dùng
+ * thật — mười lần đăng nhập đúng trong mười lăm phút là chuyện bình thường khi
+ * đang phát triển hoặc dùng nhiều thiết bị, và họ nhận 429 dù chưa gõ sai lần
+ * nào.
+ *
+ * `/register` KHÔNG dùng biến thể này: ở đó chính lần thành công mới là thứ cần
+ * chặn (tạo hàng loạt tài khoản), còn kênh liệt kê email qua 409 vẫn bị nhánh
+ * đếm-thất-bại phủ.
+ */
+const loginRateLimit = rateLimit({
+  bucket: 'login',
+  max: env.LOGIN_MAX_ATTEMPTS,
+  windowSeconds: env.LOGIN_LOCKOUT_MINUTES * 60,
+  countFailuresOnly: true,
+});
+
+/**
  * POST /api/auth/register — §1.4
  *
  * Tạo tổ chức + tài khoản + tư cách thành viên + workspace, và người đăng ký là
@@ -89,7 +109,7 @@ const INVALID_CREDENTIALS = 'Email hoặc mật khẩu không đúng.';
 /** POST /api/auth/login — §2.3, §2.4 */
 authRouter.post(
   '/login',
-  authRateLimit('login'),
+  loginRateLimit,
   asyncHandler(async (req, res) => {
     const { email, password } = loginSchema.parse(req.body);
 
