@@ -56,6 +56,13 @@ import { getApiError } from '../../../services/apiClient';
 
 interface Draft {
   alias: string;
+  /**
+   * Mô tả cột — §8.3.1. Chuỗi rỗng = chưa viết gì, backend quy về `null`.
+   *
+   * Đi chung bản nháp với `alias` và `role` vì cùng một lý do đã ghi cho `agg`
+   * ngay dưới: người dùng sửa cả bốn thứ rồi bấm một nút Lưu.
+   */
+  description: string;
   role: ColumnRole;
   /**
    * Phép gộp của thước đo dựng trên cột này. `null` = không có thước đo nào.
@@ -109,6 +116,7 @@ export default function SchemasTab(): React.ReactElement {
       for (const column of ds.columns) {
         next[column.id] = {
           alias: column.alias ?? '',
+          description: column.description ?? '',
           role: column.role,
           agg: aggByColumn.get(column.id) ?? null,
         };
@@ -139,6 +147,7 @@ export default function SchemasTab(): React.ReactElement {
         if (draft === undefined) continue;
         if (
           draft.alias !== (column.alias ?? '') ||
+          draft.description !== (column.description ?? '') ||
           draft.role !== column.role ||
           draft.agg !== (savedAgg.get(column.id) ?? null)
         ) {
@@ -175,12 +184,14 @@ export default function SchemasTab(): React.ReactElement {
       ds.columns.map((column) => {
         const draft = drafts[column.id] ?? {
           alias: column.alias ?? '',
+          description: column.description ?? '',
           role: column.role,
           agg: savedAgg.get(column.id) ?? null,
         };
         return {
           columnId: column.id,
           alias: draft.alias.trim() === '' ? null : draft.alias.trim(),
+          description: draft.description.trim() === '' ? null : draft.description.trim(),
           role: draft.role,
           measureAgg: draft.agg,
         };
@@ -316,6 +327,15 @@ export default function SchemasTab(): React.ReactElement {
               <Th>Cột trong kho</Th>
               <Th>Kiểu ClickHouse</Th>
               <Th>Tên hiển thị</Th>
+              {/*
+               * Mô tả — §8.3.1.
+               *
+               * Đặt NGAY SAU tên hiển thị chứ không đẩy xuống cuối bảng: hai ô
+               * này trả lời cùng một câu hỏi ("cột này là gì"), chỉ khác độ
+               * dài, nên người dùng gõ xong ô trái là gõ tiếp ô phải. Đẩy nó ra
+               * sau hai ô chọn nghĩa là phải nhảy qua hai thứ không liên quan.
+               */}
+              <Th>Mô tả</Th>
               <Th>Vai trò (Role)</Th>
               {/*
                * "Phép gộp", KHÔNG phải "Thước đo" như trước.
@@ -333,6 +353,7 @@ export default function SchemasTab(): React.ReactElement {
             {opened.columns.map((column) => {
               const draft = drafts[column.id] ?? {
                 alias: column.alias ?? '',
+                description: column.description ?? '',
                 role: column.role,
                 agg: savedAgg.get(column.id) ?? null,
               };
@@ -379,6 +400,25 @@ export default function SchemasTab(): React.ReactElement {
                       aria-label={`Tên hiển thị của cột ${column.columnName}`}
                       onChange={(e) => update(column.id, { alias: e.target.value })}
                       className="w-full rounded-lg border border-slate-300 px-2 py-1 text-sm disabled:bg-slate-50 disabled:text-slate-500"
+                    />
+                  </Td>
+                  <Td>
+                    {/*
+                     * Một dòng `<input>` chứ không phải `<textarea>`: mỗi cột
+                     * là MỘT dòng của bảng, và một ô cao ba dòng nhân với 20
+                     * cột biến màn hình thành thứ phải cuộn mãi mới hết. Trần
+                     * 500 ký tự khớp với cột trong database, nên không có
+                     * đường nào gõ được một câu rồi bị 400 lúc bấm Lưu.
+                     */}
+                    <input
+                      type="text"
+                      value={draft.description}
+                      disabled={!canEdit}
+                      maxLength={500}
+                      placeholder="Cột này nghĩa là gì?"
+                      aria-label={`Mô tả của cột ${column.columnName}`}
+                      onChange={(e) => update(column.id, { description: e.target.value })}
+                      className="w-full min-w-48 rounded-lg border border-slate-300 px-2 py-1 text-sm disabled:bg-slate-50 disabled:text-slate-500"
                     />
                   </Td>
                   <Td>
