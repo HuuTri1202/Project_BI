@@ -1,11 +1,11 @@
 import type { FileExt, SheetPreviewDto } from '@bi/shared';
-import ExcelJS from 'exceljs';
 import { Readable } from 'node:stream';
 import Papa from 'papaparse';
 
 import { env } from '../../config/env';
 import { stripBom } from './detectFormat';
 import { inferColumnType } from './inferType';
+import { loadWorkbook, XlsxLoadError, type Workbook } from './loadWorkbook';
 
 /**
  * Đọc file đã tải lên thành bảng — §7.5.
@@ -153,14 +153,15 @@ function parseCsv(buffer: Buffer): Promise<ParseResult> {
 // ─── Excel ───────────────────────────────────────────────────────────────────
 
 async function parseXlsx(buffer: Buffer): Promise<ParseResult> {
-  const workbook = new ExcelJS.Workbook();
+  let workbook: Workbook;
   try {
-    // `buffer as never`: kiểu của exceljs khai tham số là `Buffer` của phiên bản
-    // @types/node mà nó ghim, lệch với phiên bản trong repo này. Không phải lỗi
-    // logic, chỉ là hai khai báo Buffer không đồng nhất.
-    await workbook.xlsx.load(buffer as never);
-  } catch {
-    throw new ParseError('File Excel hỏng hoặc được bảo vệ bằng mật khẩu.');
+    workbook = await loadWorkbook(buffer);
+  } catch (err) {
+    // `XlsxLoadError` đã mang sẵn câu viết cho người dùng đọc — và đã ghi nguyên
+    // nhân thật ra log. Lỗi khác thì không phải chuyện của file: để nó đi tiếp
+    // lên `errorHandler` thành 500, đúng bản chất của nó.
+    if (err instanceof XlsxLoadError) throw new ParseError(err.message);
+    throw err;
   }
 
   const sheets: ParsedSheet[] = [];

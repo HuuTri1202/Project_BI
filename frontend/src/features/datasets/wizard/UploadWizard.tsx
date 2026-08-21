@@ -109,6 +109,19 @@ export function UploadWizard({ open, onClose }: Props): React.ReactElement {
   }, [open]);
 
   /**
+   * File MỚI bắt đầu tải lên thì lỗi của file cũ hết hiệu lực.
+   *
+   * Lỗi chỉ được dọn trong `goToStep2`, tức là lúc bấm "Tiếp tục". Ai bị từ chối
+   * một file rồi thả file khác vào sẽ thấy câu báo lỗi của file TRƯỚC nằm ngay
+   * dưới file mới — và cùng lúc đó dòng xanh mời bấm "Tiếp tục" lại biến mất,
+   * vì `rejected` vẫn còn bật. Giao diện trông như đã từ chối luôn file mới,
+   * trước khi kịp đọc nó một chữ nào.
+   */
+  useEffect(() => {
+    if (upload.state.status === 'uploading') setError(null);
+  }, [upload.state.status]);
+
+  /**
    * Điều kiện bật nút chính — MỘT chỗ duy nhất.
    *
    * Đây là thứ §7.1 gọi là "Next disabled khi chưa đủ điều kiện". Bước 3 không
@@ -145,6 +158,24 @@ export function UploadWizard({ open, onClose }: Props): React.ReactElement {
   function goToStep3(): void {
     setStep(2);
     setError(null);
+  }
+
+  /**
+   * Lối ra khi file bị từ chối — trả Dashboard về vùng kéo thả.
+   *
+   * ─── Không có nút này thì bước 1 là một ngõ cụt ────────────────────────────
+   *
+   * Uppy tải xong là chuyển sang trạng thái "hoàn tất": danh sách file thay chỗ
+   * vùng kéo thả, và cái `input[type=file]` biến mất khỏi DOM luôn. File vừa bị
+   * bước sau từ chối thì người dùng còn đúng hai lựa chọn: bấm "Tiếp tục" để
+   * hỏng lại y hệt, hoặc "Huỷ" rồi mở lại hộp thoại từ đầu.
+   *
+   * `upload.reset()` gọi `uppy.cancelAll()`, nên vùng kéo thả quay lại và họ thả
+   * được file khác ngay tại chỗ.
+   */
+  function pickAnother(): void {
+    setError(null);
+    upload.reset();
   }
 
   /**
@@ -336,7 +367,7 @@ export function UploadWizard({ open, onClose }: Props): React.ReactElement {
 
       <div className="px-6 py-5">
         {step === 0 && (
-          <StepUpload uppy={upload.uppy} state={upload.state} />
+          <StepUpload uppy={upload.uppy} state={upload.state} rejected={error !== null} />
         )}
 
         {step === 1 && analysis && (
@@ -353,11 +384,26 @@ export function UploadWizard({ open, onClose }: Props): React.ReactElement {
         )}
 
         {/* Lỗi của bước 3 hiện NGAY TRONG màn hình tiến trình, cạnh nút "Thử
-            lại" — nên chỉ hai bước đầu dùng khối này. */}
+            lại" — nên chỉ hai bước đầu dùng khối này.
+
+            Lối ra nằm CÙNG khối với lý do, không tách ra một chỗ khác: đọc xong
+            "không đọc được file này" thì việc cần làm tiếp theo phải ở ngay đó. */}
         {error !== null && step !== 2 && (
-          <p role="alert" className="mt-4 rounded-lg bg-red-50 px-3.5 py-2.5 text-sm text-red-700">
-            {error}
-          </p>
+          <div
+            role="alert"
+            className="mt-4 flex items-center justify-between gap-3 rounded-lg bg-red-50 px-3.5 py-2.5 text-sm text-red-700"
+          >
+            <span>{error}</span>
+            {step === 0 && upload.state.status === 'done' && (
+              <button
+                type="button"
+                onClick={pickAnother}
+                className="shrink-0 font-medium text-red-800 underline underline-offset-2 hover:text-red-900"
+              >
+                Chọn file khác
+              </button>
+            )}
+          </div>
         )}
       </div>
 

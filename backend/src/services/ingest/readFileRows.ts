@@ -5,6 +5,7 @@ import Papa from 'papaparse';
 
 import { storage } from '../../storage';
 import { normalizeCell } from '../dataset/normalizeCell';
+import { loadWorkbook } from '../dataset/loadWorkbook';
 // `cellText` dùng CHUNG với `parseFile`, không chép lại: hai đường này đọc cùng
 // một file Excel, và một bản sao lệch nhau nghĩa là bảng xem trước và dữ liệu
 // trong kho nói hai điều khác nhau về đúng một ô. Cùng lý do với `normalizeCell`.
@@ -360,13 +361,17 @@ function rowText(values: unknown): string[] {
  *
  * Không có `styles: 'cache'` nào phải khai ở đây — `workbook.xlsx.load` LUÔN
  * đọc styles, nên ô ngày ra đúng ngày chứ không ra số sê-ri.
+ *
+ * ⚠️ Đi qua `loadWorkbook`, KHÔNG gọi thẳng `workbook.xlsx.load`. Chính lời gọi
+ * đó ném `TypeError` trên file do openpyxl ghi có ghi chú ô — cùng họ với lỗi
+ * đường dẫn tuyệt đối mà `opcTarget` ở trên đang chữa. Gọi thẳng ở đây nghĩa là
+ * đường lùi hỏng đúng vào lớp file mà đường luồng cũng hay hỏng nhất.
  */
 async function* xlsxLoadRows(
   buffer: Buffer,
   sheetName: string | null,
 ): AsyncGenerator<string[][], void, undefined> {
-  const workbook = new ExcelJS.Workbook();
-  await workbook.xlsx.load(buffer as unknown as ArrayBuffer);
+  const workbook = await loadWorkbook(buffer);
 
   const sheet =
     sheetName === null ? workbook.worksheets[0] : workbook.getWorksheet(sheetName);
