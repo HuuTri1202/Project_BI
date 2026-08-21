@@ -40,7 +40,7 @@ thuộc chỗ nào:
 ### 1. Bộ tự động
 
 ```bash
-npm run test              # 138 ca backend + 35 ca frontend, không cần hạ tầng
+npm run test              # 137 ca backend + 24 ca frontend, không cần hạ tầng
 npm run test:integration  # 417 ca, cần MySQL — BỎ QUA nhánh ClickHouse
 
 # Đầy đủ, gồm cả nhánh chạm ClickHouse thật (cần npm run infra:up):
@@ -64,7 +64,7 @@ cd docs/kiem-thu/kich-ban
 node mod-xacthuc.mjs      # XT — xác thực, 21 ca
 node mod-phanquyen.mjs    # PQ + AT — phân quyền và an toàn, 22 ca
 node mod-luongdulieu.mjs  # TF + NA + MH — luồng đầu-cuối, 17 ca
-node mod-thuocdo.mjs      # TD — thước đo của mô hình dữ liệu, 20 ca
+node mod-thuocdo.mjs      # TD — thước đo của mô hình dữ liệu, 19 ca
 ```
 
 **Không chạy song song với bộ tự động.** Hàm dọn của bộ tự động

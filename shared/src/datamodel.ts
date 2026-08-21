@@ -94,35 +94,36 @@ export const MEASURE_AGGS = [
   'avg',
   'count',
   'countDistinct',
+  'countDistinctApprox',
   'min',
   'max',
-  'median',
-  'p90',
 ] as const;
 export type MeasureAgg = (typeof MEASURE_AGGS)[number];
 
 /**
  * Tên hiện ra cho người dùng.
  *
- * `p90` KHÔNG mang tên đúng của nó trong thống kê ("phân vị 90"). Người đọc
- * báo cáo bán hàng không có khái niệm phân vị, nên cái tên đúng ấy không dẫn
- * tới bất kỳ hành động nào — còn "ngưỡng top 10%" thì nói thẳng ra thứ họ định
- * làm với con số: lấy mốc để tách nhóm cao nhất.
+ * `count` KHÔNG đọc là "Đếm dòng". Nhãn cũ MÔ TẢ SAI việc nó làm khi gắn vào
+ * một cột: `count(cột)` bỏ qua ô trống, nên nó đếm Ô chứ không đếm DÒNG — trên
+ * bảng Orders trong máy là 9.994 so với 51.290. Một người tin vào nhãn cũ sẽ
+ * đọc con số đó như tổng số đơn hàng.
  *
- * `count` cũng đổi tên, và vì một lý do nặng hơn: nhãn cũ "Đếm dòng" MÔ TẢ SAI
- * việc nó làm khi gắn vào một cột. `count(cột)` bỏ qua ô trống, nên nó đếm ô
- * chứ không đếm dòng — trên bảng Orders trong máy là 9.994 so với 51.290. Một
- * người tin vào nhãn cũ sẽ đọc con số đó như tổng số đơn hàng.
+ * `countDistinctApprox` phải nói ra rằng nó ƯỚC LƯỢNG ngay trên nút. Nó là phép
+ * duy nhất trong danh sách trả về một con số có thể sai, và người dùng không có
+ * cách nào tự suy ra điều đó từ một cái tên như "Đếm giá trị khác nhau (nhanh)".
+ *
+ * Dùng chữ "Ước lượng" chứ KHÔNG viết "(gần đúng)" trong ngoặc: khi người dùng
+ * đổi phép, `explorer.ts` dựng nhãn cột thành `<tên> (<phép>)` — một nhãn vốn
+ * đã có ngoặc sẽ thành `Doanh thu (Đếm khác nhau (gần đúng))`, ngoặc lồng ngoặc.
  */
 export const MEASURE_AGG_LABELS: Record<MeasureAgg, string> = {
   sum: 'Tổng',
   avg: 'Trung bình',
   count: 'Đếm ô có dữ liệu',
   countDistinct: 'Đếm giá trị khác nhau',
+  countDistinctApprox: 'Ước lượng số khác nhau',
   min: 'Nhỏ nhất',
   max: 'Lớn nhất',
-  median: 'Trung vị',
-  p90: 'Ngưỡng top 10%',
 };
 
 /**
@@ -130,14 +131,17 @@ export const MEASURE_AGG_LABELS: Record<MeasureAgg, string> = {
  *
  * ─── Vì sao nhãn thôi là không đủ ──────────────────────────────────────────
  *
- * "Trung vị" và "Trung bình" lệch nhau đúng một chữ và nằm sát nhau trong hàng
- * nút. Người đọc lướt sẽ nhìn nhầm, rồi kết luận là hệ thống trả sai số. Câu
- * giải thích không sửa được cái nhìn lướt, nhưng nó có mặt đúng lúc người dùng
- * dừng lại vì đã thấy nghi.
+ * "Đếm ô có dữ liệu" và "Đếm giá trị khác nhau" nằm sát nhau trong hàng nút và
+ * cùng bắt đầu bằng chữ "Đếm". Người đọc lướt sẽ nhìn nhầm, rồi kết luận là hệ
+ * thống trả sai số. Câu giải thích không sửa được cái nhìn lướt, nhưng nó có
+ * mặt đúng lúc người dùng dừng lại vì đã thấy nghi.
  *
- * Câu của `avg` cố ý nói ra ĐIỂM YẾU của chính nó, chứ không mô tả cách tính —
- * cách tính thì ai cũng biết rồi, còn chuyện nó bị kéo lệch mới là thứ khiến
- * người ta đi tìm trung vị.
+ * Câu của `avg` cố ý nói ra ĐIỂM YẾU của chính nó chứ không mô tả cách tính:
+ * cách tính thì ai cũng biết, còn chuyện nó bị vài giá trị cực trị kéo đi mới
+ * là thứ người đọc báo cáo cần biết.
+ *
+ * Câu của `countDistinctApprox` nói ra ĐÁNH ĐỔI, và phải nói cả hai vế — nếu
+ * chỉ khoe "nhanh hơn" thì không ai hiểu vì sao lại có hai nút cùng đếm.
  */
 export const MEASURE_AGG_HINTS: Record<MeasureAgg, string> = {
   sum: 'Cộng tất cả giá trị lại.',
@@ -145,11 +149,10 @@ export const MEASURE_AGG_HINTS: Record<MeasureAgg, string> = {
   count:
     'Đếm số dòng CÓ ĐIỀN cột này. Ô trống không được tính, nên con số này có thể nhỏ hơn thước đo "Số dòng".',
   countDistinct: 'Đếm xem có bao nhiêu giá trị khác nhau. Trùng nhau chỉ tính một lần.',
+  countDistinctApprox:
+    'Như trên nhưng ĐỔI độ chính xác lấy tốc độ: có thể lệch vài phần trăm, đổi lại quét bảng rất lớn nhanh hơn nhiều. Cần con số để đối chiếu thì dùng "Đếm giá trị khác nhau".',
   min: 'Giá trị nhỏ nhất.',
   max: 'Giá trị lớn nhất.',
-  median:
-    'Giá trị đứng giữa: một nửa số dòng thấp hơn mức này, một nửa cao hơn. Không bị vài giá trị cực lớn kéo lệch như trung bình.',
-  p90: 'Mức mà 90% số dòng nằm dưới — tức ngưỡng bắt đầu của 10% cao nhất.',
 };
 
 /**
@@ -185,11 +188,8 @@ export const MEASURE_AGG_HINTS: Record<MeasureAgg, string> = {
  *
  * ─── Bốn dòng dưới, mỗi dòng một lý lẽ ─────────────────────────────────────
  *
- *   number  — cộng, trung bình, nhỏ/lớn nhất đều có nghĩa. `countDistinct`
- *             cũng có: "bao nhiêu mức giá khác nhau". `median` và `p90` CHỈ ở
- *             dòng này: trung vị của một chuỗi hay của một mốc thời gian là
- *             khái niệm không ai đi tìm, còn ClickHouse thì vẫn tính ra được —
- *             tức là mở ra chỉ để sinh một con số không ai đọc.
+ *   number  — cộng, trung bình, nhỏ/lớn nhất đều có nghĩa. Hai phép đếm khác
+ *             nhau cũng vậy: "bao nhiêu mức giá khác nhau".
  *   time    — `min`/`max` là "lần đầu tiên" và "gần nhất", hai câu hỏi rất hay
  *             gặp mà trước bản này KHÔNG hỏi được. Cộng hai mốc thời gian thì
  *             vô nghĩa nên không có `sum`; trung bình của thời điểm cũng vậy.
@@ -198,14 +198,20 @@ export const MEASURE_AGG_HINTS: Record<MeasureAgg, string> = {
  *   boolean — như string. Ít dùng, nhưng chặn hẳn thì lại phải giải thích vì
  *             sao ô này trống.
  *
- * `count` có ở CẢ BỐN dòng: "cột này thiếu dữ liệu bao nhiêu" là câu hỏi không
- * phụ thuộc kiểu cột.
+ * `count` và hai phép đếm-khác-nhau có ở CẢ BỐN dòng: "cột này thiếu dữ liệu
+ * bao nhiêu" và "có bao nhiêu giá trị riêng biệt" là hai câu hỏi không phụ
+ * thuộc kiểu cột.
+ *
+ * ⚠️ `countDistinctApprox` đứng NGAY SAU `countDistinct` ở mọi dòng, vì thứ tự
+ * trong mảng này là thứ tự các nút hiện ra. Hai phép trả lời cùng một câu hỏi
+ * với hai mức chính xác, nên đặt xa nhau thì người dùng không nhận ra rằng
+ * mình đang chọn giữa CHÍNH XÁC và NHANH.
  */
 export const MEASURE_AGGS_BY_CUBE_TYPE: Record<CubeType, readonly MeasureAgg[]> = {
-  number: ['sum', 'avg', 'median', 'p90', 'min', 'max', 'count', 'countDistinct'],
-  time: ['min', 'max', 'count', 'countDistinct'],
-  string: ['count', 'countDistinct'],
-  boolean: ['count', 'countDistinct'],
+  number: ['sum', 'avg', 'min', 'max', 'count', 'countDistinct', 'countDistinctApprox'],
+  time: ['min', 'max', 'count', 'countDistinct', 'countDistinctApprox'],
+  string: ['count', 'countDistinct', 'countDistinctApprox'],
+  boolean: ['count', 'countDistinct', 'countDistinctApprox'],
 };
 
 /** Phép gộp này đặt lên cột kiểu kia được không. Dùng ở CẢ hai đầu. */

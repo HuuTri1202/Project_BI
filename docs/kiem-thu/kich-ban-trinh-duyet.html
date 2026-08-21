@@ -250,7 +250,7 @@
   <p class="eyebrow">BI Platform · Kiểm thử thủ công</p>
   <h1>Kịch bản kiểm thử trình duyệt</h1>
   <p class="standfirst">
-    53 kịch bản bấm tay, mỗi cái ghi rõ bấm vào đâu và phải thấy gì. Tên nút và
+    52 kịch bản bấm tay, mỗi cái ghi rõ bấm vào đâu và phải thấy gì. Tên nút và
     tên nhãn lấy thẳng từ mã nguồn giao diện, con số đối chiếu đã chạy thật một
     lượt trước khi viết ra đây.
   </p>
@@ -834,57 +834,14 @@
       <li>Sang tab <b>Schemas</b> xem lại dòng cột <b>Doanh thu</b></li>
     </ol>
     <div class="mongdoi"><b>Phải thấy</b><ul>
-      <li>Khối <b>Cách tính</b> bày sẵn <b>tất cả</b> phép hợp với cột này — tám nút cho một cột số — nhìn thấy hết, không phải ô sổ xuống và không phải bấm mở</li>
-      <li>Rê chuột lên nút <b>Trung vị</b> hiện câu giải thích <i>"Giá trị đứng giữa: một nửa số dòng thấp hơn mức này, một nửa cao hơn…"</i></li>
+      <li>Khối <b>Cách tính</b> bày sẵn <b>tất cả</b> phép hợp với cột này — bảy nút cho một cột số — nhìn thấy hết mà không phải mở gì</li>
+      <li>Rê chuột lên nút <b>Ước lượng số khác nhau</b> hiện câu giải thích nói ra <i>đánh đổi</i>: có thể lệch vài phần trăm, đổi lại quét bảng rất lớn nhanh hơn nhiều</li>
       <li>Nút <b>Tổng</b> sáng sẵn từ đầu, vì đó là phép mô hình đang khai</li>
       <li>Lần chạy đầu: <b>25.046.000</b></li>
       <li>Sau khi đổi: <b>≈ 695.722,22</b> (= 25.046.000 / 36), và tiêu đề cột đổi thành <b>Doanh thu (Trung bình)</b></li>
       <li>Ở tab Schemas, cột Doanh thu <b>vẫn là Tổng</b> — bấm ở Explorer <b>không</b> sửa mô hình</li>
       <li>Thước đo <b>Số dòng</b> nếu tích vào thì <b>không</b> có hàng nút, vì nó không đo cột nào</li>
     </ul></div>
-  </div>
-</div>
-
-<div class="kb" data-ma="F8">
-  <div class="kb-head"><span class="ma">F8</span><span class="tt"><b>Trung vị nói khác trung bình, và đó là chuyện đáng biết</b><span>Vài giá trị lớn kéo lệch số trung bình</span></span></div>
-  <div class="kb-body">
-    <dl class="kb-meta"><dt>Tiền điều kiện</dt><dd>Mô hình dựng trên <code>kiem-thu-ban-hang.csv</code> — 36 dòng</dd></dl>
-    <ol>
-      <li>Tab <b>Explorer</b>, tích thước đo <b>Doanh thu</b>, không chọn chiều nào</li>
-      <li>Trong khối <b>Cách tính</b>, bấm <b>Trung bình</b> → Chạy, rồi <b>Trung vị</b> → Chạy</li>
-      <li>Bấm <b>Ngưỡng top 10%</b> → Chạy</li>
-    </ol>
-    <div class="mongdoi"><b>Phải thấy</b><ul>
-      <li>Cả tám phép nằm sẵn trên màn hình, <b>Ngưỡng top 10%</b> bấm được ngay</li>
-      <li>Trung bình: <b>≈ 695.722,22</b></li>
-      <li>Trung vị: <b>572.000</b> — thấp hơn trung bình khoảng 22 %, vì vài đơn lớn kéo trung bình lên</li>
-      <li>Ngưỡng top 10%: <b>1.728.000</b> — mốc mà 10% đơn lớn nhất bắt đầu</li>
-      <li>Tiêu đề cột đổi theo từng phép: <b>Doanh thu (Trung vị)</b>, <b>Doanh thu (Ngưỡng top 10%)</b></li>
-      <li>Chạy lại cùng một phép hai lần cho <b>đúng cùng một số</b> — trung vị dùng phép chính xác, không phải phép lấy mẫu xấp xỉ</li>
-    </ul></div>
-    <div class="canhbao"><p>Cột <b>Khu vực</b> và <b>Ngày bán</b> <b>không</b> mời Trung vị. Đó là cố ý: trung vị của một chuỗi hay của một mốc thời gian là con số không ai đi tìm, dù ClickHouse vẫn tính ra được.</p></div>
-  </div>
-</div>
-
-<div class="kb" data-ma="F9">
-  <div class="kb-head"><span class="ma">F9</span><span class="tt"><b>Hệ thống tự nói ra khi trung bình đang nói dối</b><span>Và im lặng khi nó không nói dối</span></span></div>
-  <div class="kb-body">
-    <dl class="kb-meta"><dt>Tiền điều kiện</dt><dd>Mô hình dựng trên <code>Global-Superstore</code> — 51.290 dòng, tổ chức 4</dd></dl>
-    <ol>
-      <li>Tab <b>Explorer</b>, tích thước đo <code>Profit</code>, đặt nó ở <b>Trung bình</b>, không chọn chiều nào → <b>Chạy truy vấn</b></li>
-      <li>Bấm <b>Xem bằng trung vị</b> trong khối vàng vừa hiện ra</li>
-      <li>Đặt lại <code>Profit</code> về <b>Trung bình</b>, tích thêm chiều <code>Category</code> → <b>Chạy truy vấn</b></li>
-      <li>Bấm <b>Bỏ qua</b>, rồi bấm <b>Chạy truy vấn</b> lần nữa</li>
-      <li>Bỏ tích <code>Profit</code>, tích <code>Quantity</code> ở <b>Trung bình</b>, bỏ chiều → <b>Chạy truy vấn</b></li>
-    </ol>
-    <div class="mongdoi"><b>Phải thấy</b><ul>
-      <li>Bước 1: khối vàng <b>"Trung bình đang bị kéo lệch"</b> hiện <b>ngay trên bảng</b>, ghi <i>"Profit trung bình 28,61 — nhưng một nửa số dòng dưới 9,24"</i></li>
-      <li>Bước 2: bảng đổi sang <b>9,24</b>, nút <b>Trung vị</b> trong khối Cách tính sáng lên, và khối vàng <b>tự biến mất</b> — không còn gì để cảnh báo nữa</li>
-      <li>Bước 3: khối vàng ghi <i>"Ở Office Supplies: Profit trung bình 16,58 — nhưng một nửa số dòng dưới 6,55. 3/3 nhóm cũng lệch như vậy."</i> — nhóm lệch <b>nặng nhất</b> chứ không phải nhóm đầu bảng</li>
-      <li>Bước 4: khối biến mất và <b>không hiện lại</b> ở lần Chạy sau — bỏ qua một câu hỏi là bỏ qua câu hỏi đó, không phải bỏ qua một lần</li>
-      <li>Bước 5: <b>không có khối vàng nào</b>. <code>Quantity</code> trung bình <b>3,48</b> so trung vị <b>3</b> — lệch 16 %, dưới ngưỡng 50 %</li>
-    </ul></div>
-    <div class="canhbao"><p>Bước 5 mới là ca quan trọng nhất của kịch bản này. Một lời cảnh báo hiện quá tay là thứ người dùng học cách phớt lờ trong ba ngày, và sau đó nó không cảnh báo được gì nữa. Ba điều kiện phải đúng cùng lúc thì khối mới hiện: thước đo đang ở <b>Trung bình</b>, lệch quá <b>50 %</b>, và <b>quá nửa số nhóm</b> cùng lệch.</p></div>
   </div>
 </div>
 
@@ -999,6 +956,28 @@
       <li>Ô sổ xuống <b>Vai trò</b> có ba lựa chọn, cả ba đều kèm từ tiếng Anh</li>
     </ul></div>
     <div class="canhbao"><p>Chỗ dễ sai nhất đã được sửa cùng lượt: trước đây cột <b>Vai trò</b> nhận giá trị <i>Thước đo</i>, còn cột ngay bên phải nó cũng mang tiêu đề <i>Thước đo</i> — hai thứ khác nhau, một cái tên, nằm cạnh nhau trên cùng một hàng. Cột bên phải chọn <b>phép gộp</b>, và <code>aria-label</code> của chính ô select luôn đọc là "Phép gộp của cột …", tức hai nhãn vẫn đang nói hai đằng.</p></div>
+  </div>
+</div>
+
+<div class="kb" data-ma="F15">
+  <div class="kb-head"><span class="ma">F15</span><span class="tt"><b>Hàng nút Cách tính bám đúng những gì Cube làm được</b><span>Bảy phép, không hơn không kém</span></span></div>
+  <div class="kb-body">
+    <dl class="kb-meta"><dt>Tiền điều kiện</dt><dd>Một mô hình có ít nhất một cột số và một cột chữ</dd></dl>
+    <ol>
+      <li>Tab <b>Explorer</b>, tích một thước đo dựng trên <b>cột số</b> → nhìn khối <b>Cách tính</b></li>
+      <li>Đếm số nút và đọc tên từng nút</li>
+      <li>Bấm <b>Ước lượng số khác nhau</b> → <b>Chạy truy vấn</b> → nhìn tiêu đề cột</li>
+      <li>Bấm <b>Đếm giá trị khác nhau</b> → <b>Chạy truy vấn</b> → so hai con số</li>
+      <li>Tích một thước đo dựng trên <b>cột chữ</b> và xem hàng nút của nó</li>
+    </ol>
+    <div class="mongdoi"><b>Phải thấy</b><ul>
+      <li>Cột số: <b>bảy</b> nút — Tổng · Trung bình · Nhỏ nhất · Lớn nhất · Đếm ô có dữ liệu · Đếm giá trị khác nhau · Ước lượng số khác nhau</li>
+      <li><b>Không còn</b> Trung vị và Ngưỡng top 10%</li>
+      <li>Cột chữ: <b>ba</b> nút — chỉ ba phép đếm; cộng hay trung bình một cột chữ là câu SQL không chạy</li>
+      <li>Tiêu đề cột đọc là <b>Doanh thu (Ước lượng số khác nhau)</b> — <b>một</b> lớp ngoặc, không phải ngoặc lồng ngoặc</li>
+      <li>Ở quy mô nhỏ, hai phép đếm cho <b>cùng một số</b>: dưới khoảng 65 nghìn giá trị khác nhau, <code>uniq()</code> của ClickHouse vẫn chính xác tuyệt đối</li>
+    </ul></div>
+    <div class="canhbao"><p>Danh sách bảy phép này là <b>tập con</b> của những kiểu Cube nhận, và danh sách đó đọc từ chính bộ kiểm định của phiên bản đang chạy chứ không từ tài liệu — <code>CubeValidator.js</code>. Một kiểu lạ không hỏng lúc sinh file; nó hỏng lúc Cube <b>biên dịch schema</b>, và một schema hỏng chặn luôn <b>mọi</b> mô hình của cùng tổ chức. Đó cũng là lý do <code>running_total</code> không có mặt: Cube đã bỏ hẳn nó, thứ thay thế là <code>rolling_window</code> — một cấu trúc khác, cần chiều thời gian, không đặt được vào một ô <code>type</code>.</p></div>
   </div>
 </div>
 

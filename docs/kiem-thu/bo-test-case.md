@@ -8,7 +8,7 @@
 | Ngày chạy | 19/08/2026 |
 | Nhánh | `main` @ 8e80985 |
 | Môi trường | localhost · MySQL 8.0.46 · ClickHouse 25.8 · Cube.js · MinIO · Redis |
-| Tổng số ca | 147 (147 đạt · 0 không đạt) |
+| Tổng số ca | 146 (146 đạt · 0 không đạt) |
 | Đối chiếu bộ tự động | 558 ca — lần chạy cuối 558/558 đạt |
 
 Cột **Kết quả thực tế** chép nguyên văn thứ hệ thống trả về khi chạy,
@@ -106,7 +106,7 @@ không phải kết quả suy ra từ mã nguồn.
 | MH-04 | Truy vấn tổng Lợi nhuận qua tầng ngữ nghĩa Cube — Tiền điều kiện: container Cube phải chạy bản cube.js hiện tại — xem V-03 | Trả 709.352, khớp NA-03 và số tính tay | HTTP 200, Cube trả 709.352 · lệch 0.0000 | Đạt |
 | MH-05 | Xoá mô hình rồi đọc lại | 204 khi xoá, 404 khi đọc lại | DELETE → HTTP 204, GET lại → HTTP 404 | Đạt |
 
-## TD · Thước đo của mô hình dữ liệu (§10.6, §10.7) — 20 ca, gọi API thật
+## TD · Thước đo của mô hình dữ liệu (§10.6, §10.7) — 19 ca, gọi API thật
 
 | Mã | Mục tiêu · các bước | Kết quả mong đợi | Kết quả thực tế | KL |
 |---|---|---|---|---|
@@ -120,15 +120,14 @@ không phải kết quả suy ra từ mã nguồn.
 | TD-08 | Đổi phép ngay trong truy vấn cho ra con số của phép mới — So SỐ chứ không so mã trạng thái: nếu backend lặng lẽ lùi về sum thì HTTP vẫn 200 | 709.352 / 5 = 141.8704 | HTTP 200, Cube trả 141.8704 · lệch 0.0000; nhãn cột = "Loi nhuan (Trung bình)" | Đạt |
 | TD-09 | Mô hình không bị đổi theo — lựa chọn chỉ áp cho truy vấn đó — Một cú bấm ở Explorer sửa cấu hình chung là thứ người thứ hai không có cách nào biết | Phép trong mô hình vẫn là sum; hỏi lại ra tổng cũ | phép trong mô hình vẫn "sum"; hỏi lại không kèm gì → 709.352 | Đạt |
 | TD-10 | Phép không hợp kiểu bị từ chối kể cả khi gửi thẳng vào truy vấn — Bỏ qua giao diện, gọi API trực tiếp | 400, không âm thầm lùi về phép mặc định | HTTP 400 DataModelFieldUnknown: «Thước đo "Khu vuc" không nhận phép gộp "Tổng".» | Đạt |
-| TD-11 | Trung vị và phân vị 90 có trong danh sách phép đổi được — Cube không có kiểu cho chúng — phải phát ra bằng biểu thức quantileExact | Cột số mời đủ 7 phép | "Loi nhuan" đổi được sang [sum, avg, median, p90, min, max, countDistinct] | Đạt |
-| TD-12 | Trung vị trên mô hình một bảng khớp ClickHouse — Đối chiếu với quantileExact chạy thẳng trên kho, không với số tính tay — để biết lệch nằm ở tầng Cube hay ở chính phép của ClickHouse | Hai bên ra cùng một số | Cube trả 0.402; ClickHouse quantileExact(0.5) = 0.402; lệch 0.0000 | Đạt |
-| TD-13 | Trung vị KHÔNG bị nhân dòng qua quan hệ one_to_many — Rủi ro lớn nhất của bản này: cơ chế khử trùng lặp của Cube có tài liệu cho kiểu dựng sẵn, không nói gì về biểu thức tự viết. Bàn thử lệch có chủ đích — 3 khách Diem 10/20/30, khách đầu có 5 đơn, gộp theo một cột hằng | Tổng 60 (không phải 100); trung vị 20 (không phải 10) | tổng = 60 · trung vị = 20 — biểu thức tự viết ĐƯỢC hưởng cùng cơ chế khử trùng lặp | Đạt |
-| TD-14 | Nhãn cột nói tên người dùng đọc được, không phải tên thống kê — "Phân vị 90" là tên đúng và là tên vô dụng với người đọc báo cáo bán hàng — ghim cái tên đi hết đường từ shared qua explorer.ts ra tới phản hồi API | Nhãn cột là "Loi nhuan (Ngưỡng top 10%)" | nhãn cột = "Loi nhuan (Ngưỡng top 10%)" | Đạt |
-| TD-15 | Hai truy vấn mà khối cảnh báo lệch đem ra so — Phần so sánh chạy ở trình duyệt nên không tới được từ đây, nhưng nếu hai con số này sai thì mọi thứ dựng trên chúng sai theo | Trung bình 141,8704 và trung vị 0,402 — lệch quá ngưỡng 50 % | trung bình = 141.8704, trung vị = 0.402, lệch 351,9 lần | Đạt |
+| TD-11 | Danh sách phép đổi được bám đúng kiểu Cube dựng sẵn — Đi cả hai chiều: có countDistinctApprox, KHÔNG còn median/p90 | 7 phép, tất cả nằm trong danh sách CubeValidator nhận | [sum, avg, min, max, count, countDistinct, countDistinctApprox] | Đạt |
+| TD-12 | Ước lượng số khác nhau khớp uniq() của ClickHouse — Cube dịch countDistinctApprox thành uniq() — đối chiếu thẳng với kho | 3 khu vực khác nhau trên 5 dòng | Cube trả 3; ClickHouse uniq() = 3 | Đạt |
+| TD-13 | Phép gộp KHÔNG bị nhân dòng qua quan hệ one_to_many — Cửa canh cơ chế khử trùng lặp của Cube — kiểm cả sum lẫn count | tổng 60 (không phải 100) · đếm 3 (không phải 7) | gộp theo Kenh (1 nhóm, 7 dòng đã nối): tổng = 60, đếm ô có dữ liệu = 3 | Đạt |
+| TD-14 | Nhãn cột nói tên người dùng đọc được, không phải tên kỹ thuật — Và nhãn phép gộp không được tự mang ngoặc — explorer.ts đã bọc sẵn một lớp | "Loi nhuan (Ước lượng số khác nhau)", không phải "countDistinctApprox" | nhãn cột = "Loi nhuan (Ước lượng số khác nhau)" | Đạt |
 | TD-16 | Đếm ô có dữ liệu khác đếm dòng — lý do phép này được mở lại — Bản trước cấm hẳn count trên cột vì tin nó chỉ đẻ ra bản sao của "Số dòng". Tiền đề đó sai: count(<cột>) bỏ qua NULL | Trên bàn thử 5 dòng có 2 ô trống: Số dòng 5, đếm ô có dữ liệu 3, tổng 90 | Số dòng = 5 · đếm ô có dữ liệu = 3 · tổng = 90 | Đạt |
 | TD-17 | Gộp trên biểu thức dòng: nhân TRƯỚC rồi cộng — Ca canh cửa cho V-07 — đối chiếu tới tận ClickHouse | 860 (công thức gộp-trước cho 1265) | Cube trả 860 · ClickHouse sum(sl × đơn giá) = 860 | Đạt |
 | TD-18 | Biểu thức dòng KHÔNG bị nhân bản qua quan hệ one_to_many — Câu để ngỏ từ TD-13: biểu thức TỰ VIẾT có được Cube khử trùng lặp không | 410 — mặt hàng H1 nằm trong 4 đơn, không được đếm 4 lần | gộp theo Kenh (1 nhóm, 5 dòng đã nối): 410 (nhân dòng sẽ là 1010) | Đạt |
-| TD-19 | Bộ chọn Explorer nói ra phép tính thay vì để người dùng đoán từ cái tên — Thước đo gieo sẵn trùng tên với cột nó gộp — hai dòng chữ y hệt, hai nghĩa khác nhau | nguon = cột "Loi nhuan"; tiêu đề cột kết quả ghi "Trung vị của Loi nhuan" khi truy vấn hỏi bằng trung vị | nguon = {"kind":"column","expr":"Loi nhuan"} · mô tả cột kết quả = "Trung vị của Loi nhuan" · "Số dòng" có kind = rows | Đạt |
+| TD-19 | Bộ chọn Explorer nói ra phép tính thay vì để người dùng đoán từ cái tên — Thước đo gieo sẵn trùng tên với cột nó gộp — hai dòng chữ y hệt, hai nghĩa khác nhau | nguon = cột "Loi nhuan"; tiêu đề cột kết quả ghi "Trung bình của Loi nhuan" khi truy vấn hỏi bằng trung bình | nguon = {"kind":"column","expr":"Loi nhuan"} · mô tả cột kết quả = "Trung bình của Loi nhuan" · "Số dòng" có kind = rows | Đạt |
 | TD-20 | Tên thước đo đã xoá dùng lại được — tên đang sống thì không — Ca canh cửa cho V-08, đi CẢ HAI chiều | tạo lại cùng tên → 201; trùng tên đang sống → 409 (không phải 500) | tạo lần 1 = 201 · xoá = 204 · tạo lại cùng tên = 201 (trước bản vá: 500) · trùng tên đang sống = 409 | Đạt |
 
 ## HT · Console vận hành hệ thống — 14 ca, đối chiếu bộ tự động
@@ -224,4 +223,4 @@ không phải kết quả suy ra từ mã nguồn.
 
 ---
 
-**Tổng cộng: 147/147 ca đạt.**
+**Tổng cộng: 146/146 ca đạt.**

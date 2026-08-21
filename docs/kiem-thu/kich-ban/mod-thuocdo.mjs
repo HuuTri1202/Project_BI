@@ -287,38 +287,62 @@ await tc('TD-10', 'Phép không hợp kiểu bị từ chối ngay cả khi gử
   return { pass: q.status === 400, actual: `xin "Tổng" cho thước đo trên cột chữ -> ${brief(q)}` };
 });
 
-await tc('TD-11', 'Trung vị và phân vị 90 có mặt trong danh sách phép đổi được', async () => {
+await tc('TD-11', 'Danh sach phep doi duoc bam DUNG kieu Cube dung san', async () => {
+  /*
+   * Cube v1.7.16 nhan dung 11 kieu cho mot thuoc do, doc tu chinh bo kiem dinh
+   * cua no (CubeValidator.js), khong phai tu tai lieu:
+   *
+   *     count, number, string, boolean, time, sum, avg, min, max,
+   *     countDistinct, countDistinctApprox
+   *
+   * `median` va `p90` da bo: chung la `type: "number"` kem mot ham gop TU VIET.
+   * Ca nay di ca hai chieu de mot lan them lai khong lot qua ma khong ai ban.
+   */
   const td = await truong('Loi nhuan');
   const co = td.availableAggs ?? [];
   return {
-    pass: co.includes('median') && co.includes('p90'),
-    actual: `"Loi nhuan" đổi được sang [${co.join(', ')}]`,
+    pass:
+      co.includes('countDistinctApprox') &&
+      !co.includes('median') &&
+      !co.includes('p90'),
+    actual: `"Loi nhuan" doi duoc sang [${co.join(', ')}]`,
   };
 });
 
-await tc('TD-12', 'Trung vị trên mô hình MỘT bảng khớp ClickHouse', async () => {
-  // Năm giá trị: -1000, -288.765, 0.402, 763.155, 1234.56 -> trung vị là 0.402.
-  // So với `quantileExact` chạy thẳng trên kho, không so với số tính tay: nếu
-  // hai bên lệch thì phải biết lệch ở tầng Cube hay ở chính phép của ClickHouse.
+await tc('TD-12', 'Uoc luong so khac nhau khop uniq() cua ClickHouse', async () => {
+  /*
+   * `countDistinctApprox` cua Cube dich thanh `uniq(...)` tren ClickHouse — xem
+   * `ClickHouseQuery.countDistinctApprox`. Lop co so `BaseQuery` thi nem thang
+   * "Approximate distinct count is not supported by this DB", nen phep nay gan
+   * chat voi viec kho cua ta la ClickHouse.
+   *
+   * So voi `uniq` chay thang tren kho chu khong voi so dem tay: neu hai ben lech
+   * thi phai biet lech o tang Cube hay o chinh phep cua ClickHouse.
+   */
+  const c = await cot('Khu vuc');
+  if (!c) return { pass: false, actual: 'khong tim thay cot Khu vuc' };
+  await datPhepGop(c, 'countDistinctApprox');
+
   const d = await req(`/v1/datasets/${datasetId}`, { token: tokens.admin });
   const bang = d.json?.chTable ?? `raw_t2_d${datasetId}`;
-  const kho = Number(chQuery(`SELECT quantileExact(0.5)("Loi nhuan") FROM bi_analytics."${bang}"`));
+  const kho = Number(chQuery(`SELECT uniq("Khu vuc") FROM bi_analytics."${bang}"`));
 
-  const q = await hoi('Loi nhuan', 'median');
-  const lech = Math.abs(Number(q.giaTri) - kho);
+  const q = await hoi('Khu vuc');
+  // Tra lai phep cu cho cac ca sau khong bi anh huong.
+  await datPhepGop(c, 'countDistinct');
+
   return {
-    pass: q.status === 200 && lech < 0.001,
-    actual: `Cube trả ${q.giaTri}; ClickHouse quantileExact(0.5) = ${kho}; lệch ${lech.toFixed(4)}`,
+    pass: q.status === 200 && Number(q.giaTri) === kho && kho === SO_KHU_VUC,
+    actual: `Cube tra ${q.giaTri}; ClickHouse uniq() = ${kho}; dung ${SO_KHU_VUC} khu vuc`,
   };
 });
 
-await tc('TD-13', 'Trung vị KHÔNG bị nhân dòng khi mô hình có quan hệ one_to_many', async () => {
+await tc('TD-13', 'Phép gộp KHÔNG bị nhân dòng khi mô hình có quan hệ one_to_many', async () => {
   /*
-   * Ca đáng ngờ nhất của cả bản này, và lý do nó tồn tại nằm trong
-   * `buildCubeSchema.ts`: Cube khử nhân bản dòng bằng cách bọc một truy vấn con
-   * theo `primary_key`, nhưng cơ chế đó áp cho các KIỂU DỰNG SẴN. Trung vị phát
-   * ra dưới dạng biểu thức `quantileExact(...)` tự viết, nên không có gì bảo
-   * đảm nó cũng được bọc.
+   * Cube khử nhân bản dòng bằng cách bọc một truy vấn con theo `primary_key`.
+   * Đó là hành vi QUAN SÁT ĐƯỢC của phiên bản đang chạy, không phải lời hứa
+   * trong tài liệu — nên nó cần một cửa canh, chạy lại mỗi lần nâng cấp Cube.
+   * Nếu ca này đỏ thì mọi con số trên mô hình nhiều bảng đều đáng ngờ.
    *
    * ─── Bàn thử phải LỆCH có chủ đích ────────────────────────────────────────
    *
@@ -331,13 +355,12 @@ await tc('TD-13', 'Trung vị KHÔNG bị nhân dòng khi mô hình có quan h�
    * theo `Ma don` — 7 nhóm, mỗi nhóm đúng một dòng khách — nên nhân dòng không
    * có cách nào lộ ra, và ca đó xanh mà chẳng kiểm được gì.
    *
-   *   đúng (khử trùng lặp)  tổng = 60   trung vị của [10, 20, 30]              = 20
-   *   sai  (bị nhân dòng)   tổng = 100  trung vị của [10,10,10,10,10,20,30]    = 10
+   *   đúng (khử trùng lặp)  tổng =  60   đếm ô có dữ liệu = 3
+   *   sai  (bị nhân dòng)   tổng = 100   đếm ô có dữ liệu = 7
    *
-   * Kiểm CẢ `sum` lẫn `median` trong cùng một bàn thử: `sum` là kiểu dựng sẵn
-   * nên nó nói cho biết Cube có khử trùng lặp ở tình huống này hay không, còn
-   * `median` nói biểu thức tự viết có được hưởng cùng cơ chế đó không. Hai câu
-   * trả lời khác nhau mới chỉ đúng được thủ phạm.
+   * Kiểm CẢ `sum` lẫn `count`: `sum` bắt việc cộng lặp giá trị, còn `count` bắt
+   * việc đếm lặp DÒNG. Một bản vá hỏng có thể chữa cái này mà không chữa cái
+   * kia, nên hai câu trả lời khác nhau mới chỉ đúng được thủ phạm.
    */
   const csvKhach = ['Ma khach,Diem', 'K1,10', 'K2,20', 'K3,30'].join('\n');
   const csvDon = [
@@ -402,50 +425,31 @@ await tc('TD-13', 'Trung vị KHÔNG bị nhân dòng khi mô hình có quan h�
     return Number(r.json?.rows?.[0]?.[1]);
   }
 
-  const tong = await hoiQuaJoin();            // sum — kiểu dựng sẵn
-  const trungVi = await hoiQuaJoin('median'); // biểu thức tự viết
+  const tong = await hoiQuaJoin();          // sum  -> 60 neu khu trung lap
+  const dem = await hoiQuaJoin('count');    // count -> 3  neu khu trung lap
 
   return {
-    pass: Math.abs(tong - 60) < 0.001 && Math.abs(trungVi - 20) < 0.001,
+    pass: Math.abs(tong - 60) < 0.001 && Math.abs(dem - 3) < 0.001,
     actual:
-      `gộp theo Kenh (1 nhóm, 7 dòng đã nối): tổng = ${tong} (đúng 60 · nhân dòng 100), ` +
-      `trung vị = ${trungVi} (đúng 20 · nhân dòng 10)`,
+      `gop theo Kenh (1 nhom, 7 dong da noi): tong = ${tong} (dung 60 · nhan dong 100), ` +
+      `dem o co du lieu = ${dem} (dung 3 · nhan dong 7)`,
   };
 });
 
-await tc('TD-14', 'Nhãn cột nói tên người dùng đọc được, không phải tên thống kê', async () => {
-  // "Phân vị 90" là tên đúng trong thống kê và là tên vô dụng với người đọc báo
-  // cáo bán hàng. Ca này ghim cái tên đi hết đường từ `shared` qua `explorer.ts`
-  // ra tới nhãn cột trong phản hồi API — ba chỗ, một tên.
-  const q = await hoi('Loi nhuan', 'p90');
-  return {
-    pass: q.nhan === 'Loi nhuan (Ngưỡng top 10%)',
-    actual: `nhãn cột = "${q.nhan}"`,
-  };
-});
-
-await tc('TD-15', 'Hai truy vấn mà khối cảnh báo so lệch đủ xa để phải nói ra', async () => {
+await tc('TD-14', 'Nhan cot noi ten nguoi dung doc duoc, khong phai ten ky thuat', async () => {
   /*
-   * Explorer chạy một truy vấn ĐỐI CHỨNG bằng trung vị rồi so với trung bình,
-   * và chỉ cảnh báo khi lệch quá 50%. Ca này kiểm đúng cặp số đó qua API thật —
-   * phần so sánh nằm ở trình duyệt nên không tới được từ đây, nhưng nếu hai con
-   * số này sai thì mọi thứ dựng trên chúng đều sai theo.
+   * `countDistinctApprox` la ten cua Cube. Nguoi doc bao cao khong co khai niem
+   * do, nen nhan phai noi ra thu ho can biet: con so nay la UOC LUONG.
    *
-   * Năm giá trị: -1000, -288.765, 0.402, 763.155, 1234.56.
-   * Trung bình 141.8704 — bị hai đầu cực kéo đi; trung vị 0.402.
+   * Ca nay ghim cai ten di het duong tu `shared` qua `explorer.ts` ra toi nhan
+   * cot trong phan hoi API — ba cho, mot ten. Va no chan luon loi ngoac long
+   * ngoac: nhan phep gop khong duoc tu mang ngoac, vi `explorer.ts` da boc san
+   * mot lop `(...)` quanh no.
    */
-  const tb = await hoi('Loi nhuan', 'avg');
-  const tv = await hoi('Loi nhuan', 'median');
-  const lech = Math.abs(Number(tb.giaTri) - Number(tv.giaTri)) / Math.abs(Number(tv.giaTri));
-
+  const q = await hoi('Loi nhuan', 'countDistinctApprox');
   return {
-    pass:
-      Math.abs(Number(tb.giaTri) - 141.8704) < 0.001 &&
-      Math.abs(Number(tv.giaTri) - 0.402) < 0.001 &&
-      lech > 0.5,
-    actual:
-      `trung bình = ${tb.giaTri}, trung vị = ${tv.giaTri}, ` +
-      `lệch ${lech.toFixed(1)} lần (ngưỡng cảnh báo 0.5)`,
+    pass: q.nhan === 'Loi nhuan (Ước lượng số khác nhau)',
+    actual: `nhan cot = "${q.nhan}"`,
   };
 });
 
@@ -653,7 +657,7 @@ await tc('TD-19', 'Bộ chọn nói ra phép tính, không bắt người dùng 
    * của cả nhóm) là hai dòng chữ y hệt nhau. Ca này ghim câu giải thích đi
    * hết đường: `nguon` ở bộ chọn, `mota` ở tiêu đề cột kết quả.
    *
-   * Và `mota` phải theo phép THẬT SỰ chạy: đổi sang trung vị mà tiêu đề
+   * Và `mota` phải theo phép THẬT SỰ chạy: đổi sang trung bình mà tiêu đề
    * vẫn nói "Tổng" là nói sai đúng lúc người dùng cần đọc nhất.
    */
   const td = await truong('Loi nhuan');
@@ -663,7 +667,7 @@ await tc('TD-19', 'Bộ chọn nói ra phép tính, không bắt người dùng 
 
   const q = await req(`/v1/datamodels/${datamodelId}/query`, {
     method: 'POST', token: tokens.admin,
-    body: { measureIds: [td.id], dimensionIds: [], limit: 10, measureAggs: [{ id: td.id, agg: 'median' }] },
+    body: { measureIds: [td.id], dimensionIds: [], limit: 10, measureAggs: [{ id: td.id, agg: 'avg' }] },
   });
 
   const nguon = td.nguon ?? {};
@@ -674,7 +678,7 @@ await tc('TD-19', 'Bộ chọn nói ra phép tính, không bắt người dùng 
     pass:
       nguon.kind === 'column' &&
       nguon.expr === 'Loi nhuan' &&
-      mota === 'Trung vị của Loi nhuan' &&
+      mota === 'Trung bình của Loi nhuan' &&
       motaDong === 'rows',
     actual:
       `nguon = ${JSON.stringify(nguon)} · mota cột kết quả = "${mota}" ` +
