@@ -7,7 +7,7 @@ import {
   type WarehouseSchemaDto,
 } from '@bi/shared';
 
-import { pingClickhouse, warehouse } from '../../config/clickhouse';
+import { checkWarehouse, warehouse } from '../../config/clickhouse';
 import { env } from '../../config/env';
 import { mysqlPool } from '../../config/mysql';
 import * as loadsRepo from '../../repositories/datasetLoads';
@@ -56,13 +56,30 @@ export async function queueLoad(
   // để vòng lặp nền phát hiện thì còn tệ hơn: request này trả 201 "đã xếp hàng"
   // thành công, rồi vài giây sau job âm thầm `failed` ở một chỗ người dùng phải
   // tự đi tìm.
-  try {
-    await pingClickhouse();
-  } catch {
+  //
+  // Kiểm cả DATABASE chứ không chỉ máy chủ: `/ping` trả "Ok." dựa trên máy chủ,
+  // nên nó vẫn xanh khi database kho đã bị xoá — và khi đó lớp kiểm này cho
+  // request đi qua để job nền chết ở tầng dưới. Xem `checkWarehouse`.
+  const trangThai = await checkWarehouse();
+
+  if (trangThai === 'unreachable') {
     throw new HttpError(
       503,
       LOAD_ERROR_CODES.CLICKHOUSE_UNAVAILABLE,
       'Chưa kết nối được tới kho phân tích (ClickHouse). Hãy chạy "npm run infra:up" rồi thử lại.',
+    );
+  }
+
+  if (trangThai === 'missing-database') {
+    // Nói ĐÚNG việc phải làm, không nói "thử lại": thử lại bao nhiêu lần cũng
+    // ra cùng kết quả. Nêu luôn nguyên nhân thường gặp, vì người gặp lỗi này
+    // gần như luôn vừa chạy `down -v` và không nối được hai chuyện với nhau.
+    throw new HttpError(
+      503,
+      LOAD_ERROR_CODES.WAREHOUSE_DATABASE_MISSING,
+      `Kho phân tích đang chạy nhưng database "${env.CLICKHOUSE_DATABASE}" không tồn tại — ` +
+        'thường là do volume ClickHouse đã bị xoá (`docker compose down -v`). ' +
+        'Hãy chạy "npm run warehouse:init" để tạo lại, rồi nạp lại các bộ dữ liệu.',
     );
   }
 

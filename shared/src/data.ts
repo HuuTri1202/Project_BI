@@ -436,6 +436,19 @@ export const LOAD_ERROR_CODES = {
   LOAD_ALREADY_RUNNING: 'LoadAlreadyRunning',
   /** Không nối được tới ClickHouse. Thông báo phải nói rõ lệnh cần chạy. */
   CLICKHOUSE_UNAVAILABLE: 'ClickHouseUnavailable',
+  /**
+   * Nối được tới ClickHouse nhưng DATABASE kho không tồn tại.
+   *
+   * Tách khỏi `CLICKHOUSE_UNAVAILABLE` vì hai tình huống này đòi hai hành động
+   * khác hẳn nhau, và gộp lại thì thông báo phải nói chung chung tới mức không
+   * dẫn tới việc gì. "Chạy npm run infra:up" là câu SAI khi container đang chạy
+   * ngon lành — người dùng chạy xong, thấy mọi thứ vẫn thế, và hết đường.
+   *
+   * Database mất là chuyện có thật chứ không phải phòng xa: `docker compose
+   * down -v` xoá luôn volume, và ClickHouse chỉ tạo database ở lần khởi tạo
+   * volume đầu tiên.
+   */
+  WAREHOUSE_DATABASE_MISSING: 'WarehouseDatabaseMissing',
   /** Bộ dữ liệu chưa `ready`, hoặc không có cột nào được chọn nhập. */
   DATASET_NOT_LOADABLE: 'DatasetNotLoadable',
 } as const;

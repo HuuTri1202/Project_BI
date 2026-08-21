@@ -1,4 +1,5 @@
 import { createClient, type ClickHouseClient } from '@clickhouse/client';
+import { quoteIdent } from '../services/ingest/typeMap';
 import { env } from './env';
 
 /**
@@ -73,6 +74,88 @@ export async function pingClickhouse(): Promise<void> {
   if (!result.success) throw result.error;
 }
 
+/**
+ * Client PHỤ, ghim vào `system` — chỉ để trả lời "database kho đã có chưa".
+ *
+ * ─── Vì sao KHÔNG hỏi bằng `warehouse` ở trên ───────────────────────────────
+ *
+ * `warehouse` ghim `database: bi_analytics`, và ClickHouse từ chối MỌI câu lệnh
+ * gửi kèm một database không tồn tại — kể cả câu chỉ đọc `system.databases`.
+ * Đo trực tiếp: `POST /?database=khong_ton_tai` với `SELECT name FROM
+ * system.databases` trả về 404. Nên hỏi bằng chính client đó thì câu trả lời
+ * duy nhất nhận được là một lỗi, và ta lại phải đoán nghĩa của lỗi.
+ *
+ * `system` thì luôn tồn tại, kể cả trên một volume vừa khởi tạo. Ghim vào đó
+ * cho ra một câu trả lời DỨT KHOÁT (`0` hoặc `1`) thay vì phải đọc mã lỗi hay
+ * so khớp chuỗi thông báo — hai thứ đổi theo phiên bản ClickHouse.
+ */
+const systemWarehouse: ClickHouseClient = createClient({
+  url: `http://${env.CLICKHOUSE_HOST}:${env.CLICKHOUSE_PORT}`,
+  database: 'system',
+  username: env.CLICKHOUSE_USER,
+  password: env.CLICKHOUSE_PASSWORD,
+});
+
+export type WarehouseStatus =
+  /** Nối được và database kho có mặt. */
+  | 'ok'
+  /** Không nối được tới máy chủ ClickHouse. */
+  | 'unreachable'
+  /** Máy chủ sống, nhưng database kho không tồn tại. */
+  | 'missing-database';
+
+/**
+ * Kho phân tích đã SẴN SÀNG chưa — máy chủ VÀ database.
+ *
+ * ─── Vì sao `pingClickhouse()` một mình là chưa đủ ──────────────────────────
+ *
+ * `/ping` của ClickHouse trả "Ok." dựa trên máy chủ, KHÔNG dựa trên database
+ * nào cả — đo trực tiếp: ping vẫn "Ok." trong lúc `bi_analytics` không tồn tại.
+ * Nên lớp kiểm cũ xanh, request trả 201 "đã xếp hàng", rồi job nền chết với
+ * `Database bi_analytics does not exist.` ở một chỗ người dùng phải tự đi tìm.
+ *
+ * Đó đúng là tình huống mà docblock của `pingClickhouse` nói nó được viết ra để
+ * chặn — chỉ là sâu hơn một tầng. Chuyện này đã xảy ra thật: 10 lần nạp liên
+ * tiếp hỏng cùng một câu, `rows_read = 0`, sau khi volume ClickHouse bị xoá.
+ */
+export async function checkWarehouse(): Promise<WarehouseStatus> {
+  try {
+    const ping = await systemWarehouse.ping();
+    if (!ping.success) return 'unreachable';
+
+    const rs = await systemWarehouse.query({
+      // Tham số hoá chứ không ghép chuỗi. `CLICKHOUSE_DATABASE` đến từ `.env`
+      // của người vận hành nên rủi ro thấp, nhưng đây vẫn là một tên đi vào câu
+      // lệnh — và ngoại lệ cho "chỗ này an toàn" là cách luật đó mục dần.
+      query: 'SELECT count() AS co FROM system.databases WHERE name = {db:String}',
+      query_params: { db: env.CLICKHOUSE_DATABASE },
+      format: 'JSONEachRow',
+    });
+    const rows = await rs.json<{ co: string }>();
+    return Number(rows[0]?.co ?? 0) > 0 ? 'ok' : 'missing-database';
+  } catch {
+    // Ném ở đây nghĩa là không hỏi được máy chủ. Không phân biệt thêm: mọi
+    // nhánh còn lại đều dẫn tới cùng một việc phải làm.
+    return 'unreachable';
+  }
+}
+
+/**
+ * Tạo database của kho nếu chưa có — xem `scripts/initWarehouse.ts`.
+ *
+ * Chạy qua `systemWarehouse` chứ KHÔNG qua `warehouse`: client kia ghim vào
+ * đúng cái database đang thiếu, nên mọi câu lệnh gửi qua nó — kể cả câu tạo ra
+ * chính nó — đều bị ClickHouse từ chối trước khi đọc tới nội dung.
+ *
+ * `quoteIdent` chứ không nội suy trần: tên đến từ `.env`, và ngoại lệ cho "chỗ
+ * này an toàn" là cách luật bọc định danh mục dần.
+ */
+export async function createWarehouseDatabase(): Promise<void> {
+  await systemWarehouse.command({
+    query: `CREATE DATABASE IF NOT EXISTS ${quoteIdent(env.CLICKHOUSE_DATABASE)}`,
+  });
+}
+
 export async function closeClickhouse(): Promise<void> {
-  await warehouse.close();
+  await Promise.all([warehouse.close(), systemWarehouse.close()]);
 }

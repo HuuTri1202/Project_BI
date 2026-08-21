@@ -38,6 +38,7 @@
     "infra:up:all": "docker compose -f infrastructure/docker-compose.yml --profile data --profile bi --profile stream --profile tools up -d",
     "infra:down": "docker compose -f infrastructure/docker-compose.yml --profile data --profile bi --profile stream --profile tools down",
     "infra:down:extra": "docker compose -f infrastructure/docker-compose.yml --profile data --profile bi --profile stream --profile tools rm -sf minio minio-init clickhouse cube kafka connect dbt",
+    "warehouse:init": "npm --workspace backend run warehouse:init",
     "infra:ps": "docker compose -f infrastructure/docker-compose.yml --profile data --profile bi --profile stream --profile tools ps",
     "infra:logs": "docker compose -f infrastructure/docker-compose.yml logs -f",
     "infra:stats": "docker stats --no-stream --format \"table {{.Name}}\\t{{.MemUsage}}\\t{{.MemPerc}}\\t{{.CPUPerc}}\""

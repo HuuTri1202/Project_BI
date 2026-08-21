@@ -4,7 +4,7 @@ import request from 'supertest';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import { createApp } from '../src/app';
-import { warehouse } from '../src/config/clickhouse';
+import { createWarehouseDatabase, warehouse } from '../src/config/clickhouse';
 import { env } from '../src/config/env';
 import { closeMysql, mysqlPool } from '../src/config/mysql';
 import { closeRedis } from '../src/config/redis';
@@ -83,6 +83,27 @@ interface Fixture {
 }
 
 let f: Fixture;
+
+/**
+ * Dựng sẵn database kho của môi trường test (`bi_analytics_test`).
+ *
+ * ─── Vì sao bài "xếp hàng -> 202" cần tới nó ────────────────────────────────
+ *
+ * `POST /load` giờ kiểm cả DATABASE chứ không chỉ máy chủ ClickHouse, vì `/ping`
+ * trả "Ok." kể cả khi database đã bị xoá — và khi đó request trả 202 "đã xếp
+ * hàng" rồi job nền chết ở tầng dưới với `Database ... does not exist.`
+ *
+ * Trước bản đó, hai bài xếp hàng ở dưới xanh trong lần chạy KHÔNG có ClickHouse
+ * đơn giản vì không ai hỏi tới database. `bi_analytics_test` chỉ được tạo trong
+ * nhánh `INGEST_CH_TESTS`, nên ở lần chạy thường nó thật sự không tồn tại — tức
+ * là chúng đang khẳng định một điều không đúng với thực tế.
+ *
+ * Idempotent, và chạy được cả khi database chưa có: `createWarehouseDatabase`
+ * gửi câu lệnh qua client ghim vào `system`.
+ */
+beforeAll(async () => {
+  await createWarehouseDatabase();
+});
 
 beforeEach(async () => {
   await resetDatabase();
@@ -171,6 +192,53 @@ describe('POST /v1/datasets/:id/load — xếp hàng', () => {
     // Trường là `error`, không phải `code` — hình dạng lỗi chung của cả API,
     // xem `middleware/errorHandler.ts`.
     expect(res.body.error).toBe('LoadAlreadyRunning');
+  });
+
+  it('database kho KHÔNG tồn tại -> 503 ngay, KHÔNG xếp hàng một job chắc chắn hỏng', async () => {
+    /*
+     * Ca này bảo vệ đúng một sự cố đã xảy ra thật.
+     *
+     * Volume ClickHouse bị xoá (`docker compose down -v`), database biến mất,
+     * nhưng `/ping` vẫn trả "Ok." vì nó nói về MÁY CHỦ. Lớp kiểm cũ chỉ ping,
+     * nên 10 request liên tiếp nhận 202 "đã xếp hàng" rồi 10 job lần lượt chết
+     * với `Database bi_analytics does not exist.` và `rows_read = 0` — ở một
+     * chỗ người dùng phải tự đi tìm mới thấy.
+     *
+     * Nói KHÔNG ngay từ request là điều duy nhất đúng: thử lại bao nhiêu lần
+     * cũng ra cùng kết quả, nên thứ người dùng cần là lệnh phải chạy.
+     */
+    const bootstrap = createClient({
+      url: `http://${env.CLICKHOUSE_HOST}:${env.CLICKHOUSE_PORT}`,
+      username: env.CLICKHOUSE_USER,
+      password: env.CLICKHOUSE_PASSWORD,
+    });
+
+    try {
+      await bootstrap.command({
+        query: `DROP DATABASE IF EXISTS \`${env.CLICKHOUSE_DATABASE}\``,
+      });
+
+      const res = await request(app)
+        .post(`/api/v1/datasets/${f.datasetA}/load`)
+        .set(bearer(f.tokenAlice))
+        .expect(503);
+
+      expect(res.body.error).toBe('WarehouseDatabaseMissing');
+      // Thông báo phải NÊU TÊN lệnh sửa. Không có nó thì người dùng biết mình
+      // hỏng ở đâu mà vẫn không biết làm gì tiếp.
+      expect(res.body.message).toContain('warehouse:init');
+
+      // Và KHÔNG được để lại một job nào trong hàng đợi.
+      const [rows] = await mysqlPool.query<RowDataPacket[]>(
+        'SELECT id FROM dataset_load_runs',
+      );
+      expect(rows).toHaveLength(0);
+    } finally {
+      // Dựng lại trước khi rời bài, nếu không mọi bài sau trong file này đều
+      // đỏ theo — và chúng đỏ vì một lý do chẳng liên quan gì tới chúng.
+      await createWarehouseDatabase();
+      await bootstrap.close();
+    }
   });
 
   it('dataset chưa `ready` -> 409 với lý do đọc được', async () => {
