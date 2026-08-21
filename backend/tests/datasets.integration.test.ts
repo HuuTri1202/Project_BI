@@ -128,11 +128,49 @@ async function makeConnection(token: string, name = 'CSDL sản xuất'): Promis
 describe('bảng route §8 — mọi endpoint đều có guard', () => {
   type Method = 'get' | 'post' | 'patch' | 'delete';
 
-  /** Mọi vai trò đọc được. */
-  const READ_ROUTES: [Method, string][] = [['get', '/api/v1/datasets']];
-
-  /** Admin HOẶC creator — viewer bị chặn. */
+  /**
+   * Admin HOẶC creator — viewer bị chặn.
+   *
+   * `GET /api/v1/datasets` nằm ở đây từ migration 26. Trước đó nó có bảng
+   * `READ_ROUTES` riêng với chú thích "mọi vai trò đọc được" — câu đó nay sai:
+   * viewer đọc báo cáo, không đọc kho.
+   *
+   * ─── Không còn bảng `ADMIN_ROUTES` nào ở §8 (migration 28) ───────────────
+   *
+   * Nó từng giữ bảy đường ghi kết nối. Creator nay dựng được kết nối RIÊNG của
+   * mình, nên cả bảy đều phải cho họ qua cổng Casbin, và bảng kia rỗng nên bị
+   * xoá hẳn thay vì để lại một mảng trống.
+   *
+   * ⚠️ Qua được CỔNG không phải là sửa được MỌI DÒNG. Casbin chấm điểm trên tài
+   * nguyên; ranh giới "kết nối nào" nằm trong câu SQL của `update`/`softDelete`
+   * và có hẳn một nhóm ca riêng ở dưới canh nó — `describe('phạm vi kết nối
+   * riêng')`. Đọc bảng này mà bỏ nhóm đó là đọc ra một lỗ hổng không có thật.
+   */
   const EDITOR_ROUTES: [Method, string][] = [
+    ['get', '/api/v1/datasets'],
+    /*
+     * Hai đường ĐỌC kết nối chuyển từ nhóm chỉ-admin sang đây ở migration 27.
+     *
+     * Đồng bộ bảng đã luôn là việc của creator (`dataset:modify`), nhưng bước
+     * chọn XEM đồng bộ từ kết nối nào lại nằm sau `connection:read`. Thiếu nó,
+     * hộp thoại mở ra với một ô chọn rỗng và không lời giải thích.
+     *
+     */
+    ['get', '/api/v1/connections'],
+    ['get', '/api/v1/connections/prerequisites'],
+    /*
+     * Và mọi đường GHI kết nối, từ migration 28 — creator dựng kết nối riêng.
+     *
+     * Hai đường liệt kê database cùng hạng với `/test`: chúng MỞ KẾT NỐI THẬT
+     * ra ngoài, nên gác bằng `connection:modify` chứ không phải quyền đọc.
+     */
+    ['post', '/api/v1/connections'],
+    ['post', '/api/v1/connections/test'],
+    ['post', '/api/v1/connections/databases'],
+    ['get', '/api/v1/connections/1/databases'],
+    ['patch', '/api/v1/connections/1'],
+    ['post', '/api/v1/connections/1/test'],
+    ['delete', '/api/v1/connections/1'],
     ['get', '/api/v1/connections/1/tables'],
     ['post', '/api/v1/connections/1/sync'],
     ['patch', '/api/v1/datasets/1'],
@@ -152,40 +190,255 @@ describe('bảng route §8 — mọi endpoint đều có guard', () => {
     ['delete', '/api/v1/datasets/1'],
   ];
 
-  /** CHỈ admin tổ chức. */
-  const ADMIN_ROUTES: [Method, string][] = [
-    ['get', '/api/v1/connections'],
-    ['get', '/api/v1/connections/prerequisites'],
-    ['post', '/api/v1/connections'],
-    ['post', '/api/v1/connections/test'],
-    // Hai đường liệt kê database cùng hạng với `/test`: chúng MỞ KẾT NỐI THẬT ra
-    // ngoài, nên gác bằng `connection:modify` chứ không phải quyền đọc.
-    ['post', '/api/v1/connections/databases'],
-    ['get', '/api/v1/connections/1/databases'],
-    ['patch', '/api/v1/connections/1'],
-    ['post', '/api/v1/connections/1/test'],
-    ['delete', '/api/v1/connections/1'],
-  ];
-
-  it.each([...READ_ROUTES, ...EDITOR_ROUTES, ...ADMIN_ROUTES])(
+  it.each(EDITOR_ROUTES)(
     'không token: %s %s -> 401',
     async (method, path) => {
       expect((await request(app)[method](path)).status).toBe(401);
     },
   );
 
-  it.each([...EDITOR_ROUTES, ...ADMIN_ROUTES])('viewer: %s %s -> 403', async (method, path) => {
+  it.each(EDITOR_ROUTES)('viewer: %s %s -> 403', async (method, path) => {
     const res = await request(app)[method](path).set(bearer(f.tokenDave)).send({});
     expect(res.status).toBe(403);
   });
 
-  it.each(ADMIN_ROUTES)('creator: %s %s -> 403', async (method, path) => {
-    const res = await request(app)[method](path).set(bearer(f.tokenBob)).send({});
-    expect(res.status).toBe(403);
+  it('creator ĐỌC được Kho dữ liệu — migration 26 chỉ nhắm viewer', async () => {
+    // Câu `DELETE` của migration 26 lọc theo `v0 = 'viewer'`. Quên ràng buộc đó
+    // là quét sạch `dataset:read` của creator, và triệu chứng sẽ là "creator
+    // bỗng dưng không mở được Kho dữ liệu" — không ai nối được về một dòng SQL
+    // trong migration nếu không có ca này.
+    expect((await request(app).get('/api/v1/datasets').set(bearer(f.tokenBob))).status).toBe(200);
   });
 
-  it.each(READ_ROUTES)('viewer ĐỌC được: %s %s -> 200', async (method, path) => {
-    expect((await request(app)[method](path).set(bearer(f.tokenDave))).status).toBe(200);
+  /**
+   * Migration 27 — creator chọn được kết nối để đồng bộ.
+   *
+   * Bảng 403 ở trên không thay được ca này: nó chỉ khẳng định viewer bị chặn,
+   * và điều đó đúng cả trước lẫn sau migration 27. Thứ hỏng trước đây là
+   * creator, và chỉ một ca hỏi thẳng creator mới giữ được nó.
+   */
+  it('creator mở được danh sách kết nối, và nó RỖNG khi họ chưa tự dựng cái nào', async () => {
+    // Kết nối này do ADMIN dựng. Creator có `connection:read` nên vào được
+    // endpoint — 200, không phải 403 — nhưng không thấy dòng nào, vì họ chỉ
+    // thấy kết nối của chính mình.
+    await makeConnection(f.tokenAlice);
+
+    const ds = await request(app).get('/api/v1/connections').set(bearer(f.tokenBob));
+    expect(ds.status).toBe(200);
+    expect(ds.body).toHaveLength(0);
+
+    // Phân biệt hai thứ dễ lẫn: 200-rỗng nghĩa là "bạn chưa có kết nối nào",
+    // còn 403 nghĩa là "vai trò của bạn không được xem". Giao diện hiện hai câu
+    // khác hẳn nhau cho hai trạng thái đó.
+    const cuaAdmin = await request(app).get('/api/v1/connections').set(bearer(f.tokenAlice));
+    expect(cuaAdmin.body).toHaveLength(1);
+    expect(JSON.stringify(cuaAdmin.body)).not.toContain(SOURCE.password);
+  });
+});
+
+/**
+ * Kết nối RIÊNG của người tạo — migration 28.
+ *
+ * ═══ Vì sao nhóm này tồn tại tách hẳn khỏi bảng route ════════════════════════
+ *
+ * Bảng route ở trên chỉ hỏi được "vai trò này qua cổng Casbin không". Từ
+ * migration 28, câu trả lời cho creator là CÓ trên cả bảy đường ghi kết nối —
+ * nên bảng đó không còn phát hiện được gì về ranh giới thật.
+ *
+ * Ranh giới thật là "kết nối NÀO", và nó nằm trong mệnh đề `AND created_by = ?
+ * AND visibility = 'private'` của `update`/`softDelete`/`findSecret`. Một lần
+ * refactor xoá mệnh đề đó đi sẽ để mọi ca ở trên xanh nguyên, trong khi creator
+ * sửa được kho chung của tổ chức và rút được dữ liệu qua kết nối riêng của
+ * người khác. Đây là nhóm ca duy nhất đứng giữa.
+ */
+describe('phạm vi kết nối riêng', () => {
+  /** Kết nối do CREATOR tạo — phải thành `private`, của riêng họ. */
+  async function makePrivate(token: string, name: string): Promise<number> {
+    const res = await request(app)
+      .post('/api/v1/connections')
+      .set(bearer(token))
+      .send({ ...SOURCE, name });
+    expect(res.status).toBe(201);
+    return res.body.id as number;
+  }
+
+  it('admin tạo -> dùng chung; creator tạo -> riêng', async () => {
+    // Phạm vi do VAI TRÒ người tạo quyết định, và được ghi thành cột thật. Đây
+    // là ca giữ cho quyết định đó không lặng lẽ đảo chiều.
+    const cuaAdmin = await makeConnection(f.tokenAlice, 'Kho chung');
+    const cuaCreator = await makePrivate(f.tokenBob, 'Máy của Bình');
+
+    const list = await request(app).get('/api/v1/connections').set(bearer(f.tokenAlice));
+    const byId = new Map<number, { visibility: string; ownerName: string | null }>(
+      list.body.map((c: { id: number; visibility: string; ownerName: string | null }) => [
+        c.id,
+        { visibility: c.visibility, ownerName: c.ownerName },
+      ]),
+    );
+
+    expect(byId.get(cuaAdmin)?.visibility).toBe('shared');
+    expect(byId.get(cuaCreator)?.visibility).toBe('private');
+    // Admin thấy kết nối riêng của người khác KÈM tên chủ — không có nhãn đó
+    // thì danh sách của admin là một đống không phân biệt được ai chịu trách
+    // nhiệm cho dòng nào.
+    expect(byId.get(cuaCreator)?.ownerName).toBe('Trần Văn Bình');
+  });
+
+  it('creator KHÔNG thấy kết nối riêng của creator khác', async () => {
+    // Người thứ hai cùng vai trò, cùng tổ chức. Đây là ca mà `whereVisible`
+    // sinh ra để canh: cùng vai trò thì Casbin cho điểm y hệt nhau, nên nếu
+    // ranh giới này hỏng thì không có lớp nào khác bắt được.
+    const eve = await makeUser('eve@alpha.test', 'Đỗ Thị Ế');
+    await makeMembership(eve, f.tenantA, 'creator');
+    const tokenEve = signTokenFor(eve, f.tenantA, 'creator');
+
+    const cuaToChuc = await makeConnection(f.tokenAlice, 'CSDL của công ty');
+    const cuaBinh = await makePrivate(f.tokenBob, 'Máy của Bình');
+    const cuaEve = await makePrivate(tokenEve, 'Máy của Ế');
+
+    const thay = await request(app).get('/api/v1/connections').set(bearer(tokenEve));
+    const ids = thay.body.map((c: { id: number }) => c.id);
+
+    expect(ids).toEqual([cuaEve]); // ĐÚNG một dòng: của chính Ế
+    expect(ids).not.toContain(cuaBinh); // của creator khác thì không
+    // Và cả kết nối do ADMIN dựng cũng không. Đây là vế bị cắt sau khi quyết
+    // định "creator không dùng chung với admin": thông tin đăng nhập của admin
+    // mở được cả CSDL nguồn, và mượn được nó là mượn cả quyền đọc đi kèm — trên
+    // những bảng mà admin chưa từng chọn đồng bộ.
+    expect(ids).not.toContain(cuaToChuc);
+
+    // Và không đi vòng được bằng cách gõ thẳng id. Bốn đường dưới đây đều đi
+    // qua `findSecret`, tức là đều cần mật khẩu để mở kết nối thật.
+    for (const [method, path] of [
+      ['get', `/api/v1/connections/${cuaBinh}/tables`],
+      ['get', `/api/v1/connections/${cuaBinh}/databases`],
+      ['post', `/api/v1/connections/${cuaBinh}/test`],
+    ] as ['get' | 'post', string][]) {
+      const res = await request(app)[method](path).set(bearer(tokenEve)).send({});
+      expect(res.status, `${method} ${path}`).toBe(404);
+    }
+
+    // Đường nguy hiểm nhất: `/sync` gác bằng `dataset:modify` — ô mà Eve CÓ —
+    // rồi nhận connectionId thẳng từ URL. Thiếu `viewer` ở `syncDatasets` là
+    // Eve rút được dữ liệu từ CSDL riêng của Bình mà không lớp nào chặn.
+    const sync = await request(app)
+      .post(`/api/v1/connections/${cuaBinh}/sync`)
+      .set(bearer(tokenEve))
+      .send({ tables: [{ schema: 'bi_platform_test', table: 'users' }] });
+    expect(sync.status).toBe(404);
+  });
+
+  it('creator KHÔNG sửa/xoá được kết nối của tổ chức, dù Casbin đã cho qua cổng', async () => {
+    const cuaToChuc = await makeConnection(f.tokenAlice, 'CSDL của công ty');
+
+    // 404 chứ không 403, và đó là chủ ý: 403 xác nhận id có thật. Cùng quy ước
+    // với mọi chỗ khác trong dự án.
+    const sua = await request(app)
+      .patch(`/api/v1/connections/${cuaToChuc}`)
+      .set(bearer(f.tokenBob))
+      .send({ ...SOURCE, name: 'Bị chiếm' });
+    expect(sua.status).toBe(404);
+
+    const xoa = await request(app)
+      .delete(`/api/v1/connections/${cuaToChuc}`)
+      .set(bearer(f.tokenBob));
+    expect(xoa.status).toBe(404);
+
+    // Và nó còn nguyên — không phải "báo lỗi nhưng vẫn ghi".
+    const con = await request(app).get('/api/v1/connections').set(bearer(f.tokenAlice));
+    expect(con.body.find((c: { id: number }) => c.id === cuaToChuc)?.name).toBe(
+      'CSDL của công ty',
+    );
+  });
+
+  /**
+   * Người TỪNG là admin, dựng kết nối cho kho chung, rồi bị hạ xuống creator.
+   *
+   * `created_by` vẫn trỏ vào họ, nên một mệnh đề chỉ có `AND created_by = ?` sẽ
+   * cho họ tiếp tục sửa kho chung của tổ chức — và trên màn hình nó vẫn là một
+   * dòng "Dùng chung" bình thường, không ai nhìn ra.
+   *
+   * Đây là ca DUY NHẤT chạm tới vế `visibility = 'private'` trong `whereOwned`.
+   * Ca "creator không sửa được kho chung" ở trên KHÔNG thay được: ở đó người
+   * gọi vốn không phải người tạo, nên `created_by = ?` một mình đã chặn rồi.
+   * Tôi đã thử gỡ vế ấy ra và ca kia vẫn xanh — nên nếu thiếu ca này thì cả một
+   * ràng buộc nằm đó không có gì canh.
+   */
+  it('bị hạ từ admin xuống creator thì MẤT quyền sửa kết nối tổ chức mình từng dựng', async () => {
+    const chung = await makeConnection(f.tokenAlice, 'CSDL của công ty');
+
+    // Hạ vai trò trong DATABASE, giữ nguyên token. `requireFreshMembership` đọc
+    // lại vai trò mỗi request nên token cũ không cứu được — cùng cơ chế mà bài
+    // "token ghi admin nhưng DB đã hạ xuống viewer" đang dựa vào.
+    await mysqlPool.query('UPDATE memberships SET role = ? WHERE user_id = ? AND tenant_id = ?', [
+      'creator',
+      f.alice,
+      f.tenantA,
+    ]);
+
+    const sua = await request(app)
+      .patch(`/api/v1/connections/${chung}`)
+      .set(bearer(f.tokenAlice))
+      .send({ ...SOURCE, name: 'Vẫn sửa được?' });
+    expect(sua.status).toBe(404);
+
+    // Vẫn THẤY nó, nhưng vì `created_by` là chính họ — không phải vì nó "dùng
+    // chung". Mất quyền sửa, không mất quyền đọc.
+    const list = await request(app).get('/api/v1/connections').set(bearer(f.tokenAlice));
+    const row = list.body.find((c: { id: number }) => c.id === chung);
+    expect(row?.name).toBe('CSDL của công ty');
+    expect(row?.canManage).toBe(false);
+  });
+
+  it('creator sửa và xoá được kết nối CỦA MÌNH', async () => {
+    const cua = await makePrivate(f.tokenBob, 'Máy của Bình');
+
+    const sua = await request(app)
+      .patch(`/api/v1/connections/${cua}`)
+      .set(bearer(f.tokenBob))
+      .send({ ...SOURCE, name: 'Máy của Bình (đổi tên)' });
+    expect(sua.status).toBe(200);
+    expect(sua.body.name).toBe('Máy của Bình (đổi tên)');
+    // `canManage` là thứ quyết định nút Sửa/Xoá có hiện không. Nó phải khớp với
+    // câu SQL vừa cho qua ở trên; lệch nhau thì người dùng thấy nút bấm vào ra
+    // 404, hoặc không thấy nút cho thứ họ sửa được.
+    expect(sua.body.canManage).toBe(true);
+
+    expect((await request(app).delete(`/api/v1/connections/${cua}`).set(bearer(f.tokenBob))).status)
+      .toBe(204);
+  });
+
+  it('hai creator đặt TRÙNG TÊN kết nối riêng — không ai chặn ai', async () => {
+    /*
+     * Khoá `uq_connections_tenant_name (tenant_id, name)` cũ sẽ làm người thứ
+     * hai nhận lỗi trùng tên về một bản ghi họ KHÔNG NHÌN THẤY — đúng hình dạng
+     * của V-09, một bức tường không cửa. Migration 28 đổi sang khoá theo phạm
+     * vi, và ca này là thứ giữ nó.
+     */
+    const eve = await makeUser('eve@alpha.test', 'Đỗ Thị Ế');
+    await makeMembership(eve, f.tenantA, 'creator');
+    const tokenEve = signTokenFor(eve, f.tenantA, 'creator');
+
+    await makePrivate(f.tokenBob, 'Local');
+    await makePrivate(tokenEve, 'Local');
+
+    // Nhưng TRONG phạm vi một người thì tên vẫn phải là duy nhất — nới hết thì
+    // chính người đó có hai dòng cùng tên và không phân biệt nổi.
+    const lai = await request(app)
+      .post('/api/v1/connections')
+      .set(bearer(f.tokenBob))
+      .send({ ...SOURCE, name: 'Local' });
+    expect(lai.status).toBe(409);
+  });
+
+  it('xoá rồi thì TÊN được trả lại', async () => {
+    // Khoá mới dùng cột sinh `IF(deleted_at IS NULL, …, NULL)` — cùng thủ thuật
+    // migration 24. Không có nó thì mỗi lần gõ nhầm tên là mất tên đó vĩnh viễn.
+    const cua = await makePrivate(f.tokenBob, 'Gõ nhầm');
+    expect((await request(app).delete(`/api/v1/connections/${cua}`).set(bearer(f.tokenBob))).status)
+      .toBe(204);
+
+    await makePrivate(f.tokenBob, 'Gõ nhầm');
   });
 });
 
@@ -677,15 +930,26 @@ describe('xem trước dữ liệu', () => {
     expect(res.body.rows.length).toBeLessThanOrEqual(100);
   });
 
-  it('viewer XEM ĐƯỢC, và dataset của tổ chức khác thì 404', async () => {
+  it('viewer BỊ CHẶN, và dataset của tổ chức khác thì 404', async () => {
     const datasetId = await makeDataset();
 
-    // Viewer là vai trò của người đọc báo cáo. Chặn họ xem dữ liệu nằm dưới báo
-    // cáo là chặn đúng việc họ được mời vào để làm.
+    /*
+     * Ca này ĐẢO CHIỀU ở migration 26, và lý lẽ cũ đáng được ghi lại nguyên văn
+     * vì nó nghe rất xuôi: "viewer là vai trò của người đọc báo cáo; chặn họ xem
+     * dữ liệu nằm dưới báo cáo là chặn đúng việc họ được mời vào để làm."
+     *
+     * Chỗ sai nằm ở chữ "nằm dưới". Xem trước KHÔNG trả về dữ liệu của báo cáo
+     * — nó trả về dòng thô của cả bảng, đủ mọi cột, kể cả những cột không biểu
+     * đồ nào chạm tới. Một báo cáo doanh thu theo tháng dựng trên bảng nhân sự
+     * thì "thứ nằm dưới" nó có cả cột lương.
+     *
+     * Việc viewer được mời vào để làm vẫn chạy nguyên: `GET /reports/:id/data`
+     * không đi qua `authorize('dataset', 'read')`.
+     */
     expect(
       (await request(app).get(`/api/v1/datasets/${datasetId}/preview`).set(bearer(f.tokenDave)))
         .status,
-    ).toBe(200);
+    ).toBe(403);
 
     expect(
       (await request(app).get(`/api/v1/datasets/${datasetId}/preview`).set(bearer(f.tokenCarol)))
@@ -829,8 +1093,15 @@ describe('đồng bộ (§8.6, §8.7)', () => {
     expect(after.body.sourceTable).toBe('users');
   });
 
-  it('creator đồng bộ VÀ xoá được dataset, nhưng không đụng được kết nối', async () => {
-    const id = await makeConnection(f.tokenAlice);
+  it('creator đồng bộ và xoá dataset qua kết nối CỦA MÌNH', async () => {
+    /*
+     * Kết nối do CHÍNH creator dựng — không phải của admin nữa.
+     *
+     * Ca này từng đồng bộ qua kết nối của admin, và nó chạy được vì creator khi
+     * đó nhìn thấy kho của tổ chức. Sau khi cắt vế đó, đường ấy trả 404, và
+     * đường đúng là creator tự khai CSDL của mình.
+     */
+    const id = await makeConnection(f.tokenBob, 'Máy của Bình');
 
     expect((await sync(id, TABLES, f.tokenBob)).status).toBe(200);
 
@@ -843,12 +1114,30 @@ describe('đồng bộ (§8.6, §8.7)', () => {
     expect(
       (await request(app).delete(`/api/v1/datasets/${datasetId}`).set(bearer(f.tokenBob))).status,
     ).toBe(204);
+  });
 
-    // Ranh giới THẬT của creator nằm ở kết nối: mật khẩu CSDL của khách hàng là
-    // việc của admin, và xoá kết nối kéo theo mọi bộ dữ liệu dựng trên nó.
+  it('creator KHÔNG đồng bộ được qua kết nối của tổ chức', async () => {
+    /*
+     * Mặt còn lại, và là chỗ đáng canh nhất của cả quyết định này.
+     *
+     * `/sync` gác bằng `dataset:modify` — ô mà creator CÓ — rồi nhận
+     * `connectionId` thẳng từ URL. Nếu `findSecret` không lọc theo phạm vi thì
+     * creator gõ đúng id là rút được dữ liệu bằng thông tin đăng nhập của
+     * admin, trên những bảng mà admin chưa từng chọn đồng bộ. Danh sách rỗng ở
+     * giao diện KHÔNG chặn được điều đó — nó chỉ giấu id đi.
+     *
+     * 404 chứ không 403: ở tầng này "không phải của bạn" và "không tồn tại"
+     * phải cho ra cùng một câu.
+     */
+    const cuaAdmin = await makeConnection(f.tokenAlice);
+
+    expect((await sync(cuaAdmin, TABLES, f.tokenBob)).status).toBe(404);
+
+    // Và cũng không xoá được nó. Xoá kết nối kéo theo mọi bộ dữ liệu dựng trên
+    // nó, của cả tổ chức.
     expect(
-      (await request(app).delete(`/api/v1/connections/${id}`).set(bearer(f.tokenBob))).status,
-    ).toBe(403);
+      (await request(app).delete(`/api/v1/connections/${cuaAdmin}`).set(bearer(f.tokenBob))).status,
+    ).toBe(404);
   });
 
   it('danh sách bảng rỗng -> 400, không phải một lần đồng bộ không làm gì', async () => {

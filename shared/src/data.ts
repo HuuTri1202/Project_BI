@@ -33,6 +33,26 @@ export const CONNECTION_KIND_LABELS: Record<ConnectionKind, string> = {
   clickhouse: 'ClickHouse',
 };
 
+export const CONNECTION_VISIBILITIES = ['shared', 'private'] as const;
+
+export type ConnectionVisibility = (typeof CONNECTION_VISIBILITIES)[number];
+
+/*
+ * Nhãn CỐ Ý không nói "của tôi".
+ *
+ * Admin nhìn thấy kết nối riêng của người khác, nên một dòng ghi "Riêng của
+ * tôi" trên màn hình admin là nói sai về chính dòng đó. Danh sách hiện tên chủ
+ * ngay bên dưới nhãn, và đó mới là chỗ trả lời "của ai".
+ *
+ * `shared` cũng không còn là "dùng chung" theo nghĩa ai cũng thấy — từ khi
+ * creator chỉ thấy kết nối của chính mình, nó nghĩa là "thuộc tổ chức, do
+ * quản trị viên dựng và quản". Xem `whereVisible`.
+ */
+export const CONNECTION_VISIBILITY_LABELS: Record<ConnectionVisibility, string> = {
+  shared: 'Của tổ chức',
+  private: 'Cá nhân',
+};
+
 /** Một dòng mô tả cho thẻ chọn loại CSDL ở wizard bước 2. */
 export const CONNECTION_KIND_DESCRIPTIONS: Record<ConnectionKind, string> = {
   mysql: 'Cơ sở dữ liệu quan hệ phổ biến',
@@ -79,6 +99,37 @@ export interface ConnectionDto {
   /** Số dataset đang trỏ tới kết nối này — dùng để chặn xoá. */
   datasetCount: number;
   createdAt: string;
+  /**
+   * Ai THẤY kết nối này (migration 28).
+   *
+   *   shared    thuộc TỔ CHỨC — do quản trị viên dựng và quản
+   *   private   thuộc NGƯỜI TẠO — chỉ họ và quản trị viên tổ chức thấy
+   *
+   * Người không phải admin chỉ thấy kết nối của chính mình, kể cả khi có
+   * `connection:read` — `shared` KHÔNG có nghĩa là ai cũng thấy. Xem
+   * `whereVisible` trong `backend/src/repositories/connections.ts`.
+   *
+   * Cột THẬT trong database, không suy ra từ vai trò người tạo. Suy ra thì một
+   * lần đổi vai trò của ai đó sẽ âm thầm đổi phạm vi những kết nối họ đã tạo từ
+   * lâu — hạ một admin xuống creator là những kết nối của tổ chức bỗng bị tính
+   * thành của cá nhân họ.
+   */
+  visibility: ConnectionVisibility;
+  /** Tên người tạo. `null` khi tài khoản đó đã bị xoá (`ON DELETE SET NULL`). */
+  ownerName: string | null;
+  /**
+   * Người gọi có SỬA/XOÁ được kết nối này không.
+   *
+   * Do backend tính, không phải frontend suy. Đây là quyền theo TỪNG DÒNG —
+   * admin sửa được tất, creator chỉ sửa được cái mình tạo — mà ma trận Casbin
+   * không diễn đạt nổi: nó chấm điểm trên tài nguyên, không trên từng dòng
+   * (nguyên văn lập luận đã ghi ở `datasets.integration.test.ts`).
+   *
+   * Đây CHỈ là chuyện hiển thị nút. Chặn thật nằm trong chính câu UPDATE và
+   * DELETE, xem `connections.ts` — nên đoán sai ở đây cùng lắm là hiện nhầm một
+   * nút, không mở thêm quyền nào.
+   */
+  canManage: boolean;
 }
 
 export interface TestConnectionResultDto {

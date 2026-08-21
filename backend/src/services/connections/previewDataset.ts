@@ -50,7 +50,9 @@ export async function previewDataset(
     throw notFound('Không tìm thấy tập dữ liệu này.');
   }
 
-  const secret = await requireSecret(tenantId, dataset.connectionId);
+  // `'system'`: `connectionId` lấy từ chính dòng dataset đã lọc theo tổ chức,
+  // không phải từ URL. Xem `ConnectionScope`.
+  const secret = await requireSecret(tenantId, dataset.connectionId, 'system');
   const cfg = await toConfigFromSecret(secret);
 
   try {

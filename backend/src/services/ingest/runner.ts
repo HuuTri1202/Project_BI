@@ -36,6 +36,15 @@ const POLL_MS = 2_000;
  */
 const SWEEP_EVERY_TICKS = 1_800;
 
+/**
+ * Tuổi tối thiểu để một lần tải bỏ dở bị dọn — xem `sweepStalePendingUploads`.
+ *
+ * Phải dài hơn mọi phiên làm việc hợp lệ: tải file lớn rồi đi họp, quay lại chốt
+ * sheet là chuyện bình thường. Quét mất bản ghi giữa chừng thì luồng tải hỏng
+ * theo cách không giải thích được cho người dùng.
+ */
+const PENDING_MAX_AGE_HOURS = 24;
+
 let timer: NodeJS.Timeout | undefined;
 let stopping = false;
 let running: Promise<void> | undefined;
@@ -114,6 +123,21 @@ async function tick(): Promise<void> {
       if (dropped > 0) console.log(`[ingest] janitor: đã dọn ${dropped} bảng mồ côi`);
     } catch (err) {
       console.error('[ingest] janitor: không quét được kho:', err);
+    }
+
+    // Đi CHUNG khe quét mỗi giờ chứ không có bộ đếm giờ riêng: nó là một câu
+    // UPDATE trên MySQL, và một tác vụ nữa có vòng đời riêng nghĩa là một thứ
+    // nữa `stopIngestRunner` phải chờ cho đúng.
+    //
+    // `try` RIÊNG, không gộp với khối trên: ClickHouse tắt là chuyện thường ở
+    // dev, và nó không được phép chặn một việc thuần MySQL.
+    try {
+      const stale = await datasetsRepo.sweepStalePendingUploads(mysqlPool, PENDING_MAX_AGE_HOURS);
+      if (stale > 0) {
+        console.log(`[ingest] janitor: đã dọn ${stale} lần tải bỏ dở quá ${PENDING_MAX_AGE_HOURS} giờ`);
+      }
+    } catch (err) {
+      console.error('[ingest] janitor: không dọn được lần tải bỏ dở:', err);
     }
   } else {
     ticksUntilSweep -= 1;

@@ -157,7 +157,13 @@ afterAll(async () => {
 describe('§10 phân quyền theo bảng route', () => {
   type Method = 'get' | 'post' | 'patch' | 'delete';
 
-  /** Route GHI — viewer phải bị chặn ở mọi cái. */
+  /**
+   * Mọi route viewer phải bị chặn.
+   *
+   * Từ migration 26 gồm cả hai đường ĐỌC. Mô hình dữ liệu là chỗ siết đáng giá
+   * nhất: bên trong nó là Explorer, tức là khả năng tự đặt câu hỏi MỚI trên dữ
+   * liệu — khác hẳn việc đọc lại một câu hỏi người khác đã chọn và chia sẻ.
+   */
   const WRITE_ROUTES: [Method, string][] = [
     ['post', '/api/v1/datamodels'],
     ['patch', '/api/v1/datamodels/1'],
@@ -165,9 +171,6 @@ describe('§10 phân quyền theo bảng route', () => {
     ['post', '/api/v1/datamodels/1/datasets'],
     ['delete', '/api/v1/datamodels/1/datasets/1'],
     ['patch', '/api/v1/datamodels/1/layout'],
-  ];
-
-  const READ_ROUTES: [Method, string][] = [
     ['get', '/api/v1/datamodels'],
     ['get', '/api/v1/datamodels/1'],
   ];
@@ -188,7 +191,7 @@ describe('§10 phân quyền theo bảng route', () => {
 
   // Theo BẢNG chứ không viết tay từng ca: route mới thêm mà quên gắn
   // `authorize` sẽ tự động làm đỏ, không cần ai nhớ bổ sung.
-  it.each([...WRITE_ROUTES, ...READ_ROUTES])('không token: %s %s -> 401', async (method, path) => {
+  it.each(WRITE_ROUTES)('không token: %s %s -> 401', async (method, path) => {
     const res = await call(method, path).send({});
     expect(res.status).toBe(401);
   });
@@ -198,8 +201,11 @@ describe('§10 phân quyền theo bảng route', () => {
     expect(res.status).toBe(403);
   });
 
-  it('viewer ĐỌC được danh sách mô hình', async () => {
-    const res = await request(app).get('/api/v1/datamodels').set(bearer(f.tokenViewerA));
+  it('creator ĐỌC được danh sách mô hình', async () => {
+    // Ca này TỪNG là "viewer ĐỌC được". Đổi sang creator chứ không xoá đi: nếu
+    // migration 26 quét quá tay và lấy luôn `datamodel:read` của creator thì
+    // toàn bộ §10 tắt ngóm, mà mọi ca 403 ở trên vẫn xanh rờn.
+    const res = await request(app).get('/api/v1/datamodels').set(bearer(f.tokenCreatorA));
     expect(res.status).toBe(200);
     expect(res.body.items).toHaveLength(1);
   });
@@ -551,5 +557,49 @@ describe('§10.8 tạo báo cáo từ mô hình', () => {
       .send(body(f.modelA));
 
     expect(res.status).toBe(403);
+  });
+
+  /**
+   * Ca quan trọng nhất của migration 26 — mặt CÒN LẠI của nó.
+   *
+   * Siết viewer khỏi `datamodel:read` chỉ đúng chừng nào việc họ được mời vào
+   * để làm vẫn chạy. Nếu ai đó "dọn dẹp cho nhất quán" bằng cách gắn
+   * `authorize('datamodel', 'read')` lên `/reports/:id/data`, mọi báo cáo dựng
+   * trên mô hình sẽ trắng xoá với viewer — và không một ca 403 nào ở trên đỏ
+   * lên, vì tất cả chúng đều đang khẳng định điều ngược lại.
+   *
+   * `modelA` chưa có bảng nào trong ClickHouse nên đường vẽ không ra số thật
+   * được. Nhưng thứ đang kiểm là CÁNH CỬA, không phải con số: chỉ cần khác 403
+   * là guard đã không chặn. Ca ra số thật thuộc lane có ClickHouse.
+   */
+  it('viewer VẪN xem được báo cáo trên mô hình, dù không còn datamodel:read', async () => {
+    // Một chiều và một thước đo THẬT, vì `POST /reports/from-datamodel` kiểm cả
+    // hai id có nằm trong mô hình không. `count` là đếm dòng nên không cần cột.
+    const { refId, columnIds } = await attachDataset(f.tenantA, f.modelA, f.datasetA);
+    const thuocDo = await request(app)
+      .post(`/api/v1/datamodels/${f.modelA}/measures`)
+      .set(bearer(f.tokenAdminA))
+      .send({ datamodelDatasetId: refId, name: 'Số dòng', agg: 'count' });
+    expect(thuocDo.status).toBe(201);
+
+    const taoRes = await request(app)
+      .post('/api/v1/reports/from-datamodel')
+      .set(bearer(f.tokenAdminA))
+      .send(body(f.modelA, columnIds[0], thuocDo.body.id as number));
+    expect(taoRes.status).toBe(201);
+    const reportId = taoRes.body.id as number;
+
+    // Metadata: 200 tròn trịa. `authorize('report', 'read')` cho viewer qua.
+    const meta = await request(app)
+      .get(`/api/v1/reports/${reportId}`)
+      .set(bearer(f.tokenViewerA));
+    expect(meta.status).toBe(200);
+    expect(meta.body.source).toBe('datamodel');
+
+    // Số liệu: có thể hỏng vì thiếu kho, nhưng KHÔNG được hỏng vì thiếu quyền.
+    const data = await request(app)
+      .get(`/api/v1/reports/${reportId}/data`)
+      .set(bearer(f.tokenViewerA));
+    expect(data.status, `phải không phải 403, nhận ${data.status}`).not.toBe(403);
   });
 });

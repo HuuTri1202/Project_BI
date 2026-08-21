@@ -3,7 +3,12 @@ import { Navigate, Outlet } from 'react-router-dom';
 import { usePermissions } from '../auth/usePermissions';
 
 /**
- * Chỉ Admin CỦA TỔ CHỨC vào được — §4.8, phía giao diện.
+ * Cổng route theo QUYỀN TRONG TỔ CHỨC — §4.8, phía giao diện.
+ *
+ * Tên còn chữ "Admin" là dấu vết lịch sử: lúc mới viết, mọi ô nó gác đều là ô
+ * của admin. Nay `readDatasets` và `readDataModels` cũng đi qua đây, và creator
+ * qua được — nên đọc cái tên như "cổng theo vai trò tổ chức", đừng đọc như
+ * "chỉ admin". Ô nào gác thì `needs` nói ra, không phải cái tên.
  *
  * Hỏi `role` (`memberships.role`), KHÔNG phải `user.platformRole`. Đây là ranh
  * giới dễ lẫn nhất trong dự án, nên nói rõ:

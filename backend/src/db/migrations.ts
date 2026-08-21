@@ -1769,4 +1769,204 @@ export const migrations: readonly Migration[] = [
          ADD UNIQUE KEY uq_datamodel_measures_alive (datamodel_id, name_alive)`,
     ],
   },
+  {
+    id: 25,
+    name: 'measure_agg_cube_builtin_only',
+    statements: [
+      // ═══ Danh sách phép gộp bám ĐÚNG những gì Cube dựng sẵn ════════════════
+      //
+      // Bỏ `median` và `p90`, thêm `countDistinctApprox`. Danh sách mới là tập
+      // con của thứ bộ kiểm định của Cube v1.7.16 nhận — đọc thẳng từ
+      // `CubeValidator.js` trong container đang chạy:
+      //
+      //     valid('count','number','string','boolean','time','sum','avg',
+      //           'min','max','countDistinct','countDistinctApprox')
+      //
+      // `median`/`p90` không nằm trong đó: chúng phát ra `type: "number"` kèm
+      // một biểu thức `quantileExact()` ta tự viết. Chạy được, nhưng là mã của
+      // ta gánh chứ không phải của Cube — và đó là thứ vừa được quyết định bỏ.
+      //
+      // ⚠️ PHẢI chuyển dòng cũ TRƯỚC khi thu hẹp ENUM. MySQL đổi ENUM bằng cách
+      // khớp theo CHUỖI: giá trị không còn trong danh sách mới thành chuỗi rỗng
+      // kèm cảnh báo, hoặc ném lỗi ở chế độ nghiêm. Đảo thứ tự hai bước này là
+      // mất dữ liệu, im lặng.
+      //
+      // Con số SẼ ĐỔI sau khi chuyển, và không có lựa chọn nào tránh được điều
+      // đó — trung vị và trung bình là hai phép khác nhau. Chọn hướng gần nhất
+      // về mặt ý nghĩa: `median` -> `avg` (cùng đo xu thế trung tâm),
+      // `p90` -> `max` (cùng đo đầu trên). Trên máy này chỉ có đúng một dòng
+      // `median`, và nó thuộc một mô hình đã xoá.
+      `UPDATE datamodel_measures SET agg = 'avg' WHERE agg = 'median'`,
+      `UPDATE datamodel_measures SET agg = 'max' WHERE agg = 'p90'`,
+      `ALTER TABLE datamodel_measures
+         MODIFY COLUMN agg
+         ENUM('sum','avg','count','countDistinct','countDistinctApprox','min','max') NOT NULL`,
+    ],
+  },
+  {
+    id: 26,
+    name: 'viewer_reports_only',
+    statements: [
+      // ═══ Viewer chỉ còn thấy BÁO CÁO ══════════════════════════════════════
+      //
+      // Migration 4 gieo cho viewer bảy dòng, trong đó có `dataset:read` và
+      // `datamodel:read`. Lý lẽ khi đó là "viewer là vai trò chỉ đọc nên cho
+      // đọc hết" — nhìn nhầm trục. Câu hỏi phân quyền ở đây không phải đọc hay
+      // ghi, mà là ĐƯỢC THẤY TỚI ĐÂU.
+      //
+      // Hai dòng đó mở ra Kho dữ liệu và Mô hình dữ liệu: xem trước dữ liệu
+      // thô, toàn bộ danh sách cột kể cả cột không nằm trên biểu đồ nào, tên
+      // bảng nguồn, và Explorer để tự đặt câu hỏi mới. Người dựng báo cáo chọn
+      // chia sẻ MỘT lát cắt; họ không chọn chia sẻ cả kho nằm dưới nó.
+      //
+      // ─── Vì sao XOÁ chứ không để đó cho chắc ────────────────────────────
+      //
+      // `casbin_rule` là nơi enforcer THẬT SỰ đọc; `DEFAULT_POLICY` trong
+      // `shared/src/rbac.ts` chỉ là bản chép tay để gieo lúc khởi tạo. Sửa mỗi
+      // bên TypeScript thì mọi database đã chạy vẫn cấp đủ hai quyền cũ, và
+      // không có gì trên màn hình nói ra điều đó. Đây đúng là hình dạng của
+      // migration 18.
+      //
+      // Ràng buộc `v0 = 'viewer'` là thứ giữ cho câu này không quét trúng
+      // creator: thứ tự cột khi `ptype = 'p'` là (vai trò, tổ chức, tài nguyên,
+      // hành động). Thiếu nó thì creator mất cả quyền vào Kho dữ liệu.
+      //
+      // ⚠️ Bài test `rbac.integration` đối chiếu `COUNT(*) WHERE ptype='p'` với
+      // `DEFAULT_POLICY.length`. Xoá ở đây mà quên bỏ hai dòng bên kia là đỏ
+      // ngay — đó chính là việc của bài test đó.
+      `DELETE FROM casbin_rule
+        WHERE ptype = 'p' AND v0 = 'viewer' AND v2 IN ('dataset', 'datamodel')`,
+    ],
+  },
+  {
+    id: 27,
+    name: 'creator_reads_connections',
+    statements: [
+      // ═══ Creator chọn được kết nối để đồng bộ ═════════════════════════════
+      //
+      // Migration 4 để `connection` cho riêng admin, cả bốn hành động. Nhưng
+      // thao tác đồng bộ bảng về từ CSDL nguồn lại gác bằng `dataset:modify` —
+      // xem chú thích tại `GET /connections/:id/tables`, nói thẳng rằng đảo lại
+      // "sẽ khiến creator mở được hộp thoại rồi bị chặn ở nút xác nhận".
+      //
+      // Ý định là creator đồng bộ được. Nhưng bước ĐẦU TIÊN của hộp thoại đó là
+      // chọn xem đồng bộ TỪ kết nối nào, và nó gọi `GET /connections` nằm sau
+      // `connection:read`. Nên trên thực tế creator mở hộp thoại ra và thấy một
+      // ô chọn rỗng: 403 làm danh sách thành `undefined`, mà nhánh "chưa có kết
+      // nối nào" chỉ chạy khi độ dài bằng 0. Không nút, không lời giải thích.
+      //
+      // CHỈ `read`. `modify` và `delete` ở nguyên chỗ cũ — thêm, sửa, xoá kết
+      // nối là việc đụng tới thông tin đăng nhập mở được cả CSDL của khách
+      // hàng. `ConnectionDto` không mang mật khẩu ra ngoài, nên đọc danh sách
+      // chỉ cho thấy tên, host, cổng và tên đăng nhập của một CSDL mà creator
+      // vốn đã được phép rút dữ liệu về.
+      //
+      // ⚠️ `shared/src/rbac.ts` phải thêm đúng một dòng tương ứng — bài test
+      // `rbac.integration` đối chiếu `COUNT(*) WHERE ptype='p'` với
+      // `DEFAULT_POLICY.length` và sẽ đỏ nếu chỉ sửa một bên.
+      `INSERT IGNORE INTO casbin_rule (ptype, v0, v1, v2, v3) VALUES
+         ('p', 'creator', '*', 'connection', 'read')`,
+    ],
+  },
+  {
+    id: 28,
+    name: 'connection_visibility',
+    statements: [
+      // ═══ Kết nối RIÊNG của người tạo, bên cạnh kho chung ══════════════════
+      //
+      // Tới trước migration này, `connections` là tài sản chung của tổ chức và
+      // chỉ admin dựng được. Creator muốn kéo dữ liệu từ CSDL của chính mình thì
+      // phải đi nhờ — mà thông tin đăng nhập ấy nhiều khi là của riêng họ.
+      //
+      // Cột này chia bảng làm hai loại:
+      //
+      //   shared    thuộc TỔ CHỨC — do quản trị viên dựng và quản
+      //   private   thuộc NGƯỜI TẠO — chỉ họ, cộng quản trị viên tổ chức
+      //
+      // ⚠️ `shared` KHÔNG có nghĩa "ai cũng thấy". Người không phải admin chỉ
+      // thấy kết nối của chính mình, kể cả khi có `connection:read` — luật đó
+      // nằm ở `whereVisible` trong `repositories/connections.ts`, không nằm ở
+      // migration này. (Chỉ chú thích được sửa sau khi migration đã chạy; không
+      // câu lệnh nào đổi, nên máy đã áp dụng và máy cài mới vẫn ra cùng schema.)
+      //
+      // ─── Vì sao là CỘT THẬT, không suy ra từ vai trò người tạo ───────────
+      //
+      // Suy ra ("do admin tạo thì là chung") nghe gọn hơn và sai theo kiểu
+      // không ai phát hiện: vai trò đổi được. Hạ một admin xuống creator là cả
+      // kho chung họ từng dựng lặng lẽ biến mất khỏi mắt mọi người khác, và
+      // không có gì trên màn hình nối được hai sự kiện đó với nhau.
+      //
+      // ⚠️ Mặc định 'private', KHÔNG phải 'shared'. Đây là hướng an toàn: quên
+      // đặt giá trị thì kết nối bị GIẤU, chứ không phải lộ ra cả tổ chức. Câu
+      // UPDATE ngay dưới mới là thứ đưa dữ liệu cũ về đúng chỗ — mọi dòng đang
+      // có đều do admin tạo, vì tới lúc này chưa ai khác tạo được.
+      `ALTER TABLE connections
+         ADD COLUMN visibility ENUM('shared','private') NOT NULL DEFAULT 'private'
+         AFTER created_by`,
+      `UPDATE connections SET visibility = 'shared'`,
+
+      // ─── Tên: hết đụng nhau giữa hai người, và trả tên về khi xoá ────────
+      //
+      // `uq_connections_tenant_name (tenant_id, name)` không sống nổi với kết
+      // nối riêng: hai creator cùng đặt tên "Local" hay "CSDL của tôi" là điều
+      // sẽ xảy ra trong tuần đầu. Người thứ hai nhận lỗi trùng tên về một bản
+      // ghi họ KHÔNG NHÌN THẤY — đúng hình dạng của lỗi V-09, một bức tường
+      // không cửa.
+      //
+      // Khoá mới bó theo đúng phạm vi mà cái tên phải là duy nhất TRONG đó:
+      //
+      //   shared   -> 's:0:<tên>'          duy nhất trong kho chung của tổ chức
+      //   private  -> 'u:<id>:<tên>'       duy nhất trong phạm vi một người
+      //
+      // Và `IF(deleted_at IS NULL, …, NULL)` trả cái tên về cho lần tạo sau —
+      // cùng thủ thuật đã dùng ở migration 24 cho `datamodel_measures`, vì
+      // MySQL không có partial index. NULL không bao giờ đụng NULL trong một
+      // UNIQUE, nên mọi dòng đã xoá mềm tự động rơi ra khỏi ràng buộc.
+      //
+      // ⚠️ VIRTUAL, KHÔNG phải STORED — và đây là ràng buộc của MySQL, không
+      // phải lựa chọn. Migration 24 dùng STORED được vì nó chỉ đọc `name` và
+      // `deleted_at`. Cột này đọc thêm `created_by`, mà `created_by` mang khoá
+      // ngoại ON DELETE SET NULL; MySQL từ chối một cột sinh STORED dựa trên
+      // một cột như thế, và nó báo bằng câu gây lạc hướng nhất có thể:
+      //
+      //     ERROR 1215 — Cannot add foreign key constraint
+      //
+      // VIRTUAL không lưu giá trị nên không vướng, và InnoDB vẫn đánh chỉ mục
+      // được cột sinh ảo — đúng thứ ta cần cho UNIQUE ngay dưới.
+      //
+      // KHÔNG bọc `created_by` trong COALESCE, dù bản đầu có. CONCAT với NULL
+      // cho ra NULL, nên khi tài khoản người tạo bị xoá cứng thì cả dòng rơi ra
+      // khỏi ràng buộc — cố ý. Bọc COALESCE thì hai kết nối riêng cùng tên của
+      // hai người khác nhau sẽ ĐỤNG nhau đúng lúc người thứ hai bị xoá, và
+      // triệu chứng là "không xoá được tài khoản này" kèm một lỗi trùng khoá
+      // không nói gì về nguyên nhân. Một kết nối riêng không còn chủ thì cũng
+      // không còn ai gõ trùng tên với nó.
+      `ALTER TABLE connections
+         ADD COLUMN name_scope VARCHAR(300)
+         COLLATE utf8mb4_unicode_ci
+         GENERATED ALWAYS AS (
+           IF(deleted_at IS NULL,
+              CONCAT(IF(visibility = 'shared', 's:0', CONCAT('u:', created_by)), ':', name),
+              NULL)
+         ) VIRTUAL AFTER visibility`,
+      `ALTER TABLE connections DROP INDEX uq_connections_tenant_name`,
+      `ALTER TABLE connections
+         ADD UNIQUE KEY uq_connections_scope_name (tenant_id, name_scope)`,
+
+      // Chỉ mục cho câu lọc "cái tôi thấy": `visibility = 'shared' OR
+      // created_by = ?` trong phạm vi một tổ chức.
+      `ALTER TABLE connections
+         ADD KEY idx_connections_scope (tenant_id, visibility, created_by)`,
+
+      // ─── Quyền: mở CÁNH CỬA, không mở từng dòng ──────────────────────────
+      //
+      // Casbin chấm điểm trên tài nguyên nên hai dòng này nói "creator được sửa
+      // kết nối nói chung". Ranh giới "kết nối NÀO" nằm trong câu SQL của
+      // `update`/`softDelete`/`findSecret`, không nằm ở đây. Đọc thiếu vế đó là
+      // đọc ra một lỗ hổng không có thật — hoặc tệ hơn, viết ra một cái thật.
+      `INSERT IGNORE INTO casbin_rule (ptype, v0, v1, v2, v3) VALUES
+         ('p', 'creator', '*', 'connection', 'modify'),
+         ('p', 'creator', '*', 'connection', 'delete')`,
+    ],
+  },
 ];

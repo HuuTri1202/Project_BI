@@ -255,7 +255,8 @@ async function openSource(
     throw new Error('Bộ dữ liệu nguồn CSDL thiếu thông tin kết nối.');
   }
 
-  const secret = await requireSecret(tenantId, dataset.connectionId);
+  // `'system'`: vòng lặp nạp chạy nền, không có phiên đăng nhập nào đứng sau.
+  const secret = await requireSecret(tenantId, dataset.connectionId, 'system');
   const cfg = await toConfigFromSecret(secret);
   const ref = { schema: dataset.sourceSchema, table: dataset.sourceTable };
 

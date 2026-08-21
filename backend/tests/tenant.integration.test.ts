@@ -1,4 +1,4 @@
-import type { RowDataPacket } from 'mysql2';
+import type { ResultSetHeader, RowDataPacket } from 'mysql2';
 import request from 'supertest';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 
@@ -468,6 +468,56 @@ describe('workspace (§4.5)', () => {
       [reportId],
     );
     expect(rows[0]?.['deleted_at']).toBeNull();
+  });
+
+  it('lần tải file BỎ DỞ không chặn xoá workspace, và bị dọn theo', async () => {
+    /*
+     * Lỗi thật, người dùng gặp: workspace "abc" hiện 0 bộ dữ liệu trên màn hình
+     * nhưng bấm Xoá thì nhận "Workspace còn 1 bộ dữ liệu".
+     *
+     * Danh sách Kho dữ liệu mặc định chỉ hiện `status = 'ready'`, và giao diện
+     * không có ô lọc nào để xem trạng thái khác — còn bộ đếm chặn xoá thì đếm
+     * MỌI dòng chưa xoá. Hai chỗ hiểu khác nhau về cùng một câu hỏi, và người
+     * dùng bị nhốt: không thấy được thì không chuyển đi hay xoá đi được.
+     *
+     * Dòng `pending` không phải nội dung — chưa chốt sheet nên không cột, không
+     * dòng, không báo cáo nào dựng trên nó.
+     */
+    const [ds] = await mysqlPool.query<ResultSetHeader>(
+      `INSERT INTO datasets (tenant_id, workspace_id, source, name, status, load_status)
+       VALUES (?, ?, 'file', 'Tải dở dang', 'pending', 'idle')`,
+      [f.tenantA, f.wsA2],
+    );
+
+    const res = await request(app)
+      .delete(`/api/v1/workspaces/${f.wsA2}`)
+      .set(bearer(f.tokenAlice));
+
+    expect(res.status).toBe(204);
+
+    // Và nó bị dọn theo, chứ không ở lại trỏ vào một workspace đã xoá.
+    const [rows] = await mysqlPool.query<RowDataPacket[]>(
+      'SELECT deleted_at FROM datasets WHERE id = ?',
+      [ds.insertId],
+    );
+    expect(rows[0]?.['deleted_at']).not.toBeNull();
+  });
+
+  it('bộ dữ liệu ĐÃ SẴN SÀNG thì vẫn chặn xoá — lưới an toàn không bị nới', async () => {
+    // Chiều ngược lại của ca trên. Một bản vá hỏng rất dễ mở toang cả hai.
+    await mysqlPool.query(
+      `INSERT INTO datasets (tenant_id, workspace_id, source, name, status, load_status)
+       VALUES (?, ?, 'file', 'Doanh thu 2026', 'ready', 'idle')`,
+      [f.tenantA, f.wsA2],
+    );
+
+    const res = await request(app)
+      .delete(`/api/v1/workspaces/${f.wsA2}`)
+      .set(bearer(f.tokenAlice));
+
+    expect(res.status).toBe(409);
+    expect(res.body.error).toBe('WorkspaceNotEmpty');
+    expect(res.body.message).toContain('1 bộ dữ liệu');
   });
 
   it('xoá workspace CUỐI CÙNG -> 409', async () => {

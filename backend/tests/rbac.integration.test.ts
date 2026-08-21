@@ -112,13 +112,20 @@ describe('§6.3 policy trong database khớp bảng nguồn', () => {
     const [rows] = await mysqlPool.query<RowDataPacket[]>(
       "SELECT COUNT(*) AS total FROM casbin_rule WHERE ptype = 'p'",
     );
-    // 1 dòng admin (*,*) + 16 dòng creator + 7 dòng viewer = 24.
-    // (§10 thêm `creator datamodel:delete` khi mô hình dữ liệu có endpoint xoá.)
+    // 1 dòng admin (*,*) + 13 dòng creator + 4 dòng viewer = 18.
     //
-    // Con số này ĐÃ TỪNG lỗi thời — chú thích cũ ghi 13 creator trong khi thực
-    // tế đã là 15 sau migration 8. Phép so ở dưới vẫn đúng vì nó đối chiếu hai
-    // nguồn thật, nhưng chú thích sai thì người đọc tin vào một con số không có
-    // ai kiểm. Đếm lại bằng `GROUP BY v0` khi sửa, đừng cộng nhẩm.
+    // Đường đi tới con số đó, vì không migration nào một mình nói ra được:
+    //   mig 4   admin 1 · creator 13 (có 3 dòng project) · viewer 7
+    //   mig 8   creator +2  (dataset:delete, report:delete)
+    //   mig 10  creator +1  (datamodel:delete, khi §10 có endpoint xoá thật)
+    //   mig 18  bỏ 4 dòng `project` (creator 3, viewer 1)
+    //   mig 26  bỏ 2 dòng viewer (dataset:read, datamodel:read)
+    //
+    // Con số này ĐÃ TỪNG lỗi thời hai lần — chú thích cũ ghi 13 creator khi
+    // thực tế là 15, rồi ghi 16 creator + 7 viewer = 24 khi thực tế là 20. Phép
+    // so ở dưới vẫn đúng vì nó đối chiếu hai nguồn thật, nhưng chú thích sai thì
+    // người đọc tin vào một con số không ai kiểm. Đếm bằng `GROUP BY v0` khi
+    // sửa, đừng cộng nhẩm.
     // Số này khớp `DEFAULT_POLICY` vì hai bên là hai bản chép tay của cùng một
     // ma trận; lệch nhau nghĩa là ai đó sửa một bên mà quên bên kia.
     expect(Number(rows[0]?.['total'])).toBe(DEFAULT_POLICY.length);
@@ -152,6 +159,30 @@ describe('§6.2 model — dấu sao và phạm vi tổ chức', () => {
         true,
       );
     }
+  });
+
+  /**
+   * Migration 26 — viewer KHÔNG với tới nguyên liệu, chỉ tới kết luận.
+   *
+   * Ca trên chỉ khẳng định "viewer không ghi được gì". Nó đúng cả trước lẫn sau
+   * migration 26, nên tự nó không giữ được quyết định này: xoá hai dòng policy
+   * đi rồi gieo lại, không có gì đỏ. Ca dưới mới là ca giữ.
+   *
+   * Hỏi thẳng Casbin chứ không hỏi `DEFAULT_POLICY`: bản TypeScript là bản chép
+   * tay, còn đây là thứ enforcer thật sự đọc lúc gác endpoint.
+   */
+  it('viewer KHÔNG đọc được bộ dữ liệu lẫn mô hình dữ liệu', async () => {
+    expect(await enforce('viewer', f.tenantA, 'dataset', 'read')).toBe(false);
+    expect(await enforce('viewer', f.tenantA, 'datamodel', 'read')).toBe(false);
+
+    // Nhưng vẫn đọc được BÁO CÁO — đó là toàn bộ lý do vai trò này tồn tại.
+    // Không có dòng này thì một lần siết tay quá đà cũng lọt qua bài test.
+    expect(await enforce('viewer', f.tenantA, 'report', 'read')).toBe(true);
+
+    // Và creator KHÔNG bị vạ lây. Câu DELETE của migration 26 nhắm theo `v0`;
+    // quên ràng buộc đó thì creator mất cả đường vào Kho dữ liệu.
+    expect(await enforce('creator', f.tenantA, 'dataset', 'read')).toBe(true);
+    expect(await enforce('creator', f.tenantA, 'datamodel', 'read')).toBe(true);
   });
 
   it('creator sửa được nội dung nhưng không đụng tới cơ cấu tổ chức', async () => {
@@ -204,6 +235,11 @@ describe('§6.8 GET /v1/permissions', () => {
     expect(admin.body.member).toContain('invite');
     expect(creator.body.member).not.toContain('invite');
     expect(viewer.body.report).toEqual(['read']);
+    // Ô RỖNG, không phải thiếu khoá: `emptyPermissionMatrix()` liệt kê tay đủ
+    // tám tài nguyên, nên giao diện đọc `matrix.dataset` ra `[]` chứ không ra
+    // `undefined`. Khác biệt đó quyết định `can()` trả `false` hay nổ.
+    expect(viewer.body.dataset).toEqual([]);
+    expect(viewer.body.datamodel).toEqual([]);
   });
 
   it('không token -> 401', async () => {

@@ -1,9 +1,12 @@
 import { CONNECTION_KIND_LABELS, type SourceTableDto, type SyncResultDto } from '@bi/shared';
 import { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { Badge } from '../../../components/ui/Badge';
 import { Button } from '../../../components/ui/Button';
 import { SelectField } from '../../../components/ui/Field';
 import { Modal } from '../../../components/ui/Modal';
+import { usePermissions } from '../../../auth/usePermissions';
+import { useConnectionsBase } from '../connections/basePath';
 import { getApiError } from '../../../services/apiClient';
 import { useConnections, useSourceTables, useSyncTables } from '../hooks';
 
@@ -29,6 +32,8 @@ export function SyncTablesModal({
   open: boolean;
   onClose: () => void;
 }): React.ReactElement {
+  const permissions = usePermissions();
+  const { base } = useConnectionsBase();
   const { data: connections } = useConnections();
   const [connectionId, setConnectionId] = useState<number | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -167,12 +172,24 @@ export function SyncTablesModal({
             onChange={(e) => setConnectionId(Number(e.target.value))}
           />
 
-          {connections?.length === 0 && (
-            <p className="text-sm text-slate-500">
-              Chưa có kết nối nào. Thêm một kết nối ở <strong>Quản lý tổ chức → Kết nối</strong>{' '}
-              trước.
-            </p>
-          )}
+          {/* Câu chỉ dẫn phải khớp với thứ người đọc nó BẤM ĐƯỢC.
+              Từ migration 28 creator tự dựng được kết nối riêng, nên đây là một
+              đường đi thật chứ không còn là lời khuyên đi nhờ người khác. Ai
+              không có quyền (viewer) thì vẫn chỉ còn cách nhờ. */}
+          {connections?.length === 0 &&
+            (permissions.manageConnections ? (
+              <p className="text-sm text-slate-500">
+                Chưa có kết nối nào.{' '}
+                <Link to={`${base}/new`} className="font-medium text-brand-700 underline">
+                  Thêm kết nối của bạn
+                </Link>{' '}
+                rồi quay lại đây.
+              </p>
+            ) : (
+              <p className="text-sm text-slate-500">
+                Chưa có kết nối nào. Hãy nhờ quản trị viên của tổ chức thêm một kết nối trước.
+              </p>
+            ))}
 
           {tables.isError && (
             <p

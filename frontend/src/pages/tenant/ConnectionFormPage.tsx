@@ -2,11 +2,17 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { Button } from '../../components/ui/Button';
 import { Page, PageBody, PageHeader } from '../../components/ui/Page';
 import { ErrorState, TableSkeleton } from '../../components/ui/states';
+import { useConnectionsBase } from '../../features/tenant/connections/basePath';
 import { ConnectionWizard } from '../../features/tenant/connections/ConnectionWizard';
 import { useConnections } from '../../features/tenant/hooks';
 import { getApiError } from '../../services/apiClient';
 
-const LIST_PATH = '/organization/connections';
+/*
+ * Đường quay về sau khi lưu / bấm Huỷ KHÔNG cứng được nữa: admin về
+ * `/organization/connections`, creator về `/connections`. Cứng một chuỗi ở đây
+ * là ném một trong hai vai trò sang URL mà chính họ bị chặn — tức là một vòng
+ * 403 ngay sau khi lưu thành công. Xem `useConnectionsBase`.
+ */
 
 /**
  * Trang thêm / sửa kết nối CSDL — §8.2.
@@ -30,13 +36,14 @@ const LIST_PATH = '/organization/connections';
  */
 export default function ConnectionFormPage(): React.ReactElement {
   const navigate = useNavigate();
+  const { base } = useConnectionsBase();
   const { id } = useParams<{ id: string }>();
   const isEdit = id !== undefined;
 
   const { data, isPending, isError, error } = useConnections();
 
   const back = (): void => {
-    void navigate(LIST_PATH);
+    void navigate(base);
   };
 
   const editing = isEdit ? (data?.find((c) => String(c.id) === id) ?? null) : null;
@@ -49,7 +56,7 @@ export default function ConnectionFormPage(): React.ReactElement {
     <Page width="4xl">
       <PageHeader
         title={isEdit ? 'Sửa kết nối' : 'Thêm kết nối'}
-        description="Kết nối một cơ sở dữ liệu riêng vào tổ chức của bạn."
+        description="Khai một cơ sở dữ liệu để lấy dữ liệu về kho."
         actions={<Button onClick={back}>Huỷ</Button>}
       />
 

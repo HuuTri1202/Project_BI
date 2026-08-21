@@ -1,9 +1,11 @@
-import { CONNECTION_KIND_LABELS, type ConnectionDto } from '@bi/shared';
+import { CONNECTION_KIND_LABELS, CONNECTION_VISIBILITY_LABELS, type ConnectionDto } from '@bi/shared';
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useConnectionsBase } from '../../features/tenant/connections/basePath';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
+import { Page, PageBody, PageHeader } from '../../components/ui/Page';
 import { TBody, TableWrap, Td, Th, THead, Tr } from '../../components/ui/Table';
 import { EmptyState, ErrorState, TableSkeleton } from '../../components/ui/states';
 import {
@@ -24,6 +26,7 @@ import { getApiError } from '../../services/apiClient';
  */
 export default function ConnectionsPage(): React.ReactElement {
   const navigate = useNavigate();
+  const { base, standalone } = useConnectionsBase();
   const { data, isPending, isError, error } = useConnections();
 
   const [deleting, setDeleting] = useState<ConnectionDto | null>(null);
@@ -34,19 +37,25 @@ export default function ConnectionsPage(): React.ReactElement {
   // Wizard là TRANG riêng chứ không phải hộp thoại trên trang này — xem đầu file
   // `ConnectionWizard.tsx`. Ở đây chỉ còn việc điều hướng.
   function openCreate(): void {
-    void navigate('/organization/connections/new');
+    void navigate(`${base}/new`);
   }
 
   function openEdit(connection: ConnectionDto): void {
-    void navigate(`/organization/connections/${connection.id}/edit`);
+    void navigate(`${base}/${connection.id}/edit`);
   }
 
-  return (
+  const noiDung = (
     <div className="flex h-full flex-col">
       <div className="flex shrink-0 flex-wrap items-start justify-between gap-4">
+        {/* MỘT dòng mô tả, và nó nói đúng thứ khác nhau giữa hai vai trò:
+            admin đang nhìn kết nối của tổ chức, creator đang nhìn của riêng
+            mình. Câu về mật khẩu giữ ở cả hai — đó là thứ người dùng cần biết
+            trước khi gõ thông tin đăng nhập CSDL của mình vào. */}
         <p className="text-sm text-slate-500">
-          CSDL của tổ chức mà hệ thống lấy dữ liệu về. Mật khẩu được mã hoá và{' '}
-          <strong>không bao giờ hiện lại</strong>.
+          {standalone
+            ? 'Cơ sở dữ liệu của riêng bạn, dùng để đưa dữ liệu vào kho. '
+            : 'CSDL của tổ chức mà hệ thống lấy dữ liệu về. '}
+          Mật khẩu được mã hoá và <strong>không bao giờ hiện lại</strong>.
         </p>
         <Button variant="primary" onClick={openCreate}>
           Thêm kết nối
@@ -74,6 +83,7 @@ export default function ConnectionsPage(): React.ReactElement {
             <THead>
               <Tr>
                 <Th>Tên</Th>
+                <Th>Phạm vi</Th>
                 <Th>Loại</Th>
                 <Th>Máy chủ</Th>
                 <Th>Trạng thái</Th>
@@ -94,6 +104,19 @@ export default function ConnectionsPage(): React.ReactElement {
                         : connection.databaseName}{' '}
                       · {connection.username}
                     </div>
+                  </Td>
+                  {/* Nhãn CHỮ, không phải chỉ màu — luật của repo. Ai cũng phải
+                      đọc được "cái này cả tổ chức dùng chung" mà không cần
+                      đoán ý một chấm màu. */}
+                  <Td>
+                    <Badge tone={connection.visibility === 'shared' ? 'brand' : 'neutral'}>
+                      {CONNECTION_VISIBILITY_LABELS[connection.visibility]}
+                    </Badge>
+                    {connection.visibility === 'private' && (
+                      <div className="mt-0.5 text-xs text-slate-500">
+                        {connection.ownerName ?? 'Người tạo đã bị xoá'}
+                      </div>
+                    )}
                   </Td>
                   <Td>
                     <Badge tone="neutral">{CONNECTION_KIND_LABELS[connection.kind]}</Badge>
@@ -125,12 +148,28 @@ export default function ConnectionsPage(): React.ReactElement {
                       >
                         Kiểm tra
                       </Button>
-                      <Button size="sm" variant="ghost" onClick={() => openEdit(connection)}>
-                        Sửa
-                      </Button>
-                      <Button size="sm" variant="ghost" onClick={() => setDeleting(connection)}>
-                        <span className="text-red-600">Xoá</span>
-                      </Button>
+                      {/* `canManage` do backend tính theo TỪNG DÒNG: admin sửa
+                          được tất, creator chỉ sửa được kết nối riêng của mình.
+                          Ma trận quyền không diễn đạt nổi điều đó — nó chấm điểm
+                          trên tài nguyên, không trên từng dòng.
+
+                          "Kiểm tra" cố ý KHÔNG ẩn: nó chỉ hỏi máy chủ còn sống
+                          không, và người dùng được kết nối thì cần biết vì sao
+                          lần đồng bộ vừa rồi hỏng. */}
+                      {connection.canManage && (
+                        <>
+                          <Button size="sm" variant="ghost" onClick={() => openEdit(connection)}>
+                            Sửa
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => setDeleting(connection)}
+                          >
+                            <span className="text-red-600">Xoá</span>
+                          </Button>
+                        </>
+                      )}
                     </div>
                   </Td>
                 </Tr>
@@ -168,6 +207,21 @@ export default function ConnectionsPage(): React.ReactElement {
       </ConfirmDialog>
     </div>
   );
+  // Đứng một mình thì tự vẽ đầu trang. Nằm trong khung "Quản lý tổ chức" thì
+  // KHÔNG — khung đó đã có tiêu đề và thanh tab, thêm một tầng nữa là hai đầu
+  // trang chồng lên nhau. Xem `useConnectionsBase`.
+  if (!standalone) return noiDung;
+
+  return (
+    <Page>
+      {/* Không truyền `description`: dòng mô tả đã nằm ngay trên nút Thêm, và
+          đặt hai dòng cùng nội dung chồng lên nhau là thứ nhìn thấy ngay ở ảnh
+          chụp lần đầu. */}
+      <PageHeader title="Kết nối CSDL" />
+      <PageBody scroll={false}>{noiDung}</PageBody>
+    </Page>
+  );
+
 }
 
 /**

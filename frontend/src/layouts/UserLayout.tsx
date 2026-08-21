@@ -55,24 +55,50 @@ const NAV_ITEMS: NavItem[] = [
    * là "thứ tôi dựng báo cáo lên được", nên tách ra chỉ bắt họ đoán xem dữ liệu
    * mình cần nằm ở dòng nào.
    *
-   * Không có `needs`: mọi vai trò kể cả viewer đều có `dataset:read` trong ma
-   * trận mặc định, nên giấu mục này là chặn họ khỏi thứ họ có quyền xem. Những
-   * nút bên trong trang mới là thứ hỏi quyền.
+   * `needs` mới có từ migration 26. Trước đó mục này cố ý KHÔNG hỏi quyền, với
+   * lý do "mọi vai trò kể cả viewer đều có `dataset:read`" — câu đó nay sai, và
+   * để nguyên thì viewer thấy một dòng sidebar dẫn thẳng vào 403.
    */
   {
     label: 'Kho dữ liệu',
     to: '/datasets',
+    needs: ['readDatasets'],
     icon: 'M4 7c0-1.7 3.6-3 8-3s8 1.3 8 3-3.6 3-8 3-8-1.3-8-3Zm0 0v10c0 1.7 3.6 3 8 3s8-1.3 8-3V7M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3',
+  },
+  /*
+   * §8 — nguồn dữ liệu đến từ đâu. Nằm ngay dưới Kho dữ liệu vì đó là thứ nó
+   * đổ vào.
+   *
+   * Từng là một tab trong "Quản lý tổ chức". Chuyển ra ở migration 28, khi
+   * creator có kết nối RIÊNG của mình: lúc đó nó thôi trả lời câu "tổ chức này
+   * được cấu hình thế nào" và bắt đầu trả lời câu "dữ liệu của tôi đến từ đâu".
+   *
+   * CHỈ creator thấy mục này. Admin có trang Kết nối ở chỗ cũ — một tab trong
+   * "Quản lý tổ chức" — vì kết nối họ dựng thuộc về TỔ CHỨC, nên nó đúng là một
+   * mục cấu hình tổ chức, nằm cạnh Workspace và Thành viên. Xem
+   * `useConnectionsBase`.
+   *
+   * Đây là chuyện BỐ CỤC, không phải quyền: cả hai vai trò đều có
+   * `connection:modify`. Route của cả hai đường đều gác riêng, nên không có
+   * đường nào bấm vào rồi ăn 403.
+   */
+  {
+    label: 'Kết nối CSDL',
+    to: '/connections',
+    needs: ['managePersonalConnections'],
+    icon: 'M9 15 4.5 10.5a4.24 4.24 0 0 1 6-6L15 9m0 0 4.5 4.5a4.24 4.24 0 0 1-6 6L9 15',
   },
   /*
    * §10 — tầng ngữ nghĩa dựng TRÊN kho dữ liệu, nên nằm ngay dưới nó.
    *
-   * Cũng không có `needs`: mọi vai trò đều có `datamodel:read`, và giấu mục này
-   * là chặn viewer khỏi thứ họ có quyền xem. Cùng lý do với "Kho dữ liệu".
+   * Cùng luật với "Kho dữ liệu": viewer không có `datamodel:read` nữa. Mục này
+   * còn nhạy hơn — bên trong là Explorer, nơi tự đặt được câu hỏi MỚI chứ không
+   * chỉ đọc lại câu hỏi người khác đã chọn.
    */
   {
     label: 'Mô hình dữ liệu',
     to: '/datamodels',
+    needs: ['readDataModels'],
     icon: 'M4 5h6v5H4V5Zm10 9h6v5h-6v-5ZM7 10v3a1 1 0 0 0 1 1h6',
   },
   /*
@@ -84,7 +110,11 @@ const NAV_ITEMS: NavItem[] = [
   {
     label: 'Quản lý tổ chức',
     to: '/organization',
-    needs: ['manageTenant', 'manageConnections', 'manageWorkspaces', 'manageMembers'],
+    // `manageOrgConnections`, KHÔNG phải `manageConnections`: ô sau nay đúng cả
+    // với creator (migration 28), nên dùng nó sẽ hiện mục này cho creator với
+    // KHÔNG tab nào bên trong — `TABS` của `OrganizationPage` lọc bằng cùng bốn
+    // ô, và creator không có ô nào trong số đó.
+    needs: ['manageTenant', 'manageOrgConnections', 'manageWorkspaces', 'manageMembers'],
     icon: 'M4 21V7l6-3 6 3v14M4 21h16M10 21v-4h4v4M8 11h.01M12 11h.01M8 15h.01M12 15h.01',
   },
 ];

@@ -186,11 +186,20 @@ describe('POST /v1/datasets/:id/load — xếp hàng', () => {
 });
 
 describe('GET /v1/datasets/:id/load — tiến độ', () => {
-  it('viewer ĐỌC được: người vào để xem báo cáo phải biết vì sao số liệu cũ', async () => {
+  it('viewer BỊ CHẶN — và đây là cái giá đã biết của migration 26', async () => {
+    /*
+     * Ca này đảo chiều, và lý lẽ cũ KHÔNG sai: "người vào để xem báo cáo phải
+     * biết vì sao số liệu cũ". Nó vẫn đúng. Chỉ là câu trả lời cho nó không thể
+     * là mở cả Kho dữ liệu ra — endpoint này nằm sau `dataset:read`, cùng ô
+     * quyền với xem trước dữ liệu thô và danh sách cột.
+     *
+     * Chỗ đúng để trả lại thông tin "nạp lần cuối lúc nào" là chính trang báo
+     * cáo, đi kèm số liệu mà nó mô tả. Chưa làm, và ghi ra ở đây chứ không giấu.
+     */
     await request(app)
       .get(`/api/v1/datasets/${f.datasetA}/load`)
       .set(bearer(f.tokenDave))
-      .expect(200);
+      .expect(403);
   });
 
   it('chưa từng nạp -> 200 với status null, KHÔNG phải 404', async () => {
@@ -266,12 +275,15 @@ describe('GET /v1/datasets/:id/load/preview', () => {
       .expect(404);
   });
 
-  it('viewer đọc được', async () => {
-    // Vẫn 409 vì chưa nạp, nhưng KHÔNG phải 403 — đó là điều đang kiểm.
+  it('viewer bị chặn', async () => {
+    // TRƯỚC migration 26 ca này chờ 409 (chưa nạp) và điều đang kiểm là "không
+    // phải 403". Nay đúng 403, và thứ tự đó quan trọng: `authorize` là
+    // middleware đứng trước `asyncHandler`, nên quyền được trả lời trước trạng
+    // thái nạp. Nếu ra 409 thì guard đã bị đặt sai chỗ.
     await request(app)
       .get(`/api/v1/datasets/${f.datasetA}/load/preview`)
       .set(bearer(f.tokenDave))
-      .expect(409);
+      .expect(403);
   });
 
   it('pageSize vượt trần -> 400, không âm thầm kéo cả bảng về', async () => {
@@ -363,6 +375,64 @@ describe('hàng đợi', () => {
  * Cần `npm run infra:up` đang chạy. Dùng database riêng `bi_analytics_test`
  * (xem `vitest.config.ts`) để không đụng dữ liệu dev.
  */
+describe('janitor: dọn lần tải file bỏ dở', () => {
+  /**
+   * Tạo một dòng `pending` với tuổi đặt sẵn, mô phỏng một lần tải bị bỏ giữa
+   * chừng cách đây `gioTruoc` tiếng.
+   */
+  async function taiBoDo(gioTruoc: number, status = 'pending'): Promise<number> {
+    const [r] = await mysqlPool.query<ResultSetHeader>(
+      `INSERT INTO datasets (tenant_id, workspace_id, source, name, status, load_status, created_at)
+       VALUES (?, ?, 'file', 'Tải dở dang', ?, 'idle',
+               DATE_SUB(CURRENT_TIMESTAMP(3), INTERVAL ? HOUR))`,
+      [f.tenantA, f.workspaceA, status, gioTruoc],
+    );
+    return r.insertId;
+  }
+
+  async function daXoa(id: number): Promise<boolean> {
+    const [rows] = await mysqlPool.query<RowDataPacket[]>(
+      'SELECT deleted_at FROM datasets WHERE id = ?',
+      [id],
+    );
+    return rows[0]?.['deleted_at'] !== null;
+  }
+
+  it('quá 24 giờ thì bị dọn, chưa quá thì KHÔNG', async () => {
+    /*
+     * Ngưỡng phải đúng cả hai phía. Một bản vá chỉ kiểm chiều "dọn được" sẽ
+     * không phát hiện việc quét ăn mất bản ghi của người đang tải dở — mà đó
+     * mới là hỏng nặng: luồng tải đứt giữa chừng, không lời giải thích nào.
+     */
+    const cu = await taiBoDo(30);
+    const moi = await taiBoDo(2);
+
+    const n = await datasetsRepo.sweepStalePendingUploads(mysqlPool, 24);
+
+    expect(n).toBeGreaterThanOrEqual(1);
+    expect(await daXoa(cu), 'dòng 30 giờ tuổi phải bị dọn').toBe(true);
+    expect(await daXoa(moi), 'dòng 2 giờ tuổi phải còn nguyên').toBe(false);
+  });
+
+  it('KHÔNG đụng tới `failed` — đó là câu trả lời "vì sao file tôi hỏng"', async () => {
+    const hong = await taiBoDo(100, 'failed');
+
+    await datasetsRepo.sweepStalePendingUploads(mysqlPool, 24);
+
+    expect(await daXoa(hong)).toBe(false);
+  });
+
+  it('KHÔNG đụng tới `ready`, dù cũ tới đâu', async () => {
+    // Chiều nguy hiểm nhất: một câu WHERE viết hụt điều kiện `status` sẽ xoá
+    // sạch dữ liệu thật của mọi tổ chức, và xoá mềm thì không ai nhận ra ngay.
+    const that = await taiBoDo(9_000, 'ready');
+
+    await datasetsRepo.sweepStalePendingUploads(mysqlPool, 24);
+
+    expect(await daXoa(that)).toBe(false);
+  });
+});
+
 describe('dọn kho: xoá dataset KHÔNG đụng tới ClickHouse', () => {
   it('listKnownIds GIỮ bộ đã xoá mềm — bảng trong kho phải sống sót', async () => {
     // Đây là điều kiện để "xoá mềm" đúng nghĩa xoá mềm. Nếu janitor coi bộ đã

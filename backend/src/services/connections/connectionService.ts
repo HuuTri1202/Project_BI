@@ -3,6 +3,7 @@ import {
   type ConnectionKind,
   type DatabaseOptionDto,
   type SourceTableDto,
+  type TenantRole,
   type TestConnectionResultDto,
 } from '@bi/shared';
 
@@ -64,8 +65,9 @@ export async function testConnection(input: ConnectionInput): Promise<TestConnec
 export async function testSavedConnection(
   tenantId: number,
   id: number,
+  viewer: connectionsRepo.ConnectionViewer,
 ): Promise<TestConnectionResultDto> {
-  const secret = await requireSecret(tenantId, id);
+  const secret = await requireSecret(tenantId, id, viewer);
   const cfg = await toConfigFromSecret(secret);
 
   try {
@@ -79,9 +81,22 @@ export async function testSavedConnection(
   }
 }
 
+/**
+ * Kết nối MỚI, và phạm vi của nó do VAI TRÒ người tạo quyết định.
+ *
+ * Admin dựng cho kho chung của tổ chức; ai khác dựng cho riêng mình. Đây là
+ * lựa chọn cố ý thay vì thêm một ô "chia sẻ cho cả tổ chức" vào wizard: ô đó
+ * bắt người dùng trả lời một câu hỏi họ chưa có ngữ cảnh để trả lời ngay ở bước
+ * đang bận nhập host và mật khẩu, và mặc định sai của nó thì một bên là lộ
+ * thông tin đăng nhập, một bên là "sao đồng nghiệp tôi không thấy".
+ *
+ * Giá trị được ghi thành cột thật, nên nó KHÔNG đổi khi vai trò người tạo đổi
+ * về sau — xem migration 28.
+ */
 export async function createConnection(
   tenantId: number,
   createdBy: number,
+  role: TenantRole,
   input: ConnectionInput,
 ): Promise<number> {
   // Kiểm host TRƯỚC khi ghi bất cứ thứ gì: lưu một kết nối trỏ vào
@@ -99,6 +114,7 @@ export async function createConnection(
     username: input.username,
     passwordCipher: seal(input.password),
     createdBy,
+    visibility: role === 'admin' ? 'shared' : 'private',
   });
 }
 
@@ -107,19 +123,28 @@ export async function updateConnection(
   tenantId: number,
   id: number,
   input: Omit<ConnectionInput, 'password'> & { password: string | null },
+  viewer: connectionsRepo.ConnectionViewer,
 ): Promise<void> {
   await resolveAndGuardHost(input.host);
 
-  const affected = await connectionsRepo.update(mysqlPool, tenantId, id, {
-    name: input.name,
-    kind: input.kind,
-    host: input.host,
-    port: input.port,
-    useSsl: input.useSsl,
-    databaseName: input.databaseName,
-    username: input.username,
-    passwordCipher: input.password === null ? null : seal(input.password),
-  });
+  const affected = await connectionsRepo.update(
+    mysqlPool,
+    tenantId,
+    id,
+    {
+      name: input.name,
+      kind: input.kind,
+      host: input.host,
+      port: input.port,
+      useSsl: input.useSsl,
+      databaseName: input.databaseName,
+      username: input.username,
+      passwordCipher: input.password === null ? null : seal(input.password),
+    },
+    viewer,
+  );
+  // 0 dòng = không tồn tại HOẶC không phải của mình, và cả hai ra cùng một câu.
+  // Phân biệt hai trường hợp là nói cho người hỏi biết id nào có thật.
   if (affected === 0) throw notFound('Không tìm thấy kết nối này.');
 }
 
@@ -130,7 +155,27 @@ export async function updateConnection(
  * liệu dựng trên chúng) vì một cú bấm nhầm. Bắt dọn trước, và nói rõ còn bao
  * nhiêu cái phải dọn.
  */
-export async function deleteConnection(tenantId: number, id: number): Promise<void> {
+export async function deleteConnection(
+  tenantId: number,
+  id: number,
+  viewer: connectionsRepo.ConnectionViewer,
+): Promise<void> {
+  /*
+   * Hỏi quyền TRƯỚC khi đếm, và thứ tự này là bản sửa một rò rỉ thật.
+   *
+   * Đếm trước thì một creator bấm xoá kết nối riêng của người khác sẽ nhận
+   * `409 — Kết nối này còn 12 tập dữ liệu`: câu đó xác nhận id kia có thật và
+   * nói luôn quy mô của nó. Câu trả lời đúng là 404, y hệt một id không tồn
+   * tại.
+   *
+   * `softDelete` vẫn mang ràng buộc sở hữu trong câu UPDATE của nó. Hai lớp cho
+   * cùng một luật là cố ý: lớp này quyết định NÓI GÌ, lớp kia quyết định GHI
+   * GÌ, và lớp ghi mới là lớp không thể đi vòng qua.
+   */
+  if (!(await connectionsRepo.canManage(mysqlPool, tenantId, id, viewer))) {
+    throw notFound('Không tìm thấy kết nối này.');
+  }
+
   const datasets = await connectionsRepo.countDatasets(mysqlPool, tenantId, id);
   if (datasets > 0) {
     throw new HttpError(
@@ -140,7 +185,7 @@ export async function deleteConnection(tenantId: number, id: number): Promise<vo
     );
   }
 
-  const affected = await connectionsRepo.softDelete(mysqlPool, tenantId, id);
+  const affected = await connectionsRepo.softDelete(mysqlPool, tenantId, id, viewer);
   if (affected === 0) throw notFound('Không tìm thấy kết nối này.');
 }
 
@@ -183,8 +228,9 @@ export async function listDatabases(input: ConnectionInput): Promise<DatabaseOpt
 export async function listSavedDatabases(
   tenantId: number,
   id: number,
+  viewer: connectionsRepo.ConnectionViewer,
 ): Promise<DatabaseOptionDto[]> {
-  const secret = await requireSecret(tenantId, id);
+  const secret = await requireSecret(tenantId, id, viewer);
   const cfg = await toConfigFromSecret(secret);
 
   try {
@@ -201,8 +247,9 @@ export async function listSavedDatabases(
 export async function listSourceTables(
   tenantId: number,
   connectionId: number,
+  viewer: connectionsRepo.ConnectionViewer,
 ): Promise<SourceTableDto[]> {
-  const secret = await requireSecret(tenantId, connectionId);
+  const secret = await requireSecret(tenantId, connectionId, viewer);
   const cfg = await toConfigFromSecret(secret);
 
   let tables;
@@ -234,8 +281,9 @@ export async function listSourceTables(
 async function requireSecret(
   tenantId: number,
   id: number,
+  viewer: connectionsRepo.ConnectionScope,
 ): Promise<connectionsRepo.ConnectionSecret> {
-  const secret = await connectionsRepo.findSecret(mysqlPool, tenantId, id);
+  const secret = await connectionsRepo.findSecret(mysqlPool, tenantId, id, viewer);
   // 404 chứ không 403 cho id của tổ chức khác: 403 là xác nhận id đó có tồn tại.
   if (!secret) throw notFound('Không tìm thấy kết nối này.');
   return secret;
