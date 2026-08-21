@@ -30,9 +30,25 @@ import type { UploadState } from './useUppyS3';
 interface Props {
   uppy: Uppy | null;
   state: UploadState;
+  /**
+   * File đã lên tới nơi, nhưng bước sau ĐÃ TỪ CHỐI nó (không đọc được nội dung,
+   * không có hàng tiêu đề…).
+   *
+   * ─── Vì sao cần một cờ riêng thay vì đọc `state` ───────────────────────────
+   *
+   * Vì `state` chỉ biết chuyện tải lên, và chuyện đó đã thành công thật. Không
+   * có cờ này thì hai câu trái ngược nhau nằm chồng lên nhau đúng một màn hình:
+   *
+   *     ✓  Đã tải lên xong. Bấm Tiếp tục để chọn dữ liệu.
+   *     ✗  Không đọc được nội dung file Excel này.
+   *
+   * Người dùng vừa bấm đúng cái nút mà dòng xanh bảo họ bấm. Mời họ bấm lại là
+   * mời lặp lại một việc chắc chắn hỏng.
+   */
+  rejected: boolean;
 }
 
-export function StepUpload({ uppy, state }: Props): React.ReactElement {
+export function StepUpload({ uppy, state, rejected }: Props): React.ReactElement {
   const maxMb = Math.round(UPLOAD_MAX_BYTES / 1_048_576);
 
   return (
@@ -72,7 +88,9 @@ export function StepUpload({ uppy, state }: Props): React.ReactElement {
         Chấp nhận .xlsx và .csv, tối đa {maxMb}MB
       </p>
 
-      {state.status === 'done' && (
+      {/* Lời mời bấm "Tiếp tục" biến mất khi bước sau đã từ chối file — câu nói
+          rõ vì sao nằm ngay dưới, do wizard render. Hai câu là đủ một câu. */}
+      {state.status === 'done' && !rejected && (
         <p className="mt-3 rounded-lg bg-green-50 px-3.5 py-2.5 text-sm text-green-800">
           Đã tải lên xong. Bấm <strong>Tiếp tục</strong> để chọn dữ liệu.
         </p>

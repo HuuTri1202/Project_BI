@@ -7,7 +7,18 @@ import { Page, PageBody, PageHeader } from '../../components/ui/Page';
  * Khung "Quản lý tổ chức" — một trang, nhiều tab.
  *
  * Gộp ba việc trước đây nằm rải rác: thông tin tổ chức (mới), Workspace (§4.5)
- * và Thành viên (§4.7). Chúng cùng trả lời một câu hỏi — "tổ chức này được cấu
+ * và Thành viên (§4.7).
+ *
+ * ─── Tab Kết nối: CHỈ admin, và `manageOrgConnections` là lý do ─────────────
+ *
+ * Không phải `manageConnections`. Ô đó nay đúng với cả creator (migration 28),
+ * nên gác bằng nó sẽ kéo cả mục "Quản lý tổ chức" lên sidebar của creator với
+ * đúng một tab bên trong — một cái tên nói sai về thứ nó chứa, và về người đang
+ * đọc nó.
+ *
+ * `manageOrgConnections` khoanh đúng nhóm cần: người mà kết nối họ dựng thuộc
+ * về TỔ CHỨC. Creator dựng kết nối RIÊNG, và trang của họ nằm ở `/connections`
+ * như một mục sidebar — xem `useConnectionsBase`. Chúng cùng trả lời một câu hỏi — "tổ chức này được cấu
  * hình thế nào" — nên nằm cạnh nhau thì người quản trị không phải nhớ mỗi thứ
  * nằm ở mục nào trên sidebar.
  *
@@ -39,7 +50,7 @@ interface TabDef {
 
 const TABS: TabDef[] = [
   { to: '/organization', label: 'Tổ chức', needs: 'manageTenant', end: true },
-  { to: '/organization/connections', label: 'Kết nối', needs: 'manageConnections' },
+  { to: '/organization/connections', label: 'Kết nối', needs: 'manageOrgConnections' },
   { to: '/organization/workspaces', label: 'Workspace', needs: 'manageWorkspaces' },
   { to: '/organization/members', label: 'Thành viên', needs: 'manageMembers' },
 ];

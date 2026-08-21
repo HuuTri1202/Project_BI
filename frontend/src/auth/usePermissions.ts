@@ -46,7 +46,10 @@ export type PermissionFlag =
   | 'manageWorkspaces'
   | 'manageTenant'
   | 'manageConnections'
+  | 'manageOrgConnections'
+  | 'managePersonalConnections'
   | 'readDatasets'
+  | 'readDataModels'
   | 'editContent'
   | 'adminConsole';
 
@@ -64,10 +67,41 @@ export type Permissions = Record<PermissionFlag, boolean> & {
   manageWorkspaces: boolean;
   /** §6.2 — đổi tên tổ chức và cấu hình cấp tổ chức. */
   manageTenant: boolean;
-  /** §8 — thêm, sửa, xoá kết nối tới CSDL của khách hàng. Chứa mật khẩu, nên admin. */
+  /**
+   * §8 — thêm, sửa, xoá kết nối tới CSDL của khách hàng.
+   *
+   * Từ migration 28 thì creator cũng có. Dùng cho những chỗ chỉ cần biết "người
+   * này có dựng được kết nối không" mà không quan tâm kết nối ấy thuộc về ai —
+   * ví dụ câu chỉ dẫn trong hộp thoại Đồng bộ.
+   */
   manageConnections: boolean;
-  /** §8.5 — mở được Kho dữ liệu. Mọi vai trò đều có. */
+  /**
+   * Kết nối người này tạo thuộc về TỔ CHỨC (`visibility = 'shared'`).
+   *
+   * ─── Vì sao có `role` trong một hook đọc ma trận ──────────────────────────
+   *
+   * Vì đây là một khác biệt CÓ THẬT, do backend cưỡng chế, mà ma trận không
+   * diễn đạt nổi: `createConnection` đặt `visibility` theo vai trò người tạo —
+   * admin ra `shared`, ai khác ra `private`. Casbin thì cho cả hai cùng một ô
+   * `connection:modify`, nên hỏi ma trận sẽ ra cùng một câu trả lời cho hai
+   * hành vi khác hẳn nhau.
+   *
+   * Cùng hình dạng với `adminConsole` ngay dưới: một ô đọc từ trục vai trò chứ
+   * không từ ma trận, và nói rõ ra để người đọc không tưởng chúng cùng loại.
+   */
+  manageOrgConnections: boolean;
+  /** Kết nối người này tạo là của RIÊNG họ (`visibility = 'private'`). */
+  managePersonalConnections: boolean;
+  /**
+   * §8.5 — mở được Kho dữ liệu.
+   *
+   * KHÔNG còn "mọi vai trò đều có": viewer mất quyền này ở migration 26. Chú
+   * thích cũ ghi như vậy, và đó chính là lý do sidebar lẫn route đều không hỏi
+   * ô này — một câu mô tả hết đúng mà không ai đọc lại.
+   */
   readDatasets: boolean;
+  /** §10 — mở được Mô hình dữ liệu. Cùng luật với `readDatasets`: viewer không có. */
+  readDataModels: boolean;
   /** Tạo và sửa báo cáo, biểu đồ. */
   editContent: boolean;
   /** Console vận hành hệ thống — trục NỀN TẢNG, không phải trục tổ chức. */
@@ -101,7 +135,10 @@ export function usePermissions(): Permissions {
       manageWorkspaces: can(matrix, 'workspace', 'modify'),
       manageTenant: can(matrix, 'tenant', 'modify'),
       manageConnections: can(matrix, 'connection', 'modify'),
+      manageOrgConnections: can(matrix, 'connection', 'modify') && role === 'admin',
+      managePersonalConnections: can(matrix, 'connection', 'modify') && role !== 'admin',
       readDatasets: can(matrix, 'dataset', 'read'),
+      readDataModels: can(matrix, 'datamodel', 'read'),
       editContent: can(matrix, 'report', 'modify'),
       // KHÔNG lấy từ ma trận: đây là trục `users.role`, hoàn toàn tách khỏi
       // policy theo tổ chức. Trộn vào cùng một object phẳng sẽ khiến người viết
@@ -109,6 +146,6 @@ export function usePermissions(): Permissions {
       // `ChangePasswordPage`.
       adminConsole: user?.platformRole === 'superadmin',
     }),
-    [matrix, user?.platformRole],
+    [matrix, role, user?.platformRole],
   );
 }

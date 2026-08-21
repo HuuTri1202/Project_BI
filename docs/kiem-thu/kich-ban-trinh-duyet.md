@@ -3,7 +3,7 @@
 > Sinh tự động từ `kich-ban-trinh-duyet.html`. **Đừng sửa tay** —
 > sửa file HTML rồi chạy lại `xuat-kich-ban-md.py`.
 
-Tổng cộng **53 kịch bản**. Hai ô cuối mỗi mục để người kiểm điền.
+Tổng cộng **52 kịch bản**. Hai ô cuối mỗi mục để người kiểm điền.
 
 
 ## §0 · Chuẩn bị
@@ -647,70 +647,13 @@ Tổng cộng **53 kịch bản**. Hai ô cuối mỗi mục để người ki�
 
 **Kết quả mong đợi:**
 
-- Khối Cách tính bày sẵn tất cả phép hợp với cột này — tám nút cho một cột số — nhìn thấy hết, không phải ô sổ xuống và không phải bấm mở
-- Rê chuột lên nút Trung vị hiện câu giải thích "Giá trị đứng giữa: một nửa số dòng thấp hơn mức này, một nửa cao hơn…"
+- Khối Cách tính bày sẵn tất cả phép hợp với cột này — bảy nút cho một cột số — nhìn thấy hết mà không phải mở gì
+- Rê chuột lên nút Ước lượng số khác nhau hiện câu giải thích nói ra đánh đổi: có thể lệch vài phần trăm, đổi lại quét bảng rất lớn nhanh hơn nhiều
 - Nút Tổng sáng sẵn từ đầu, vì đó là phép mô hình đang khai
 - Lần chạy đầu: 25.046.000
 - Sau khi đổi: ≈ 695.722,22 (= 25.046.000 / 36), và tiêu đề cột đổi thành Doanh thu (Trung bình)
 - Ở tab Schemas, cột Doanh thu vẫn là Tổng — bấm ở Explorer không sửa mô hình
 - Thước đo Số dòng nếu tích vào thì không có hàng nút, vì nó không đo cột nào
-
-| Kết quả thực tế | Đạt / Không đạt |
-|---|---|
-|  |  |
-
-
-### F8 · Trung vị nói khác trung bình, và đó là chuyện đáng biết
-
-*Vài giá trị lớn kéo lệch số trung bình*
-
-- **Tiền điều kiện:** Mô hình dựng trên kiem-thu-ban-hang.csv — 36 dòng
-
-**Các bước:**
-
-1. Tab Explorer, tích thước đo Doanh thu, không chọn chiều nào
-2. Trong khối Cách tính, bấm Trung bình → Chạy, rồi Trung vị → Chạy
-3. Bấm Ngưỡng top 10% → Chạy
-
-**Kết quả mong đợi:**
-
-- Cả tám phép nằm sẵn trên màn hình, Ngưỡng top 10% bấm được ngay
-- Trung bình: ≈ 695.722,22
-- Trung vị: 572.000 — thấp hơn trung bình khoảng 22 %, vì vài đơn lớn kéo trung bình lên
-- Ngưỡng top 10%: 1.728.000 — mốc mà 10% đơn lớn nhất bắt đầu
-- Tiêu đề cột đổi theo từng phép: Doanh thu (Trung vị), Doanh thu (Ngưỡng top 10%)
-- Chạy lại cùng một phép hai lần cho đúng cùng một số — trung vị dùng phép chính xác, không phải phép lấy mẫu xấp xỉ
-
-> ⚠️ Cột Khu vực và Ngày bán không mời Trung vị. Đó là cố ý: trung vị của một chuỗi hay của một mốc thời gian là con số không ai đi tìm, dù ClickHouse vẫn tính ra được.
-
-| Kết quả thực tế | Đạt / Không đạt |
-|---|---|
-|  |  |
-
-
-### F9 · Hệ thống tự nói ra khi trung bình đang nói dối
-
-*Và im lặng khi nó không nói dối*
-
-- **Tiền điều kiện:** Mô hình dựng trên Global-Superstore — 51.290 dòng, tổ chức 4
-
-**Các bước:**
-
-1. Tab Explorer, tích thước đo Profit, đặt nó ở Trung bình, không chọn chiều nào → Chạy truy vấn
-2. Bấm Xem bằng trung vị trong khối vàng vừa hiện ra
-3. Đặt lại Profit về Trung bình, tích thêm chiều Category → Chạy truy vấn
-4. Bấm Bỏ qua, rồi bấm Chạy truy vấn lần nữa
-5. Bỏ tích Profit, tích Quantity ở Trung bình, bỏ chiều → Chạy truy vấn
-
-**Kết quả mong đợi:**
-
-- Bước 1: khối vàng "Trung bình đang bị kéo lệch" hiện ngay trên bảng, ghi "Profit trung bình 28,61 — nhưng một nửa số dòng dưới 9,24"
-- Bước 2: bảng đổi sang 9,24, nút Trung vị trong khối Cách tính sáng lên, và khối vàng tự biến mất — không còn gì để cảnh báo nữa
-- Bước 3: khối vàng ghi "Ở Office Supplies: Profit trung bình 16,58 — nhưng một nửa số dòng dưới 6,55. 3/3 nhóm cũng lệch như vậy." — nhóm lệch nặng nhất chứ không phải nhóm đầu bảng
-- Bước 4: khối biến mất và không hiện lại ở lần Chạy sau — bỏ qua một câu hỏi là bỏ qua câu hỏi đó, không phải bỏ qua một lần
-- Bước 5: không có khối vàng nào. Quantity trung bình 3,48 so trung vị 3 — lệch 16 %, dưới ngưỡng 50 %
-
-> ⚠️ Bước 5 mới là ca quan trọng nhất của kịch bản này. Một lời cảnh báo hiện quá tay là thứ người dùng học cách phớt lờ trong ba ngày, và sau đó nó không cảnh báo được gì nữa. Ba điều kiện phải đúng cùng lúc thì khối mới hiện: thước đo đang ở Trung bình, lệch quá 50 %, và quá nửa số nhóm cùng lệch.
 
 | Kết quả thực tế | Đạt / Không đạt |
 |---|---|
@@ -860,6 +803,35 @@ Tổng cộng **53 kịch bản**. Hai ô cuối mỗi mục để người ki�
 - Ô sổ xuống Vai trò có ba lựa chọn, cả ba đều kèm từ tiếng Anh
 
 > ⚠️ Chỗ dễ sai nhất đã được sửa cùng lượt: trước đây cột Vai trò nhận giá trị Thước đo, còn cột ngay bên phải nó cũng mang tiêu đề Thước đo — hai thứ khác nhau, một cái tên, nằm cạnh nhau trên cùng một hàng. Cột bên phải chọn phép gộp, và aria-label của chính ô select luôn đọc là "Phép gộp của cột …", tức hai nhãn vẫn đang nói hai đằng.
+
+| Kết quả thực tế | Đạt / Không đạt |
+|---|---|
+|  |  |
+
+
+### F15 · Hàng nút Cách tính bám đúng những gì Cube làm được
+
+*Bảy phép, không hơn không kém*
+
+- **Tiền điều kiện:** Một mô hình có ít nhất một cột số và một cột chữ
+
+**Các bước:**
+
+1. Tab Explorer, tích một thước đo dựng trên cột số → nhìn khối Cách tính
+2. Đếm số nút và đọc tên từng nút
+3. Bấm Ước lượng số khác nhau → Chạy truy vấn → nhìn tiêu đề cột
+4. Bấm Đếm giá trị khác nhau → Chạy truy vấn → so hai con số
+5. Tích một thước đo dựng trên cột chữ và xem hàng nút của nó
+
+**Kết quả mong đợi:**
+
+- Cột số: bảy nút — Tổng · Trung bình · Nhỏ nhất · Lớn nhất · Đếm ô có dữ liệu · Đếm giá trị khác nhau · Ước lượng số khác nhau
+- Không còn Trung vị và Ngưỡng top 10%
+- Cột chữ: ba nút — chỉ ba phép đếm; cộng hay trung bình một cột chữ là câu SQL không chạy
+- Tiêu đề cột đọc là Doanh thu (Ước lượng số khác nhau) — một lớp ngoặc, không phải ngoặc lồng ngoặc
+- Ở quy mô nhỏ, hai phép đếm cho cùng một số: dưới khoảng 65 nghìn giá trị khác nhau, uniq() của ClickHouse vẫn chính xác tuyệt đối
+
+> ⚠️ Danh sách bảy phép này là tập con của những kiểu Cube nhận, và danh sách đó đọc từ chính bộ kiểm định của phiên bản đang chạy chứ không từ tài liệu — CubeValidator.js. Một kiểu lạ không hỏng lúc sinh file; nó hỏng lúc Cube biên dịch schema, và một schema hỏng chặn luôn mọi mô hình của cùng tổ chức. Đó cũng là lý do running_total không có mặt: Cube đã bỏ hẳn nó, thứ thay thế là rolling_window — một cấu trúc khác, cần chiều thời gian, không đặt được vào một ô type.
 
 | Kết quả thực tế | Đạt / Không đạt |
 |---|---|

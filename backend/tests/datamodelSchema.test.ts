@@ -367,15 +367,6 @@ describe('§10.6 gộp trên BIỂU THỨC DÒNG', () => {
     expect(out).toContain('type: "avg",');
   });
 
-  it('trung vị trên biểu thức vẫn ra quantileExact, KHÔNG ra type "number" trần', () => {
-    // Bẫy: `CUBE_AGG.median` là chuỗi `'number'`, nên quên xét phân vị trước sẽ
-    // phát ra một thước đo không gộp gì cả — Cube nhận, ClickHouse mới ném lỗi.
-    const out = build({ measures: [{ ...rowExprMeasure, agg: 'median' }] });
-
-    expect(out).toContain('quantileExact(0.5)(${CUBE}.\\`So luong\\` * ${CUBE}.\\`Don gia\\`)');
-    expect(out).not.toContain('type: "median"');
-  });
-
   it('tên cột vế PHẢI cũng được escape', () => {
     // Vế phải đi qua một đường nối chuỗi riêng, nên nó là chỗ dễ quên
     // `sqlIdentInTemplate` thứ hai trong file này.
@@ -403,48 +394,62 @@ describe('§10.6 gộp trên BIỂU THỨC DÒNG', () => {
   });
 });
 
-describe('§10.7 phân vị phát ra bằng BIỂU THỨC, không phải kiểu của Cube', () => {
-  it('trung vị và phân vị 90 sinh quantileExact với type number', () => {
+describe('§10.6 danh sách phép gộp bám ĐÚNG kiểu Cube dựng sẵn', () => {
+  /*
+   * Cube v1.7.16 nhận đúng bấy nhiêu kiểu cho một thước đo — đọc từ chính bộ
+   * kiểm định của nó, không phải từ tài liệu:
+   *
+   *     CubeValidator.js
+   *     valid('count','number','string','boolean','time','sum','avg','min',
+   *           'max','countDistinct','countDistinctApprox')
+   *
+   * Một kiểu lạ KHÔNG hỏng lúc sinh file. Nó hỏng lúc Cube biên dịch schema, và
+   * một schema hỏng chặn luôn MỌI mô hình của cùng tổ chức — nên sai ở đây không
+   * chỉ gãy một thước đo.
+   */
+  const KIEU_CUBE_HOP_LE = new Set([
+    'count', 'number', 'string', 'boolean', 'time',
+    'sum', 'avg', 'min', 'max', 'count_distinct', 'count_distinct_approx',
+  ]);
+
+  it('mọi phép gộp phát ra một kiểu Cube nhận', () => {
+    for (const agg of MEASURE_AGGS) {
+      const out = build({
+        measures: [{ id: 58, name: 'X', agg, columnName: 'Loi nhuan', formula: null }],
+      });
+
+      const kieu = [...out.matchAll(/type: "([a-z_]+)",/g)].map((m) => m[1] ?? '');
+      expect(kieu.length, `${agg}: không phát ra type nào`).toBeGreaterThan(0);
+      for (const k of kieu) {
+        expect(KIEU_CUBE_HOP_LE.has(k), `${agg} -> type "${k}" không nằm trong danh sách Cube`).toBe(true);
+      }
+    }
+  });
+
+  it('đếm gần đúng phát ra count_distinct_approx', () => {
+    // Trên ClickHouse, Cube dịch kiểu này thành `uniq(...)`. Viết sai một chữ
+    // trong chuỗi này thì lỗi chỉ lộ ra lúc Cube biên dịch.
     const out = build({
       measures: [
-        { id: 58, name: 'Lợi nhuận', agg: 'median', columnName: 'Loi nhuan', formula: null },
-        { id: 59, name: 'Lợi nhuận p90', agg: 'p90', columnName: 'Loi nhuan', formula: null },
+        { id: 58, name: 'Khách', agg: 'countDistinctApprox', columnName: 'Customer id', formula: null },
       ],
     });
 
     expect(parses(out)).toBe(true);
-    expect(out).toContain('quantileExact(0.5)(${CUBE}.');
-    expect(out).toContain('quantileExact(0.9)(${CUBE}.');
-    // `type: "number"` chứ không phải `"median"` — Cube không có kiểu đó, và
-    // khai sai thì nó hỏng lúc BIÊN DỊCH schema, tức chết cả tổ chức.
-    expect(out).not.toContain('type: "median"');
-    expect(out).not.toContain('type: "p90"');
+    expect(out).toContain('type: "count_distinct_approx",');
+    expect(out).toContain('sql: `${CUBE}.\\`Customer id\\``,');
   });
 
-  it('KHÔNG dùng `quantile` xấp xỉ — nó không tất định giữa hai lần chạy', () => {
-    // `quantile` của ClickHouse lấy mẫu theo hồ chứa; tài liệu nói thẳng là kết
-    // quả phụ thuộc thứ tự chạy. Một báo cáo đổi số mỗi lần mở là thứ không ai
-    // tin được nữa. Ca này canh cho lần sửa sau không lỡ tay bỏ chữ `Exact`.
-    const out = build({
-      measures: [{ id: 58, name: 'Lợi nhuận', agg: 'median', columnName: 'Loi nhuan', formula: null }],
-    });
-    expect(out).not.toMatch(/[^t]quantile\(/);
-  });
-
-  it('tên cột trong biểu thức phân vị vẫn được escape', () => {
-    // Biểu thức nối chuỗi bằng tay, nên nó là chỗ dễ quên `sqlIdentInTemplate`
-    // nhất trong cả file — và quên ở đây là mở lại đúng lỗ hổng chèn mã.
-    const evil = 'a`, y: process.exit(), z: `';
-    const out = build({
-      measures: [{ id: 58, name: 'X', agg: 'median', columnName: evil, formula: null }],
-    });
-
-    expect(parses(out), 'file sinh ra phải còn là JS hợp lệ').toBe(true);
-    // Chuỗi `process.exit()` VẪN nằm trong file — nó là một phần của tên cột đã
-    // được escape, và đó là điều đúng. Thứ phải không xảy ra là nó thoát ra
-    // thành một khoá object ở đầu dòng, tức là thành mã thật. Cùng cách khẳng
-    // định với ca chống chèn mã của chiều.
-    expect(out).not.toMatch(/^\s*y: process\.exit\(\)/m);
+  it('KHÔNG còn biểu thức phân vị nào được phát ra', () => {
+    // Trung vị và ngưỡng top 10% đã bỏ: chúng là `type: "number"` kèm một hàm
+    // gộp TỰ VIẾT, không phải kiểu của Cube. Ca này chặn việc chúng quay lại mà
+    // không ai bàn.
+    for (const agg of MEASURE_AGGS) {
+      const out = build({
+        measures: [{ id: 58, name: 'X', agg, columnName: 'Loi nhuan', formula: null }],
+      });
+      expect(out, `${agg} vẫn phát ra quantile`).not.toContain('quantile');
+    }
   });
 });
 

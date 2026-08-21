@@ -90,43 +90,75 @@ export default function App(): React.ReactElement {
           <Route path="/home" element={<HomePage />} />
           <Route path="/profile" element={<ProfilePage />} />
 
-          {/* §7 + §8 — kho dữ liệu và báo cáo.
-              KHÔNG bọc `TenantAdminRoute`: mọi vai trò, kể cả viewer, đều có
-              `dataset:read` và `report:read` trong ma trận mặc định. Chặn ở
-              route sẽ giấu mất thứ họ có quyền xem. Các thao tác GHI vẫn bị
-              `authorize()` chặn ở backend, và giao diện ẩn nút tương ứng.
+          {/* §7 + §8 — kho dữ liệu.
+              CÓ cổng quyền từ migration 26. Trước đó khối này cố ý để trần, với
+              lý do "mọi vai trò kể cả viewer đều có `dataset:read`". Viewer nay
+              không có nữa, nên để trần là để họ mở được một trang chỉ hiện lỗi
+              gọi API — tệ hơn hẳn một câu 403 nói thẳng.
+
+              `readDatasets` là ĐÚNG ô mà mục sidebar hỏi, nên không có đường
+              nào bấm vào rồi rơi vào 403. Đây vẫn chỉ là chuyện điều hướng:
+              chặn thật nằm ở `authorize('dataset', 'read')` phía backend.
 
               MỘT trang `/datasets` cho cả hai nguồn. Trước khi gộp có hai khai
               báo cùng đường dẫn này, và react-router chỉ dùng cái đầu — nên bộ
               dữ liệu từ CSDL không có cách nào hiện ra. */}
-          <Route path="/datasets" element={<DatasetsPage />} />
-          {/* Chi tiết là TRANG chứ không phải hộp thoại: một bảng thật có 40–80
-              cột, và cột "Kiểu dữ liệu" bị cắt cụt trong khung 32rem thì trang
-              xem schema mất đúng thứ nó sinh ra để hiện. */}
-          <Route path="/datasets/:id" element={<DatasetDetailPage />} />
+          <Route element={<TenantAdminRoute needs="readDatasets" />}>
+            <Route path="/datasets" element={<DatasetsPage />} />
+            {/* Chi tiết là TRANG chứ không phải hộp thoại: một bảng thật có 40–80
+                cột, và cột "Kiểu dữ liệu" bị cắt cụt trong khung 32rem thì trang
+                xem schema mất đúng thứ nó sinh ra để hiện. */}
+            <Route path="/datasets/:id" element={<DatasetDetailPage />} />
+          </Route>
 
-          {/* §10 — mô hình dữ liệu. Cũng KHÔNG bọc `TenantAdminRoute`: mọi vai
-              trò kể cả viewer đều có `datamodel:read` trong ma trận mặc định,
-              cùng lý do với `/datasets`. Nút ghi ẩn theo
-              `permissions.can('datamodel','modify')`, và backend vẫn chặn bằng
-              `authorize()`.
+          {/* §10 — mô hình dữ liệu. Cùng cổng, khác ô: `readDataModels`.
+              Nút ghi vẫn ẩn theo `permissions.can('datamodel','modify')`, vì
+              creator qua được cổng này nhưng không phải creator làm được mọi
+              thứ bên trong.
 
               Tab là ROUTE THẬT — xem `DataModelPage`. Năm tab chưa xây KHÔNG có
               route: chúng render `<span aria-disabled>` chứ không phải
-              `NavLink`, nên không có đường nào bấm vào rồi rơi vào 404. */}
-          {/* Danh sách rồi mới tới chi tiết — cùng hình dạng với `/datasets`.
+              `NavLink`, nên không có đường nào bấm vào rồi rơi vào 404.
+
+              Danh sách rồi mới tới chi tiết — cùng hình dạng với `/datasets`.
               Trước đây `/datamodels` mở thẳng mô hình cập nhật gần nhất và
               KHÔNG có trang danh sách; xem chú thích ở `DataModelsPage` để biết
               vì sao quyết định đó bị đảo. */}
-          <Route path="/datamodels" element={<DataModelsPage />} />
-          <Route path="/datamodels/:id" element={<DataModelPage />}>
-            <Route index element={<SchemasTab />} />
-            <Route path="relationship" element={<RelationshipTab />} />
-            <Route path="explorer" element={<ExplorerTab />} />
+          <Route element={<TenantAdminRoute needs="readDataModels" />}>
+            <Route path="/datamodels" element={<DataModelsPage />} />
+            <Route path="/datamodels/:id" element={<DataModelPage />}>
+              <Route index element={<SchemasTab />} />
+              <Route path="relationship" element={<RelationshipTab />} />
+              <Route path="explorer" element={<ExplorerTab />} />
+            </Route>
           </Route>
 
+          {/* Báo cáo KHÔNG có cổng: `report:read` là thứ mọi vai trò đều có, và
+              nó là đường duy nhất viewer được mời vào để đi. */}
           <Route path="/reports/:id" element={<ReportPage />} />
 
+          {/* ─── §8 Kết nối CSDL: HAI đường, một trang ──────────────────────
+              Cùng `ConnectionsPage` và `ConnectionFormPage`, khác chỗ đứng —
+              vì với hai vai trò thì nó là hai thứ khác nhau:
+
+                admin    /organization/connections   kết nối thuộc TỔ CHỨC, nên
+                                                     nó là một mục cấu hình tổ
+                                                     chức, nằm cạnh Workspace
+                creator  /connections                kết nối RIÊNG của họ, nên
+                                                     nó là mục sidebar cạnh Kho
+                                                     dữ liệu
+
+              Mỗi nhánh gác bằng đúng ô của vai trò mình, nên không có đường nào
+              bấm vào rồi ăn 403. `useConnectionsBase` là chỗ DUY NHẤT quyết
+              định đường nào — danh sách, wizard và hộp thoại Đồng bộ đều hỏi nó.
+
+              Wizard là ROUTE ANH EM chứ không phải hộp thoại: nó chiếm trọn khu
+              nội dung và có ba bước riêng — xem `ConnectionFormPage`. */}
+          <Route element={<TenantAdminRoute needs="managePersonalConnections" />}>
+            <Route path="/connections" element={<ConnectionsPage />} />
+            <Route path="/connections/new" element={<ConnectionFormPage />} />
+            <Route path="/connections/:id/edit" element={<ConnectionFormPage />} />
+          </Route>
 
           {/* ─── Quản lý tổ chức: một trang, ba tab ─────────────────────────
               Tab là ROUTE THẬT chứ không phải state — xem `OrganizationPage`.
@@ -138,7 +170,7 @@ export default function App(): React.ReactElement {
             <Route element={<TenantAdminRoute needs="manageTenant" />}>
               <Route index element={<OrganizationProfilePage />} />
             </Route>
-            <Route element={<TenantAdminRoute needs="manageConnections" />}>
+            <Route element={<TenantAdminRoute needs="manageOrgConnections" />}>
               <Route path="connections" element={<ConnectionsPage />} />
             </Route>
             <Route element={<TenantAdminRoute needs="manageWorkspaces" />}>
@@ -149,19 +181,16 @@ export default function App(): React.ReactElement {
             </Route>
           </Route>
 
-          {/* Wizard kết nối là ANH EM của `/organization`, không phải con: nó
-              chiếm trọn khu nội dung thay vì nằm dưới tiêu đề và thanh bốn tab.
-              Xem `ConnectionFormPage`. Cùng ô quyền với tab Kết nối, nên không
-              có đường nào bấm vào rồi ăn 403. */}
-          <Route element={<TenantAdminRoute needs="manageConnections" />}>
-            <Route path="/organization/connections/new" element={<ConnectionFormPage />} />
-            <Route path="/organization/connections/:id/edit" element={<ConnectionFormPage />} />
-          </Route>
-
           {/* Đường dẫn cũ vẫn sống. Người dùng đã lưu bookmark hoặc dán link cho
               đồng nghiệp trước khi gộp trang; để chúng rơi vào trang 404 là bắt
               họ trả giá cho một thay đổi trong nhà. `replace` để nút Back không
               kẹt trong vòng lặp chuyển hướng. */}
+          {/* Wizard của admin là ANH EM của `/organization`, không phải con: nó
+              chiếm trọn khu nội dung thay vì nằm dưới tiêu đề và thanh tab. */}
+          <Route element={<TenantAdminRoute needs="manageOrgConnections" />}>
+            <Route path="/organization/connections/new" element={<ConnectionFormPage />} />
+            <Route path="/organization/connections/:id/edit" element={<ConnectionFormPage />} />
+          </Route>
           <Route path="/workspaces" element={<Navigate to="/organization/workspaces" replace />} />
           <Route path="/members" element={<Navigate to="/organization/members" replace />} />
         </Route>

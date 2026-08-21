@@ -160,22 +160,33 @@ async function commitSheets(
 describe('§7.8 phân quyền theo bảng route', () => {
   type Method = 'get' | 'post' | 'patch' | 'delete';
 
-  /** Route GHI: viewer phải bị chặn ở mọi cái. */
+  /**
+   * Mọi route viewer phải bị chặn — GHI, và từ migration 26 là cả ĐỌC kho.
+   *
+   * `GET /api/v1/datasets` chuyển từ bảng đọc sang bảng này. Nó không phải một
+   * route ghi, nên tên hằng đọc hơi ngược; nhưng gộp theo "viewer được hay
+   * không" là cách phân nhóm giữ đúng điều bảng này kiểm.
+   */
   const WRITE_ROUTES: [Method, string][] = [
     ['post', '/api/v1/datasets/uploads'],
     ['post', '/api/v1/datasets/1/analyze'],
     ['post', '/api/v1/datasets/1/commit'],
     ['delete', '/api/v1/datasets/1'],
+    ['get', '/api/v1/datasets'],
     ['post', '/api/v1/reports'],
     ['post', '/api/v1/reports/from-datamodel'],
     ['patch', '/api/v1/reports/1'],
     ['delete', '/api/v1/reports/1'],
   ];
 
-  const READ_ROUTES: [Method, string][] = [
-    ['get', '/api/v1/datasets'],
-    ['get', '/api/v1/reports'],
-  ];
+  /**
+   * Thứ DUY NHẤT viewer còn mở được — và đó đúng là ý của migration 26.
+   *
+   * Danh sách một dòng trông thừa thãi, nhưng nó là ca chặn việc siết tay quá
+   * đà: bỏ nhầm `report:read` của viewer thì mọi ca 403 ở trên vẫn xanh, chỉ
+   * ca này đỏ.
+   */
+  const READ_ROUTES: [Method, string][] = [['get', '/api/v1/reports']];
 
   function call(method: Method, path: string): request.Test {
     const agent = request(app);

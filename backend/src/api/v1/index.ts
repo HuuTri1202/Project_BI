@@ -677,8 +677,18 @@ v1Router.post(
   }),
 );
 
+/*
+ * Ba đường ĐỌC báo cáo dưới đây gác bằng `authorize('report', 'read')`.
+ *
+ * Trước đây chúng không gác gì cả — cứ là thành viên của tổ chức là đọc được.
+ * Vô hại chừng nào cả ba vai trò đều có `report:read`, nhưng nó biến dòng
+ * policy ấy thành đồ trang trí: bỏ nó khỏi `casbin_rule` cũng không đổi được
+ * gì. Từ lúc `report:read` là quyền nội dung DUY NHẤT của viewer, nó phải là
+ * một quyền thật, có chỗ để mất đi.
+ */
 v1Router.get(
   '/reports',
+  authorize('report', 'read'),
   asyncHandler(async (req, res) => {
     const { tenantId } = requireAuth(req);
     const query = listReportsQuerySchema.parse(req.query);
@@ -700,6 +710,7 @@ v1Router.get(
 
 v1Router.get(
   '/reports/:id',
+  authorize('report', 'read'),
   asyncHandler(async (req, res) => {
     const { tenantId } = requireAuth(req);
     const { id } = idParamSchema.parse(req.params);
@@ -720,6 +731,7 @@ v1Router.get(
  */
 v1Router.get(
   '/reports/:id/data',
+  authorize('report', 'read'),
   asyncHandler(async (req, res) => {
     const { tenantId } = requireAuth(req);
     const { id } = idParamSchema.parse(req.params);
@@ -740,6 +752,11 @@ v1Router.get(
 
     // Báo cáo trên MÔ HÌNH đi đường khác hẳn: câu lệnh do Cube sinh, nên nó
     // thừa hưởng cả phép nối lẫn thước đo tính toán của tầng ngữ nghĩa (§10.8).
+    //
+    // ⚠️ Gọi THẲNG service, cố ý không thêm `authorize('datamodel', 'read')`.
+    // Viewer không còn quyền đó (migration 26) nhưng vẫn phải xem được biểu đồ:
+    // họ đọc một lát cắt do người khác chọn, không phải mở mô hình ra hỏi tiếp.
+    // Thêm guard đó vào đây là làm trắng mọi báo cáo trên mô hình của viewer.
     if (report.source === 'datamodel') {
       if (report.datamodelId === null || report.modelConfig === null) {
         throw notFound('Mô hình dữ liệu của báo cáo này không còn tồn tại.');
@@ -971,6 +988,11 @@ v1Router.delete(
 
       const affected = await adminWorkspacesRepo.softDeleteWorkspace(conn, tenantId, id);
       if (affected === 0) throw notFound('Không tìm thấy workspace này.');
+
+      // Dọn nốt những lần tải file bỏ dở — đúng những dòng mà `countLiveContent`
+      // vừa cố ý không tính. Để lại thì chúng trỏ vào một workspace đã xoá và
+      // vẫn vô hình như cũ.
+      await adminWorkspacesRepo.softDeleteUnfinishedDatasets(conn, tenantId, id);
     });
 
     res.status(204).end();
@@ -1200,6 +1222,29 @@ v1Router.delete(
  * quét cổng, và mỗi request lại tiêu một socket của ta lẫn của bên kia.
  */
 
+/**
+ * Người gọi, ở dạng mà tầng repository dùng để giới hạn phạm vi (migration 28).
+ *
+ * MỘT hàm duy nhất dựng object này, và nó đọc từ `req.auth` chứ không từ body
+ * hay query. `requireFreshMembership` đã ghi đè `role` bằng vai trò đọc lại từ
+ * database ngay trước đó, nên `auth.role` ở đây là vai trò THẬT — không phải
+ * vai trò lúc đăng nhập, vốn có thể đã cũ tới 7 ngày.
+ *
+ * Nhận `req` chứ không nhận `auth` đã bóc sẵn: nơi gọi viết `viewerOf(req)` là
+ * xong, không phải nhớ bóc `userId` và `role` rồi ghép lại — mà ghép tay thì sẽ
+ * có chỗ ghép nhầm `tenantId` vào `userId`, và hai số đó cùng kiểu nên không có
+ * gì bắt được.
+ */
+function viewerOf(req: Request): connectionsRepo.ConnectionViewer {
+  const auth = requireAuth(req);
+  return { userId: auth.userId, role: auth.role };
+}
+
+/** `list` nhận `(db, tenantId, viewer)` — trải ra để nơi gọi khỏi lặp `requireAuth`. */
+function scopeOf(req: Request): [number, connectionsRepo.ConnectionViewer] {
+  return [requireAuth(req).tenantId, viewerOf(req)];
+}
+
 const connectionProbeLimit = rateLimit({
   bucket: 'connection-probe',
   max: 30,
@@ -1221,8 +1266,7 @@ v1Router.get(
   '/connections',
   authorize('connection', 'read'),
   asyncHandler(async (req, res) => {
-    const { tenantId } = requireAuth(req);
-    res.json(await connectionsRepo.list(mysqlPool, tenantId));
+    res.json(await connectionsRepo.list(mysqlPool, ...scopeOf(req)));
   }),
 );
 
@@ -1270,11 +1314,13 @@ v1Router.post(
     const auth = requireAuth(req);
     const body = createConnectionBodySchema.parse(req.body);
 
-    const id = await createConnection(auth.tenantId, auth.userId, body).catch((err: unknown) => {
-      throw asDuplicateName(err);
-    });
+    const id = await createConnection(auth.tenantId, auth.userId, auth.role, body).catch(
+      (err: unknown) => {
+        throw asDuplicateName(err);
+      },
+    );
 
-    res.status(201).json(await connectionsRepo.findOne(mysqlPool, auth.tenantId, id));
+    res.status(201).json(await connectionsRepo.findOne(mysqlPool, auth.tenantId, id, viewerOf(req)));
   }),
 );
 
@@ -1289,14 +1335,16 @@ v1Router.patch(
     // Chuỗi rỗng và `undefined` đều nghĩa là GIỮ NGUYÊN mật khẩu. Gộp chúng ở
     // đây thay vì bắt frontend phải biết gửi cái nào — một ô input để trống trả
     // về `''`, và bắt nó tự đổi thành `undefined` là đặt bẫy cho lần sửa sau.
-    await updateConnection(tenantId, id, {
-      ...body,
-      password: body.password ? body.password : null,
-    }).catch((err: unknown) => {
+    await updateConnection(
+      tenantId,
+      id,
+      { ...body, password: body.password ? body.password : null },
+      viewerOf(req),
+    ).catch((err: unknown) => {
       throw asDuplicateName(err);
     });
 
-    res.json(await connectionsRepo.findOne(mysqlPool, tenantId, id));
+    res.json(await connectionsRepo.findOne(mysqlPool, tenantId, id, viewerOf(req)));
   }),
 );
 
@@ -1307,7 +1355,7 @@ v1Router.post(
   asyncHandler(async (req, res) => {
     const { tenantId } = requireAuth(req);
     const { id } = idParamSchema.parse(req.params);
-    res.json(await testSavedConnection(tenantId, id));
+    res.json(await testSavedConnection(tenantId, id, viewerOf(req)));
   }),
 );
 
@@ -1325,7 +1373,7 @@ v1Router.get(
   asyncHandler(async (req, res) => {
     const { tenantId } = requireAuth(req);
     const { id } = idParamSchema.parse(req.params);
-    res.json(await listSavedDatabases(tenantId, id));
+    res.json(await listSavedDatabases(tenantId, id, viewerOf(req)));
   }),
 );
 
@@ -1336,7 +1384,7 @@ v1Router.delete(
     const { tenantId } = requireAuth(req);
     const { id } = idParamSchema.parse(req.params);
 
-    await deleteConnection(tenantId, id);
+    await deleteConnection(tenantId, id, viewerOf(req));
     res.status(204).end();
   }),
 );
@@ -1355,7 +1403,7 @@ v1Router.get(
   asyncHandler(async (req, res) => {
     const { tenantId } = requireAuth(req);
     const { id } = idParamSchema.parse(req.params);
-    res.json(await listSourceTables(tenantId, id));
+    res.json(await listSourceTables(tenantId, id, viewerOf(req)));
   }),
 );
 
@@ -1373,7 +1421,7 @@ v1Router.post(
     // từ nó mới thuộc về một workspace.
     const workspace = await resolveWorkspace(mysqlPool, tenantId, body.workspaceId);
 
-    res.json(await syncDatasets(tenantId, id, body.tables, workspace.id, userId));
+    res.json(await syncDatasets(tenantId, id, body.tables, workspace.id, userId, viewerOf(req)));
   }),
 );
 
@@ -2368,9 +2416,20 @@ function asDuplicateName(err: unknown): unknown {
     typeof err === 'object' &&
     err !== null &&
     (err as { code?: string }).code === 'ER_DUP_ENTRY' &&
-    String((err as { message?: string }).message ?? '').includes('uq_connections_tenant_name')
+    String((err as { message?: string }).message ?? '').includes('uq_connections_scope_name')
   ) {
-    return new HttpError(409, 'DuplicateName', 'Tổ chức đã có một kết nối trùng tên.', {
+    /*
+     * Tên chỉ mục đổi ở migration 28 — `uq_connections_tenant_name` thành
+     * `uq_connections_scope_name`. Quên sửa chuỗi này thì mọi lần trùng tên rơi
+     * xuống bộ xử lý lỗi chung và người dùng nhận "có lỗi phía máy chủ" thay vì
+     * một câu chỉ đúng ô cần sửa.
+     *
+     * Câu chữ cũng đổi theo, vì phạm vi trùng đã khác: tên nay chỉ phải là duy
+     * nhất TRONG kho chung, hoặc TRONG những kết nối riêng của chính người đó.
+     * Nói "tổ chức đã có một kết nối trùng tên" với một creator vừa gõ trùng
+     * tên của chính mình là chỉ họ đi tìm ở sai chỗ.
+     */
+    return new HttpError(409, 'DuplicateName', 'Bạn đã có một kết nối trùng tên.', {
       name: 'Tên này đã được dùng',
     });
   }

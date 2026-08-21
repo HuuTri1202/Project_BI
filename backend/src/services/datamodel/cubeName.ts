@@ -72,10 +72,9 @@ const AGG_SUFFIX: Record<MeasureAgg, string> = {
   avg: 'avg',
   count: 'cnt',
   countDistinct: 'cntd',
+  countDistinctApprox: 'cntda',
   min: 'min',
   max: 'max',
-  median: 'med',
-  p90: 'p90',
 };
 
 /**

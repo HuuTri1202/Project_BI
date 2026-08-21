@@ -136,10 +136,78 @@ export const DEFAULT_POLICY: readonly PolicyRule[] = [
   // Thấy workspace và danh sách thành viên, nhưng không sửa được.
   { role: 'creator', resource: 'workspace', action: 'read' },
   { role: 'creator', resource: 'member', action: 'read' },
+  /*
+   * `connection:read` — CHỈ đọc, và đó là toàn bộ điểm của dòng này.
+   *
+   * Creator có `dataset:modify`, tức là được đồng bộ bảng về từ CSDL nguồn:
+   * `GET /connections/:id/tables` và `POST /connections/:id/sync` đều gác bằng
+   * ô đó, cố ý, với lý do ghi ngay tại route — "ai đồng bộ được thì xem được
+   * danh sách bảng".
+   *
+   * Nhưng bước ZERO của thao tác ấy là CHỌN kết nối, và nó gọi
+   * `GET /connections` nằm sau `connection:read`. Thiếu dòng này, creator mở
+   * hộp thoại "Đồng bộ từ CSDL" ra và thấy một ô chọn rỗng — rỗng không kèm
+   * lời giải thích nào, vì request 403 nên danh sách là `undefined` chứ không
+   * phải mảng rỗng, và nhánh "chưa có kết nối nào" cũng không chạy.
+   *
+   * ─── Vì sao đọc thì được mà sửa thì không ─────────────────────────────────
+   *
+   * Lý lẽ tách `connection` khỏi `dataset` là: connection chứa MẬT KHẨU mở được
+   * cả CSDL nguồn, nên "ai đồng bộ được dataset cũng SỬA được thông tin đăng
+   * nhập" là điều không muốn. Lý lẽ đó nói về `modify`, không nói về `read` —
+   * và `ConnectionDto` cố ý không mang mật khẩu ra ngoài (nó nằm trong
+   * `secretBox`, AES-256-GCM, có bài test riêng canh việc nó không lọt vào bất
+   * kỳ phản hồi nào). Cái creator thấy là tên, host, cổng, tên đăng nhập của
+   * một CSDL mà họ vốn đã được phép rút dữ liệu về.
+   *
+   * `modify` và `delete` vẫn CHỈ admin: thêm, sửa, xoá kết nối là việc đụng tới
+   * thông tin đăng nhập, và nó ở nguyên chỗ cũ.
+   */
+  { role: 'creator', resource: 'connection', action: 'read' },
+  /*
+   * `connection:modify` và `:delete` — creator dựng KẾT NỐI RIÊNG của mình.
+   *
+   * Đây là chỗ Casbin hết tác dụng, và phải nói rõ vì nó dễ đọc nhầm thành
+   * "creator sửa được mọi kết nối của tổ chức". Casbin chấm điểm trên TÀI
+   * NGUYÊN, không trên từng dòng — nó chỉ trả lời được "vai trò này có được
+   * sửa kết nối nói chung không", không trả lời được "cái kết nối NÀY".
+   *
+   * Nên hai dòng này chỉ mở cánh cửa; ranh giới thật nằm trong chính câu SQL:
+   * `update` và `softDelete` mang thêm `AND created_by = ?` khi người gọi không
+   * phải admin, và `findSecret` lọc theo cùng luật đó. Không dòng nào đi qua
+   * một lần `if` trong tầng service rồi mới xuống database — điều kiện nằm
+   * TRONG câu lệnh, nên không có khe hở giữa lúc kiểm và lúc ghi.
+   *
+   * Vì sao cần cả `delete`: cùng lập luận đã dùng cho `dataset` và `report` ở
+   * migration 6 — không xoá được thứ mình vừa tạo nghĩa là mỗi lần gõ nhầm là
+   * một bản ghi rác nằm lại vĩnh viễn và phải đi nhờ Admin.
+   */
+  { role: 'creator', resource: 'connection', action: 'modify' },
+  { role: 'creator', resource: 'connection', action: 'delete' },
 
-  // ─── Viewer: chỉ đọc ─────────────────────────────────────────────────────
-  { role: 'viewer', resource: 'dataset', action: 'read' },
-  { role: 'viewer', resource: 'datamodel', action: 'read' },
+  // ─── Viewer: chỉ đọc, và chỉ tới KẾT LUẬN ────────────────────────────────
+  //
+  // CỐ Ý KHÔNG có `dataset:read` và `datamodel:read`. Trước đây có cả hai, với
+  // lý lẽ "viewer là vai trò chỉ đọc nên cho đọc hết". Lý lẽ đó nhìn nhầm chỗ:
+  // câu hỏi không phải "đọc hay ghi" mà là "được thấy tới đâu".
+  //
+  // Một báo cáo là một LÁT CẮT đã được người dựng chọn ra. Bộ dữ liệu nằm dưới
+  // nó gần như luôn rộng hơn: bản xem trước dữ liệu thô, đủ mọi cột kể cả những
+  // cột không hề xuất hiện trên biểu đồ, tên bảng và tên CSDL nguồn. Mô hình dữ
+  // liệu còn đi xa hơn — Explorer cho tự đặt câu hỏi MỚI trên chính dữ liệu đó.
+  // Mời một người vào xem doanh thu theo tháng không phải là đồng ý cho họ mở
+  // bảng lương ra đọc, mà hai thứ ấy thường nằm chung một kho.
+  //
+  // Siết ở đây KHÔNG làm hỏng việc mà viewer được mời vào để làm:
+  // `GET /reports/:id/data` gọi thẳng `aggregateFromModel` /
+  // `aggregateInWarehouse` trong cùng tiến trình, không đi qua
+  // `authorize('datamodel', 'read')` hay `authorize('dataset', 'read')`. Biểu đồ
+  // vẫn ra số, chỉ có đường vòng sang kho là đóng lại.
+  //
+  // Hệ quả kèm theo, đã cân nhắc: viewer mất luôn `GET /datasets/:id/load` —
+  // tức là không còn tự biết "số liệu này nạp lần cuối lúc nào". Đó là cái giá
+  // thật của việc đóng cửa kho, và chỗ đúng để trả lại thông tin ấy là chính
+  // trang báo cáo, không phải bằng cách mở lại cả Kho dữ liệu.
   { role: 'viewer', resource: 'report', action: 'read' },
   { role: 'viewer', resource: 'chart', action: 'read' },
   { role: 'viewer', resource: 'workspace', action: 'read' },

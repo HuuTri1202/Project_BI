@@ -25,7 +25,6 @@ import {
   useRunQuery,
 } from '../../../features/datamodels/hooks';
 import { getApiError } from '../../../services/apiClient';
-import { doLech, type LechDto } from './lechTrungBinh';
 
 /**
  * Tab Explorer — §10.7.
@@ -479,71 +478,6 @@ function AggBar({
 }
 
 
-/**
- * Khối gợi ý khi trung bình lệch xa trung vị.
- *
- * ═══ Vì sao khối này tồn tại ═══════════════════════════════════════════════
- *
- * Trung vị chỉ có giá trị KHI trung bình đang nói dối. Nhưng để biết trung bình
- * đang nói dối thì phải bấm trung vị trước — một vòng luẩn quẩn khiến người
- * dùng chỉ tìm ra nó nếu đã biết trước mình cần gì, tức là đúng nhóm người
- * không cần được chỉ. Hàng nút và chú thích không gỡ được vòng đó: cả hai đều
- * chờ người dùng chủ động hỏi.
- *
- * Khối này gỡ bằng cách đặt hai con số cạnh nhau TRÊN CHÍNH DỮ LIỆU CỦA HỌ.
- * Không ai phải hiểu định nghĩa trung vị để hiểu "trung bình 65,45 nhưng một
- * nửa số dòng dưới 29,94".
- *
- * ─── Và vì sao nó không phiền ──────────────────────────────────────────────
- *
- * Ba điều kiện cùng lúc: đang dùng `avg`, lệch quá `NGUONG_LECH`, và quá nửa số
- * nhóm cùng lệch. Dữ liệu đều thì cả đời không thấy nó lần nào. Bấm "Bỏ qua"
- * thì im cho tới khi người dùng đổi sang bộ thước đo khác — nghĩa là im với câu
- * hỏi họ vừa từ chối, chứ không im vĩnh viễn với mọi câu hỏi về sau.
- */
-function CanhBaoLech({
-  lech,
-  onDoi,
-  onBoQua,
-}: {
-  lech: LechDto;
-  onDoi: () => void;
-  onBoQua: () => void;
-}): React.ReactElement {
-  const so = (n: number): React.ReactNode => formatCell(n, true, lech.format);
-
-  return (
-    <div
-      role="status"
-      className="shrink-0 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3"
-    >
-      <h3 className="text-sm font-semibold text-amber-900">Trung bình đang bị kéo lệch</h3>
-      <p className="mt-1 text-sm text-amber-900">
-        {lech.nhom !== null && (
-          <>
-            Ở <strong>{lech.nhom}</strong>:{' '}
-          </>
-        )}
-        {lech.label} trung bình <strong>{so(lech.trungBinh)}</strong> — nhưng một nửa số dòng dưới{' '}
-        <strong>{so(lech.trungVi)}</strong>.{' '}
-        {lech.tongNhom > 1
-          ? `${lech.soNhomLech}/${lech.tongNhom} nhóm cũng lệch như vậy.`
-          : 'Vài giá trị rất lớn đang kéo con số lên.'}
-      </p>
-      <div className="mt-2.5 flex items-center gap-2">
-        <Button onClick={onDoi}>Xem bằng trung vị</Button>
-        <button
-          type="button"
-          onClick={onBoQua}
-          className="rounded-lg px-2 py-1 text-sm text-amber-800 underline-offset-2 hover:underline"
-        >
-          Bỏ qua
-        </button>
-      </div>
-    </div>
-  );
-}
-
 export default function ExplorerTab(): React.ReactElement {
   const model = useOutletContext<DataModelDetailDto>();
 
@@ -565,28 +499,6 @@ export default function ExplorerTab(): React.ReactElement {
   const [showSql, setShowSql] = useState(false);
   const sql = useQuerySql(model.id);
 
-  /**
-   * Truy vấn ĐỐI CHỨNG bằng trung vị — chạy nền, không bao giờ lên bảng.
-   *
-   * Phải là một `useMutation` thứ hai chứ không dùng lại `run`: kết quả của nó
-   * chỉ để so, và ghi đè `run.data` sẽ đổi con số dưới mắt người dùng ngay sau
-   * khi họ vừa đọc xong.
-   *
-   * Chỉ chạy khi truy vấn chính có thước đo đang dùng `avg`, nên phần lớn lượt
-   * bấm Chạy không tốn thêm gì.
-   */
-  const doiChung = useRunQuery(model.id);
-  /** Các thước đo đã bị đổi sang trung vị trong lượt đối chứng gần nhất. */
-  const [idDoiChung, setIdDoiChung] = useState<ReadonlySet<number>>(new Set());
-  /**
-   * Bộ thước đo mà người dùng đã bấm "Bỏ qua".
-   *
-   * Ghi lại BỘ THƯỚC ĐO chứ không phải một cờ đúng/sai: bỏ qua một lần rồi im
-   * mãi mãi thì gợi ý này chết ngay lần đầu ai đó thấy phiền, còn hiện lại sau
-   * mỗi lần bấm Chạy thì đúng là phiền. Ghi theo bộ thước đo nghĩa là im với
-   * câu hỏi họ vừa từ chối, và nói lại khi họ chuyển sang câu hỏi khác.
-   */
-  const [boQuaLech, setBoQuaLech] = useState<string | null>(null);
 
   /**
    * Tích hoặc bỏ tích một trường.
@@ -614,55 +526,10 @@ export default function ExplorerTab(): React.ReactElement {
     };
   }
 
-  /** Khoá nhận dạng một bộ thước đo, để nhớ người dùng đã bỏ qua câu hỏi nào. */
-  function khoaThuocDo(m: Set<number>): string {
-    return [...m].sort((a, b) => a - b).join(',');
-  }
-
-  /**
-   * Chạy lại đúng câu hỏi vừa rồi bằng trung vị, để có cái mà so.
-   *
-   * Nhận bảng phép gộp qua tham số chứ không đọc từ `aggs`: hàm này được gọi
-   * ngay sau một `setAggs`, mà giá trị mới chỉ có ở lần render sau — cùng cái
-   * bẫy mà `toggle` và `pickAgg` đã phải né.
-   */
-  function chayDoiChung(
-    p: ExplorerQueryDto,
-    m: Set<number>,
-    bang: Map<number, MeasureAgg>,
-  ): void {
-    const dungTrungBinh = (fields.data?.measures ?? []).filter(
-      (f) =>
-        m.has(f.id) &&
-        (bang.get(f.id) ?? f.agg) === 'avg' &&
-        (f.availableAggs ?? []).includes('median'),
-    );
-    if (dungTrungBinh.length === 0) {
-      setIdDoiChung(new Set());
-      doiChung.reset();
-      return;
-    }
-
-    const doi = new Set(dungTrungBinh.map((f) => f.id));
-    setIdDoiChung(doi);
-    doiChung.mutate({
-      ...p,
-      measureAggs: [...m].flatMap((id) => {
-        if (doi.has(id)) return [{ id, agg: 'median' as const }];
-        const a = bang.get(id);
-        return a === undefined ? [] : [{ id, agg: a }];
-      }),
-    });
-  }
-
-  /** Chạy truy vấn chính, rồi tự đối chứng bằng trung vị nếu có gì để so. */
-  function chay(p: ExplorerQueryDto, m: Set<number>, bang: Map<number, MeasureAgg>): void {
+  /** Chạy truy vấn chính. */
+  function chay(p: ExplorerQueryDto): void {
     setQueryError(null);
-    doiChung.reset();
-    run.mutate(p, {
-      onError: (err) => setQueryError(getApiError(err).message),
-      onSuccess: () => chayDoiChung(p, m, bang),
-    });
+    run.mutate(p, { onError: (err) => setQueryError(getApiError(err).message) });
   }
 
   function toggle(kind: 'dimension' | 'measure', id: number): void {
@@ -672,11 +539,6 @@ export default function ExplorerTab(): React.ReactElement {
 
     if (kind === 'dimension') setDimensions(next);
     else setMeasures(next);
-
-    // Lựa chọn vừa đổi thì kết quả đối chứng không còn nói về câu hỏi này nữa.
-    // Bảng kết quả cũ vẫn nằm đó cho tới lần Chạy sau, nhưng một lời cảnh báo
-    // cũ thì tệ hơn một bảng cũ — nó khẳng định một điều về dữ liệu.
-    doiChung.reset();
 
     if (!showSql) return;
 
@@ -700,7 +562,6 @@ export default function ExplorerTab(): React.ReactElement {
     const next = new Map(aggs);
     next.set(measureId, agg);
     setAggs(next);
-    doiChung.reset();
 
     if (!showSql) return;
     sql.mutate({
@@ -711,33 +572,6 @@ export default function ExplorerTab(): React.ReactElement {
         return a === undefined ? [] : [{ id, agg: a }];
       }),
     });
-  }
-
-  /**
-   * Nhận lời gợi ý: đổi các thước đo đang lệch sang trung vị rồi chạy lại.
-   *
-   * Kết quả trung vị thật ra đã nằm sẵn trong `doiChung.data`, nhưng chạy lại
-   * vẫn đáng hơn là bê nó sang: `run.data` phải là kết quả của đúng bộ phép mà
-   * hàng nút đang hiện, nếu không thì bảng và hàng nút nói hai chuyện khác nhau
-   * ngay lúc người dùng vừa được bảo là hãy tin cái bảng.
-   */
-  function xemBangTrungVi(): void {
-    const next = new Map(aggs);
-    for (const id of idDoiChung) next.set(id, 'median');
-    setAggs(next);
-
-    chay(
-      {
-        dimensionIds: [...dimensions],
-        measureIds: [...measures],
-        measureAggs: [...measures].flatMap((id) => {
-          const a = next.get(id);
-          return a === undefined ? [] : [{ id, agg: a }];
-        }),
-      },
-      measures,
-      next,
-    );
   }
 
   // Cube chưa chạy — nói đúng lệnh phải gõ, và nói cả những gì vẫn dùng được.
@@ -781,14 +615,6 @@ export default function ExplorerTab(): React.ReactElement {
     (m) => measures.has(m.id) && (m.availableAggs?.length ?? 0) > 0,
   );
 
-  // Chỉ so khi CẢ HAI kết quả cùng có mặt, và người dùng chưa bỏ qua đúng bộ
-  // thước đo này. `doLech` trả `null` khi không có gì đáng nói — đó là đường
-  // thường gặp nhất, và nó im lặng.
-  const khoaHienTai = khoaThuocDo(measures);
-  const lech =
-    result !== undefined && doiChung.data !== undefined && boQuaLech !== khoaHienTai
-      ? doLech(result, doiChung.data, idDoiChung)
-      : null;
 
   return (
     <div className="flex h-full min-h-0 gap-5">
@@ -834,7 +660,7 @@ export default function ExplorerTab(): React.ReactElement {
             variant="primary"
             disabled={!canRun}
             loading={run.isPending}
-            onClick={() => chay(payload(dimensions, measures), measures, aggs)}
+            onClick={() => chay(payload(dimensions, measures))}
           >
             Chạy truy vấn
           </Button>
@@ -894,16 +720,6 @@ export default function ExplorerTab(): React.ReactElement {
           <EmptyState
             title="Chọn chiều và thước đo rồi bấm Chạy"
             hint="Truy vấn chạy trên ClickHouse qua Cube.js — Cube tự sinh câu SQL và tự nối các bảng theo quan hệ bạn đã khai."
-          />
-        )}
-
-        {/* Ngay TRÊN bảng, vì nó nói về hai con số cụ thể trong bảng đó. Đặt ở
-            đầu trang thì người đọc phải nhớ lời cảnh báo rồi mới cuộn xuống dò. */}
-        {lech !== null && (
-          <CanhBaoLech
-            lech={lech}
-            onDoi={xemBangTrungVi}
-            onBoQua={() => setBoQuaLech(khoaHienTai)}
           />
         )}
 

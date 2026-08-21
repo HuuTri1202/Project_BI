@@ -432,7 +432,7 @@
   <p class="eyebrow">Đồ án tốt nghiệp · Nền tảng phân tích dữ liệu</p>
   <h1>Hồ sơ kiểm thử BI&nbsp;Platform</h1>
   <p class="standfirst">
-    147 ca kiểm thử phủ mười hai nhóm chức năng, đối chiếu với 594 ca tự động.
+    146 ca kiểm thử phủ mười hai nhóm chức năng, đối chiếu với 594 ca tự động.
     Mọi ô <em>kết quả thực tế</em> dưới đây là thứ hệ thống thật sự trả về khi
     chạy, không phải kết quả suy ra từ mã nguồn.
   </p>
@@ -460,18 +460,18 @@
     ngày</b>, và sửa phần đoán mặc định — đo trên tổ chức 4 thì <b>7 trên 14</b>
     thước đo sinh tự động là một phép cộng vô nghĩa (<code>sum</code> của
     <code>is_active</code>, <code>price</code>, <code>sort_order</code>).
-    Cùng lượt đó, Explorer nhận thêm một <b>bảng chọn cách tính</b> — đổi sum/avg/min/max ngay tại chỗ cho riêng một truy vấn, không ghi gì vào mô hình. Sau đó là <b>trung vị</b> và <b>ngưỡng top 10%</b> — thêm vì đo trên chính dữ liệu của tổ chức 4 thấy lợi nhuận trung bình một đơn là 28,61 trong khi trung vị chỉ 9,24, tức mọi báo cáo dùng <code>avg</code> ở đây đang nói sai về hoạt động thật. Mười chín ca TD đều chạy thật, đối chiếu tới tận con số Cube trả về.
-    Nhưng một phép tính chỉ có giá trị khi người ta biết lúc nào cần tới nó, mà trung vị thì chỉ có nghĩa <b>khi trung bình đang nói dối</b> — một vòng luẩn quẩn: phải bấm trung vị mới biết là mình cần trung vị. Nên mỗi nút nhận một câu giải thích khi rê chuột, và Explorer tự chạy một truy vấn <b>đối chứng</b> bằng trung vị để nói ra khi hai con số lệch nhau quá 50 % trên quá nửa số nhóm. Kịch bản <b>F9</b> kiểm cả hai chiều: nó phải hiện với <code>Profit</code> (lệch 2,1 lần) và phải <b>im</b> với <code>Quantity</code> (lệch 16 %).
+    Cùng lượt đó, Explorer nhận thêm một <b>bảng chọn cách tính</b> — đổi phép gộp ngay tại chỗ cho riêng một truy vấn, không ghi gì vào mô hình.
+    Ở lượt sau, danh sách phép gộp được kéo về bám <b>đúng những kiểu Cube dựng sẵn</b>. Trung vị và ngưỡng top 10% bị bỏ: chúng không phải kiểu của Cube mà là <code>type: "number"</code> kèm một hàm <code>quantileExact()</code> ta tự viết — chạy được, nhưng là mã của mình gánh. Thay vào đó là <code>countDistinctApprox</code>, thứ Cube dịch thành <code>uniq()</code> trên ClickHouse. Danh sách đúng bằng bộ kiểm định của Cube v1.7.16 nhận, đọc thẳng từ <code>CubeValidator.js</code> trong container chứ không từ tài liệu. Khối <b>cảnh báo lệch</b> và kịch bản <b>F9</b> được gỡ theo, vì chúng dựng trên trung vị.
     Cuối cùng <code>count</code> được mở lại trên cột — bản trước cấm hẳn, với lý lẽ rằng nó chỉ đẻ ra bản sao của thước đo "Số dòng". Lý lẽ đó dựa trên một tiền đề sai: Cube sinh <code>count(&lt;cột&gt;)</code>, mà hàm đó bỏ qua ô trống. Đo trên bảng Orders của tổ chức 4: <b>51.290</b> dòng nhưng chỉ <b>9.994</b> đơn có mã bưu chính. Nhãn đổi theo cho khỏi nói dối — <b>"Đếm ô có dữ liệu"</b> chứ không phải "Đếm dòng" — và kịch bản <b>F10</b> canh đúng chỗ đó.
   </p>
 
   <div class="stats">
-    <div class="stat"><div class="n">147</div><div class="lbl">ca kiểm thử thủ công</div></div>
-    <div class="stat"><div class="n ok">147</div><div class="lbl">đạt</div></div>
+    <div class="stat"><div class="n">146</div><div class="lbl">ca kiểm thử thủ công</div></div>
+    <div class="stat"><div class="n ok">146</div><div class="lbl">đạt</div></div>
     <div class="stat"><div class="n ok">0</div><div class="lbl">không đạt</div></div>
     <div class="stat"><div class="n">594</div><div class="lbl">ca tự động đã chạy</div></div>
     <div class="stat"><div class="n ok">0</div><div class="lbl">ca tự động không ổn định</div></div>
-    <div class="stat"><div class="n">8</div><div class="lbl">vấn đề — 6 đã sửa</div></div>
+    <div class="stat"><div class="n">9</div><div class="lbl">vấn đề — 7 đã sửa</div></div>
   </div>
 </header>
 
@@ -485,7 +485,7 @@
 
 <h3>Hai nguồn kết quả, không trộn lẫn</h3>
 <ul>
-  <li><b>Kiểm trực tiếp qua API đang chạy</b> — 82 ca (XT, PQ, AT, TF, NA, MH, TD).
+  <li><b>Kiểm trực tiếp qua API đang chạy</b> — 81 ca (XT, PQ, AT, TF, NA, MH, TD).
       Một bộ kịch bản Node gọi thẳng vào <code>localhost:4000</code> bằng tài
       khoản thật, đọc nguyên văn phản hồi và đối chiếu với ClickHouse cùng
       Redis. Cột kết quả thực tế chép lại đúng chuỗi quan sát được.</li>
@@ -880,6 +880,54 @@ id   name        expr_kind   deleted_at
   </p>
 </div>
 
+<div class="defect sev-high">
+  <h3><span class="code">V-09</span> <span class="pill pass">Đã sửa</span> Workspace rỗng nhưng không xoá được, và không có đường nào ra</h3>
+  <dl>
+    <dt>Mức</dt><dd><b>Cao</b> — chặn hẳn một thao tác hợp lệ, người dùng không tự gỡ được</dd>
+    <dt>Vị trí</dt><dd><code>repositories/adminWorkspaces.ts</code> — <code>countLiveContent</code></dd>
+    <dt>Phát hiện</dt><dd>Người dùng gặp trực tiếp: workspace <code>abc</code> hiện 0 bộ dữ liệu nhưng bấm Xoá thì nhận "Workspace còn 1 bộ dữ liệu"</dd>
+  </dl>
+  <p>
+    Hai chỗ hiểu khác nhau về cùng một câu hỏi <i>"workspace này còn bộ dữ liệu nào
+    không"</i>. Danh sách Kho dữ liệu mặc định chỉ hiện <code>status = 'ready'</code>,
+    và giao diện <b>không có ô lọc nào</b> để xem trạng thái khác — còn bộ đếm chặn
+    xoá thì đếm <b>mọi</b> dòng chưa xoá mềm.
+  </p>
+  <div class="evidence">Workspace "abc" cua to chuc NASA (tenant 4, workspace 6)
+
+  man hinh hien       0 bo du lieu
+  bo dem noi          1 bo du lieu  ->  409 WorkspaceNotEmpty
+
+  dong do:  dataset 36 "Global-Superstore"
+            status = pending · 0 cot · 0 dong · tao 3 ngay truoc
+
+Toan he thong: 10 dong `pending` so voi 8 dong `ready`.</div>
+  <p>
+    Người dùng bị nhốt: không thấy được thì không chuyển đi hay xoá đi được. Đây là
+    một lần tải file <b>bỏ dở</b> — chưa chốt sheet nên chưa có cột, chưa có dòng,
+    chưa có báo cáo nào dựng trên nó.
+  </p>
+  <p>
+    <b>Đã sửa:</b> bộ đếm chỉ tính <code>status = 'ready'</code>, tức đúng những gì
+    người dùng <b>nhìn thấy và thao tác được</b>. Lưới an toàn <b>không</b> bị nới:
+    mục đích của nó là chặn xoá nhầm nội dung của người khác, mà một dòng
+    <code>pending</code> không phải nội dung — đếm nó không bảo vệ ai, chỉ dựng một
+    bức tường không cửa. Xoá workspace giờ dọn luôn những dòng dở dang đó trong cùng
+    transaction, để chúng không ở lại trỏ vào một workspace đã biến mất.
+  </p>
+  <p>
+    Ca kiểm đi <b>cả hai chiều</b>, vì một bản vá hỏng rất dễ mở toang cả hai:
+    workspace chỉ có dòng <code>pending</code> thì xoá được (204) và dòng đó bị dọn
+    theo; workspace có bộ dữ liệu <code>ready</code> thì vẫn bị chặn (409).
+  </p>
+  <p>
+    <b>Chưa sửa:</b> 10 lần tải bỏ dở đang nằm rải trong hệ thống vẫn vô hình với
+    người dùng. Xoá workspace dọn được những cái nằm trong workspace bị xoá, nhưng
+    chưa có cơ chế nào dọn phần còn lại — cần một tác vụ quét theo tuổi, hoặc cho
+    giao diện hiện chúng ra để người dùng tự xoá.
+  </p>
+</div>
+
 <h2><span class="num">§3</span>Bảng ca kiểm thử</h2>
 <p class="lede">
   Lọc theo nhóm hoặc theo kết quả. Cột <em>kết quả thực tế</em> chép nguyên văn
@@ -1007,7 +1055,7 @@ id   name        expr_kind   deleted_at
 </section>
 
 <section class="mod" data-mod="TD">
-<h3>TD · Thước đo của mô hình dữ liệu (§10.6, §10.7) — 20 ca, gọi API thật</h3>
+<h3>TD · Thước đo của mô hình dữ liệu (§10.6, §10.7) — 19 ca, gọi API thật</h3>
 <div class="tablewrap"><table>
 <thead><tr><th>Mã</th><th>Mục tiêu · các bước</th><th>Kết quả mong đợi</th><th>Kết quả thực tế</th><th>KL</th></tr></thead>
 <tbody>
@@ -1021,15 +1069,14 @@ id   name        expr_kind   deleted_at
 <tr data-kq="pass" data-ng="live"><td class="id">TD-08</td><td class="muc"><b>Đổi phép ngay trong truy vấn cho ra con số của phép mới</b><span class="src">So SỐ chứ không so mã trạng thái: nếu backend lặng lẽ lùi về <code>sum</code> thì HTTP vẫn 200</span></td><td class="mongdoi">709.352 / 5 = 141.8704</td><td class="thucte">HTTP 200, Cube trả 141.8704 · lệch 0.0000; nhãn cột = "Loi nhuan (Trung bình)"</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
 <tr data-kq="pass" data-ng="live"><td class="id">TD-09</td><td class="muc">Mô hình <b>không</b> bị đổi theo — lựa chọn chỉ áp cho truy vấn đó<span class="src">Một cú bấm ở Explorer sửa cấu hình chung là thứ người thứ hai không có cách nào biết</span></td><td class="mongdoi">Phép trong mô hình vẫn là sum; hỏi lại ra tổng cũ</td><td class="thucte">phép trong mô hình vẫn "sum"; hỏi lại không kèm gì → 709.352</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
 <tr data-kq="pass" data-ng="live"><td class="id">TD-10</td><td class="muc">Phép không hợp kiểu bị từ chối <b>kể cả khi gửi thẳng vào truy vấn</b><span class="src">Bỏ qua giao diện, gọi API trực tiếp</span></td><td class="mongdoi">400, không âm thầm lùi về phép mặc định</td><td class="thucte">HTTP 400 DataModelFieldUnknown: «Thước đo "Khu vuc" không nhận phép gộp "Tổng".»</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
-<tr data-kq="pass" data-ng="live"><td class="id">TD-11</td><td class="muc"><b>Trung vị</b> và <b>phân vị 90</b> có trong danh sách phép đổi được<span class="src">Cube không có kiểu cho chúng — phải phát ra bằng biểu thức <code>quantileExact</code></span></td><td class="mongdoi">Cột số mời đủ 7 phép</td><td class="thucte">"Loi nhuan" đổi được sang [sum, avg, median, p90, min, max, countDistinct]</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
-<tr data-kq="pass" data-ng="live"><td class="id">TD-12</td><td class="muc">Trung vị trên mô hình <b>một bảng</b> khớp ClickHouse<span class="src">Đối chiếu với <code>quantileExact</code> chạy thẳng trên kho, không với số tính tay — để biết lệch nằm ở tầng Cube hay ở chính phép của ClickHouse</span></td><td class="mongdoi">Hai bên ra cùng một số</td><td class="thucte">Cube trả 0.402; ClickHouse quantileExact(0.5) = 0.402; lệch 0.0000</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
-<tr data-kq="pass" data-ng="live"><td class="id">TD-13</td><td class="muc"><b>Trung vị KHÔNG bị nhân dòng qua quan hệ one_to_many</b><span class="src">Rủi ro lớn nhất của bản này: cơ chế khử trùng lặp của Cube có tài liệu cho kiểu dựng sẵn, không nói gì về biểu thức tự viết. Bàn thử lệch có chủ đích — 3 khách Diem 10/20/30, khách đầu có 5 đơn, gộp theo một cột hằng</span></td><td class="mongdoi">Tổng 60 (không phải 100); trung vị 20 (không phải 10)</td><td class="thucte">tổng = 60 · trung vị = 20 — biểu thức tự viết ĐƯỢC hưởng cùng cơ chế khử trùng lặp</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
-<tr data-kq="pass" data-ng="live"><td class="id">TD-14</td><td class="muc">Nhãn cột nói tên <b>người dùng đọc được</b>, không phải tên thống kê<span class="src">"Phân vị 90" là tên đúng và là tên vô dụng với người đọc báo cáo bán hàng — ghim cái tên đi hết đường từ <code>shared</code> qua <code>explorer.ts</code> ra tới phản hồi API</span></td><td class="mongdoi">Nhãn cột là "Loi nhuan (Ngưỡng top 10%)"</td><td class="thucte">nhãn cột = "Loi nhuan (Ngưỡng top 10%)"</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
-<tr data-kq="pass" data-ng="live"><td class="id">TD-15</td><td class="muc">Hai truy vấn mà <b>khối cảnh báo lệch</b> đem ra so<span class="src">Phần so sánh chạy ở trình duyệt nên không tới được từ đây, nhưng nếu hai con số này sai thì mọi thứ dựng trên chúng sai theo</span></td><td class="mongdoi">Trung bình 141,8704 và trung vị 0,402 — lệch quá ngưỡng 50 %</td><td class="thucte">trung bình = 141.8704, trung vị = 0.402, lệch 351,9 lần</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="live"><td class="id">TD-11</td><td class="muc">Danh sách phép đổi được bám <b>đúng kiểu Cube dựng sẵn</b><span class="src">Đi cả hai chiều: có countDistinctApprox, KHÔNG còn median/p90</span></td><td class="mongdoi">7 phép, tất cả nằm trong danh sách CubeValidator nhận</td><td class="thucte">[sum, avg, min, max, count, countDistinct, countDistinctApprox]</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="live"><td class="id">TD-12</td><td class="muc"><b>Ước lượng số khác nhau</b> khớp <code>uniq()</code> của ClickHouse<span class="src">Cube dịch countDistinctApprox thành uniq() — đối chiếu thẳng với kho</span></td><td class="mongdoi">3 khu vực khác nhau trên 5 dòng</td><td class="thucte">Cube trả 3; ClickHouse uniq() = 3</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="live"><td class="id">TD-13</td><td class="muc"><b>Phép gộp KHÔNG bị nhân dòng qua quan hệ one_to_many</b><span class="src">Cửa canh cơ chế khử trùng lặp của Cube — kiểm cả sum lẫn count</span></td><td class="mongdoi">tổng 60 (không phải 100) · đếm 3 (không phải 7)</td><td class="thucte">gộp theo Kenh (1 nhóm, 7 dòng đã nối): tổng = 60, đếm ô có dữ liệu = 3</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="live"><td class="id">TD-14</td><td class="muc">Nhãn cột nói tên <b>người dùng đọc được</b>, không phải tên kỹ thuật<span class="src">Và nhãn phép gộp không được tự mang ngoặc — explorer.ts đã bọc sẵn một lớp</span></td><td class="mongdoi">"Loi nhuan (Ước lượng số khác nhau)", không phải "countDistinctApprox"</td><td class="thucte">nhãn cột = "Loi nhuan (Ước lượng số khác nhau)"</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
 <tr data-kq="pass" data-ng="live"><td class="id">TD-16</td><td class="muc"><b>Đếm ô có dữ liệu</b> khác <b>đếm dòng</b> — lý do phép này được mở lại<span class="src">Bản trước cấm hẳn <code>count</code> trên cột vì tin nó chỉ đẻ ra bản sao của "Số dòng". Tiền đề đó sai: <code>count(&lt;cột&gt;)</code> bỏ qua NULL</span></td><td class="mongdoi">Trên bàn thử 5 dòng có 2 ô trống: Số dòng 5, đếm ô có dữ liệu 3, tổng 90</td><td class="thucte">Số dòng = 5 · đếm ô có dữ liệu = 3 · tổng = 90</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
 <tr data-kq="pass" data-ng="live"><td class="id">TD-17</td><td class="muc">Gộp trên <b>biểu thức dòng</b>: nhân TRƯỚC rồi cộng<span class="src">Ca canh cửa cho V-07 — đối chiếu tới tận ClickHouse</span></td><td class="mongdoi">860 (công thức gộp-trước cho 1265)</td><td class="thucte">Cube trả 860 · ClickHouse sum(sl × đơn giá) = 860</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
 <tr data-kq="pass" data-ng="live"><td class="id">TD-18</td><td class="muc">Biểu thức dòng KHÔNG bị nhân bản qua quan hệ <code>one_to_many</code><span class="src">Câu để ngỏ từ TD-13: biểu thức TỰ VIẾT có được Cube khử trùng lặp không</span></td><td class="mongdoi">410 — mặt hàng H1 nằm trong 4 đơn, không được đếm 4 lần</td><td class="thucte">gộp theo Kenh (1 nhóm, 5 dòng đã nối): 410 (nhân dòng sẽ là 1010)</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
-<tr data-kq="pass" data-ng="live"><td class="id">TD-19</td><td class="muc">Bộ chọn Explorer <b>nói ra phép tính</b> thay vì để người dùng đoán từ cái tên<span class="src">Thước đo gieo sẵn trùng tên với cột nó gộp — hai dòng chữ y hệt, hai nghĩa khác nhau</span></td><td class="mongdoi"><code>nguon</code> = cột "Loi nhuan"; tiêu đề cột kết quả ghi <b>"Trung vị của Loi nhuan"</b> khi truy vấn hỏi bằng trung vị</td><td class="thucte">nguon = {"kind":"column","expr":"Loi nhuan"} · mô tả cột kết quả = "Trung vị của Loi nhuan" · "Số dòng" có kind = rows</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="live"><td class="id">TD-19</td><td class="muc">Bộ chọn Explorer <b>nói ra phép tính</b> thay vì để người dùng đoán từ cái tên<span class="src">Thước đo gieo sẵn trùng tên với cột nó gộp — hai dòng chữ y hệt, hai nghĩa khác nhau</span></td><td class="mongdoi"><code>nguon</code> = cột "Loi nhuan"; tiêu đề cột kết quả ghi <b>"Trung bình của Loi nhuan"</b> khi truy vấn hỏi bằng trung bình</td><td class="thucte">nguon = {"kind":"column","expr":"Loi nhuan"} · mô tả cột kết quả = "Trung bình của Loi nhuan" · "Số dòng" có kind = rows</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
 <tr data-kq="pass" data-ng="live"><td class="id">TD-20</td><td class="muc">Tên thước đo <b>đã xoá</b> dùng lại được — tên <b>đang sống</b> thì không<span class="src">Ca canh cửa cho V-08, đi CẢ HAI chiều</span></td><td class="mongdoi">tạo lại cùng tên → 201; trùng tên đang sống → 409 (không phải 500)</td><td class="thucte">tạo lần 1 = 201 · xoá = 204 · tạo lại cùng tên = 201 (trước bản vá: 500) · trùng tên đang sống = 409</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
 </tbody></table></div>
 </section>

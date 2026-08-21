@@ -744,3 +744,49 @@ export async function listKnownIds(db: Db): Promise<Set<number>> {
   const [rows] = await db.query<RowDataPacket[]>('SELECT id FROM datasets');
   return new Set(rows.map((r) => Number(r['id'])));
 }
+/**
+ * Dọn những lần tải file BỎ DỞ đã quá hạn — janitor §9.6.
+ *
+ * ═══ Vì sao cần một tác vụ quét, chứ không chỉ dọn lúc xoá workspace ════════
+ *
+ * `status = 'pending'` nghĩa là đã cấp đường tải lên nhưng chưa bao giờ chốt
+ * sheet. Dòng đó KHÔNG hiện ở Kho dữ liệu — danh sách mặc định chỉ lấy `ready`
+ * và giao diện không có ô lọc nào để xem trạng thái khác. Nó vô hình với người
+ * dùng nhưng CÓ THẬT với mọi câu đếm, và đó là lỗi V-09: một workspace trống
+ * trên màn hình mà không xoá được, không có đường nào gỡ.
+ *
+ * Bỏ dở là chuyện thường: đóng tab giữa chừng, chọn nhầm file rồi thôi, mạng
+ * rớt trước bước chốt. Đo trên máy này lúc viết: 10 dòng `pending` so với 8
+ * dòng `ready` — rác nhiều hơn dữ liệu thật.
+ *
+ * ─── Vì sao 24 GIỜ, không phải một ngưỡng ngắn hơn ─────────────────────────
+ *
+ * Ngưỡng này phải dài hơn mọi phiên làm việc hợp lệ. Một người tải file lớn rồi
+ * đi họp, quay lại chốt sheet là chuyện bình thường; quét mất bản ghi của họ
+ * giữa chừng thì luồng tải hỏng theo cách không giải thích được. Một ngày là đủ
+ * rộng cho mọi thao tác tay, và vẫn đủ chặt để rác không tích lại.
+ *
+ * ─── Chỉ `pending`, KHÔNG đụng `failed` ────────────────────────────────────
+ *
+ * `failed` mang thông tin chẩn đoán: nó trả lời "vì sao file tôi tải lên không
+ * dùng được". Quét nó đi là xoá mất câu trả lời ngay trước khi người dùng đi
+ * tìm.
+ *
+ * ⚠️ Xoá MỀM, và thuần MySQL — không đụng tới file trong MinIO. Cùng khuôn với
+ * `deleteDataset`: xoá mềm phải hồi được bằng cách gỡ đúng một cột ra, mà xoá
+ * file thì làm điều đó bất khả. Cái giá ghi ra chứ không giấu: file của những
+ * lần tải bỏ dở ở lại trong MinIO vĩnh viễn.
+ *
+ * Không lọc theo `tenant_id` — cùng lý lẽ với `listKnownIds` ngay trên.
+ */
+export async function sweepStalePendingUploads(db: Db, olderThanHours: number): Promise<number> {
+  const [result] = await db.query<ResultSetHeader>(
+    `UPDATE datasets
+        SET deleted_at = CURRENT_TIMESTAMP(3)
+      WHERE status = 'pending'
+        AND deleted_at IS NULL
+        AND created_at < DATE_SUB(CURRENT_TIMESTAMP(3), INTERVAL ? HOUR)`,
+    [olderThanHours],
+  );
+  return result.affectedRows;
+}

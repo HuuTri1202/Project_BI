@@ -124,6 +124,30 @@ export async function renameWorkspace(
  * tức là đúng hai thứ người dùng sẽ mất đường vào nếu workspace biến mất. Không
  * đếm mô hình dữ liệu: mô hình không chứa số liệu, và nó luôn đi kèm ít nhất
  * một bộ dữ liệu vốn đã được đếm ở đây.
+ *
+ * ⚠️ Bộ dữ liệu chỉ tính khi `status = 'ready'`.
+ *
+ * ═══ Vì sao, và lỗi mà nó sửa ══════════════════════════════════════════════
+ *
+ * Bản trước đếm MỌI dòng chưa xoá, bất kể `status`. Nhưng danh sách Kho dữ liệu
+ * mặc định chỉ hiện `ready` (xem `datasets.where`), và giao diện KHÔNG có ô lọc
+ * nào để xem trạng thái khác. Hai chỗ hiểu khác nhau về cùng một câu "workspace
+ * này còn bộ dữ liệu nào không", và người dùng trả giá:
+ *
+ *     Workspace "abc" của tổ chức NASA
+ *       màn hình hiện     0 bộ dữ liệu
+ *       bộ đếm nói        1 bộ dữ liệu  ->  chặn xoá, 409
+ *       dòng đó là        một lần tải file bỏ dở từ 3 ngày trước
+ *                         status='pending' · 0 cột · 0 dòng
+ *
+ * Không có đường ra: không thấy được thì không chuyển đi hay xoá đi được. Trên
+ * máy này có 10 dòng `pending` như vậy so với 8 dòng `ready`.
+ *
+ * ─── Lưới an toàn KHÔNG bị nới lỏng ────────────────────────────────────────
+ *
+ * Mục đích của bộ đếm là chặn việc xoá nhầm NỘI DUNG của người khác. Một dòng
+ * `pending` không phải nội dung: nó chưa chốt sheet, chưa có cột, chưa có dòng
+ * nào. Đếm nó không bảo vệ ai, chỉ dựng một bức tường không cửa.
  */
 export async function countLiveContent(
   db: Db,
@@ -135,13 +159,41 @@ export async function countLiveContent(
        (SELECT COUNT(*) FROM reports
          WHERE tenant_id = ? AND workspace_id = ? AND deleted_at IS NULL) AS reports,
        (SELECT COUNT(*) FROM datasets
-         WHERE tenant_id = ? AND workspace_id = ? AND deleted_at IS NULL) AS datasets`,
+         WHERE tenant_id = ? AND workspace_id = ? AND deleted_at IS NULL
+           AND status = 'ready') AS datasets`,
     [tenantId, id, tenantId, id],
   );
   return {
     reports: Number(rows[0]?.['reports'] ?? 0),
     datasets: Number(rows[0]?.['datasets'] ?? 0),
   };
+}
+
+/**
+ * Dọn những lần tải file BỎ DỞ của một workspace sắp bị xoá.
+ *
+ * Đi CÙNG transaction với `softDeleteWorkspace`, và chỉ chạm đúng những dòng mà
+ * `countLiveContent` vừa cố ý bỏ qua. Không có bước này thì chúng ở lại, trỏ
+ * vào một workspace không còn tồn tại, và vẫn vô hình như trước — rác thì
+ * không mất đi, chỉ chuyển sang một chỗ khó thấy hơn.
+ *
+ * KHÔNG phải xoá dây chuyền nội dung: `status <> 'ready'` nghĩa là chưa chốt
+ * sheet, nên không có cột, không có dòng, không có báo cáo nào dựng trên nó.
+ * Đó chính là lý do nó không được tính ở bộ đếm.
+ */
+export async function softDeleteUnfinishedDatasets(
+  db: Db,
+  tenantId: number,
+  workspaceId: number,
+): Promise<number> {
+  const [result] = await db.query<ResultSetHeader>(
+    `UPDATE datasets
+        SET deleted_at = CURRENT_TIMESTAMP(3)
+      WHERE tenant_id = ? AND workspace_id = ?
+        AND deleted_at IS NULL AND status <> 'ready'`,
+    [tenantId, workspaceId],
+  );
+  return result.affectedRows;
 }
 
 /** Số workspace còn sống — dùng để chặn xoá cái CUỐI CÙNG của tổ chức. */

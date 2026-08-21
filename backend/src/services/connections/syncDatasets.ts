@@ -7,6 +7,7 @@ import { HttpError } from '../../utils/httpError';
 import { queueAutoLoad } from '../ingest/autoLoad';
 import { driverFor, type TableRef, type TableSchema } from './drivers';
 import { explainConnectionError } from './explainError';
+import type { ConnectionViewer } from '../../repositories/connections';
 import { requireSecret, toConfigFromSecret } from './connectionService';
 
 /**
@@ -55,12 +56,20 @@ export async function syncDatasets(
   workspaceId: number,
   /** Ai bấm đồng bộ — ghi vào lần nạp tự động sinh ra ở cuối hàm. */
   triggeredBy: number | null = null,
+  /**
+   * Người gọi, để `requireSecret` lọc theo phạm vi kết nối (migration 28).
+   *
+   * KHÔNG có mặc định. Route gác `/sync` bằng `dataset:modify` — ô mà creator
+   * có — rồi nhận `connectionId` thẳng từ URL, nên thiếu tham số này là để một
+   * creator rút dữ liệu qua kết nối RIÊNG của người khác chỉ bằng cách đoán id.
+   */
+  viewer: ConnectionViewer,
 ): Promise<SyncResultDto> {
   if (refs.length === 0) {
     return { added: [], updated: [], unchanged: [], failed: [] };
   }
 
-  const secret = await requireSecret(tenantId, connectionId);
+  const secret = await requireSecret(tenantId, connectionId, viewer);
   const cfg = await toConfigFromSecret(secret);
 
   let schemas: TableSchema[];
