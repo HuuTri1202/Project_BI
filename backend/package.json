@@ -11,6 +11,7 @@
     "start": "node dist/index.js",
     "typecheck": "tsc -p tsconfig.test.json",
     "migrate": "tsx src/scripts/migrate.ts",
+    "warehouse:init": "tsx src/scripts/initWarehouse.ts",
     "seed:admin": "tsx src/scripts/seed-admin.ts",
     "backfill:personal": "tsx src/scripts/backfill-personal-tenants.ts",
     "lint": "eslint .",
