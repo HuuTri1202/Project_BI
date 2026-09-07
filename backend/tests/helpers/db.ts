@@ -34,6 +34,27 @@ export async function resetDatabase(): Promise<void> {
     'dataset_columns',
     'datasets',
     'connections',
+    /*
+     * §11 — thanh toán. Con -> cha: giao dịch và subscription trỏ vào `orders`
+     * bằng khoá ghép, `orders` trỏ vào `tenants`.
+     *
+     * `audit_logs` và `payment_webhook_events` KHÔNG có khoá ngoại nào (cố ý —
+     * xem migration 30), nên vị trí của chúng tự do; đặt đầu khối cho khớp cách
+     * đọc "con trước".
+     *
+     * ⚠️ `plans` và `payment_methods` CỐ Ý KHÔNG có trong danh sách này.
+     *
+     * Chúng là DỮ LIỆU CẤU TRÚC gieo từ migration, đúng loại với `casbin_rule`
+     * — mà `casbin_rule` cũng không bị dọn, vì cùng một lý do. TRUNCATE chúng
+     * nghĩa là mọi file test billing phải tự gieo lại bảng giá, và ca nào lỡ
+     * dựa vào `plans WHERE code = 'free'` tồn tại sẽ đỏ theo kiểu rất khó lần
+     * ra: lỗi hiện ở tầng "không tìm thấy gói", cách chỗ gây lỗi một quãng xa.
+     */
+    'audit_logs',
+    'payment_webhook_events',
+    'payment_transactions',
+    'subscriptions',
+    'orders',
     'workspaces',
     'memberships',
     'users',

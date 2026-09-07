@@ -71,6 +71,7 @@ const RESOURCE_NOUNS: Record<Resource, string> = {
 
   tenant: 'thông tin tổ chức',
   connection: 'kết nối CSDL',
+  billing: 'gói dịch vụ và thanh toán',
 };
 
 function describe(action: Action, resource: Resource): string {

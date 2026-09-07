@@ -1969,4 +1969,654 @@ export const migrations: readonly Migration[] = [
          ('p', 'creator', '*', 'connection', 'delete')`,
     ],
   },
+  {
+    /*
+     * ⚠️ Id 30, KHÔNG phải 29 — và đây không phải chuyện đánh số cho đẹp.
+     *
+     * `main` đang dừng ở 28, nhưng nhánh `feat/f10-column-description` đã chiếm
+     * 29 và database dev lẫn test của nhóm đã ghi nhận id đó. `migrate.ts` nhận
+     * diện migration THEO ID, không theo nội dung:
+     *
+     *     if (applied.has(migration.id)) continue;
+     *
+     * Nên nếu §11 cũng lấy 29, máy nào đã chạy nhánh kia sẽ BỎ QUA toàn bộ tám
+     * bảng dưới đây, im lặng, exit code 0 — rồi chết ở request đầu tiên với
+     * `ER_NO_SUCH_TABLE`, trong khi máy cài mới thì chạy tốt. Hai schema khác
+     * nhau, không ai được báo.
+     *
+     * Trước khi merge: `git fetch origin main`, đọc lại id lớn nhất trong file
+     * này, đặt id = max + 1 và đưa phần tử xuống CUỐI mảng.
+     */
+    id: 30,
+    name: 'billing_core',
+    statements: [
+      /*
+       * ═══ §11 — Gói dịch vụ và thanh toán ═══════════════════════════════════
+       *
+       * Tám bảng đi cùng nhau trong MỘT migration: nửa số bảng thì không có
+       * đường nào chạy được, và tách ra chỉ nhân đôi số lần phải né tranh chấp
+       * id ở trên.
+       *
+       * ─── Mọi câu lệnh dưới đây phải TỰ IDEMPOTENT ─────────────────────────
+       *
+       * `migrate.ts` chạy hết `statements` RỒI mới ghi vào `schema_migrations`,
+       * và không có transaction nào bọc (DDL của MySQL tự auto-commit). Hỏng ở
+       * câu thứ năm nghĩa là lần chạy sau phát lại từ câu thứ nhất. Nên:
+       * `CREATE TABLE IF NOT EXISTS` và `INSERT IGNORE`, không ngoại lệ.
+       *
+       * ─── Tiền là BIGINT UNSIGNED, đơn vị đồng, hậu tố _vnd ────────────────
+       *
+       * KHÔNG dùng DECIMAL. Pool ở `config/mysql.ts` không bật `decimalNumbers`,
+       * nên mysql2 trả mọi cột DECIMAL — và mọi kết quả SUM() — dưới dạng CHUỖI.
+       * Hệ quả là `"299000" + "199000"` cho ra `"299000199000"`: chạy được, hiện
+       * ra màn hình được, và sai. BIGINT UNSIGNED thì về Node dưới dạng number,
+       * an toàn tới 9,007 x 10^15 đồng, và đã có tiền lệ đúng khuôn ở
+       * `datasets.file_size_bytes`.
+       *
+       * VND không có đơn vị phụ nên không nhân 100, và cố ý KHÔNG có cột
+       * `currency`: một cột chỉ từng mang đúng một giá trị là cột nói dối — nó
+       * tạo cảm giác hệ thống đa tiền tệ trong khi mọi phép cộng đều cộng mù.
+       * Hậu tố trong tên cột đắt bằng không và ép người thêm USD sau này phải
+       * viết một migration thật.
+       */
+
+      // ─── plans: bảng giá, TOÀN CỤC ───────────────────────────────────────
+      //
+      // KHÔNG có `tenant_id`, và đây là ngoại lệ có chủ ý với quy ước khoá ngoại
+      // ghép của repo. Bảng này do superadmin cấu hình và dùng chung cho mọi tổ
+      // chức — cùng loại với `casbin_rule` ở migration 4, vốn cũng không có
+      // `tenant_id` và không ai coi đó là thiếu sót.
+      //
+      // Thêm `tenant_id` vào đây sẽ nói dối về mô hình kinh doanh: nó ngụ ý mỗi
+      // tổ chức có một bảng giá riêng, và đặt ngay ra một câu hỏi không có câu
+      // trả lời — trang bảng giá công khai thì hiện gói của tổ chức nào?
+      //
+      // ─── NULL = KHÔNG GIỚI HẠN, tuyệt đối không dùng 0 ───────────────────
+      //
+      // `0` mang hai nghĩa đối nghịch nhau trong cùng một cột: "không giới hạn"
+      // và "không được tạo cái nào". Code buộc phải chọn một, và ngày nó chọn
+      // sai thì gói Business trở thành gói không làm được gì. NULL chỉ có một
+      // nghĩa, và nó ép người viết code phải xử lý nhánh đó.
+      //
+      // ─── Cột rời cho từng hạn mức, KHÔNG phải một cột `limits JSON` ───────
+      //
+      // Repo dùng JSON đúng chỗ hình dạng thật sự mở (`reports.config`,
+      // `dataset_rows.data`). Bảng giá thì không: bốn hạn mức này hiện thẳng lên
+      // trang bảng giá và được so sánh trong phép tính mức sử dụng. Thêm một
+      // hạn mức mới sẽ cần một migration, và đó là điều TỐT — nó buộc giao diện
+      // phải được cập nhật cùng lúc thay vì âm thầm bỏ sót một dòng.
+      //
+      // `duration_days` chứ không phải "1 tháng": cộng 30 ngày không có trường
+      // hợp biên nào, còn "cộng một tháng" từ ngày 31/01 thì mỗi thư viện trả
+      // lời một kiểu. Đánh đổi phải nói ra: chu kỳ sẽ trôi dần khỏi một ngày cố
+      // định trong tháng. Với gói tự phục vụ, giá đó rẻ hơn một lớp thư viện
+      // ngày tháng.
+      //
+      // Gói Free mang `duration_days = 0` — vô nghĩa theo đúng nghĩa đen, và cố
+      // ý: không `subscriptions` nào trỏ vào nó (xem ghi chú ở bảng đó), nên
+      // ràng buộc `ck_subscriptions_period` biến việc tạo nhầm thành lỗi cứng.
+      `CREATE TABLE IF NOT EXISTS plans (
+        id                BIGINT UNSIGNED   NOT NULL AUTO_INCREMENT,
+        code              VARCHAR(50)       NOT NULL,
+        name              VARCHAR(255)      NOT NULL,
+        description       VARCHAR(500)      NULL,
+        price_vnd         BIGINT UNSIGNED   NOT NULL,
+        duration_days     SMALLINT UNSIGNED NOT NULL,
+        max_workspaces    INT UNSIGNED      NULL,
+        max_reports       INT UNSIGNED      NULL,
+        max_members       INT UNSIGNED      NULL,
+        max_storage_bytes BIGINT UNSIGNED   NULL,
+        is_public         TINYINT(1)        NOT NULL DEFAULT 1,
+        is_featured       TINYINT(1)        NOT NULL DEFAULT 0,
+        sort_order        SMALLINT UNSIGNED NOT NULL DEFAULT 0,
+        deleted_at        DATETIME(3)       NULL,
+        created_at        DATETIME(3)       NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+        updated_at        DATETIME(3)       NOT NULL DEFAULT CURRENT_TIMESTAMP(3)
+                                            ON UPDATE CURRENT_TIMESTAMP(3),
+        PRIMARY KEY (id),
+        UNIQUE KEY uq_plans_code (code),
+        KEY idx_plans_public_sort (is_public, deleted_at, sort_order),
+        CONSTRAINT ck_plans_price_sane CHECK (price_vnd <= 100000000000)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+
+      // ─── payment_methods: phương thức thanh toán, TOÀN CỤC ───────────────
+      //
+      // Cùng lý lẽ "không tenant_id" như `plans`.
+      //
+      // ─── Thông tin ngân hàng để NGUYÊN VĂN, chỉ secret mới mã hoá ────────
+      //
+      // `bank_bin`, `bank_account_no`, `bank_account_name` được in lên chính mã
+      // QR mà khách quét và hiện trên màn hình hướng dẫn chuyển khoản. Mã hoá dữ
+      // liệu công khai là nghi lễ chứ không phải bảo mật: nó bắt mọi truy vấn
+      // phải giải mã và tạo ảo giác an toàn ở chỗ không có gì để giấu.
+      //
+      // `config_sealed` và `webhook_secret_sealed` thì ngược lại — API key của
+      // cổng thanh toán và khoá HMAC là bí mật ĐỐI XỨNG cần lấy lại được. Chúng
+      // đi qua `seal()`/`open()` của `services/connections/secretBox.ts`
+      // (AES-256-GCM, định dạng `v1.<iv>.<tag>.<ct>`), dùng lại nguyên vẹn chứ
+      // không viết mới. TEXT vì chuỗi đã seal dài hơn bản rõ khoảng 40% cộng
+      // tiền tố phiên bản.
+      //
+      // ⚠️ Hai cột `*_sealed` KHÔNG BAO GIỜ được xuất hiện trong DTO. Repo đã có
+      // bài test canh đúng điều này cho `connections.password_cipher` — hãy sao
+      // chép cả bài test đó, đừng chỉ sao chép cột.
+      //
+      // ENUM khai đủ bốn cổng ngay từ đầu dù đợt này chỉ làm `bank_transfer`:
+      // nối giá trị vào ENUM sau là thao tác INSTANT nhưng vẫn cần một
+      // migration, còn khai sẵn thì miễn phí. Thứ tự này ĐÓNG BĂNG — giá trị thứ
+      // năm nối vào cuối, theo quy ước ENUM ở đầu file.
+      `CREATE TABLE IF NOT EXISTS payment_methods (
+        id                    BIGINT UNSIGNED   NOT NULL AUTO_INCREMENT,
+        code                  VARCHAR(50)       NOT NULL,
+        provider              ENUM('bank_transfer','payos','sepay','momo') NOT NULL,
+        name                  VARCHAR(255)      NOT NULL,
+        instructions          VARCHAR(1000)     NULL,
+        bank_bin              CHAR(6)           NULL,
+        bank_account_no       VARCHAR(32)       NULL,
+        bank_account_name     VARCHAR(255)      NULL,
+        static_qr_url         VARCHAR(512)      NULL,
+        config_sealed         TEXT              NULL,
+        webhook_secret_sealed TEXT              NULL,
+        is_active             TINYINT(1)        NOT NULL DEFAULT 1,
+        sort_order            SMALLINT UNSIGNED NOT NULL DEFAULT 0,
+        deleted_at            DATETIME(3)       NULL,
+        created_at            DATETIME(3)       NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+        updated_at            DATETIME(3)       NOT NULL DEFAULT CURRENT_TIMESTAMP(3)
+                                                ON UPDATE CURRENT_TIMESTAMP(3),
+        PRIMARY KEY (id),
+        UNIQUE KEY uq_payment_methods_code (code),
+        KEY idx_payment_methods_active (is_active, deleted_at, sort_order)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+
+      // ─── orders: đơn hàng ────────────────────────────────────────────────
+      //
+      // Bảng con LAI: `tenant_id` trỏ vào cây cách ly tổ chức, còn `plan_id` và
+      // `payment_method_id` trỏ vào hai bảng toàn cục. Khoá ngoại một cột ở hai
+      // cạnh sau là đúng và không mất gì — không có "gói của tổ chức khác" để rò
+      // rỉ. Cách ly thật vẫn nguyên vẹn ở chỗ nó quan trọng: `uq_orders_tenant_id`
+      // dưới đây làm CHA cho khoá ghép của `payment_transactions` và
+      // `subscriptions`, nên cây khép kín từ `tenants` xuống mọi bản ghi tiền bạc.
+      //
+      // RESTRICT ở cả ba: một gói đã có đơn thì không xoá cứng được. Đó chính là
+      // thứ biến lời hứa "đơn cũ giữ đúng giá" thành khả thi — xoá mềm bằng
+      // `deleted_at` + `is_public = 0` là đường duy nhất.
+      //
+      // ─── order_code: BI + 10 ký tự Crockford Base32 ──────────────────────
+      //
+      // Sinh từ `crypto.randomBytes(7)` (56 bit), KHÔNG phải Math.random.
+      //
+      // Cố ý KHÔNG nhúng `id`, `tenant_id` hay dấu thời gian. `BI-000042` vừa là
+      // lời mời đoán đơn của người khác, vừa là một chỉ báo doanh thu công khai
+      // ("họ mới có 42 đơn").
+      //
+      // Bỏ I, L, O, U theo Crockford: mã này SẼ bị đọc qua điện thoại cho kế
+      // toán, và `0` với `O`, `1` với `I` là lỗi chép tay được bảo đảm sẽ xảy
+      // ra. Chỉ [0-9A-Z] để sống sót qua bộ lọc của ngân hàng — trường nội dung
+      // VietQR giới hạn 25 ký tự và nhiều bank ép hoa, lọc ký tự lạ trước khi
+      // ghi vào sao kê.
+      //
+      // Tính duy nhất do UNIQUE của DATABASE bảo đảm, không do một câu SELECT
+      // kiểm trước: code bắt ER_DUP_ENTRY và thử lại tối đa ba lần. Ở 56 bit thì
+      // va chạm là chuyện lý thuyết, vòng thử lại có mặt để ĐÚNG chứ không phải
+      // để hay dùng.
+      //
+      // KHÔNG có cột `transfer_content` riêng: nội dung chuyển khoản LUÔN bằng
+      // `order_code`, và hai nguồn cho một sự thật thì sẽ lệch.
+      //
+      // ─── expires_at lưu TUYỆT ĐỐI ────────────────────────────────────────
+      //
+      // Không tính từ `created_at` cộng một hằng số trong code, vì ba lý do và
+      // lý do đầu là quyết định:
+      //
+      //   1. `idx_orders_status_expires` phục vụ thẳng con sweeper.
+      //   2. Chính sách SẼ đổi (15 phút, rồi 30 phút cho khuyến mãi, rồi 24 giờ
+      //      cho khách doanh nghiệp). Hằng số trong code nghĩa là đổi nó HỒI TỐ
+      //      lên mọi đơn cũ — đơn đã hết hạn hôm qua bỗng sống lại.
+      //   3. Nó là thứ hiển thị cho khách ("còn 12:43"). Frontend nhận một mốc,
+      //      không phải nhận một mốc cộng một luật nó phải tự biết.
+      //
+      // KHÔNG dùng cột sinh cho nó: MySQL cấm NOW() trong biểu thức generated.
+      //
+      // ─── Hai chỗ cố ý lệch khỏi đề bài ──────────────────────────────────
+      //
+      // ENUM viết THƯỜNG, không phải PENDING/PAID. Toàn bộ ENUM của repo là chữ
+      // thường; một bảng viết hoa giữa mười lăm bảng viết thường là chỗ mọi
+      // người sẽ gõ nhầm mãi mãi. Chữ hoa là việc của tầng hiển thị.
+      //
+      // Thêm `cancelled` vào cuối ENUM. Danh sách sáu trạng thái của đề bài
+      // thiếu "khách tự huỷ đơn", và nhét nó vào `failed` là khai báo sai:
+      // `failed` nghĩa là cổng thanh toán từ chối. Trộn hai thứ đó làm mọi biểu
+      // đồ tỷ lệ thất bại thành vô nghĩa.
+      //
+      // KHÔNG có `deleted_at` — ở đây và ở ba bảng dưới. Lệch có chủ ý với quy
+      // ước xoá mềm của repo: bản ghi tài chính không được phép biến mất khỏi
+      // mắt kế toán, kể cả mềm. Huỷ là một TRẠNG THÁI, không phải một lần xoá.
+      `CREATE TABLE IF NOT EXISTS orders (
+        id                 BIGINT UNSIGNED   NOT NULL AUTO_INCREMENT,
+        tenant_id          BIGINT UNSIGNED   NOT NULL,
+        order_code         CHAR(12)          NOT NULL,
+        plan_id            BIGINT UNSIGNED   NOT NULL,
+        payment_method_id  BIGINT UNSIGNED   NOT NULL,
+        status             ENUM('pending','awaiting_confirmation','paid','failed',
+                                'expired','refunded','cancelled')
+                                             NOT NULL DEFAULT 'pending',
+        amount_vnd         BIGINT UNSIGNED   NOT NULL,
+        plan_code          VARCHAR(50)       NOT NULL,
+        plan_name          VARCHAR(255)      NOT NULL,
+        plan_duration_days SMALLINT UNSIGNED NOT NULL,
+        qr_payload         TEXT              NULL,
+        expires_at         DATETIME(3)       NOT NULL,
+        paid_at            DATETIME(3)       NULL,
+        created_by         BIGINT UNSIGNED   NULL,
+        confirmed_by       BIGINT UNSIGNED   NULL,
+        note               VARCHAR(500)      NULL,
+        created_at         DATETIME(3)       NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+        updated_at         DATETIME(3)       NOT NULL DEFAULT CURRENT_TIMESTAMP(3)
+                                             ON UPDATE CURRENT_TIMESTAMP(3),
+        PRIMARY KEY (id),
+        UNIQUE KEY uq_orders_code (order_code),
+        UNIQUE KEY uq_orders_tenant_id (tenant_id, id),
+        KEY idx_orders_tenant_status_created (tenant_id, status, created_at),
+        KEY idx_orders_status_expires (status, expires_at),
+        KEY idx_orders_plan (plan_id),
+        KEY idx_orders_method (payment_method_id),
+        CONSTRAINT fk_orders_tenant FOREIGN KEY (tenant_id)
+          REFERENCES tenants (id) ON DELETE RESTRICT,
+        CONSTRAINT fk_orders_plan FOREIGN KEY (plan_id)
+          REFERENCES plans (id) ON DELETE RESTRICT,
+        CONSTRAINT fk_orders_method FOREIGN KEY (payment_method_id)
+          REFERENCES payment_methods (id) ON DELETE RESTRICT,
+        CONSTRAINT fk_orders_creator FOREIGN KEY (created_by)
+          REFERENCES users (id) ON DELETE SET NULL,
+        CONSTRAINT fk_orders_confirmer FOREIGN KEY (confirmed_by)
+          REFERENCES users (id) ON DELETE SET NULL,
+        CONSTRAINT ck_orders_amount_sane CHECK (amount_vnd <= 100000000000),
+        CONSTRAINT ck_orders_paid_has_time
+          CHECK (status <> 'paid' OR paid_at IS NOT NULL)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+
+      // ─── payment_transactions: sổ cái, và nơi idempotency được CƯỠNG CHẾ ─
+      //
+      // Hai ràng buộc UNIQUE, mỗi cái chặn một chuyện hoàn toàn khác nhau.
+      //
+      // 1. `uq_payment_txn_provider_ref (provider, provider_txn_ref)` chặn việc
+      //    xử lý lại CÙNG MỘT SỰ KIỆN. `provider_txn_ref` NOT NULL ở CẢ nhánh
+      //    thủ công: admin bắt buộc nhập số tham chiếu giao dịch trên sao kê,
+      //    không có ô để trống. Ràng buộc đó giết hai con chim — idempotency có
+      //    một khoá thật, và mọi lần xác nhận tay truy ngược được về một dòng
+      //    sao kê cụ thể khi có tranh chấp. `ck_..._ref_not_blank` vì chuỗi rỗng
+      //    vượt qua được NOT NULL rồi phá vỡ UNIQUE ngay ở lần thứ hai.
+      //
+      // 2. Cột sinh `succeeded_order_id` + UNIQUE chặn việc MỘT ĐƠN ĐƯỢC TRẢ
+      //    TIỀN HAI LẦN. Khoá thứ nhất không chặn nổi kịch bản này: webhook thật
+      //    về, rồi admin cũng bấm xác nhận tay — hai `provider_txn_ref` khác
+      //    nhau, cùng một đơn, và tổ chức nhận hai subscription. Đó là chuyện sẽ
+      //    xảy ra trong tuần đầu vận hành, không phải giả định.
+      //
+      //    `direction = 'refund'` bị loại khỏi biểu thức để một đơn hoàn tiền
+      //    vẫn ghi được dòng thứ hai.
+      //
+      // Repo đã ba lần viết chú thích cảnh báo về khe hở giữa SELECT và INSERT
+      // (migration 1, 4). Đây là chỗ phải đóng nó bằng InnoDB, không bằng một
+      // câu `if` trong service — hai request song song đi qua câu `if` đó cùng
+      // lúc là chuyện bình thường.
+      //
+      // ⚠️ VIRTUAL chứ không STORED. Migration 28 đã trả giá để biết: MySQL từ
+      // chối cột sinh STORED dựa trên một cột mang khoá ngoại ON DELETE SET
+      // NULL, và báo bằng `ERROR 1215 — Cannot add foreign key constraint`, một
+      // câu không nói gì về nguyên nhân. Ở đây `order_id` mang RESTRICT nên
+      // STORED cũng chạy, nhưng VIRTUAL không tốn chỗ lưu và InnoDB vẫn đánh
+      // chỉ mục được — không có lý do gì chọn cái kia.
+      //
+      // `amount_vnd` lưu số tiền THỰC NHẬN, cố ý KHÔNG ràng buộc bằng
+      // `orders.amount_vnd`: khách chuyển thiếu 1.000đ là chuyện hằng ngày. Ép
+      // bằng nhau ở tầng database khiến trường hợp lệch trở thành không ghi nhận
+      // được, tức là mất dấu số tiền đã thật sự vào tài khoản.
+      //
+      // ⚠️ `fk_payment_txn_confirmer` dùng RESTRICT chứ không SET NULL như
+      // `orders` ngay trên — và đây là ràng buộc của MySQL, không phải lựa chọn.
+      // Bản đầu viết SET NULL và migration chết ngay:
+      //
+      //     Column 'confirmed_by' cannot be used in a check constraint
+      //     'ck_payment_txn_manual_has_actor': needed in a foreign key
+      //     constraint 'fk_payment_txn_confirmer' referential action.
+      //
+      // MySQL không cho một cột vừa nằm trong CHECK vừa là đích của một hành
+      // động tham chiếu — cùng họ với chuyện cột sinh STORED ở migration 28.
+      //
+      // Và nghĩ kỹ thì MySQL đúng: SET NULL sẽ XOÁ MẤT người chịu trách nhiệm
+      // của một lần xác nhận tiền, tức là chính điều `ck_..._manual_has_actor`
+      // sinh ra để ngăn. RESTRICT giữ được cả hai, và nó không chặn gì trong
+      // thực tế: `softDeleteUser` chỉ đặt `deleted_at`, repo KHÔNG xoá cứng tài
+      // khoản bao giờ (xem `repositories/platform.ts`).
+      `CREATE TABLE IF NOT EXISTS payment_transactions (
+        id                 BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+        tenant_id          BIGINT UNSIGNED NOT NULL,
+        order_id           BIGINT UNSIGNED NOT NULL,
+        payment_method_id  BIGINT UNSIGNED NOT NULL,
+        provider           ENUM('bank_transfer','payos','sepay','momo') NOT NULL,
+        provider_txn_ref   VARCHAR(191)    NOT NULL,
+        direction          ENUM('inbound','refund') NOT NULL DEFAULT 'inbound',
+        status             ENUM('pending','succeeded','failed') NOT NULL,
+        amount_vnd         BIGINT UNSIGNED NOT NULL,
+        source             ENUM('webhook','manual') NOT NULL,
+        confirmed_by       BIGINT UNSIGNED NULL,
+        confirm_reason     VARCHAR(500)    NULL,
+        raw_payload        JSON            NULL,
+        occurred_at        DATETIME(3)     NULL,
+        created_at         DATETIME(3)     NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+        updated_at         DATETIME(3)     NOT NULL DEFAULT CURRENT_TIMESTAMP(3)
+                                           ON UPDATE CURRENT_TIMESTAMP(3),
+        succeeded_order_id BIGINT UNSIGNED
+          GENERATED ALWAYS AS (
+            IF(status = 'succeeded' AND direction = 'inbound', order_id, NULL)
+          ) VIRTUAL,
+        PRIMARY KEY (id),
+        UNIQUE KEY uq_payment_txn_provider_ref (provider, provider_txn_ref),
+        UNIQUE KEY uq_payment_txn_one_success (succeeded_order_id),
+        KEY idx_payment_txn_order (order_id),
+        KEY idx_payment_txn_tenant_created (tenant_id, created_at),
+        KEY idx_payment_txn_method (payment_method_id),
+        CONSTRAINT fk_payment_txn_order FOREIGN KEY (tenant_id, order_id)
+          REFERENCES orders (tenant_id, id) ON DELETE RESTRICT,
+        CONSTRAINT fk_payment_txn_method FOREIGN KEY (payment_method_id)
+          REFERENCES payment_methods (id) ON DELETE RESTRICT,
+        CONSTRAINT fk_payment_txn_confirmer FOREIGN KEY (confirmed_by)
+          REFERENCES users (id) ON DELETE RESTRICT,
+        CONSTRAINT ck_payment_txn_ref_not_blank CHECK (provider_txn_ref <> ''),
+        CONSTRAINT ck_payment_txn_manual_has_actor
+          CHECK (source <> 'manual' OR confirmed_by IS NOT NULL)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+
+      // ─── payment_webhook_events: bảng THỨ TÁM, ngoài danh sách của đề bài ─
+      //
+      // Đề bài yêu cầu "verify chữ ký, lưu raw payload" nhưng không có bảng nào
+      // chứa nổi ba loại webhook sau — và cả ba đều PHẢI được lưu:
+      //
+      //   · chữ ký SAI      dấu hiệu có người đang thử; tuyệt đối không được
+      //                     sinh ra một dòng giao dịch
+      //   · order_code lạ   lỗi cấu hình hoặc dò tìm; không có `order_id` nào để
+      //                     đặt vào khoá ngoại
+      //   · parse hỏng      phải giữ nguyên văn mới gỡ lỗi được
+      //
+      // Nhét ba thứ đó vào `payment_transactions` biến sổ cái tiền bạc thành bãi
+      // rác nhật ký, và mọi câu SUM(amount_vnd) sau này phải mang theo một mệnh
+      // đề WHERE mà ai đó sẽ quên.
+      //
+      // `signature_valid` là một CỘT, không phải điều kiện để được lưu. Vứt một
+      // webhook chữ ký sai đi là vứt luôn bằng chứng duy nhất rằng có người đang
+      // thử.
+      //
+      // `event_id` NOT NULL, mặc định là sha256(raw body) dạng hex khi cổng
+      // không cấp id sự kiện. Nhờ vậy việc phát lại NGUYÊN VĂN một body cũ bị
+      // UNIQUE chặn ngay tại INSERT, trước khi dòng code xử lý đầu tiên chạy.
+      // Để NULL thì hỏng hẳn — MySQL cho phép nhiều NULL trong một UNIQUE.
+      //
+      // KHÔNG khoá ngoại nào: xem ba gạch đầu dòng trên. Không `created_at`/
+      // `updated_at` theo khuôn thường — `received_at` và `processed_at` nói
+      // chính xác hơn, và đây là bảng chỉ-ghi-thêm.
+      `CREATE TABLE IF NOT EXISTS payment_webhook_events (
+        id                     BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+        provider               ENUM('bank_transfer','payos','sepay','momo') NOT NULL,
+        event_id               VARCHAR(191)    NOT NULL,
+        signature              VARCHAR(512)    NULL,
+        signature_valid        TINYINT(1)      NOT NULL DEFAULT 0,
+        order_code             CHAR(12)        NULL,
+        payload                JSON            NOT NULL,
+        received_at            DATETIME(3)     NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+        processed_at           DATETIME(3)     NULL,
+        payment_transaction_id BIGINT UNSIGNED NULL,
+        error                  VARCHAR(500)    NULL,
+        PRIMARY KEY (id),
+        UNIQUE KEY uq_webhook_event (provider, event_id),
+        KEY idx_webhook_pending (processed_at, received_at),
+        KEY idx_webhook_order_code (order_code)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+
+      // ─── subscriptions: nhiều dòng LỊCH SỬ, một dòng active ép ở tầng DB ─
+      //
+      // Một dòng cập nhật tại chỗ thì mọi lần gia hạn ghi đè lịch sử, và câu hỏi
+      // "tổ chức này dùng Pro từ bao giờ" thành không trả lời được ngay sau lần
+      // gia hạn đầu tiên.
+      //
+      // ─── Cột sinh `active_tenant_id` là toàn bộ điểm của bảng này ────────
+      //
+      // MySQL không có partial index, nên "mỗi tổ chức tối đa một gói đang hiệu
+      // lực" được ép bằng thủ thuật đã dùng ở migration 24 và 28: biểu thức trả
+      // về NULL cho mọi dòng không quan tâm, và NULL không bao giờ đụng NULL
+      // trong một UNIQUE. Hai dòng `active` cùng `tenant_id` trở thành BẤT KHẢ
+      // THI — kể cả khi hai request xác nhận thanh toán chạy song song, đúng
+      // trường hợp mà một câu `if` trong service không giữ nổi.
+      //
+      // ─── Một công thức duy nhất cho mọi trường hợp, không rẽ nhánh ───────
+      //
+      //   period_end = GREATEST(NOW(), prev.period_end) + INTERVAL duration_days DAY
+      //
+      // Gia hạn cùng gói thì cộng dồn từ ngày hết hạn cũ, nên mua sớm không mất
+      // ngày. Nâng cấp thì khách giữ nguyên số ngày còn lại nhưng ở tầng cao
+      // hơn — rộng rãi, và quan trọng hơn là GIẢI THÍCH ĐƯỢC BẰNG MỘT CÂU cho
+      // khách. Hạ cấp dùng đúng công thức đó.
+      //
+      // KHÔNG làm proration. Với chuyển khoản xác nhận tay và hạn mức chỉ hiển
+      // thị, một cỗ máy tính tiền theo tỷ lệ là nợ kỹ thuật không đổi lấy gì.
+      // `carried_over_days` để màn hình nói được "bạn được cộng thêm 12 ngày còn
+      // lại của gói cũ"; không có nó thì `period_end` là một ngày rơi từ trên
+      // trời xuống và bộ phận hỗ trợ phải tính tay mỗi lần khách hỏi.
+      //
+      // ─── Tổ chức chưa mua thì KHÔNG có dòng nào ──────────────────────────
+      //
+      // Không chèn một dòng Free mồi. Lý do quyết định: bất biến "mọi tenant đều
+      // có một dòng" phải được móc vào MỌI đường tạo tenant — form đăng ký, tổ
+      // chức cá nhân của migration 5, `seed-admin.ts`, và `makeTenant` trong
+      // test helper. Quên một chỗ là có tenant không dòng nào, nên nhánh "không
+      // có dòng" DÙ SAO CŨNG PHẢI VIẾT. Dòng Free chỉ mua thêm một đường code
+      // thứ hai bên cạnh đường ta không tránh được.
+      //
+      // Luật thay thế, một dòng: không `subscriptions` nào `active` và
+      // `period_end > NOW()` thì tổ chức đang ở gói Free. Gói Free vẫn là một
+      // dòng trong `plans` — cần cho trang bảng giá và cho các con số hạn mức.
+      //
+      // ⚠️ Khoá ngoại GHÉP với cột nullable là hợp lệ, và đây là chỗ tinh tế:
+      // InnoDB dùng ngữ nghĩa MATCH SIMPLE, nên chỉ cần MỘT cột trong khoá là
+      // NULL thì ràng buộc coi như thoả. `order_id = NULL` (ghi đè thủ công) đi
+      // qua `fk_subscriptions_order` không sao, dù `tenant_id` là NOT NULL. Đây
+      // KHÔNG cùng vấn đề với ON DELETE SET NULL — cái đó nói về việc MySQL tự
+      // GHI NULL vào một cột NOT NULL.
+      //
+      // ⚠️ `fk_subscriptions_granter` dùng RESTRICT, cùng lý do đã ghi ở
+      // `payment_transactions`: MySQL không cho `granted_by` vừa nằm trong
+      // `ck_subscriptions_override_has_reason` vừa là đích của SET NULL. Và ở
+      // đây RESTRICT lại đúng về nghiệp vụ — một lần ghi đè gói thủ công mà mất
+      // tên người cấp là một lần ghi đè không ai chịu trách nhiệm.
+      //
+      // Chụp ảnh GIÁ (một sự kiện đã xảy ra — khách đã trả từng ấy tiền) nhưng
+      // KHÔNG chụp hạn mức (chính sách hiện hành, đọc sống qua `plan_id`). Đợt
+      // này hạn mức chỉ hiển thị nên đánh đổi rất nhỏ. ⚠️ Ngày hạn mức bắt đầu
+      // CHẶN thao tác thì quyết định này phải xem lại: lúc đó siết gói Pro sẽ
+      // khoá khách hàng ngay giữa chu kỳ mà họ đã trả tiền.
+      `CREATE TABLE IF NOT EXISTS subscriptions (
+        id                       BIGINT UNSIGNED   NOT NULL AUTO_INCREMENT,
+        tenant_id                BIGINT UNSIGNED   NOT NULL,
+        plan_id                  BIGINT UNSIGNED   NOT NULL,
+        order_id                 BIGINT UNSIGNED   NULL,
+        status                   ENUM('active','expired','superseded','cancelled')
+                                                   NOT NULL DEFAULT 'active',
+        source                   ENUM('purchase','admin_override')
+                                                   NOT NULL DEFAULT 'purchase',
+        plan_code                VARCHAR(50)       NOT NULL,
+        plan_name                VARCHAR(255)      NOT NULL,
+        price_vnd                BIGINT UNSIGNED   NOT NULL,
+        period_start             DATETIME(3)       NOT NULL,
+        period_end               DATETIME(3)       NOT NULL,
+        carried_over_days        SMALLINT UNSIGNED NOT NULL DEFAULT 0,
+        previous_subscription_id BIGINT UNSIGNED   NULL,
+        granted_by               BIGINT UNSIGNED   NULL,
+        reason                   VARCHAR(500)      NULL,
+        ended_at                 DATETIME(3)       NULL,
+        created_at               DATETIME(3)       NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+        updated_at               DATETIME(3)       NOT NULL DEFAULT CURRENT_TIMESTAMP(3)
+                                                   ON UPDATE CURRENT_TIMESTAMP(3),
+        active_tenant_id BIGINT UNSIGNED
+          GENERATED ALWAYS AS (IF(status = 'active', tenant_id, NULL)) VIRTUAL,
+        PRIMARY KEY (id),
+        UNIQUE KEY uq_subscriptions_one_active (active_tenant_id),
+        KEY idx_subscriptions_tenant_created (tenant_id, created_at),
+        KEY idx_subscriptions_status_period (status, period_end),
+        KEY idx_subscriptions_plan (plan_id),
+        KEY idx_subscriptions_prev (previous_subscription_id),
+        CONSTRAINT fk_subscriptions_tenant FOREIGN KEY (tenant_id)
+          REFERENCES tenants (id) ON DELETE RESTRICT,
+        CONSTRAINT fk_subscriptions_plan FOREIGN KEY (plan_id)
+          REFERENCES plans (id) ON DELETE RESTRICT,
+        CONSTRAINT fk_subscriptions_order FOREIGN KEY (tenant_id, order_id)
+          REFERENCES orders (tenant_id, id) ON DELETE RESTRICT,
+        CONSTRAINT fk_subscriptions_prev FOREIGN KEY (previous_subscription_id)
+          REFERENCES subscriptions (id) ON DELETE SET NULL,
+        CONSTRAINT fk_subscriptions_granter FOREIGN KEY (granted_by)
+          REFERENCES users (id) ON DELETE RESTRICT,
+        CONSTRAINT ck_subscriptions_period CHECK (period_end > period_start),
+        CONSTRAINT ck_subscriptions_override_has_reason
+          CHECK (source <> 'admin_override'
+                 OR (granted_by IS NOT NULL AND reason IS NOT NULL)),
+        CONSTRAINT ck_subscriptions_purchase_has_order
+          CHECK (source <> 'purchase' OR order_id IS NOT NULL)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+
+      // ─── audit_logs: nhật ký kiểm toán dùng chung CẢ REPO ────────────────
+      //
+      // Repo tới nay chưa có bảng sự kiện nào — `shared/src/admin.ts` nói thẳng
+      // điều đó. Bảng này không chỉ cho §11: nó nhận mọi thao tác quản trị đáng
+      // ghi vết, và §11 chỉ là người dùng đầu tiên.
+      //
+      // ─── Cột phải tên `before_json`, KHÔNG phải `before` ─────────────────
+      //
+      // BEFORE là từ khoá DÀNH RIÊNG của MySQL 8, nên một cột tên `before` bắt
+      // buộc phải bọc backtick — mà chú thích ở migration 6 cấm tuyệt đối
+      // backtick bên trong chuỗi template của file này, kèm đúng triệu chứng:
+      // chuỗi bị đóng sớm và lỗi hiện ra ở một dòng TypeScript hoàn toàn khác.
+      //
+      // AFTER thì non-reserved nên `after` chạy được — càng nguy hiểm, vì đặt
+      // tên bất đối xứng `before_json`/`after` thì người sau sẽ "sửa cho đều" và
+      // làm hỏng build. Nên cả hai cùng mang hậu tố.
+      //
+      // ─── tenant_id CÓ, và NULLABLE ───────────────────────────────────────
+      //
+      //   admin tổ chức mời thành viên       -> id tổ chức
+      //   superadmin ghi đè gói cho tổ chức X -> id của X
+      //   superadmin đổi giá gói Pro          -> NULL
+      //   cron cho hết hạn subscription       -> id tổ chức, actor NULL
+      //
+      // Actor của superadmin đứng ngoài mọi tổ chức, nhưng ĐỐI TƯỢNG thì thường
+      // nằm trong một tổ chức — và cột này mô tả đối tượng.
+      //
+      // ─── KHÔNG một khoá ngoại nào, và đó là điểm của cả bảng ─────────────
+      //
+      // Nhật ký phải sống lâu hơn thứ nó ghi. Ba lựa chọn khoá ngoại đều tệ:
+      // CASCADE thì xoá tổ chức là phi tang bằng chứng — chính xác điều một nhật
+      // ký kiểm toán tồn tại để ngăn; RESTRICT thì không bao giờ dọn được dữ
+      // liệu; SET NULL thì mất luôn thông tin "chuyện này xảy ra ở tổ chức nào".
+      //
+      // Bù lại có `actor_email` là ẢNH CHỤP văn bản: email trong `users` đổi
+      // được, còn câu hỏi "ai đã bấm nút này, vào lúc đó" phải trả lời được mà
+      // không cần JOIN với một bảng đã thay đổi từ lâu.
+      //
+      // Chỉ `created_at`. Không `updated_at`, không `deleted_at` — một dòng nhật
+      // ký sửa được hoặc xoá mềm được thì không phải nhật ký kiểm toán.
+      //
+      // `action` là VARCHAR chứ không ENUM, dù repo thích ENUM: mỗi tính năng
+      // mới sẽ thêm một loại hành động, và một ALTER TABLE cho mỗi lần đó biến
+      // "ghi nhật ký cho việc này nữa" thành một migration. Kết quả thực tế của
+      // rào cản đó là người ta bỏ qua việc ghi nhật ký. Quy ước chuỗi
+      // `<đối tượng>.<động từ>`: `plan.update`, `order.confirm_manual`,
+      // `subscription.admin_override`.
+      //
+      // `ip_address VARCHAR(45)` chứ không VARBINARY(16): 45 là độ dài tối đa
+      // của IPv6 dạng văn bản kèm hậu tố IPv4-mapped. Dạng nhị phân gọn hơn
+      // nhưng biến mọi lần đọc thành một lời gọi INET6_NTOA và mọi lần gỡ lỗi
+      // bằng tay thành một câu hỏi. Nhật ký là thứ ĐƯỢC NGƯỜI ĐỌC.
+      `CREATE TABLE IF NOT EXISTS audit_logs (
+        id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+        tenant_id           BIGINT UNSIGNED NULL,
+        actor_user_id       BIGINT UNSIGNED NULL,
+        actor_email         VARCHAR(255)    NULL,
+        actor_platform_role ENUM('superadmin','user') NULL,
+        actor_tenant_role   ENUM('admin','creator','viewer') NULL,
+        action              VARCHAR(100)    NOT NULL,
+        entity_type         VARCHAR(64)     NOT NULL,
+        entity_id           BIGINT UNSIGNED NULL,
+        before_json         JSON            NULL,
+        after_json          JSON            NULL,
+        reason              VARCHAR(500)    NULL,
+        ip_address          VARCHAR(45)     NULL,
+        user_agent          VARCHAR(255)    NULL,
+        request_id          VARCHAR(64)     NULL,
+        created_at          DATETIME(3)     NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+        PRIMARY KEY (id),
+        KEY idx_audit_logs_tenant_created (tenant_id, created_at),
+        KEY idx_audit_logs_entity (entity_type, entity_id, created_at),
+        KEY idx_audit_logs_actor (actor_user_id, created_at),
+        KEY idx_audit_logs_action_created (action, created_at)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+
+      // ─── Gieo bảng giá ───────────────────────────────────────────────────
+      //
+      // Nằm TRONG migration chứ không trong `seed-admin.ts`, ba lý do:
+      //
+      //   1. `orders.plan_id` là khoá ngoại NOT NULL. Bảng `plans` rỗng nghĩa là
+      //      không tạo được đơn nào, nghĩa là module không chạy. Đây là DỮ LIỆU
+      //      CẤU TRÚC, không phải dữ liệu demo — cùng loại với `casbin_rule` mà
+      //      migration 4 đã gieo bằng đúng cách này.
+      //   2. `seed-admin.ts` là TUỲ CHỌN: nó chạy bằng `npm run seed:admin` và
+      //      tự mô tả mình là lối vào để có tài khoản đầu tiên. Production có
+      //      thể không bao giờ chạy nó. Migration thì chạy ở mỗi lần khởi động.
+      //   3. Phép suy "không subscription nào -> đang ở Free" cần dòng `free`
+      //      tồn tại để đọc ra hạn mức. Thiếu nó là mọi tổ chức chưa mua gói đều
+      //      lỗi.
+      //
+      // ⚠️ Không migration nào về sau được `UPDATE plans SET price_vnd`. Giá là
+      // dữ liệu VẬN HÀNH của superadmin, không phải mã nguồn; migration chỉ gieo
+      // hạt ban đầu.
+      //
+      // NULL ở gói Business = không giới hạn, xem ghi chú ở phần tạo bảng.
+      `INSERT IGNORE INTO plans
+         (code, name, description, price_vnd, duration_days,
+          max_workspaces, max_reports, max_members, max_storage_bytes,
+          is_public, is_featured, sort_order)
+       VALUES
+         ('free', 'Miễn phí',
+          'Dùng thử đầy đủ tính năng ở quy mô nhỏ.',
+          0, 0, 1, 3, 3, 104857600, 1, 0, 10),
+         ('pro', 'Chuyên nghiệp',
+          'Cho đội ngũ đang vận hành báo cáo hằng ngày.',
+          299000, 30, 5, 50, 10, 5368709120, 1, 1, 20),
+         ('business', 'Doanh nghiệp',
+          'Không giới hạn workspace, báo cáo và thành viên.',
+          899000, 30, NULL, NULL, NULL, 53687091200, 1, 0, 30)`,
+
+      // ─── Gieo phương thức thanh toán ─────────────────────────────────────
+      //
+      // ⚠️ CỐ Ý để trống `bank_bin`, `bank_account_no`, `bank_account_name`.
+      //
+      // Số tài khoản là dữ liệu vận hành thật của doanh nghiệp và KHÔNG thuộc mã
+      // nguồn. Nhét một số tài khoản mẫu vào đây là gieo mầm cho đúng một ngày:
+      // migration chạy trên production, không ai để ý, và khách chuyển tiền vào
+      // tài khoản của người khác.
+      //
+      // Superadmin nhập ở màn hình quản trị. `POST /orders` phải TỪ CHỐI tạo đơn
+      // khi phương thức chưa cấu hình đủ, kèm thông báo nói rõ thiếu gì — nếu
+      // không, khách sẽ nhận một mã QR không quét được.
+      //
+      // `is_active = 1` với thông tin ngân hàng rỗng nghe mâu thuẫn, và đó là
+      // lựa chọn: để `0` thì màn hình hiện "chưa có phương thức thanh toán nào"
+      // — một câu không dẫn tới hành động nào. Để `1` cộng với một câu kiểm ở
+      // tầng dịch vụ thì người vận hành nhận đúng câu họ cần đọc: "phương thức
+      // chuyển khoản chưa cấu hình số tài khoản".
+      `INSERT IGNORE INTO payment_methods
+         (code, provider, name, instructions, is_active, sort_order)
+       VALUES
+         ('vietqr_bank', 'bank_transfer', 'Chuyển khoản ngân hàng (VietQR)',
+          'Quét mã QR hoặc chuyển khoản thủ công. Nội dung chuyển khoản phải là mã đơn hàng, giữ nguyên không thêm bớt ký tự nào. Đơn được kích hoạt sau khi quản trị viên đối chiếu sao kê.',
+          1, 10)`,
+    ],
+  },
 ];
