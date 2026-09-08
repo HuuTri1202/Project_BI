@@ -20,6 +20,11 @@ import DataModelsPage from './pages/tenant/DataModelsPage';
 import ExplorerTab from './pages/tenant/datamodel/ExplorerTab';
 import RelationshipTab from './pages/tenant/datamodel/RelationshipTab';
 import SchemasTab from './pages/tenant/datamodel/SchemasTab';
+import BillingPage from './pages/tenant/BillingPage';
+import BillingOverviewPage from './pages/tenant/billing/BillingOverviewPage';
+import { CheckoutPage, OrderDetailPage } from './pages/tenant/billing/CheckoutPage';
+import OrdersPage from './pages/tenant/billing/OrdersPage';
+import PlansPage from './pages/tenant/billing/PlansPage';
 import ConnectionsPage from './pages/tenant/ConnectionsPage';
 import DatasetDetailPage from './pages/tenant/DatasetDetailPage';
 import DatasetsPage from './pages/tenant/DatasetsPage';
@@ -193,6 +198,24 @@ export default function App(): React.ReactElement {
           </Route>
           <Route path="/workspaces" element={<Navigate to="/organization/workspaces" replace />} />
           <Route path="/members" element={<Navigate to="/organization/members" replace />} />
+
+          {/* ─── §11 Gói dịch vụ & Thanh toán ──────────────────────────────
+              Cả năm route dùng CHUNG một ô quyền, nên gác một lần ở ngoài thay
+              vì lặp `TenantAdminRoute` năm lần — khác `/organization`, nơi mỗi
+              tab có một ô riêng.
+
+              Màn thanh toán và chi tiết đơn là ANH EM của khung tab, không phải
+              con: chúng chiếm trọn khu nội dung thay vì nằm dưới thanh tab —
+              cùng khuôn với wizard kết nối ở ngay trên. */}
+          <Route element={<TenantAdminRoute needs="manageBilling" />}>
+            <Route path="/billing" element={<BillingPage />}>
+              <Route index element={<BillingOverviewPage />} />
+              <Route path="plans" element={<PlansPage />} />
+              <Route path="orders" element={<OrdersPage />} />
+            </Route>
+            <Route path="/billing/checkout/:planId" element={<CheckoutPage />} />
+            <Route path="/billing/orders/:code" element={<OrderDetailPage />} />
+          </Route>
         </Route>
 
         {/* ─── Console vận hành hệ thống ───────────────────────────────── */}

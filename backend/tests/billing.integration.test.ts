@@ -35,11 +35,11 @@ import { makeTenant, makeUser } from './helpers/fixtures';
  * quên hết mọi câu kiểm của tầng dịch vụ, database vẫn phải nói không. Đi qua
  * API sẽ kiểm nhầm sang lớp bên trên và để lọt đúng loại lỗi này.
  *
- * ─── `plans` và `payment_methods` KHÔNG bị dọn giữa các ca ─────────────────
+ * ─── `plans` và `payment_methods` được GIEO LẠI trước mỗi ca ───────────────
  *
- * Chúng là dữ liệu cấu trúc gieo từ migration 30, và `resetDatabase()` cố ý bỏ
- * qua chúng — cùng cách đối xử với `casbin_rule`. Nên các ca dưới đây đọc thẳng
- * gói `pro` và phương thức `vietqr_bank` mà không phải tự gieo lại.
+ * `resetDatabase()` dọn chúng rồi chèn lại đúng ba gói và một phương thức của
+ * migration 30 (`reseedBillingCatalog`). Nên các ca dưới đây đọc thẳng gói
+ * `pro` mà không phải tự dựng, và một ca sửa bảng giá không làm hỏng ca sau.
  */
 
 interface Fixture {
@@ -112,7 +112,16 @@ afterAll(async () => {
 
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('§11 dữ liệu gieo từ migration', () => {
+/**
+ * Bốn ca dưới đây canh bản CHÉP TAY trong `reseedBillingCatalog()` khớp với
+ * `INSERT IGNORE INTO plans` của migration 30.
+ *
+ * Chép tay là chủ ý: migration đã đẩy lên remote thì đóng băng, nên không
+ * import được từ đó, và một hằng số dùng chung sẽ khiến sửa hằng số ấy âm thầm
+ * đổi nghĩa của một migration đã chạy trên máy người khác. Đổi lại, hai bản
+ * lệch nhau phải làm ĐỎ ở đây — đó là việc của khối này.
+ */
+describe('§11 danh mục gói và phương thức', () => {
   it('có đúng ba gói, và Free là gói 0 đồng', async () => {
     const [rows] = await mysqlPool.query<(RowDataPacket & { code: string; price_vnd: number })[]>(
       'SELECT code, price_vnd FROM plans ORDER BY sort_order',
