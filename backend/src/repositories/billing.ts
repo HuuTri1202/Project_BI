@@ -11,6 +11,8 @@ import type {
 } from '@bi/shared';
 import type { ResultSetHeader, RowDataPacket } from 'mysql2';
 
+import { open } from '../services/connections/secretBox';
+import { escapeLikeTerm } from '../utils/sql';
 import type { Db } from './db';
 
 /**
@@ -493,6 +495,320 @@ export async function findActiveSubscription(
   );
   const row = rows[0];
   return row ? { ...toSubscriptionDto(row), planId: Number(row.plan_id) } : null;
+}
+
+// ─── Console vận hành: xuyên MỌI tổ chức ─────────────────────────────────────
+//
+// Mọi hàm dưới đây CỐ Ý không nhận `tenantId` — chúng phục vụ `/api/admin`, nơi
+// đã gác bằng `requirePlatformRole('superadmin') + requireFreshAdmin`. Đặt
+// chúng cùng file với hàm theo-tổ-chức là chủ ý: hai nhóm nằm cạnh nhau thì
+// người sửa thấy ngay mình đang ở nhóm nào, còn tách hai file thì rất dễ gọi
+// nhầm hàm xuyên-tổ-chức từ một route của người dùng.
+
+interface AdminOrderRow extends RowDataPacket {
+  id: number;
+  order_code: string;
+  status: OrderStatus;
+  amount_vnd: number;
+  plan_code: string;
+  plan_name: string;
+  plan_duration_days: number;
+  method_name: string;
+  provider: PaymentProvider;
+  expires_at: Date;
+  paid_at: Date | null;
+  created_at: Date;
+  tenant_id: number;
+  tenant_name: string;
+  txn_ref: string | null;
+}
+
+const ADMIN_ORDER_SELECT = `
+  SELECT o.id, o.order_code, o.status, o.amount_vnd,
+         o.plan_code, o.plan_name, o.plan_duration_days,
+         pm.name AS method_name, pm.provider,
+         o.expires_at, o.paid_at, o.created_at,
+         o.tenant_id, t.name AS tenant_name,
+         (SELECT pt.provider_txn_ref FROM payment_transactions pt
+           WHERE pt.order_id = o.id AND pt.status = 'succeeded'
+           LIMIT 1) AS txn_ref
+    FROM orders o
+    JOIN payment_methods pm ON pm.id = o.payment_method_id
+    JOIN tenants t ON t.id = o.tenant_id`;
+
+export interface AdminOrderDto extends OrderDto {
+  tenantId: number;
+  tenantName: string;
+  /** Số tham chiếu của giao dịch đã ghi nhận. `null` khi chưa có. */
+  providerTxnRef: string | null;
+}
+
+function toAdminOrderDto(row: AdminOrderRow): AdminOrderDto {
+  return {
+    id: Number(row.id),
+    orderCode: row.order_code,
+    status: row.status,
+    amountVnd: Number(row.amount_vnd),
+    planCode: row.plan_code,
+    planName: row.plan_name,
+    planDurationDays: Number(row.plan_duration_days),
+    paymentMethodName: row.method_name,
+    provider: row.provider,
+    expiresAt: row.expires_at.toISOString(),
+    paidAt: row.paid_at?.toISOString() ?? null,
+    createdAt: row.created_at.toISOString(),
+    tenantId: Number(row.tenant_id),
+    tenantName: row.tenant_name,
+    providerTxnRef: row.txn_ref,
+  };
+}
+
+export interface AdminOrderFilter {
+  status?: OrderStatus | undefined;
+  tenantId?: number | undefined;
+  provider?: PaymentProvider | undefined;
+  /** Tìm theo mã đơn hoặc tên tổ chức. */
+  search?: string | undefined;
+  sort: OrderSortKey;
+  order: 'asc' | 'desc';
+  page: number;
+  pageSize: number;
+}
+
+function adminOrderWhere(filter: AdminOrderFilter): { sql: string; params: unknown[] } {
+  const parts: string[] = ['1 = 1'];
+  const params: unknown[] = [];
+
+  if (filter.status !== undefined) {
+    parts.push('o.status = ?');
+    params.push(filter.status);
+  }
+  if (filter.tenantId !== undefined) {
+    parts.push('o.tenant_id = ?');
+    params.push(filter.tenantId);
+  }
+  if (filter.provider !== undefined) {
+    parts.push('pm.provider = ?');
+    params.push(filter.provider);
+  }
+  if (filter.search !== undefined && filter.search !== '') {
+    parts.push("(o.order_code LIKE ? ESCAPE '\\\\' OR t.name LIKE ? ESCAPE '\\\\')");
+    const term = `%${escapeLikeTerm(filter.search)}%`;
+    params.push(term, term);
+  }
+
+  return { sql: parts.join(' AND '), params };
+}
+
+export async function countAdminOrders(db: Db, filter: AdminOrderFilter): Promise<number> {
+  const w = adminOrderWhere(filter);
+  const [rows] = await db.query<RowDataPacket[]>(
+    `SELECT COUNT(*) AS total
+       FROM orders o
+       JOIN payment_methods pm ON pm.id = o.payment_method_id
+       JOIN tenants t ON t.id = o.tenant_id
+      WHERE ${w.sql}`,
+    w.params,
+  );
+  return Number(rows[0]?.['total'] ?? 0);
+}
+
+export async function listAdminOrders(
+  db: Db,
+  filter: AdminOrderFilter,
+): Promise<AdminOrderDto[]> {
+  const w = adminOrderWhere(filter);
+  const direction = filter.order === 'asc' ? 'ASC' : 'DESC';
+  const [rows] = await db.query<AdminOrderRow[]>(
+    `${ADMIN_ORDER_SELECT} WHERE ${w.sql}
+      ORDER BY ${ORDER_SORT_SQL[filter.sort]} ${direction}, o.id DESC
+      LIMIT ? OFFSET ?`,
+    [...w.params, filter.pageSize, (filter.page - 1) * filter.pageSize],
+  );
+  return rows.map(toAdminOrderDto);
+}
+
+/** MỌI gói, kể cả gói đã ẩn — console phải thấy thứ nó quản. */
+export async function listAllPlans(db: Db): Promise<PlanDto[]> {
+  const [rows] = await db.query<PlanRow[]>(
+    `SELECT ${PLAN_COLUMNS} FROM plans
+      WHERE deleted_at IS NULL
+      ORDER BY sort_order ASC, id ASC`,
+  );
+  return rows.map(toPlanDto);
+}
+
+export async function listAllPaymentMethods(db: Db): Promise<PaymentMethodDto[]> {
+  const [rows] = await db.query<MethodRow[]>(
+    `SELECT ${METHOD_COLUMNS} FROM payment_methods
+      WHERE deleted_at IS NULL
+      ORDER BY sort_order ASC, id ASC`,
+  );
+  return rows.map(toMethodDto);
+}
+
+/**
+ * Bốn ký tự cuối của khoá bí mật, để màn hình quản trị xác nhận "đúng khoá này".
+ *
+ * ⚠️ Trả về BỐN ký tự, không nhiều hơn. Đủ để người vận hành nhận ra khoá họ vừa
+ * dán, không đủ để ai đó dựng lại nó. Và trả `null` khi chưa cấu hình — khác
+ * hẳn chuỗi rỗng, vì giao diện phải nói được "chưa có khoá" thay vì "khoá rỗng".
+ */
+export async function paymentSecretHint(db: Db, id: number): Promise<string | null> {
+  const [rows] = await db.query<(RowDataPacket & { webhook_secret_sealed: string | null })[]>(
+    'SELECT webhook_secret_sealed FROM payment_methods WHERE id = ? LIMIT 1',
+    [id],
+  );
+  const sealed = rows[0]?.webhook_secret_sealed ?? null;
+  if (sealed === null || sealed === '') return null;
+
+  try {
+    const plain = open(sealed);
+    return plain.length <= 4 ? '****' : plain.slice(-4);
+  } catch {
+    // Giải mã hỏng: khoá mã hoá đã đổi, hoặc dữ liệu bị can thiệp. Nói ra bằng
+    // một giá trị riêng thay vì để giao diện tưởng chưa cấu hình.
+    return '????';
+  }
+}
+
+export async function insertPlan(db: Db, input: PlanWriteInput): Promise<number> {
+  const [result] = await db.query<ResultSetHeader>(
+    `INSERT INTO plans
+       (code, name, description, price_vnd, duration_days,
+        max_workspaces, max_reports, max_members, max_storage_bytes,
+        is_public, is_featured, sort_order)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      input.code,
+      input.name,
+      input.description,
+      input.priceVnd,
+      input.durationDays,
+      input.maxWorkspaces,
+      input.maxReports,
+      input.maxMembers,
+      input.maxStorageBytes,
+      input.isPublic ? 1 : 0,
+      input.isFeatured ? 1 : 0,
+      input.sortOrder,
+    ],
+  );
+  return result.insertId;
+}
+
+export interface PlanWriteInput {
+  code: string;
+  name: string;
+  description: string | null;
+  priceVnd: number;
+  durationDays: number;
+  maxWorkspaces: number | null;
+  maxReports: number | null;
+  maxMembers: number | null;
+  maxStorageBytes: number | null;
+  isPublic: boolean;
+  isFeatured: boolean;
+  sortOrder: number;
+}
+
+export async function updatePlan(
+  db: Db,
+  id: number,
+  input: Omit<PlanWriteInput, 'code'>,
+): Promise<number> {
+  const [result] = await db.query<ResultSetHeader>(
+    `UPDATE plans
+        SET name = ?, description = ?, price_vnd = ?, duration_days = ?,
+            max_workspaces = ?, max_reports = ?, max_members = ?, max_storage_bytes = ?,
+            is_public = ?, is_featured = ?, sort_order = ?
+      WHERE id = ? AND deleted_at IS NULL`,
+    [
+      input.name,
+      input.description,
+      input.priceVnd,
+      input.durationDays,
+      input.maxWorkspaces,
+      input.maxReports,
+      input.maxMembers,
+      input.maxStorageBytes,
+      input.isPublic ? 1 : 0,
+      input.isFeatured ? 1 : 0,
+      input.sortOrder,
+      id,
+    ],
+  );
+  return result.affectedRows;
+}
+
+/**
+ * Xoá MỀM một gói, và ẩn nó khỏi bảng giá cùng lúc.
+ *
+ * Xoá cứng không làm được: `fk_orders_plan` là RESTRICT, cố ý — đó là thứ giữ
+ * cho ảnh chụp trong đơn cũ vẫn trỏ tới một dòng có thật. Đặt `is_public = 0`
+ * cùng lúc vì `listPublicPlans` lọc theo cả hai, và để một gói "đã xoá" mà vẫn
+ * `is_public = 1` là một trạng thái tự mâu thuẫn nằm chờ ai đó đọc nhầm.
+ */
+export async function softDeletePlan(db: Db, id: number): Promise<number> {
+  const [result] = await db.query<ResultSetHeader>(
+    `UPDATE plans SET deleted_at = CURRENT_TIMESTAMP(3), is_public = 0
+      WHERE id = ? AND deleted_at IS NULL`,
+    [id],
+  );
+  return result.affectedRows;
+}
+
+export interface MethodWriteInput {
+  name?: string | undefined;
+  instructions?: string | null | undefined;
+  bankBin?: string | null | undefined;
+  bankAccountNo?: string | null | undefined;
+  bankAccountName?: string | null | undefined;
+  /** ĐÃ seal. Repository không mã hoá — xem route. */
+  webhookSecretSealed?: string | null | undefined;
+  isActive?: boolean | undefined;
+  sortOrder?: number | undefined;
+}
+
+/**
+ * Sửa phương thức thanh toán — trường VẮNG MẶT thì giữ nguyên.
+ *
+ * Ghép mệnh đề SET động thay vì ghi đè cả dòng: bắt gửi lại khoá bí mật mỗi lần
+ * đổi tên hiển thị nghĩa là ai muốn sửa một chữ cũng phải biết khoá API. Cùng
+ * lý lẽ đã ghi cho `updateColumn` và cho `updateConnection` của §8.
+ */
+export async function updatePaymentMethod(
+  db: Db,
+  id: number,
+  input: MethodWriteInput,
+): Promise<number> {
+  const sets: string[] = [];
+  const params: unknown[] = [];
+
+  const push = (col: string, value: unknown): void => {
+    sets.push(`${col} = ?`);
+    params.push(value);
+  };
+
+  if (input.name !== undefined) push('name', input.name);
+  if (input.instructions !== undefined) push('instructions', input.instructions);
+  if (input.bankBin !== undefined) push('bank_bin', input.bankBin);
+  if (input.bankAccountNo !== undefined) push('bank_account_no', input.bankAccountNo);
+  if (input.bankAccountName !== undefined) push('bank_account_name', input.bankAccountName);
+  if (input.webhookSecretSealed !== undefined)
+    push('webhook_secret_sealed', input.webhookSecretSealed);
+  if (input.isActive !== undefined) push('is_active', input.isActive ? 1 : 0);
+  if (input.sortOrder !== undefined) push('sort_order', input.sortOrder);
+
+  // Không có gì để sửa thì đừng chạy `SET` rỗng — MySQL báo lỗi cú pháp, và
+  // thông báo đó chẳng nói gì về việc body request trống.
+  if (sets.length === 0) return 0;
+
+  const [result] = await db.query<ResultSetHeader>(
+    `UPDATE payment_methods SET ${sets.join(', ')} WHERE id = ? AND deleted_at IS NULL`,
+    [...params, id],
+  );
+  return result.affectedRows;
 }
 
 export async function listSubscriptionHistory(

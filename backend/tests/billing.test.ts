@@ -6,6 +6,8 @@ import {
   newOrderCode,
 } from '../src/services/billing/orderCode';
 import { daHetHan, hanThanhToan, tinhChuKy } from '../src/services/billing/period';
+import { timMaDon } from '../src/services/billing/webhook';
+import { signPayload, verifySignature } from '../src/services/billing/webhookSignature';
 import { buildVietQrPayload, crc16, normalizeContent } from '../src/services/billing/vietqr';
 
 /**
@@ -166,6 +168,97 @@ describe('§11 chuỗi VietQR', () => {
     expect(normalizeContent('Đơn hàng 42')).toBe('DONHANG42');
     expect(normalizeContent('BI7K3XQ92FMR')).toBe('BI7K3XQ92FMR');
     expect(normalizeContent('a-b_c.d')).toBe('ABCD');
+  });
+});
+
+describe('§11 chữ ký webhook', () => {
+  const BODY = '{"orderCode":"BI7K3XQ92FMR","amount":299000}';
+  const SECRET = 'khoa-bi-mat-cua-cong-thanh-toan';
+
+  it('chữ ký ta tính khớp chính chữ ký ta ký', () => {
+    expect(verifySignature({ rawBody: BODY, signature: signPayload(BODY, SECRET), secret: SECRET })).toBe(
+      true,
+    );
+  });
+
+  it('nhận cả dạng có tiền tố `sha256=`', () => {
+    // Mỗi cổng viết một kiểu. Bắt nơi gọi tự bóc tiền tố nghĩa là mỗi adapter
+    // lại bóc một lần, và chỗ nào quên thì MỌI webhook của cổng đó bị từ chối —
+    // với thông báo "chữ ký sai" cho một chữ ký hoàn toàn đúng.
+    const sig = signPayload(BODY, SECRET);
+    expect(verifySignature({ rawBody: BODY, signature: `sha256=${sig}`, secret: SECRET })).toBe(true);
+    expect(verifySignature({ rawBody: BODY, signature: sig.toUpperCase(), secret: SECRET })).toBe(true);
+  });
+
+  it('SAI khoá -> từ chối', () => {
+    expect(
+      verifySignature({ rawBody: BODY, signature: signPayload(BODY, 'khoa-khac'), secret: SECRET }),
+    ).toBe(false);
+  });
+
+  it('đổi MỘT ký tự trong thân request -> từ chối', () => {
+    /*
+     * Ca quan trọng nhất của cả nhóm. Kẻ tấn công bắt được một webhook hợp lệ
+     * rồi sửa số tiền từ 299.000 thành 1 và gửi lại — nếu chữ ký vẫn qua thì
+     * mọi lớp bảo vệ ở trên vô nghĩa.
+     */
+    const sig = signPayload(BODY, SECRET);
+    const sua = BODY.replace('299000', '000001');
+    expect(verifySignature({ rawBody: sua, signature: sig, secret: SECRET })).toBe(false);
+  });
+
+  it('chữ ký RỖNG hoặc khoá RỖNG -> từ chối, không ném', () => {
+    // Cả hai là trạng thái thật: cổng gửi thiếu header, hoặc người vận hành
+    // chưa cấu hình khoá. Ném ở đây sẽ thành 500 và cổng sẽ gửi lại mãi.
+    expect(verifySignature({ rawBody: BODY, signature: '', secret: SECRET })).toBe(false);
+    expect(verifySignature({ rawBody: BODY, signature: signPayload(BODY, SECRET), secret: '' })).toBe(
+      false,
+    );
+  });
+
+  it('chữ ký NGẮN HƠN không làm `timingSafeEqual` ném', () => {
+    // `timingSafeEqual` NÉM khi hai buffer khác độ dài — không trả `false`. Bỏ
+    // phép kiểm độ dài thì một chữ ký cụt biến thành 500 thay vì 401.
+    expect(() =>
+      verifySignature({ rawBody: BODY, signature: 'abc123', secret: SECRET }),
+    ).not.toThrow();
+    expect(verifySignature({ rawBody: BODY, signature: 'abc123', secret: SECRET })).toBe(false);
+  });
+
+  it('sha512 khác sha256 — thuật toán phải khớp hai đầu', () => {
+    const sig512 = signPayload(BODY, SECRET, 'sha512');
+    expect(verifySignature({ rawBody: BODY, signature: sig512, secret: SECRET, algorithm: 'sha512' })).toBe(
+      true,
+    );
+    expect(verifySignature({ rawBody: BODY, signature: sig512, secret: SECRET })).toBe(false);
+  });
+
+  it('ký trên Buffer và trên chuỗi cho cùng kết quả', () => {
+    // Route truyền `Buffer` (thân thô), test hay truyền chuỗi. Hai đường phải
+    // ra một kết quả, nếu không thì test xanh mà thực tế đỏ.
+    expect(signPayload(Buffer.from(BODY, 'utf8'), SECRET)).toBe(signPayload(BODY, SECRET));
+  });
+});
+
+describe('§11 bóc mã đơn khỏi nội dung chuyển khoản', () => {
+  it('lấy được mã lẫn trong chuỗi ngân hàng chèn thêm', () => {
+    /*
+     * Ngân hàng chèn chữ quanh nội dung khách gõ. Không bóc thì MỌI webhook của
+     * ngân hàng đều trượt, và triệu chứng là "không tìm thấy đơn" cho những đơn
+     * đang nằm ngay đó.
+     */
+    expect(timMaDon('CT DEN:0011 BI7K3XQ92FMR GD 123456')).toBe('BI7K3XQ92FMR');
+    expect(timMaDon('bi7k3xq92fmr')).toBe('BI7K3XQ92FMR');
+    expect(timMaDon('BI7K3XQ92FMR')).toBe('BI7K3XQ92FMR');
+  });
+
+  it('không bịa ra mã khi nội dung không có', () => {
+    // Trả bừa một mã nghĩa là ghi nhận tiền cho một đơn ngẫu nhiên.
+    expect(timMaDon('THANH TOAN DON HANG')).toBeNull();
+    expect(timMaDon('')).toBeNull();
+    expect(timMaDon(null)).toBeNull();
+    // Chứa I/L/O/U -> không thuộc bảng chữ nên không phải mã của ta.
+    expect(timMaDon('BIIIIIIIIIII')).toBeNull();
   });
 });
 

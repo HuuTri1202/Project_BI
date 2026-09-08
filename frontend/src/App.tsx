@@ -11,6 +11,9 @@ import LoginPage from './pages/LoginPage';
 import NotFoundPage from './pages/NotFoundPage';
 import ProfilePage from './pages/ProfilePage';
 import ReportPage from './pages/ReportPage';
+import AdminBillingMethodsPage from './pages/admin/BillingMethodsPage';
+import AdminBillingOrdersPage from './pages/admin/BillingOrdersPage';
+import AdminBillingPlansPage from './pages/admin/BillingPlansPage';
 import OverviewPage from './pages/admin/OverviewPage';
 import TenantsPage from './pages/admin/TenantsPage';
 import UsersPage from './pages/admin/UsersPage';
@@ -247,6 +250,12 @@ export default function App(): React.ReactElement {
             <Route path="tenants" element={<TenantsPage />} />
             <Route path="users" element={<UsersPage />} />
             <Route path="workspaces" element={<WorkspacesPage />} />
+            {/* §11 — quản trị thanh toán. Không có cổng quyền riêng: cả khu
+                `/admin` đã gác bằng `AdminRoute` ở ngoài, và ba lớp guard ở
+                backend là chỗ chặn thật. */}
+            <Route path="billing/orders" element={<AdminBillingOrdersPage />} />
+            <Route path="billing/plans" element={<AdminBillingPlansPage />} />
+            <Route path="billing/methods" element={<AdminBillingMethodsPage />} />
           </Route>
         </Route>
       </Route>

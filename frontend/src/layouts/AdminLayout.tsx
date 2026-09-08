@@ -33,6 +33,32 @@ const NAV_ITEMS: { label: string; to: string | null; exact?: boolean; icon: stri
     icon: 'M16 20v-2a4 4 0 0 0-8 0v2M12 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z',
   },
   { label: 'Workspace', to: '/admin/workspaces', icon: 'M3 7h18v12H3V7Zm0 0 3-3h5l2 3' },
+  /*
+   * §11 — ba mục thanh toán, đặt CUỐI và tách khỏi bốn mục trên.
+   *
+   * Bốn mục đầu trả lời "nền tảng đang có gì"; ba mục này trả lời "tiền đi thế
+   * nào". Trộn lẫn thì người vận hành phải đọc cả bảy dòng mỗi lần tìm một
+   * trong hai.
+   *
+   * Thứ tự trong nhóm theo tần suất mở: đơn hàng là việc hằng ngày (đối chiếu
+   * sao kê), bảng giá đổi vài tháng một lần, phương thức thì cấu hình một lần
+   * rồi thôi.
+   */
+  {
+    label: 'Đơn hàng',
+    to: '/admin/billing/orders',
+    icon: 'M3 10h18M3 7a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Zm4 7h4',
+  },
+  {
+    label: 'Gói dịch vụ',
+    to: '/admin/billing/plans',
+    icon: 'M20 7 12 3 4 7m16 0-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4',
+  },
+  {
+    label: 'Phương thức thanh toán',
+    to: '/admin/billing/methods',
+    icon: 'M4 6h16v12H4V6Zm0 4h16M8 15h4',
+  },
 ];
 
 function NavIcon({ path }: { path: string }): React.ReactElement {

@@ -103,7 +103,7 @@ afterAll(async () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('cổng vào console — chỉ superadmin', () => {
-  type Method = 'get' | 'patch' | 'delete';
+  type Method = 'get' | 'patch' | 'delete' | 'post';
 
   const ROUTES: [Method, string][] = [
     ['get', '/api/admin/overview'],
@@ -117,6 +117,18 @@ describe('cổng vào console — chỉ superadmin', () => {
     ['get', '/api/admin/workspaces'],
     ['patch', '/api/admin/workspaces/1/status'],
     ['delete', '/api/admin/workspaces/1'],
+    // §11 — thanh toán. Đây là khối NHẠY NHẤT của console: nó đọc đơn hàng của
+    // mọi tổ chức và ghi nhận tiền. Một route ở đây quên guard nghĩa là bảng giá
+    // và sổ cái mở cho bất kỳ ai đăng nhập.
+    ['get', '/api/admin/billing/plans'],
+    ['post', '/api/admin/billing/plans'],
+    ['patch', '/api/admin/billing/plans/1'],
+    ['delete', '/api/admin/billing/plans/1'],
+    ['get', '/api/admin/billing/payment-methods'],
+    ['patch', '/api/admin/billing/payment-methods/1'],
+    ['get', '/api/admin/billing/orders'],
+    ['post', '/api/admin/billing/orders/BI0123456789/confirm'],
+    ['post', '/api/admin/billing/subscriptions/override'],
   ];
 
   /** Gọi đúng phương thức, giữ nguyên kiểu — không ép qua `Record<string, ...>`. */
@@ -129,6 +141,8 @@ describe('cổng vào console — chỉ superadmin', () => {
         return agent.patch(path);
       case 'delete':
         return agent.delete(path);
+      case 'post':
+        return agent.post(path);
     }
   }
 
