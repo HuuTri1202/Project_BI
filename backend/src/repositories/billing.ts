@@ -149,7 +149,21 @@ function isConfigured(row: MethodRow): boolean {
       row.bank_bin !== null && row.bank_account_no !== null && row.bank_account_name !== null
     );
   }
-  // Ba cổng còn lại chưa có adapter. Trả `false` để `createOrder` từ chối kèm
+
+  /*
+   * MoMo chạy bằng mã QR TĨNH: đủ điều kiện khi đã có ảnh.
+   *
+   * Không đòi partner code hay secret key, vì bản này không gọi API MoMo — xem
+   * migration 31. Khách quét ảnh, tự nhập số tiền, ghi mã đơn vào lời nhắn, rồi
+   * người vận hành đối chiếu và xác nhận.
+   *
+   * Đánh đổi phải nói ra: số tiền do KHÁCH nhập chứ không nằm sẵn trong mã như
+   * VietQR động, nên chuyển nhầm số là chuyện sẽ xảy ra. Đó là lý do ô "số tiền
+   * thực nhận" ở màn xác nhận sửa được, và vì sao nó điền sẵn chứ không khoá.
+   */
+  if (row.provider === 'momo') return row.static_qr_url !== null;
+
+  // PayOS và Sepay chưa có adapter. Trả `false` để `createOrder` từ chối kèm
   // câu giải thích, thay vì tạo một đơn không bao giờ thanh toán được.
   return false;
 }
@@ -164,7 +178,20 @@ function toMethodDto(row: MethodRow): PaymentMethodDto {
     bankBin: row.bank_bin,
     bankAccountNo: row.bank_account_no,
     bankAccountName: row.bank_account_name,
-    staticQrUrl: row.static_qr_url,
+    /*
+     * ĐƯỜNG DẪN API, không phải khoá lưu trữ.
+     *
+     * Cột trong database giữ khoá object trên MinIO (`billing/qr/<uuid>.png`).
+     * Đưa khoá đó ra ngoài là lộ cấu trúc bucket cho mọi người dùng, và cũng vô
+     * ích — trình duyệt không nói chuyện với MinIO được (nó nằm trong mạng
+     * Docker nội bộ, và cố ý không publish ra ngoài).
+     *
+     * Nên DTO mang một đường dẫn về chính API này, và ảnh đi qua Express. Với
+     * một file vài chục KB tải một lần thì đó là cái giá đúng để đổi lấy việc
+     * ảnh vẫn nằm sau lớp xác thực.
+     */
+    staticQrUrl:
+      row.static_qr_url === null ? null : `/v1/payment-methods/${String(row.id)}/qr`,
     isActive: row.is_active === 1,
     sortOrder: Number(row.sort_order),
     isConfigured: isConfigured(row),
@@ -213,6 +240,8 @@ interface OrderRow extends RowDataPacket {
   bank_account_name: string | null;
   instructions: string | null;
   note: string | null;
+  payment_method_id: number;
+  static_qr_url: string | null;
 }
 
 const ORDER_SELECT = `
@@ -221,7 +250,8 @@ const ORDER_SELECT = `
          pm.name AS method_name, pm.provider,
          o.expires_at, o.paid_at, o.created_at,
          o.qr_payload, pm.bank_bin, pm.bank_account_no, pm.bank_account_name,
-         pm.instructions, o.note
+         pm.instructions, o.note,
+         o.payment_method_id, pm.static_qr_url
     FROM orders o
     JOIN payment_methods pm ON pm.id = o.payment_method_id`;
 
@@ -246,6 +276,12 @@ function toOrderDetailDto(row: OrderRow): OrderDetailDto {
   return {
     ...toOrderDto(row),
     qrPayload: row.qr_payload,
+    // Đường dẫn API, cùng lý lẽ với `toMethodDto`: khoá object trên MinIO
+    // không đi ra ngoài, và trình duyệt không nói chuyện với MinIO được.
+    staticQrUrl:
+      row.static_qr_url === null
+        ? null
+        : `/v1/payment-methods/${String(row.payment_method_id)}/qr`,
     // Thông tin ngân hàng lấy từ phương thức HIỆN TẠI, còn `qr_payload` là ảnh
     // chụp lúc tạo đơn. Hai thứ có thể lệch nhau nếu người vận hành đổi tài
     // khoản — và khi đó thứ ĐÚNG là mã QR, vì đó là thứ khách đã quét. Giao
@@ -654,6 +690,21 @@ export async function listAllPaymentMethods(db: Db): Promise<PaymentMethodDto[]>
  * dán, không đủ để ai đó dựng lại nó. Và trả `null` khi chưa cấu hình — khác
  * hẳn chuỗi rỗng, vì giao diện phải nói được "chưa có khoá" thay vì "khoá rỗng".
  */
+/**
+ * Khoá object THẬT của ảnh QR — chỉ dùng để đọc file, không đưa ra ngoài.
+ *
+ * Tách khỏi `toMethodDto` (nơi cột này thành một đường dẫn API) vì hai nơi cần
+ * hai thứ khác nhau: giao diện cần đường để tải ảnh, còn route phục vụ ảnh cần
+ * khoá để hỏi MinIO. Trộn lại thì một trong hai sẽ nhận nhầm.
+ */
+export async function qrObjectKey(db: Db, id: number): Promise<string | null> {
+  const [rows] = await db.query<(RowDataPacket & { static_qr_url: string | null })[]>(
+    'SELECT static_qr_url FROM payment_methods WHERE id = ? AND deleted_at IS NULL LIMIT 1',
+    [id],
+  );
+  return rows[0]?.static_qr_url ?? null;
+}
+
 export async function paymentSecretHint(db: Db, id: number): Promise<string | null> {
   const [rows] = await db.query<(RowDataPacket & { webhook_secret_sealed: string | null })[]>(
     'SELECT webhook_secret_sealed FROM payment_methods WHERE id = ? LIMIT 1',
@@ -766,6 +817,8 @@ export interface MethodWriteInput {
   bankAccountName?: string | null | undefined;
   /** ĐÃ seal. Repository không mã hoá — xem route. */
   webhookSecretSealed?: string | null | undefined;
+  /** KHOÁ object trên MinIO, không phải URL. Route lo việc tải file lên. */
+  staticQrKey?: string | null | undefined;
   isActive?: boolean | undefined;
   sortOrder?: number | undefined;
 }
@@ -797,6 +850,7 @@ export async function updatePaymentMethod(
   if (input.bankAccountName !== undefined) push('bank_account_name', input.bankAccountName);
   if (input.webhookSecretSealed !== undefined)
     push('webhook_secret_sealed', input.webhookSecretSealed);
+  if (input.staticQrKey !== undefined) push('static_qr_url', input.staticQrKey);
   if (input.isActive !== undefined) push('is_active', input.isActive ? 1 : 0);
   if (input.sortOrder !== undefined) push('sort_order', input.sortOrder);
 

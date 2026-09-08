@@ -57,6 +57,7 @@ import {
 } from '../../services/connections/connectionService';
 import { createOrder } from '../../services/billing/createOrder';
 import { buildBillingSummary } from '../../services/billing/entitlements';
+import { isQrKey } from '../../services/billing/qrImage';
 import { deleteDataset } from '../../services/connections/deleteDataset';
 import { DEFAULT_PORTS, DEFAULT_SSL, REQUIRED_GRANTS } from '../../services/connections/drivers';
 import { previewDataset } from '../../services/connections/previewDataset';
@@ -2438,6 +2439,49 @@ v1Router.get(
   authorize('billing', 'read'),
   asyncHandler(async (_req, res) => {
     res.json(await billingRepo.listActivePaymentMethods(mysqlPool));
+  }),
+);
+
+/**
+ * Ảnh mã QR TĨNH của một phương thức (MoMo) — §11 mục 3.2.
+ *
+ * ─── Vì sao ảnh đi qua Express thay vì một URL công khai ───────────────────
+ *
+ * MinIO nằm trong mạng Docker nội bộ và cố ý KHÔNG publish ra ngoài, nên trình
+ * duyệt không nói chuyện với nó được. Còn presigned GET thì đưa ra một URL sống
+ * vài phút mà ai cầm cũng mở được — với một ảnh QR nhận tiền thì không có lý do
+ * gì để nới ra như vậy.
+ *
+ * Ảnh nặng vài chục KB và tải một lần cho mỗi lần mở màn thanh toán. Cho nó đi
+ * qua Node là cái giá đúng để đổi lấy việc nó vẫn nằm sau lớp xác thực.
+ *
+ * ⚠️ Khoá lấy từ DATABASE, không từ URL. Nhận khoá từ client là cho người ta
+ * đọc bất kỳ object nào trong bucket — kể cả file dữ liệu của tổ chức khác.
+ */
+v1Router.get(
+  '/payment-methods/:id/qr',
+  authorize('billing', 'read'),
+  asyncHandler(async (req, res) => {
+    const { id } = idParamSchema.parse(req.params);
+
+    const key = await billingRepo.qrObjectKey(mysqlPool, id);
+    if (key === null) throw notFound('Phương thức này không có mã QR tĩnh.');
+
+    // Chuỗi trong database phải đúng khuôn ta tự sinh. Một giá trị lạ ở đó
+    // nghĩa là dữ liệu đã bị can thiệp, và mang nó đi đọc object là đúng thứ
+    // ta vừa từ chối làm với tham số URL.
+    if (!isQrKey(key)) throw notFound('Mã QR của phương thức này không đọc được.');
+
+    const bytes = await storage.getObject(key);
+
+    res.setHeader('Content-Type', key.endsWith('.png') ? 'image/png' : 'image/jpeg');
+    // Ảnh gắn với một KHOÁ bất biến (uuid mới mỗi lần tải lên), nên cache lâu
+    // là an toàn: đổi ảnh nghĩa là đổi khoá, và trình duyệt sẽ hỏi lại vì DTO
+    // trả về một đường dẫn... trỏ tới cùng id. Nên `private` + thời hạn ngắn:
+    // đủ để không tải lại mỗi giây khi người dùng chờ thanh toán, đủ ngắn để
+    // người vận hành đổi ảnh xong thấy hiệu lực trong vòng vài phút.
+    res.setHeader('Cache-Control', 'private, max-age=300');
+    res.send(bytes);
   }),
 );
 

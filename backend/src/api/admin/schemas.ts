@@ -193,6 +193,21 @@ export const updatePaymentMethodBodySchema = z.object({
   bankAccountName: z.string().trim().max(255).nullable().optional(),
   /** Đi qua `secretBox.seal()` trước khi xuống database. KHÔNG bao giờ trả ra. */
   webhookSecret: z.string().min(8).max(512).nullable().optional(),
+  /**
+   * Ảnh QR tĩnh, dạng data URL base64 (`data:image/png;base64,...`).
+   *
+   * Ba trạng thái như mọi trường khác ở đây: vắng mặt = giữ ảnh đang có, `null`
+   * = gỡ ảnh, chuỗi = thay bằng ảnh mới.
+   *
+   * KHÔNG kiểm định dạng bằng zod. Chuỗi MIME trong data URL là do client viết,
+   * nên tin nó là kiểm đúng thứ client vừa khai — cùng cái bẫy mà `detectFormat`
+   * của §7.3 đã ghi. Việc kiểm thật (magic bytes, kích thước) nằm ở
+   * `services/billing/qrImage.ts`, và route gọi nó.
+   *
+   * Trần 1MB ở đây chỉ để một chuỗi rác khổng lồ không đi xa hơn zod; trần thật
+   * là 512KB nhị phân, kiểm sau khi giải mã.
+   */
+  staticQrImage: z.string().min(1).max(1_000_000).nullable().optional(),
   isActive: z.boolean().optional(),
   sortOrder: z.number().int().nonnegative().max(65535).optional(),
 });

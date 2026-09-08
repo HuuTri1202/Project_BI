@@ -12,6 +12,7 @@ import {
   useAdminPaymentMethods,
   useUpdatePaymentMethod,
 } from '../../features/admin/billing/hooks';
+import { StaticQrImage } from '../../features/billing/StaticQrImage';
 import { getApiError } from '../../services/apiClient';
 
 /**
@@ -47,8 +48,34 @@ function MethodModal({
   const [accName, setAccName] = useState('');
   const [instructions, setInstructions] = useState('');
   const [secret, setSecret] = useState('');
+  /** Data URL của ảnh vừa chọn. `null` = chưa chọn gì mới. */
+  const [anhMoi, setAnhMoi] = useState<string | null>(null);
   const [loi, setLoi] = useState<string | null>(null);
   const [lastId, setLastId] = useState<number | null>(null);
+
+  /**
+   * Đọc file thành data URL để gửi trong JSON.
+   *
+   * Không dùng multipart: repo cố ý KHÔNG bật `express.urlencoded` (xem
+   * `app.ts`), và thêm một parser multipart chỉ vì một ảnh vài chục KB là mở
+   * lại đúng cánh cửa CSRF mà việc đó đang đóng.
+   *
+   * Kiểm cỡ ở đây chỉ để báo SỚM. Ràng buộc thật nằm ở server, nơi nó còn kiểm
+   * cả magic bytes — chuỗi MIME mà trình duyệt gắn vào là do client khai.
+   */
+  function docAnh(file: File | null): void {
+    setLoi(null);
+    if (file === null) return setAnhMoi(null);
+
+    if (file.size > 512 * 1024) {
+      return setLoi(`Ảnh nặng ${String(Math.round(file.size / 1024))}KB, tối đa 512KB.`);
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => setAnhMoi(typeof reader.result === 'string' ? reader.result : null);
+    reader.onerror = () => setLoi('Không đọc được file ảnh.');
+    reader.readAsDataURL(file);
+  }
 
   if (method !== null && method.id !== lastId) {
     setLastId(method.id);
@@ -60,6 +87,9 @@ function MethodModal({
     // Ô khoá bí mật LUÔN mở ra rỗng, kể cả khi đã có khoá. Điền sẵn một chuỗi
     // giả (`••••`) sẽ khiến người dùng bấm Lưu và vô tình gửi chuỗi đó lên.
     setSecret('');
+    // Cùng lý lẽ cho ảnh: `null` = chưa chọn ảnh mới, nên không gửi trường đó
+    // và ảnh đang có được giữ nguyên.
+    setAnhMoi(null);
     setLoi(null);
   }
 
@@ -97,6 +127,7 @@ function MethodModal({
           bankAccountName: accName.trim() === '' ? null : accName.trim(),
           // Bỏ trống = GIỮ NGUYÊN. Không gửi trường này lên khi rỗng.
           ...(secret.trim() === '' ? {} : { webhookSecret: secret.trim() }),
+          ...(anhMoi === null ? {} : { staticQrImage: anhMoi }),
         },
       },
       { onSuccess: onClose, onError: (err) => setLoi(getApiError(err).message) },
@@ -152,6 +183,44 @@ function MethodModal({
           value={instructions}
           onChange={(e) => setInstructions(e.target.value)}
         />
+
+        {/*
+          Ảnh QR tĩnh — chỉ có nghĩa với cổng không sinh được QR động.
+          VietQR dựng mã riêng cho từng đơn (đã mang sẵn số tiền và mã đơn), nên
+          hiện ô này ở đó là mời người vận hành cấu hình một thứ không dùng tới.
+        */}
+        {method?.provider !== 'bank_transfer' && (
+          <div>
+            <span className="mb-1.5 block text-sm font-medium text-slate-700">
+              Ảnh mã QR nhận tiền
+            </span>
+
+            {anhMoi !== null ? (
+              <img
+                src={anhMoi}
+                alt="Ảnh QR sắp lưu"
+                className="mb-2 h-40 w-40 rounded-lg border border-slate-200 object-contain p-1"
+              />
+            ) : method?.staticQrUrl != null ? (
+              <div className="mb-2">
+                <StaticQrImage path={method.staticQrUrl} size={160} label="Mã QR đang dùng" />
+              </div>
+            ) : (
+              <p className="mb-2 text-xs text-slate-500">Chưa có ảnh nào.</p>
+            )}
+
+            <input
+              type="file"
+              accept="image/png,image/jpeg"
+              onChange={(e) => docAnh(e.target.files?.[0] ?? null)}
+              className="block w-full text-sm text-slate-600 file:mr-3 file:rounded-lg file:border-0 file:bg-slate-100 file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-slate-700"
+            />
+            <p className="mt-1 text-xs text-slate-500">
+              PNG hoặc JPEG, tối đa 512KB. Mở ứng dụng MoMo, lưu ảnh QR nhận tiền của bạn rồi
+              tải lên đây.
+            </p>
+          </div>
+        )}
 
         <Field
           label="Khoá bí mật webhook"

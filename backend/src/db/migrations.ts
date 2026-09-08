@@ -2619,4 +2619,49 @@ export const migrations: readonly Migration[] = [
           1, 10)`,
     ],
   },
+  {
+    /*
+     * ⚠️ Kiểm lại id trước khi merge — xem cảnh báo dài ở migration 30. Nhánh
+     * `feat/f10-column-description` đang giữ 29, nhánh này giữ 30 và 31.
+     */
+    id: 31,
+    name: 'momo_static_qr',
+    statements: [
+      // ═══ MoMo bằng mã QR TĨNH ══════════════════════════════════════════════
+      //
+      // Không dùng API của MoMo, và đó là lựa chọn có ý thức chứ không phải làm
+      // tắt. API MoMo đòi tài khoản merchant đã ký hợp đồng, cộng partner code,
+      // access key, secret key — và cho tới khi có đủ chúng thì mọi dòng code
+      // viết ra là code chưa từng chạy một lần nào. Xem ghi chú cùng ý ở
+      // `services/billing/webhook.ts`.
+      //
+      // Mã QR tĩnh thì chạy được ngay: người vận hành mở app MoMo, lưu ảnh QR
+      // nhận tiền của mình, tải lên đây. Khách quét, chuyển tiền, ghi mã đơn
+      // vào phần lời nhắn, rồi người vận hành đối chiếu và xác nhận — cùng
+      // đường với chuyển khoản ngân hàng.
+      //
+      // ─── Vì sao KHÔNG cần đổi schema ─────────────────────────────────────
+      //
+      // Cột `static_qr_url` và giá trị `'momo'` trong ENUM `provider` đã có sẵn
+      // từ migration 30. Chúng được khai lúc đó vì nối một giá trị vào ENUM sau
+      // vẫn cần một migration, còn khai sẵn thì miễn phí — và hôm nay là ngày
+      // quyết định đó trả lại tiền.
+      //
+      // ─── is_active = 0, khác `vietqr_bank` ───────────────────────────────
+      //
+      // Phương thức chuyển khoản gieo với `is_active = 1` vì thiếu số tài khoản
+      // thì `POST /orders` vẫn từ chối được kèm câu nói rõ đang thiếu gì.
+      //
+      // Ở đây thì khác: một phương thức MoMo bật sẵn mà chưa có ảnh QR sẽ hiện
+      // ra trong danh sách lựa chọn của khách như một lựa chọn thật, rồi dẫn
+      // tới một màn hình trống. Tắt sẵn thì người vận hành phải chủ động bật
+      // sau khi tải ảnh lên — đúng thứ tự của việc.
+      `INSERT IGNORE INTO payment_methods
+         (code, provider, name, instructions, is_active, sort_order)
+       VALUES
+         ('momo_static', 'momo', 'Ví MoMo',
+          'Quét mã QR bằng ứng dụng MoMo. Nhập ĐÚNG số tiền của đơn, và ghi mã đơn hàng vào phần lời nhắn. Đơn được kích hoạt sau khi quản trị viên đối chiếu.',
+          0, 20)`,
+    ],
+  },
 ];

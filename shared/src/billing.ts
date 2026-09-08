@@ -251,6 +251,23 @@ export interface OrderDetailDto extends OrderDto {
    * không phải cache.
    */
   qrPayload: string | null;
+  /**
+   * Ảnh QR TĨNH của phương thức (MoMo) — đường dẫn API, không phải URL công khai.
+   *
+   * ─── Vì sao có HAI trường mã QR ────────────────────────────────────────
+   *
+   * Chúng là hai thứ khác nhau về bản chất, không phải hai cách lưu một thứ:
+   *
+   *   `qrPayload`    chuỗi EMVCo sinh RIÊNG cho đơn này, đã mang sẵn số tiền
+   *                  và mã đơn. Khách quét là xong — không gõ gì thêm.
+   *   `staticQrUrl`  ảnh QR nhận tiền CỐ ĐỊNH của người vận hành. Khách phải
+   *                  tự nhập số tiền và tự ghi mã đơn vào lời nhắn.
+   *
+   * Đúng một trong hai có giá trị. Cái đầu tốt hơn hẳn và là lý do VietQR được
+   * chọn làm đường chính; cái sau tồn tại vì MoMo không cho sinh QR động nếu
+   * chưa có tài khoản merchant.
+   */
+  staticQrUrl: string | null;
   bankBin: string | null;
   bankAccountNo: string | null;
   bankAccountName: string | null;

@@ -19,7 +19,9 @@ import { AUDIT_ACTIONS, actorEmailOf, actorFrom, writeAudit } from '../../servic
 import { confirmPayment } from '../../services/billing/confirmPayment';
 import { isOrderCode } from '../../services/billing/orderCode';
 import { tinhChuKy } from '../../services/billing/period';
+import { buildQrKey, parseQrDataUrl } from '../../services/billing/qrImage';
 import { seal } from '../../services/connections/secretBox';
+import { storage } from '../../storage';
 import { asyncHandler } from '../../utils/asyncHandler';
 import { badRequest, HttpError, notFound } from '../../utils/httpError';
 import { buildPageResult, resolveSortColumn } from '../../utils/pagination';
@@ -566,6 +568,31 @@ adminRouter.patch(
           ? null
           : seal(body.webhookSecret);
 
+    /*
+     * Ảnh QR tĩnh — tải lên MinIO TRƯỚC khi ghi database.
+     *
+     * Thứ tự đó là chủ ý: ghi trước rồi tải lên mà tải hỏng sẽ để lại một bản
+     * ghi trỏ vào một object không tồn tại, và màn hình thanh toán của khách
+     * hiện một ô ảnh vỡ. Ngược lại thì cùng lắm là một object mồ côi trong
+     * bucket — vô hại, và dọn được.
+     *
+     * Khoá MỚI mỗi lần, không ghi đè khoá cũ: ảnh đang hiện trên màn hình khách
+     * không bị đổi giữa chừng bởi một lần lưu nửa vời.
+     */
+    let qrKey: string | null | undefined;
+    if (body.staticQrImage === null) {
+      qrKey = null;
+    } else if (body.staticQrImage !== undefined) {
+      const parsed = parseQrDataUrl(body.staticQrImage);
+      if (!parsed.ok) throw badRequest(parsed.reason, { staticQrImage: parsed.reason });
+
+      qrKey = buildQrKey(parsed.image.ext);
+      await storage.putObject(qrKey, parsed.image.bytes, parsed.image.contentType);
+    }
+
+    // Khoá cũ, để xoá SAU khi bản ghi đã trỏ sang ảnh mới.
+    const khoaCu = qrKey === undefined ? null : await billingRepo.qrObjectKey(mysqlPool, id);
+
     const affected = await billingRepo.updatePaymentMethod(mysqlPool, id, {
       name: body.name,
       instructions: body.instructions,
@@ -573,10 +600,24 @@ adminRouter.patch(
       bankAccountNo: body.bankAccountNo,
       bankAccountName: body.bankAccountName,
       ...(sealed === undefined ? {} : { webhookSecretSealed: sealed }),
+      ...(qrKey === undefined ? {} : { staticQrKey: qrKey }),
       isActive: body.isActive,
       sortOrder: body.sortOrder,
     });
     if (affected === 0) throw badRequest('Không có thay đổi nào để lưu.');
+
+    /*
+     * Xoá ảnh cũ SAU khi bản ghi đã trỏ đi chỗ khác, và nuốt lỗi.
+     *
+     * Một object mồ côi trong bucket là rác vài chục KB. Một lần xoá hỏng làm
+     * đổ cả request nghĩa là người vận hành nhận lỗi 500 cho một thao tác đã
+     * thành công — họ sẽ bấm lại, và lần này ảnh mới đã lưu rồi.
+     */
+    if (khoaCu !== null && khoaCu !== qrKey) {
+      void storage.deleteObject(khoaCu).catch((err: unknown) => {
+        console.warn('[billing] không xoá được ảnh QR cũ:', khoaCu, err);
+      });
+    }
 
     await writeAudit(mysqlPool, {
       ...actorFrom(req),

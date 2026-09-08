@@ -5,6 +5,7 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { Button } from '../../../components/ui/Button';
 import { ErrorState, TableSkeleton } from '../../../components/ui/states';
 import { QrCode } from '../../../features/billing/QrCode';
+import { StaticQrImage } from '../../../features/billing/StaticQrImage';
 import { conLai, dinhDangTien } from '../../../features/billing/format';
 import {
   useCancelOrder,
@@ -259,10 +260,28 @@ export function OrderDetailPage(): React.ReactElement {
     <div className="mx-auto w-full max-w-lg space-y-4 overflow-y-auto pr-1">
       <div className="rounded-xl border border-slate-200 bg-white p-5">
         <div className="flex flex-col items-center">
+          {/*
+            Hai loại mã QR, và khác biệt giữa chúng phải nói ra chứ không chỉ
+            hiện một hình vuông giống nhau:
+
+              qrPayload    sinh RIÊNG cho đơn này, đã mang sẵn số tiền và mã
+                           đơn. Khách quét là xong.
+              staticQrUrl  ảnh QR nhận tiền CỐ ĐỊNH (MoMo). Khách phải TỰ nhập
+                           số tiền và TỰ ghi mã đơn vào lời nhắn.
+
+            Câu hướng dẫn dưới mã đổi theo, vì người quét mã tĩnh mà tưởng số
+            tiền đã điền sẵn sẽ chuyển sai số — và đó là một khoản tiền người
+            vận hành phải xử lý tay.
+          */}
           {don.qrPayload !== null ? (
             <QrCode
               value={don.qrPayload}
               label={`Mã QR chuyển khoản ${dinhDangTien(don.amountVnd)}, nội dung ${don.orderCode}`}
+            />
+          ) : don.staticQrUrl !== null ? (
+            <StaticQrImage
+              path={don.staticQrUrl}
+              label={`Mã QR nhận tiền của ${don.paymentMethodName}`}
             />
           ) : (
             <p className="text-sm text-slate-500">
@@ -270,9 +289,16 @@ export function OrderDetailPage(): React.ReactElement {
             </p>
           )}
 
-          <p className="mt-3 text-center text-sm text-slate-600">
-            Quét mã bằng ứng dụng ngân hàng — số tiền và nội dung đã điền sẵn.
-          </p>
+          {don.qrPayload !== null ? (
+            <p className="mt-3 text-center text-sm text-slate-600">
+              Quét mã bằng ứng dụng ngân hàng — số tiền và nội dung đã điền sẵn.
+            </p>
+          ) : (
+            <p className="mt-3 text-center text-sm text-slate-600">
+              Quét mã bằng {don.paymentMethodName}, rồi <strong>tự nhập số tiền</strong> và{' '}
+              <strong>ghi mã đơn vào lời nhắn</strong> — hai thứ đó không nằm sẵn trong mã.
+            </p>
+          )}
 
           {/*
             Đồng hồ đếm ngược là thông tin THẬT, không phải sức ép bán hàng:
@@ -295,7 +321,14 @@ export function OrderDetailPage(): React.ReactElement {
           máy tính bàn thì phải tự gõ. Mã đơn để chữ to và font đơn cách vì đây
           là chuỗi họ phải chép chính xác. */}
       <div className="rounded-xl border border-slate-200 bg-white p-5">
-        <h2 className="text-sm font-semibold text-slate-900">Hoặc chuyển khoản thủ công</h2>
+        {/*
+          Tiêu đề đổi theo loại mã. Với VietQR động thì khối này là ĐƯỜNG DỰ
+          PHÒNG cho người không quét được; với mã tĩnh thì nó là thông tin BẮT
+          BUỘC phải nhập tay — gọi nó là "hoặc" sẽ khiến người ta bỏ qua.
+        */}
+        <h2 className="text-sm font-semibold text-slate-900">
+          {don.qrPayload !== null ? 'Hoặc chuyển khoản thủ công' : 'Thông tin phải nhập'}
+        </h2>
         <dl className="mt-3 space-y-2 text-sm">
           {don.bankAccountNo !== null && (
             <div className="flex justify-between gap-3">

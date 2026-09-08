@@ -6,6 +6,12 @@ import {
   newOrderCode,
 } from '../src/services/billing/orderCode';
 import { daHetHan, hanThanhToan, tinhChuKy } from '../src/services/billing/period';
+import {
+  QR_IMAGE_MAX_BYTES,
+  buildQrKey,
+  isQrKey,
+  parseQrDataUrl,
+} from '../src/services/billing/qrImage';
 import { timMaDon } from '../src/services/billing/webhook';
 import { signPayload, verifySignature } from '../src/services/billing/webhookSignature';
 import { buildVietQrPayload, crc16, normalizeContent } from '../src/services/billing/vietqr';
@@ -259,6 +265,77 @@ describe('§11 bóc mã đơn khỏi nội dung chuyển khoản', () => {
     expect(timMaDon(null)).toBeNull();
     // Chứa I/L/O/U -> không thuộc bảng chữ nên không phải mã của ta.
     expect(timMaDon('BIIIIIIIIIII')).toBeNull();
+  });
+});
+
+describe('§11 ảnh QR tĩnh', () => {
+  /** PNG hợp lệ nhỏ nhất: 8 byte chữ ký + phần còn lại không cần đúng chuẩn. */
+  const PNG = Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    Buffer.alloc(64, 7),
+  ]);
+  const JPEG = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff]), Buffer.alloc(64, 7)]);
+  const url = (mime: string, buf: Buffer): string =>
+    `data:${mime};base64,${buf.toString('base64')}`;
+
+  it('nhận PNG và JPEG thật', () => {
+    const png = parseQrDataUrl(url('image/png', PNG));
+    expect(png.ok).toBe(true);
+    if (png.ok) expect(png.image.ext).toBe('png');
+
+    const jpg = parseQrDataUrl(url('image/jpeg', JPEG));
+    expect(jpg.ok).toBe(true);
+    if (jpg.ok) expect(jpg.image.ext).toBe('jpg');
+  });
+
+  it('tin MAGIC BYTES chứ không tin chuỗi MIME client khai', () => {
+    /*
+     * Ca quan trọng nhất của nhóm này, và cùng cái bẫy mà `detectFormat.ts` của
+     * §7.3 đã ghi: phần `image/png` trong data URL là do CLIENT viết. Đổi tên
+     * một file thực thi thành `.png` mất hai giây; thứ ngăn nó là mấy byte đầu.
+     */
+    const gia = parseQrDataUrl(url('image/png', Buffer.from('MZ ', 'binary')));
+    expect(gia.ok).toBe(false);
+
+    // Và ngược lại: nội dung ĐÚNG là PNG thì nhận, dù client khai sai MIME.
+    const that = parseQrDataUrl(url('image/gif', PNG));
+    expect(that.ok).toBe(true);
+    if (that.ok) expect(that.image.contentType).toBe('image/png');
+  });
+
+  it('từ chối ảnh quá cỡ, và nói ra bao nhiêu KB', () => {
+    // Trần thật kiểm SAU khi giải mã. Không có nó thì một chuỗi base64 lớn đi
+    // qua zod rồi mới bị body-parser cắt với lỗi 413 chẳng nói gì về ảnh.
+    const to = Buffer.concat([PNG.subarray(0, 8), Buffer.alloc(QR_IMAGE_MAX_BYTES, 1)]);
+    const res = parseQrDataUrl(url('image/png', to));
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.reason).toMatch(/KB/);
+  });
+
+  it('từ chối chuỗi không phải data URL, không ném', () => {
+    // Ném ở đây sẽ thành 500 cho một lỗi nhập liệu của người dùng.
+    for (const rac of ['', 'khong-phai-data-url', 'data:image/png,khong-co-base64', 'http://x/a.png']) {
+      expect(() => parseQrDataUrl(rac)).not.toThrow();
+      expect(parseQrDataUrl(rac).ok).toBe(false);
+    }
+  });
+
+  it('khoá lưu trữ do SERVER sinh, nằm dưới tiền tố riêng của nền tảng', () => {
+    const key = buildQrKey('png');
+    // `billing/qr/` tách hẳn khỏi `t{id}/w{id}/` của dữ liệu người dùng: đây là
+    // cấu hình của NỀN TẢNG, và lệnh xoá theo tiền tố khi một tổ chức rời đi
+    // không được chạm tới nó.
+    expect(key).toMatch(/^billing\/qr\/[0-9a-f-]{36}\.png$/);
+    expect(isQrKey(key)).toBe(true);
+    expect(buildQrKey('png')).not.toBe(key);
+  });
+
+  it('`isQrKey` từ chối mọi chuỗi không do ta sinh', () => {
+    // Nó là chốt chặn cuối trước khi mang một giá trị từ database đi đọc object.
+    expect(isQrKey('t1/w1/bao-cao.xlsx')).toBe(false);
+    expect(isQrKey('billing/qr/../../t1/w1/bao-cao.xlsx')).toBe(false);
+    expect(isQrKey('billing/qr/abc.png')).toBe(false);
+    expect(isQrKey('')).toBe(false);
   });
 });
 

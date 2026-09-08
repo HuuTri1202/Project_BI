@@ -163,6 +163,9 @@ export async function reseedBillingCatalog(): Promise<void> {
      VALUES
        ('vietqr_bank', 'bank_transfer', 'Chuyển khoản ngân hàng (VietQR)',
         'Quét mã QR hoặc chuyển khoản thủ công. Nội dung chuyển khoản phải là mã đơn hàng, giữ nguyên không thêm bớt ký tự nào. Đơn được kích hoạt sau khi quản trị viên đối chiếu sao kê.',
-        1, 10)`,
+        1, 10),
+       ('momo_static', 'momo', 'Ví MoMo',
+        'Quét mã QR bằng ứng dụng MoMo. Nhập ĐÚNG số tiền của đơn, và ghi mã đơn hàng vào phần lời nhắn. Đơn được kích hoạt sau khi quản trị viên đối chiếu.',
+        0, 20)`,
   );
 }

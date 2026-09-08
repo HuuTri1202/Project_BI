@@ -70,6 +70,20 @@ async function taoDon(): Promise<{ code: string; amount: number }> {
  * khớp trong khi mọi thứ trông đúng. Ký trên đúng byte sẽ gửi đi là điều kiện
  * để bộ test này kiểm được thứ nó định kiểm.
  */
+/**
+ * Một PNG hợp lệ tối thiểu, dạng data URL.
+ *
+ * Chỉ cần 8 byte chữ ký đúng: `parseQrDataUrl` nhận diện bằng MAGIC BYTES chứ
+ * không giải mã ảnh, nên dựng một PNG đầy đủ chunk là công thừa cho bộ test.
+ */
+function pngDataUrl(): string {
+  const bytes = Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    Buffer.alloc(128, 3),
+  ]);
+  return `data:image/png;base64,${bytes.toString('base64')}`;
+}
+
 function guiWebhook(body: unknown, secret = WEBHOOK_SECRET): request.Test {
   const raw = JSON.stringify(body);
   return request(app)
@@ -591,6 +605,130 @@ describe('§11 quản lý gói và ghi đè thủ công', () => {
 
     expect(res.body[0].name).toBe('Chuyển khoản VietQR');
     expect(res.body[0].webhookSecretHint).toBe(WEBHOOK_SECRET.slice(-4));
+  });
+
+  it('MoMo: gieo sẵn nhưng TẮT và CHƯA đủ điều kiện', async () => {
+    // Khác `vietqr_bank` (bật sẵn) có chủ ý: một phương thức MoMo bật mà chưa
+    // có ảnh QR sẽ hiện ra trong danh sách lựa chọn của khách như một lựa chọn
+    // thật, rồi dẫn tới một màn hình trống.
+    const res = await request(app)
+      .get('/api/admin/billing/payment-methods')
+      .set(bearer(f.tokenSuper))
+      .expect(200);
+
+    const momo = res.body.find((m: { code: string }) => m.code === 'momo_static');
+    expect(momo).toBeDefined();
+    expect(momo.provider).toBe('momo');
+    expect(momo.isActive).toBe(false);
+    expect(momo.isConfigured).toBe(false);
+    expect(momo.staticQrUrl).toBeNull();
+  });
+
+  it('tải ảnh QR lên -> MoMo đủ điều kiện, và ảnh tải về được', async () => {
+    const momoId = await idCua('payment_methods', 'momo_static');
+
+    const luu = await request(app)
+      .patch(`/api/admin/billing/payment-methods/${String(momoId)}`)
+      .set(bearer(f.tokenSuper))
+      .send({ staticQrImage: pngDataUrl(), isActive: true })
+      .expect(200);
+
+    expect(luu.body.isConfigured).toBe(true);
+    // Đường dẫn API, KHÔNG phải khoá object trên MinIO — đưa khoá ra ngoài là
+    // lộ cấu trúc bucket, và trình duyệt cũng không nói chuyện với MinIO được.
+    expect(luu.body.staticQrUrl).toBe(`/v1/payment-methods/${String(momoId)}/qr`);
+    expect(JSON.stringify(luu.body)).not.toContain('billing/qr/');
+
+    // Và ảnh thật sự lấy về được, đúng kiểu nội dung.
+    const anh = await request(app)
+      .get(`/api/v1/payment-methods/${String(momoId)}/qr`)
+      .set(bearer(f.tokenUser))
+      .expect(200);
+    expect(anh.headers['content-type']).toContain('image/png');
+    expect(anh.body.length).toBeGreaterThan(8);
+  });
+
+  it('ảnh KHÔNG phải PNG/JPEG bị từ chối, dù data URL khai là image/png', async () => {
+    /*
+     * Phần `image/png` trong data URL do CLIENT viết. Tin nó là kiểm đúng thứ
+     * client vừa khai — cùng cái bẫy `detectFormat.ts` của §7.3 đã ghi.
+     */
+    const momoId = await idCua('payment_methods', 'momo_static');
+    const gia = `data:image/png;base64,${Buffer.from('MZ khong phai anh').toString('base64')}`;
+
+    const res = await request(app)
+      .patch(`/api/admin/billing/payment-methods/${String(momoId)}`)
+      .set(bearer(f.tokenSuper))
+      .send({ staticQrImage: gia })
+      .expect(400);
+
+    expect(res.body.fields).toHaveProperty('staticQrImage');
+  });
+
+  it('đơn MoMo có ảnh QR tĩnh và KHÔNG có chuỗi VietQR', async () => {
+    /*
+     * Hai trường mã QR mang hai nghĩa khác nhau, và đúng một trong hai có giá
+     * trị. Nhầm chúng nghĩa là màn thanh toán hiện một hình vuông rỗng, hoặc
+     * bảo khách "số tiền đã điền sẵn" trong khi họ phải tự nhập.
+     */
+    const momoId = await idCua('payment_methods', 'momo_static');
+    await request(app)
+      .patch(`/api/admin/billing/payment-methods/${String(momoId)}`)
+      .set(bearer(f.tokenSuper))
+      .send({ staticQrImage: pngDataUrl(), isActive: true })
+      .expect(200);
+
+    const don = await request(app)
+      .post('/api/v1/orders')
+      .set(bearer(f.tokenUser))
+      .send({ planId: f.planPro, paymentMethodId: momoId, cycle: 'monthly' })
+      .expect(201);
+
+    expect(don.body.qrPayload).toBeNull();
+    expect(don.body.staticQrUrl).toBe(`/v1/payment-methods/${String(momoId)}/qr`);
+  });
+
+  it('MoMo chưa có ảnh -> KHÔNG tạo được đơn, nói rõ ai phải sửa', async () => {
+    const momoId = await idCua('payment_methods', 'momo_static');
+    // Bật lên nhưng không tải ảnh — đúng trạng thái nếu người vận hành làm
+    // nửa chừng.
+    await request(app)
+      .patch(`/api/admin/billing/payment-methods/${String(momoId)}`)
+      .set(bearer(f.tokenSuper))
+      .send({ isActive: true })
+      .expect(200);
+
+    const res = await request(app)
+      .post('/api/v1/orders')
+      .set(bearer(f.tokenUser))
+      .send({ planId: f.planPro, paymentMethodId: momoId, cycle: 'monthly' })
+      .expect(409);
+
+    expect(res.body.error).toBe('PaymentMethodNotConfigured');
+    expect(res.body.message).toContain('quản trị viên');
+  });
+
+  it('gỡ ảnh -> MoMo mất điều kiện, và đường ảnh trả 404', async () => {
+    const momoId = await idCua('payment_methods', 'momo_static');
+    await request(app)
+      .patch(`/api/admin/billing/payment-methods/${String(momoId)}`)
+      .set(bearer(f.tokenSuper))
+      .send({ staticQrImage: pngDataUrl() })
+      .expect(200);
+
+    const go = await request(app)
+      .patch(`/api/admin/billing/payment-methods/${String(momoId)}`)
+      .set(bearer(f.tokenSuper))
+      .send({ staticQrImage: null })
+      .expect(200);
+
+    expect(go.body.isConfigured).toBe(false);
+    expect(go.body.staticQrUrl).toBeNull();
+
+    await request(app)
+      .get(`/api/v1/payment-methods/${String(momoId)}/qr`)
+      .set(bearer(f.tokenUser))
+      .expect(404);
   });
 
   it('ghi đè gói thủ công cần LÝ DO, và tạo subscription không kèm đơn hàng', async () => {

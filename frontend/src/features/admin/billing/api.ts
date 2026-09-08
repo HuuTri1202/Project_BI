@@ -82,6 +82,15 @@ export interface PaymentMethodPatch {
   bankAccountName?: string | null;
   /** Bỏ trống = GIỮ NGUYÊN khoá đang có. `null` = xoá khoá. */
   webhookSecret?: string | null;
+  /**
+   * Ảnh QR tĩnh dạng data URL base64. Bỏ trống = GIỮ NGUYÊN ảnh đang có,
+   * `null` = gỡ ảnh.
+   *
+   * Gửi trong JSON chứ không multipart: repo cố ý không bật
+   * `express.urlencoded`, và thêm parser multipart chỉ vì một ảnh vài chục KB
+   * là mở lại đúng lớp phòng thủ CSRF mà việc đó đang giữ.
+   */
+  staticQrImage?: string | null;
   isActive?: boolean;
 }
 
