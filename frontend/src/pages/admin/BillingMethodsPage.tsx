@@ -238,6 +238,48 @@ function MethodModal({
   );
 }
 
+/**
+ * Công tắc bật/tắt một phương thức.
+ *
+ * ─── Vì sao nằm TRÊN THẺ chứ không trong hộp thoại cấu hình ────────────────
+ *
+ * Bản đầu không có công tắc nào cả, và hậu quả lộ ra ngay khi dùng thật: MoMo
+ * được gieo với `is_active = 0` (có chủ ý — xem migration 31), người vận hành
+ * tải ảnh QR lên xong, và không có cách nào bật nó. Phương thức cấu hình đầy đủ
+ * mà khách vẫn không thấy, không có gì trên màn hình giải thích vì sao.
+ *
+ * Đặt trên thẻ vì đây là việc làm THƯỜNG XUYÊN nhất sau khi cấu hình xong —
+ * tạm tắt một cổng đang trục trặc là thao tác một giây, không đáng phải mở một
+ * hộp thoại và bấm Lưu.
+ *
+ * Bật một phương thức CHƯA cấu hình đủ không bị chặn, và cũng không nguy hiểm:
+ * màn Checkout lọc theo `isConfigured` nên khách không thấy nó. Nhưng nhãn phải
+ * nói ra trạng thái đó, nếu không người vận hành tưởng đã xong việc.
+ */
+function ActiveToggle({ method }: { method: AdminPaymentMethodDto }): React.ReactElement {
+  const update = useUpdatePaymentMethod();
+
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={method.isActive}
+      aria-label={`${method.isActive ? 'Tắt' : 'Bật'} ${method.name}`}
+      disabled={update.isPending}
+      onClick={() => update.mutate({ id: method.id, input: { isActive: !method.isActive } })}
+      className={`relative h-6 w-11 shrink-0 rounded-full transition-colors disabled:opacity-50 ${
+        method.isActive ? 'bg-brand-600' : 'bg-slate-300'
+      }`}
+    >
+      <span
+        className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${
+          method.isActive ? 'translate-x-5.5' : 'translate-x-0.5'
+        }`}
+      />
+    </button>
+  );
+}
+
 export default function BillingMethodsPage(): React.ReactElement {
   const { data, isPending, isError, error } = useAdminPaymentMethods();
   const [editing, setEditing] = useState<AdminPaymentMethodDto | null>(null);
@@ -263,10 +305,19 @@ export default function BillingMethodsPage(): React.ReactElement {
                       <h2 className="text-base font-semibold text-slate-900">{m.name}</h2>
                       <Badge tone="neutral">{PAYMENT_PROVIDER_LABELS[m.provider]}</Badge>
                       {/*
-                        Hai nhãn khác nhau, và khác biệt đó quan trọng: "Đang
-                        bật" mà chưa cấu hình đủ thì khách bấm mua sẽ nhận lỗi —
-                        nên phải nói ra chứ không chỉ hiện màu xanh.
+                        HAI nhãn cho HAI câu hỏi khác nhau, và gộp lại là mất
+                        đúng thứ người vận hành cần biết:
+
+                          "Đang bật"  người vận hành đã cho phép dùng chưa
+                          "Sẵn sàng"  đã đủ thông tin để tạo đơn chưa
+
+                        Một phương thức "Đang bật" nhưng "Chưa cấu hình đủ" thì
+                        khách KHÔNG thấy nó (màn Checkout lọc theo cấu hình) —
+                        và nếu chỉ có một nhãn thì không có gì nói ra điều đó.
                       */}
+                      <Badge tone={m.isActive ? 'brand' : 'neutral'}>
+                        {m.isActive ? 'Đang bật' : 'Đang tắt'}
+                      </Badge>
                       <Badge tone={m.isConfigured ? 'success' : 'warning'}>
                         {m.isConfigured ? 'Sẵn sàng' : 'Chưa cấu hình đủ'}
                       </Badge>
@@ -275,7 +326,10 @@ export default function BillingMethodsPage(): React.ReactElement {
                       <p className="mt-1 text-sm text-slate-500">{m.instructions}</p>
                     )}
                   </div>
-                  <Button onClick={() => setEditing(m)}>Cấu hình</Button>
+                  <div className="flex shrink-0 items-center gap-3">
+                    <ActiveToggle method={m} />
+                    <Button onClick={() => setEditing(m)}>Cấu hình</Button>
+                  </div>
                 </div>
 
                 <dl className="mt-4 grid gap-2 border-t border-slate-100 pt-4 text-sm sm:grid-cols-2">
@@ -301,10 +355,23 @@ export default function BillingMethodsPage(): React.ReactElement {
                   </div>
                 </dl>
 
+                {/*
+                  Hai trạng thái "khách không dùng được", với hai việc phải làm
+                  khác hẳn nhau. Gộp thành một câu chung chung là bắt người vận
+                  hành tự đoán mình đang thiếu bước nào.
+                */}
                 {!m.isConfigured && (
                   <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900">
-                    Thiếu thông tin tài khoản nhận tiền, nên chưa tổ chức nào tạo được đơn qua
-                    phương thức này.
+                    {m.provider === 'momo'
+                      ? 'Chưa có ảnh mã QR, nên khách không thấy phương thức này. Bấm "Cấu hình" để tải ảnh lên.'
+                      : 'Thiếu thông tin tài khoản nhận tiền, nên chưa tổ chức nào tạo được đơn qua phương thức này.'}
+                  </p>
+                )}
+
+                {m.isConfigured && !m.isActive && (
+                  <p className="mt-3 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                    Đã cấu hình xong nhưng đang <strong>tắt</strong>, nên khách chưa chọn được.
+                    Gạt công tắc ở trên để bật.
                   </p>
                 )}
               </div>

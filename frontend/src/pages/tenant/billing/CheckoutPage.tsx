@@ -209,6 +209,10 @@ export function OrderDetailPage(): React.ReactElement {
   const don = order.data;
   const conCho = hienTai !== undefined && ORDER_STATUSES_LIVE.includes(hienTai);
   const conThoiGian = conLai(don.expiresAt, now);
+  // Ví điện tử dùng bộ từ vựng KHÁC ngân hàng: không có "số tài khoản", không
+  // có "nội dung chuyển khoản". Cùng ba trường dữ liệu, nhưng gọi bằng tên mà
+  // khách nhìn thấy trong app của họ — nếu không, họ đi tìm một ô không tồn tại.
+  const laViDienTu = don.provider === 'momo';
 
   // ─── Đã thanh toán ────────────────────────────────────────────────────────
   if (hienTai === 'paid') {
@@ -332,13 +336,15 @@ export function OrderDetailPage(): React.ReactElement {
         <dl className="mt-3 space-y-2 text-sm">
           {don.bankAccountNo !== null && (
             <div className="flex justify-between gap-3">
-              <dt className="text-slate-500">Số tài khoản</dt>
+              {/* Ví điện tử không có "số tài khoản": ô đó đựng số điện thoại, và
+                  gọi sai tên sẽ khiến người ta đi tìm một thứ không tồn tại. */}
+              <dt className="text-slate-500">{laViDienTu ? 'Số điện thoại' : 'Số tài khoản'}</dt>
               <dd className="font-mono text-slate-900">{don.bankAccountNo}</dd>
             </div>
           )}
           {don.bankAccountName !== null && (
             <div className="flex justify-between gap-3">
-              <dt className="text-slate-500">Chủ tài khoản</dt>
+              <dt className="text-slate-500">{laViDienTu ? 'Tên người nhận' : 'Chủ tài khoản'}</dt>
               <dd className="text-right text-slate-900">{don.bankAccountName}</dd>
             </div>
           )}
@@ -349,15 +355,15 @@ export function OrderDetailPage(): React.ReactElement {
             </dd>
           </div>
           <div className="flex items-baseline justify-between gap-3 border-t border-slate-100 pt-2">
-            <dt className="text-slate-500">Nội dung</dt>
+            <dt className="text-slate-500">{laViDienTu ? 'Lời nhắn' : 'Nội dung'}</dt>
             <dd className="font-mono text-base font-bold text-slate-900">{don.orderCode}</dd>
           </div>
         </dl>
 
         <p className="mt-3 rounded-lg bg-slate-50 px-3 py-2 text-xs leading-snug text-slate-600">
-          Nội dung chuyển khoản phải là <strong>đúng mã đơn</strong>, không thêm bớt ký tự nào —
-          hệ thống đối chiếu bằng chuỗi này. Đơn được kích hoạt sau khi quản trị viên xác nhận đã
-          nhận tiền.
+          {laViDienTu ? 'Lời nhắn' : 'Nội dung chuyển khoản'} phải là <strong>đúng mã đơn</strong>,
+          không thêm bớt ký tự nào — hệ thống đối chiếu bằng chuỗi này. Đơn được kích hoạt sau khi
+          quản trị viên xác nhận đã nhận tiền.
         </p>
       </div>
 
