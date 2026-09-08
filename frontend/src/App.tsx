@@ -1,4 +1,5 @@
 import { Navigate, Route, Routes } from 'react-router-dom';
+import { useAuth } from './auth/useAuth';
 import { RegisterPage } from './features/auth/RegisterPage';
 import { AdminLayout } from './layouts/AdminLayout';
 import { UserLayout } from './layouts/UserLayout';
@@ -62,6 +63,22 @@ import { WorkspaceProvider } from './workspace/WorkspaceProvider';
  * vite.config.ts proxy `/health` thẳng sang Express nên đường dẫn đó không bao
  * giờ tới được SPA.
  */
+
+/**
+ * Điểm rẽ ở `/`: người vận hành nền tảng về console, còn lại về trang chủ.
+ *
+ * Cùng luật với `redirectTargetFor` và cố ý là hai chỗ chứ không một: cái kia lo
+ * SAU KHI ĐĂNG NHẬP, cái này lo mọi lần khác — gõ thẳng địa chỉ gốc, bấm logo,
+ * hay quay lại từ bookmark. Sửa một mà quên chỗ kia thì người vận hành vẫn rơi
+ * vào khu người dùng, chỉ qua một cửa khác.
+ *
+ * `replace` để nút Back không kẹt trong vòng lặp chuyển hướng.
+ */
+function HomeOrConsole(): React.ReactElement {
+  const { user } = useAuth();
+  return <Navigate to={user?.platformRole === 'superadmin' ? '/admin' : '/home'} replace />;
+}
+
 export default function App(): React.ReactElement {
   return (
     <Routes>
@@ -90,8 +107,13 @@ export default function App(): React.ReactElement {
         >
           {/* `/` là điểm rẽ, không phải trang nội dung: giữ nó là một trang thật
               nghĩa là có hai đường dẫn cùng hiện trang chủ, và mọi link nội bộ
-              phải chọn một trong hai. */}
-          <Route path="/" element={<Navigate to="/home" replace />} />
+              phải chọn một trong hai.
+
+              Rẽ theo TRỤC NỀN TẢNG, cùng luật với `redirectTargetFor`: chỉ sửa
+              điều hướng sau đăng nhập mà bỏ chỗ này thì người vận hành gõ thẳng
+              địa chỉ gốc hoặc bấm logo vẫn rơi vào khu người dùng — đúng thứ vừa
+              bỏ đi, chỉ qua một cửa khác. */}
+          <Route path="/" element={<HomeOrConsole />} />
           <Route path="/home" element={<HomePage />} />
           <Route path="/profile" element={<ProfilePage />} />
 

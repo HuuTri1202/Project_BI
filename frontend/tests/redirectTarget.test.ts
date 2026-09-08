@@ -8,10 +8,14 @@ import type { PublicUser, TenantRole } from '../src/types/auth';
  * Đáng viết test vì thứ tự ưu tiên ở đây là loại logic mà đọc code thấy đúng
  * nhưng chạy lại sai với đúng một tổ hợp đầu vào.
  *
- * MỌI người — kể cả quản trị hệ thống — đều về trang chủ. Đường vào console vận
- * hành là nút "Admin Console" trên chính trang chủ đó, chỉ hiện với
- * `platformRole === 'superadmin'`. Bản trước đưa thẳng superadmin vào `/admin`,
- * nghĩa là muốn xem workspace của chính mình thì phải tự gõ địa chỉ.
+ * Người vận hành NỀN TẢNG vào thẳng console; mọi người khác về trang chủ.
+ *
+ * ⚠️ Bộ test này ĐÃ TỪNG khẳng định điều ngược lại, và nói rất chắc chắn. Giữ
+ * ghi chú đó ở đây để người sau thấy: một bài test xanh không chứng minh hành vi
+ * ĐÚNG, nó chỉ chứng minh hành vi KHỚP với thứ ai đó đã viết ra. Lý lẽ cũ ("con
+ * sole là nơi chủ động đi tới") đúng về nguyên tắc nhưng sai với tài khoản
+ * `seed:admin`: tổ chức `bi-platform` của nó chỉ tồn tại để thoả ràng buộc
+ * membership, không có dữ liệu và không có ai khác trong đó.
  */
 
 /** Người dùng thường: `platformRole = 'user'`. */
@@ -36,17 +40,26 @@ describe('redirectTargetFor', () => {
     ).toBe('/change-password');
   });
 
-  it('quản trị hệ thống cũng về trang chủ, KHÔNG nhảy thẳng vào /admin', () => {
-    // Console vận hành là nơi người ta chủ động đi tới, không phải điểm rơi mặc
-    // định của mỗi lần đăng nhập. Nút "Admin Console" trên trang chủ mới là cửa.
-    expect(redirectTargetFor(superadmin(), 'admin', null)).toBe('/');
-    expect(redirectTargetFor(superadmin(), 'admin', '/')).toBe('/');
+  it('quản trị hệ thống vào THẲNG console', () => {
+    // Việc của tài khoản này là vận hành nền tảng, nên đó là nơi nó phải rơi
+    // vào. Bắt đi qua một trang chủ trống rồi bấm thêm một nút là thêm một bước
+    // cho mọi lần đăng nhập.
+    expect(redirectTargetFor(superadmin(), 'admin', null)).toBe('/admin');
+    expect(redirectTargetFor(superadmin(), 'admin', '/')).toBe('/admin');
   });
 
-  it('ADMIN CỦA TỔ CHỨC cũng về trang chủ', () => {
-    // Luồng đăng ký cấp `admin` trong tổ chức cho mọi người tự lập công ty. Vai
-    // trò đó KHÔNG mở được khu vận hành hệ thống — đó là lỗ hổng đã từng có, và
-    // `AdminRoute` cùng ba lớp guard ở backend là chỗ chặn thật.
+  it('ADMIN CỦA TỔ CHỨC vẫn về trang chủ — rẽ theo trục NỀN TẢNG', () => {
+    /*
+     * Ca canh ranh giới quan trọng nhất của hàm này.
+     *
+     * Luồng đăng ký cấp `admin` TRONG TỔ CHỨC cho mọi người tự lập công ty. Nếu
+     * ai đó "đơn giản hoá" bằng cách rẽ theo `role === 'admin'` thay vì
+     * `platformRole`, thì mọi người tự đăng ký đều bị ném vào console vận hành —
+     * rồi `AdminRoute` đá họ sang /403, và họ không vào được app nữa.
+     *
+     * `AdminRoute` cùng ba lớp guard ở backend là chỗ chặn THẬT; hàm này chỉ
+     * chọn nơi rơi vào, nên nó phải chọn đúng để không dẫn người ta vào tường.
+     */
     expect(redirectTargetFor(user(), 'admin', null)).toBe('/');
   });
 
@@ -66,6 +79,16 @@ describe('redirectTargetFor', () => {
       // Không lọc thì đăng nhập xong người dùng bị ném thẳng sang trang giả mạo.
       const target = redirectTargetFor(user(), 'viewer' as TenantRole, from);
       expect(target).toBe('/');
+    },
+  );
+
+  it.each(['//evil.com', 'https://evil.com', '/\\evil.com'])(
+    'chặn open redirect CẢ với superadmin: %s',
+    (from) => {
+      // Ca riêng vì nhánh trả về của superadmin nằm SAU phép lọc `from`. Gộp vào
+      // ca trên sẽ bỏ sót đúng thứ tự đó — và một open redirect nhắm vào tài
+      // khoản vận hành nền tảng là ca tệ nhất trong mọi ca.
+      expect(redirectTargetFor(superadmin(), 'admin', from)).toBe('/admin');
     },
   );
 });
