@@ -513,6 +513,68 @@ describe('§11 quản lý gói và ghi đè thủ công', () => {
     expect(json).not.toContain('sealed');
   });
 
+  it('số tài khoản DÁN CÓ KHOẢNG TRẮNG vẫn lưu được', async () => {
+    /*
+     * Bản đầu kiểm bằng `/^\d{6,32}$/` và từ chối `"0011 0045 67890"` — đúng
+     * cách người ta dán số tài khoản từ ứng dụng ngân hàng. Thông báo "chỉ gồm
+     * chữ số" khi đó vừa chính xác vừa vô dụng: người vận hành nhìn vào ô của
+     * mình thấy toàn chữ số và không hiểu hệ thống đang nói gì.
+     *
+     * Dấu cách và gạch ngang là cách CON NGƯỜI nhóm chữ số cho dễ đọc, không
+     * phải một phần của số tài khoản.
+     */
+    const res = await request(app)
+      .patch(`/api/admin/billing/payment-methods/${f.methodId}`)
+      .set(bearer(f.tokenSuper))
+      .send({ bankBin: '970 436', bankAccountNo: '0011 0045-67890' })
+      .expect(200);
+
+    expect(res.body.bankBin).toBe('970436');
+    expect(res.body.bankAccountNo).toBe('0011004567890');
+  });
+
+  it('số tài khoản có CHỮ CÁI vẫn nhận — vài ngân hàng dùng tiền tố chữ', async () => {
+    // Chuẩn EMVCo của VietQR nhận chuỗi chữ-số ở trường này, nên chặn chữ cái
+    // là ta tự đặt ra một luật mà NAPAS không đặt.
+    const res = await request(app)
+      .patch(`/api/admin/billing/payment-methods/${f.methodId}`)
+      .set(bearer(f.tokenSuper))
+      .send({ bankAccountNo: 'VNM0011004567' })
+      .expect(200);
+
+    expect(res.body.bankAccountNo).toBe('VNM0011004567');
+  });
+
+  it('nhưng ký tự LẠ thì vẫn chặn — nó đi thẳng vào chuỗi mã QR', async () => {
+    // Một ký tự lạ ở đây là một mã QR không ai quét được, và nó chỉ lộ ra khi
+    // khách đã giơ điện thoại lên.
+    const res = await request(app)
+      .patch(`/api/admin/billing/payment-methods/${f.methodId}`)
+      .set(bearer(f.tokenSuper))
+      .send({ bankAccountNo: '0011;DROP/*' })
+      .expect(400);
+
+    expect(res.body.fields).toHaveProperty('bankAccountNo');
+  });
+
+  it('lưu lại Y HỆT giá trị đang có vẫn 200, không báo "không có thay đổi"', async () => {
+    // Mở hộp thoại rồi bấm Lưu mà không sửa gì là thao tác bình thường. Nếu
+    // `affectedRows === 0` bị hiểu là lỗi thì người dùng nhận một thông báo đỏ
+    // cho một hành động hoàn toàn hợp lệ.
+    const body = { bankAccountName: 'CONG TY GIONG NHAU' };
+    await request(app)
+      .patch(`/api/admin/billing/payment-methods/${f.methodId}`)
+      .set(bearer(f.tokenSuper))
+      .send(body)
+      .expect(200);
+
+    await request(app)
+      .patch(`/api/admin/billing/payment-methods/${f.methodId}`)
+      .set(bearer(f.tokenSuper))
+      .send(body)
+      .expect(200);
+  });
+
   it('sửa tên phương thức KHÔNG xoá mất khoá bí mật', async () => {
     // Bắt gửi lại bí mật mỗi lần sửa nghĩa là ai muốn đổi một chữ cũng phải biết
     // khoá API — thứ mà người dựng cấu hình ban đầu có thể đã không chia sẻ.

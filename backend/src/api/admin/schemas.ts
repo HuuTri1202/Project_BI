@@ -138,6 +138,39 @@ export const createPlanBodySchema = z.object({
 export const updatePlanBodySchema = createPlanBodySchema.omit({ code: true });
 
 /**
+ * Mã ngân hàng và số tài khoản — DỌN dấu phân cách trước khi kiểm.
+ *
+ * ─── Vì sao không chỉ `.regex(/^\d+$/)` ────────────────────────────────────
+ *
+ * Bản đầu làm đúng thế, và nó từ chối `"0011 0045 67890"` — tức là từ chối
+ * đúng cách người ta DÁN số tài khoản từ ứng dụng ngân hàng. Thông báo "chỉ gồm
+ * chữ số" thì chính xác về mặt chữ nghĩa và vô dụng về mặt việc phải làm: người
+ * vận hành nhìn vào ô của mình thấy toàn chữ số, và không hiểu hệ thống đang
+ * nói gì.
+ *
+ * Dấu cách, gạch ngang và dấu chấm là cách CON NGƯỜI nhóm chữ số cho dễ đọc,
+ * không phải một phần của số tài khoản. Bỏ chúng đi rồi mới kiểm.
+ *
+ * ─── Vì sao cho phép CHỮ CÁI ───────────────────────────────────────────────
+ *
+ * Phần lớn số tài khoản Việt Nam là chữ số thuần, nhưng không phải tất cả — vài
+ * ngân hàng dùng tiền tố chữ cho tài khoản ngoại tệ hoặc tài khoản liên kết
+ * thẻ. Chuẩn EMVCo của VietQR nhận chuỗi chữ-số ở trường này, nên chặn chữ cái
+ * là ta tự đặt ra một luật mà NAPAS không đặt.
+ *
+ * Vẫn chặn ký tự khác: chuỗi này đi thẳng vào chuỗi TLV của mã QR, nên một ký
+ * tự lạ ở đây là một mã QR không ai quét được — và nó chỉ lộ ra khi khách đã
+ * giơ điện thoại lên.
+ */
+function bankField(min: number, max: number, message: string) {
+  return z
+    .string()
+    .trim()
+    .transform((v) => v.replace(/[\s.-]/g, ''))
+    .refine((v) => v.length >= min && v.length <= max && /^[0-9A-Za-z]+$/.test(v), message);
+}
+
+/**
  * Cấu hình phương thức thanh toán.
  *
  * ⚠️ Ba trạng thái cho mỗi trường bí mật: vắng mặt = GIỮ NGUYÊN, `null` = xoá,
@@ -149,16 +182,12 @@ export const updatePaymentMethodBodySchema = z.object({
   name: z.string().trim().min(1).max(255).optional(),
   instructions: z.string().trim().max(1000).nullable().optional(),
   /** Mã ngân hàng theo NAPAS — đúng 6 chữ số, và mã QR sai một số là mã vô dụng. */
-  bankBin: z
-    .string()
-    .trim()
-    .regex(/^\d{6}$/, 'Mã ngân hàng phải là 6 chữ số')
-    .nullable()
-    .optional(),
-  bankAccountNo: z
-    .string()
-    .trim()
-    .regex(/^\d{6,32}$/, 'Số tài khoản chỉ gồm chữ số')
+  bankBin: bankField(6, 6, 'Mã ngân hàng phải là 6 chữ số (BIN theo NAPAS)').nullable().optional(),
+  bankAccountNo: bankField(
+    4,
+    32,
+    'Số tài khoản chỉ gồm chữ và số, dài 4–32 ký tự',
+  )
     .nullable()
     .optional(),
   bankAccountName: z.string().trim().max(255).nullable().optional(),

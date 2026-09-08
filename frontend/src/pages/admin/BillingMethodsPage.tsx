@@ -67,8 +67,23 @@ function MethodModal({
     if (method === null) return;
     setLoi(null);
 
-    if (bin !== '' && !/^\d{6}$/.test(bin)) {
+    /*
+     * Dọn dấu phân cách TRƯỚC khi kiểm và trước khi gửi.
+     *
+     * `trim()` một mình chỉ cắt hai đầu, nên `"0011 0045 67890"` — đúng cách
+     * người ta dán từ ứng dụng ngân hàng — vẫn còn khoảng trắng ở giữa và bị
+     * server từ chối. Backend cũng dọn (xem `bankField` trong admin/schemas),
+     * và cả hai cùng dọn là chủ ý: server là chỗ ràng buộc SỐNG, còn ở đây dọn
+     * sớm để người dùng thấy ngay giá trị thật sự được lưu.
+     */
+    const gonBin = bin.replace(/[\s.-]/g, '');
+    const gonAcc = accNo.replace(/[\s.-]/g, '');
+
+    if (gonBin !== '' && !/^\d{6}$/.test(gonBin)) {
       return setLoi('Mã ngân hàng phải là đúng 6 chữ số (BIN theo NAPAS).');
+    }
+    if (gonAcc !== '' && !/^[0-9A-Za-z]{4,32}$/.test(gonAcc)) {
+      return setLoi('Số tài khoản chỉ gồm chữ và số, dài 4–32 ký tự.');
     }
 
     update.mutate(
@@ -77,8 +92,8 @@ function MethodModal({
         input: {
           name: name.trim(),
           instructions: instructions.trim() === '' ? null : instructions.trim(),
-          bankBin: bin.trim() === '' ? null : bin.trim(),
-          bankAccountNo: accNo.trim() === '' ? null : accNo.trim(),
+          bankBin: gonBin === '' ? null : gonBin,
+          bankAccountNo: gonAcc === '' ? null : gonAcc,
           bankAccountName: accName.trim() === '' ? null : accName.trim(),
           // Bỏ trống = GIỮ NGUYÊN. Không gửi trường này lên khi rỗng.
           ...(secret.trim() === '' ? {} : { webhookSecret: secret.trim() }),
@@ -118,7 +133,12 @@ function MethodModal({
             value={bin}
             onChange={(e) => setBin(e.target.value)}
           />
-          <Field label="Số tài khoản" value={accNo} onChange={(e) => setAccNo(e.target.value)} />
+          <Field
+            label="Số tài khoản"
+            hint="Dán thoải mái — khoảng trắng và dấu gạch được bỏ tự động."
+            value={accNo}
+            onChange={(e) => setAccNo(e.target.value)}
+          />
         </div>
         <Field
           label="Tên chủ tài khoản"
