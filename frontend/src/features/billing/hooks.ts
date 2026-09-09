@@ -76,11 +76,23 @@ export function useOrder(code: string | null): UseQueryResult<OrderDetailDto> {
 }
 
 /**
- * Hỏi lại trạng thái đơn mỗi ba giây, và TỰ DỪNG khi đơn kết thúc.
+ * Hỏi lại trạng thái đơn mỗi HAI giây, và TỰ DỪNG khi đơn kết thúc.
+ *
+ * ─── Hai giây, và vì sao không nhanh hơn nữa ──────────────────────────────
+ *
+ * Độ trễ khách cảm nhận được là tổng của ba đoạn, và chỉ đoạn cuối nằm ở đây:
+ *
+ *   1. ngân hàng -> Sepay      vài giây tới vài chục giây, KHÔNG kiểm soát được
+ *   2. Sepay -> hệ thống       tối đa 5 giây (`SEPAY_MS` ở backend runner)
+ *   3. hệ thống -> màn hình    tối đa 2 giây, chính là con số dưới đây
+ *
+ * Rút đoạn 3 xuống nữa chỉ làm tăng số request mà không rút ngắn được tổng, vì
+ * hai đoạn đầu đã lớn hơn hẳn. Đây là endpoint NHẸ (chỉ trả trạng thái, không
+ * kèm chuỗi QR) nên hai giây không đáng ngại.
  *
  * ─── Vì sao `refetchInterval` là HÀM chứ không phải hằng số ────────────────
  *
- * `refetchInterval: 3000` sẽ gõ cửa server ba giây một lần MÃI MÃI — kể cả sau
+ * `refetchInterval: 2000` sẽ gõ cửa server hai giây một lần MÃI MÃI — kể cả sau
  * khi đơn đã thanh toán xong, kể cả khi người dùng để tab đó mở qua đêm. Dạng
  * hàm được react-query gọi lại sau MỖI lần fetch với dữ liệu mới nhất trong
  * tay, và trả `false` là dừng hẳn. Cùng khuôn đã dùng ở `useDatasetLoad` của §9.
@@ -106,7 +118,7 @@ export function useOrderStatus(
     enabled: code !== null && enabled,
     refetchInterval: (query) => {
       const status = query.state.data?.status;
-      return status !== undefined && ORDER_STATUSES_LIVE.includes(status) ? 3_000 : false;
+      return status !== undefined && ORDER_STATUSES_LIVE.includes(status) ? 2_000 : false;
     },
     refetchIntervalInBackground: true,
     staleTime: 0,
@@ -120,7 +132,7 @@ export function useOrderStatus(
  * phản ánh một sự thật, và thà gọi lại vài request thừa còn hơn để một trong
  * bốn chỗ hiện gói cũ sau khi khách vừa trả tiền.
  */
-function useInvalidateBilling(): () => Promise<void> {
+export function useInvalidateBilling(): () => Promise<void> {
   const queryClient = useQueryClient();
   return async () => {
     await queryClient.invalidateQueries({ queryKey: billingKeys.all });

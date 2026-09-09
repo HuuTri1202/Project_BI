@@ -533,6 +533,119 @@ export async function findActiveSubscription(
   return row ? { ...toSubscriptionDto(row), planId: Number(row.plan_id) } : null;
 }
 
+/** Bốn hạn mức của một gói. `null` ở mỗi trường = KHÔNG GIỚI HẠN. */
+export interface PlanLimits {
+  maxWorkspaces: number | null;
+  maxReports: number | null;
+  maxMembers: number | null;
+  maxStorageBytes: number | null;
+}
+
+/** Hạn mức đọc từ subscription đang hiệu lực. `null` = tổ chức đang ở Free. */
+export interface ActiveLimits extends PlanLimits {
+  planName: string;
+  planId: number;
+  /**
+   * Bốn con số trên có phải ẢNH CHỤP thật không.
+   *
+   * `false` nghĩa là dòng này có trước migration 32 hoặc được chèn bởi đường nào
+   * đó chưa chụp ảnh — lúc đó bốn con số trên đều NULL và KHÔNG có nghĩa "không
+   * giới hạn"; người gọi phải đọc sống từ `plans` theo `planId`.
+   */
+  captured: boolean;
+}
+
+interface LimitRow extends RowDataPacket {
+  plan_id: number;
+  plan_name: string;
+  max_workspaces: number | null;
+  max_reports: number | null;
+  max_members: number | null;
+  max_storage_bytes: number | null;
+  limits_captured_at: Date | null;
+}
+
+/**
+ * `null` phải đi qua nguyên vẹn: nó nghĩa là KHÔNG GIỚI HẠN, còn `Number(null)`
+ * cho ra `0` — tức là "không được cái nào", đúng nghĩa ngược lại. Đây là kiểu
+ * lỗi chỉ lộ ra khi khách trả tiền cao nhất không tạo được gì.
+ */
+function soHoacNull(v: number | null): number | null {
+  return v === null ? null : Number(v);
+}
+
+/**
+ * Hạn mức của một gói, KHÔNG lọc `deleted_at`.
+ *
+ * Khác `findPlanById` đúng ở chỗ đó, và đó là chủ ý: khi cần chụp ảnh hoặc rơi
+ * về đọc sống, một gói đã xoá mềm vẫn còn hạn mức đúng — còn `null` thì không.
+ */
+export async function findPlanLimits(db: Db, planId: number): Promise<PlanLimits | null> {
+  const [rows] = await db.query<LimitRow[]>(
+    `SELECT max_workspaces, max_reports, max_members, max_storage_bytes
+       FROM plans WHERE id = ? LIMIT 1`,
+    [planId],
+  );
+
+  const row = rows[0];
+  if (row === undefined) return null;
+
+  return {
+    maxWorkspaces: soHoacNull(row.max_workspaces),
+    maxReports: soHoacNull(row.max_reports),
+    maxMembers: soHoacNull(row.max_members),
+    maxStorageBytes: soHoacNull(row.max_storage_bytes),
+  };
+}
+
+/**
+ * Hạn mức của gói đang hiệu lực, đọc từ ẢNH CHỤP chứ không từ bảng giá.
+ *
+ * ─── Vì sao không dùng lại `findActiveSubscription` rồi tra `plans` ────────
+ *
+ * Vì đó đúng là thứ migration 32 vừa bỏ. Hạn mức đọc sống từ `plans` nghĩa là
+ * người vận hành hạ gói Pro lúc 3 giờ chiều sẽ KHOÁ NGAY khách đã trả tiền cho
+ * gói cũ — họ mua "10 workspace", đang dùng 7, và đột nhiên không tạo thêm được.
+ * Ảnh chụp cho họ đúng thứ đã trả tiền, cho tới hết chu kỳ.
+ *
+ * Trả về `null` khi tổ chức chưa mua gì. Đó là câu trả lời BÌNH THƯỜNG — luật
+ * "không có subscription nào = đang ở Free" của migration 30 — và người gọi có
+ * trách nhiệm rơi về hạn mức của gói `free`.
+ *
+ * Cùng bộ lọc với `findActiveSubscription` (`status = 'active' AND period_end >
+ * now`) và vì cùng một lý do: cron cho hết hạn có thể chưa chạy, và hạn mức của
+ * khách không được phụ thuộc vào việc nó có chạy đúng giờ không.
+ */
+export async function findActiveLimits(
+  db: Db,
+  tenantId: number,
+  now: Date,
+): Promise<ActiveLimits | null> {
+  // Cột TƯỜNG MINH, không `SELECT *`: bảng có cột sinh `active_tenant_id`, và
+  // `SELECT *` sẽ kéo nó vào mọi kết quả.
+  const [rows] = await db.query<LimitRow[]>(
+    `SELECT plan_id, plan_name, max_workspaces, max_reports, max_members,
+            max_storage_bytes, limits_captured_at
+       FROM subscriptions
+      WHERE tenant_id = ? AND status = 'active' AND period_end > ?
+      LIMIT 1`,
+    [tenantId, now],
+  );
+
+  const row = rows[0];
+  if (row === undefined) return null;
+
+  return {
+    planId: Number(row.plan_id),
+    planName: row.plan_name,
+    captured: row.limits_captured_at !== null,
+    maxWorkspaces: soHoacNull(row.max_workspaces),
+    maxReports: soHoacNull(row.max_reports),
+    maxMembers: soHoacNull(row.max_members),
+    maxStorageBytes: soHoacNull(row.max_storage_bytes),
+  };
+}
+
 // ─── Console vận hành: xuyên MỌI tổ chức ─────────────────────────────────────
 //
 // Mọi hàm dưới đây CỐ Ý không nhận `tenantId` — chúng phục vụ `/api/admin`, nơi
@@ -634,6 +747,27 @@ function adminOrderWhere(filter: AdminOrderFilter): { sql: string; params: unkno
   }
 
   return { sql: parts.join(' AND '), params };
+}
+
+/**
+ * Số đơn ĐANG CHỜ NGƯỜI VẬN HÀNH NHÌN — §11.2.
+ *
+ * Chỉ `awaiting_confirmation`, không phải mọi đơn `pending`.
+ *
+ * Khác biệt là cả ý nghĩa của cái chuông. `pending` nghĩa là khách vừa bấm tạo
+ * đơn và có thể chưa chuyển đồng nào — phần lớn số đó sẽ tự hết hạn sau 15 phút
+ * và không ai cần làm gì. Đếm chúng là để cái chuông kêu suốt ngày vì những việc
+ * không có việc, và một cái chuông luôn kêu thì không ai nhìn nữa.
+ *
+ * `awaiting_confirmation` thì ngược lại: nó CHỈ được đặt bởi `confirmPayment` khi
+ * tiền đã thật sự về mà số tiền chưa khớp. Mỗi con số ở đây là một khoản tiền có
+ * thật đang nằm chờ một quyết định của con người.
+ */
+export async function countOrdersCanNguoiNhin(db: Db): Promise<number> {
+  const [rows] = await db.query<RowDataPacket[]>(
+    "SELECT COUNT(*) AS total FROM orders WHERE status = 'awaiting_confirmation'",
+  );
+  return Number(rows[0]?.['total'] ?? 0);
 }
 
 export async function countAdminOrders(db: Db, filter: AdminOrderFilter): Promise<number> {

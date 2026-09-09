@@ -2,6 +2,7 @@ import { BILLING_ERROR_CODES, type PaymentProvider } from '@bi/shared';
 import type { ResultSetHeader, RowDataPacket } from 'mysql2';
 
 import { withTransaction } from '../../db/tx';
+import * as billingRepo from '../../repositories/billing';
 import type { Db } from '../../repositories/db';
 import { HttpError } from '../../utils/httpError';
 import { AUDIT_ACTIONS, writeAudit, type AuditEntry } from '../audit/log';
@@ -153,6 +154,30 @@ export async function confirmPayment(input: ConfirmInput): Promise<ConfirmResult
       );
     }
 
+    /*
+     * ═══ Luật SỐ TIỀN, và nó chỉ áp cho đường TỰ ĐỘNG ════════════════════
+     *
+     * Xác nhận tay không có luật này một cách có chủ ý: người vận hành đang cầm
+     * sao kê, thấy khách chuyển thiếu 1.000đ, và quyết định chấp nhận. Đó là một
+     * phán đoán con người, và ép bằng nhau ở đây là lấy mất nó.
+     *
+     * Đường tự động thì ngược lại hoàn toàn. Không ai nhìn, nên "chuyển 50.000đ
+     * cho đơn 199.000đ rồi được gói Pro" là một lỗ hổng mất tiền thật, và nó sẽ
+     * bị tìm ra.
+     *
+     * ─── Vì sao ghi status 'pending' chứ không 'failed' ──────────────────
+     *
+     * Tiền ĐÃ về. `failed` là nói dối về một khoản tiền có thật, và làm mọi câu
+     * đối soát sau này lệch.
+     *
+     * Và 'pending' còn giữ đúng một tính chất quan trọng: cột sinh
+     * `succeeded_order_id` chỉ khác NULL khi status = 'succeeded', nên dòng này
+     * KHÔNG chiếm mất suất thanh toán duy nhất của đơn. Khách chuyển nốt phần
+     * còn thiếu, hoặc admin xác nhận tay, thì đường đó vẫn thông.
+     */
+    const soTienDon = Number(order.amount_vnd);
+    const thieuTien = input.source === 'webhook' && input.amountVnd < soTienDon;
+
     // ─── Ghi giao dịch. Hai khoá UNIQUE là lớp chặn thật ────────────────────
     try {
       await conn.query<ResultSetHeader>(
@@ -160,17 +185,21 @@ export async function confirmPayment(input: ConfirmInput): Promise<ConfirmResult
            (tenant_id, order_id, payment_method_id, provider, provider_txn_ref,
             direction, status, amount_vnd, source, confirmed_by, confirm_reason,
             raw_payload, occurred_at)
-         VALUES (?, ?, ?, ?, ?, 'inbound', 'succeeded', ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, 'inbound', ?, ?, ?, ?, ?, ?, ?)`,
         [
           order.tenant_id,
           order.id,
           order.payment_method_id,
           order.provider,
           input.providerTxnRef,
+          thieuTien ? 'pending' : 'succeeded',
           input.amountVnd,
           input.source,
           input.confirmedBy ?? null,
-          input.reason ?? null,
+          input.reason ??
+            (thieuTien
+              ? `Tiền về ${input.amountVnd.toLocaleString('vi-VN')}đ, thiếu so với đơn ${soTienDon.toLocaleString('vi-VN')}đ.`
+              : null),
           input.rawPayload === undefined ? null : JSON.stringify(input.rawPayload),
           input.occurredAt ?? null,
         ],
@@ -216,10 +245,60 @@ export async function confirmPayment(input: ConfirmInput): Promise<ConfirmResult
 
     const now = new Date();
 
+    /*
+     * Tiền về nhưng THIẾU: dừng ở đây, không bật gói.
+     *
+     * Đơn sang `awaiting_confirmation` — lần đầu trạng thái đó được dùng thật.
+     * Nó đã có sẵn trong ENUM, trong `ORDER_STATUSES_LIVE`, trong bảng nhãn và
+     * trong nút "Đã nhận tiền" của console từ §11, chờ đúng tình huống này:
+     * tiền có thật, nhưng cần một người nhìn.
+     *
+     * Vẫn nằm trong `ORDER_STATUSES_LIVE` nên màn hình khách tiếp tục thăm dò và
+     * sẽ tự đổi ngay khi admin xác nhận — họ không phải tải lại trang.
+     */
+    if (thieuTien) {
+      await conn.query("UPDATE orders SET status = 'awaiting_confirmation' WHERE id = ?", [
+        order.id,
+      ]);
+
+      await writeAudit(conn, {
+        ...input.actor,
+        tenantId: Number(order.tenant_id),
+        action: AUDIT_ACTIONS.ORDER_CONFIRM_WEBHOOK,
+        entityType: 'order',
+        entityId: Number(order.id),
+        before: { status: order.status },
+        after: {
+          status: 'awaiting_confirmation',
+          amountVnd: input.amountVnd,
+          amountDue: soTienDon,
+          providerTxnRef: input.providerTxnRef,
+        },
+        reason: 'Số tiền nhận được ít hơn số tiền của đơn — chờ người vận hành đối chiếu.',
+      });
+
+      return {
+        orderCode: input.orderCode,
+        tenantId: Number(order.tenant_id),
+        alreadyProcessed: false,
+        subscriptionId: null,
+      };
+    }
+
     await conn.query(
       "UPDATE orders SET status = 'paid', paid_at = ? WHERE id = ?",
       [now, order.id],
     );
+
+    /*
+     * Chụp hạn mức từ bảng giá NGAY TẠI ĐÂY, trong cùng transaction.
+     *
+     * `orders` chỉ chụp `plan_code`, `plan_name`, `plan_duration_days` và số
+     * tiền — không có hạn mức, nên phải tra bảng. Đọc bằng `conn` chứ không
+     * `mysqlPool`: lấy connection thứ hai từ trong một transaction đang mở là
+     * cách tự tạo deadlock, và ở đây transaction đang giữ khoá trên `orders`.
+     */
+    const limits = await billingRepo.findPlanLimits(conn, Number(order.plan_id));
 
     const subscriptionId = await capNhatSubscription(conn, {
       tenantId: Number(order.tenant_id),
@@ -230,6 +309,7 @@ export async function confirmPayment(input: ConfirmInput): Promise<ConfirmResult
       priceVnd: Number(order.amount_vnd),
       durationDays: Number(order.plan_duration_days),
       now,
+      limits,
     });
 
     await writeAudit(conn, {
@@ -269,6 +349,19 @@ interface SubInput {
   priceVnd: number;
   durationDays: number;
   now: Date;
+  /**
+   * Ảnh chụp HẠN MỨC của gói tại thời điểm kích hoạt — §11.2, migration 32.
+   *
+   * `null` nghĩa là không đọc được hạn mức (gói đã biến mất khỏi bảng, gần như
+   * bất khả thi vì `fk_subscriptions_plan` là RESTRICT). Khi đó dòng được chèn
+   * với `limits_captured_at = NULL` và rơi về đọc sống.
+   *
+   * ⚠️ Cố ý KHÔNG ném lỗi ở nhánh đó: chặn việc ghi nhận thanh toán vì không tra
+   * được hạn mức nghĩa là tiền khách ĐÃ vào tài khoản mà đơn vẫn `pending`. Một
+   * ảnh chụp thiếu thì sửa được sau; một khoản tiền không ghi nhận được thì phải
+   * gỡ bằng tay và khách là người chịu.
+   */
+  limits: billingRepo.PlanLimits | null;
 }
 
 /**
@@ -306,11 +399,20 @@ async function capNhatSubscription(conn: Db, input: SubInput): Promise<number> {
     );
   }
 
+  /*
+   * `limits_captured_at` đi CÙNG bốn cột hạn mức, hoặc không cột nào cả.
+   *
+   * `ck_subscriptions_limits_snapshot` cưỡng chế điều đó ở tầng database, nên
+   * viết lệch sẽ nổ ngay tại INSERT chứ không thành một dòng nửa vời. Lý do: NULL
+   * ở bốn cột kia có nghĩa KHÔNG GIỚI HẠN, nên "ghi hạn mức mà quên cờ" sẽ âm
+   * thầm biến gói thành vô hạn — xem migration 32.
+   */
   const [result] = await conn.query<ResultSetHeader>(
     `INSERT INTO subscriptions
        (tenant_id, plan_id, order_id, status, source, plan_code, plan_name, price_vnd,
+        max_workspaces, max_reports, max_members, max_storage_bytes, limits_captured_at,
         period_start, period_end, carried_over_days, previous_subscription_id)
-     VALUES (?, ?, ?, 'active', 'purchase', ?, ?, ?, ?, ?, ?, ?)`,
+     VALUES (?, ?, ?, 'active', 'purchase', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       input.tenantId,
       input.planId,
@@ -318,6 +420,11 @@ async function capNhatSubscription(conn: Db, input: SubInput): Promise<number> {
       input.planCode,
       input.planName,
       input.priceVnd,
+      input.limits?.maxWorkspaces ?? null,
+      input.limits?.maxReports ?? null,
+      input.limits?.maxMembers ?? null,
+      input.limits?.maxStorageBytes ?? null,
+      input.limits === null ? null : input.now,
       chuKy.periodStart,
       chuKy.periodEnd,
       chuKy.carriedOverDays,

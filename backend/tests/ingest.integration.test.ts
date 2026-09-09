@@ -1,4 +1,4 @@
-import { createClient } from '@clickhouse/client';
+﻿import { createClient } from '@clickhouse/client';
 import type { ResultSetHeader, RowDataPacket } from 'mysql2';
 import request from 'supertest';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -20,6 +20,7 @@ import { readFileRows } from '../src/services/ingest/readFileRows';
 import { resetDatabase } from './helpers/db';
 import {
   bearer,
+  capGoiKhongGioiHan,
   makeMembership,
   makeTenant,
   makeUser,
@@ -89,7 +90,6 @@ beforeEach(async () => {
 
   const tenantA = await makeTenant('Công ty Alpha', 'cong-ty-alpha');
   const tenantB = await makeTenant('Công ty Beta', 'cong-ty-beta');
-
   const alice = await makeUser('alice@alpha.test', 'Nguyễn Thị An');
   const dave = await makeUser('dave@alpha.test', 'Phạm Văn Dũng');
   const carol = await makeUser('carol@beta.test', 'Lê Thị Cúc');
@@ -97,6 +97,12 @@ beforeEach(async () => {
   await makeMembership(alice, tenantA, 'admin');
   await makeMembership(dave, tenantA, 'viewer');
   await makeMembership(carol, tenantB, 'admin');
+
+  // Gói không giới hạn — §11.2. Bộ này không kiểm thanh toán, nhưng nó dựng
+  // nhiều workspace/dữ liệu hơn hạn mức gói mặc định. Đặt SAU khi user đã có:
+  // `ck_subscriptions_override_has_reason` đòi `granted_by` khác NULL.
+  await capGoiKhongGioiHan(tenantA, alice);
+  await capGoiKhongGioiHan(tenantB, carol);
 
   const workspaceA = await makeWorkspace(tenantA, 'Kinh doanh', 'kinh-doanh');
   const datasetA = await makeFileDataset(tenantA, workspaceA, alice);

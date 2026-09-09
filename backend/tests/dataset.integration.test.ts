@@ -1,4 +1,4 @@
-import type { RowDataPacket } from 'mysql2';
+﻿import type { RowDataPacket } from 'mysql2';
 import request from 'supertest';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 
@@ -10,7 +10,7 @@ import * as datasetsRepo from '../src/repositories/datasets';
 import { loadDataset } from '../src/services/ingest/loadDataset';
 import { memoryStorage } from '../src/storage/memoryStorage';
 import { resetDatabase } from './helpers/db';
-import { bearer, makeMembership, makeTenant, makeUser, makeWorkspace, signTokenFor } from './helpers/fixtures';
+import { bearer, capGoiKhongGioiHan, makeMembership, makeTenant, makeUser, makeWorkspace, signTokenFor } from './helpers/fixtures';
 
 /**
  * Test tích hợp luồng "tải file lên → bộ dữ liệu → báo cáo" (§7).
@@ -44,7 +44,6 @@ beforeEach(async () => {
 
   const tenantA = await makeTenant('Công ty Alpha', 'cong-ty-alpha');
   const tenantB = await makeTenant('Công ty Beta', 'cong-ty-beta');
-
   const adminA = await makeUser('admin.a@test.local', 'Quản trị A');
   const creatorA = await makeUser('creator.a@test.local', 'Người tạo A');
   const viewerA = await makeUser('viewer.a@test.local', 'Người xem A');
@@ -54,6 +53,12 @@ beforeEach(async () => {
   await makeMembership(creatorA, tenantA, 'creator');
   await makeMembership(viewerA, tenantA, 'viewer');
   await makeMembership(adminB, tenantB, 'admin');
+
+  // Gói không giới hạn — §11.2. Bộ này không kiểm thanh toán, nhưng nó dựng
+  // nhiều workspace/thành viên hơn hạn mức gói mặc định. Đặt SAU khi user đã có:
+  // `ck_subscriptions_override_has_reason` đòi `granted_by` khác NULL.
+  await capGoiKhongGioiHan(tenantA, adminA);
+  await capGoiKhongGioiHan(tenantB, adminB);
 
   f = {
     tenantA,

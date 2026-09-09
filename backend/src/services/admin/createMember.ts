@@ -12,6 +12,7 @@ import * as membershipsRepo from '../../repositories/memberships';
 import * as usersRepo from '../../repositories/users';
 import { HttpError } from '../../utils/httpError';
 import { generateTempPassword, hashPassword } from '../auth/password';
+import { kiemHanMuc } from '../billing/limits';
 import { provisionTenant } from '../tenant/provisionTenant';
 
 export interface CreateMemberInput {
@@ -78,9 +79,25 @@ export async function createMember(input: CreateMemberInput): Promise<CreateAdmi
       );
     }
 
-    // Một câu duy nhất nên không cần transaction. `upsert` đặt lại
-    // `removed_at = NULL`, tức là mời lại người từng bị gỡ cũng đi qua đây.
-    await membershipsRepo.upsert(mysqlPool, input.tenantId, existing.user.id, input.role);
+    /*
+     * Từ §11.2 nhánh này CÓ transaction, dù vẫn chỉ một câu ghi.
+     *
+     * Transaction ở đây không phải để gộp nhiều câu ghi mà để KHOÁ: hạn mức
+     * thành viên là hạn mức về QUYỀN TRUY CẬP, nên vượt nó không chỉ là một con
+     * số lệch — người thứ 11 ở gói 10 người vẫn đọc được dữ liệu tổ chức cho tới
+     * khi có ai đó gỡ họ bằng tay. Thao tác này hiếm (rate limit 20 lượt/10 phút)
+     * nên tuần tự hoá theo tổ chức không tốn gì.
+     *
+     * Guard đặt SAU câu kiểm `MEMBER_ALREADY_EXISTS` ở trên: mời lại người ĐANG
+     * là thành viên không làm số tăng, nên chặn nó là chặn sai. Tới được đây thì
+     * hoặc chưa có membership, hoặc có nhưng đã bị gỡ — và `upsert` đặt lại
+     * `removed_at = NULL`, tức là cả hai đều làm số tăng.
+     */
+    await withTransaction(async (conn) => {
+      await conn.query('SELECT id FROM tenants WHERE id = ? FOR UPDATE', [input.tenantId]);
+      await kiemHanMuc(conn, input.tenantId, 'members', new Date());
+      await membershipsRepo.upsert(conn, input.tenantId, existing.user.id, input.role);
+    });
 
     const attached = await adminMembersRepo.findMember(mysqlPool, input.tenantId, existing.user.id);
     if (!attached) {
@@ -98,6 +115,19 @@ export async function createMember(input: CreateMemberInput): Promise<CreateAdmi
   const passwordHash = await hashPassword(tempPassword);
 
   const userId = await withTransaction(async (conn) => {
+    /*
+     * Hạn mức thành viên — §11.2. Khoá rồi kiểm, TRƯỚC khi tạo tài khoản.
+     *
+     * Trước chứ không sau: tạo user rồi mới phát hiện hết chỗ thì transaction
+     * rollback và tài khoản biến mất — đúng về dữ liệu, nhưng đã đốt một lần
+     * bcrypt cost 12 (~290ms) cho một việc không bao giờ thành.
+     *
+     * ⚠️ Chỉ tính TỔ CHỨC MỜI. Tổ chức cá nhân cấp thêm ở dưới là một tenant
+     * KHÁC, vừa sinh ra và có đúng một thành viên — không đụng hạn mức của ai.
+     */
+    await conn.query('SELECT id FROM tenants WHERE id = ? FOR UPDATE', [input.tenantId]);
+    await kiemHanMuc(conn, input.tenantId, 'members', new Date());
+
     const id = await usersRepo.createUser(conn, {
       email: input.email,
       passwordHash,

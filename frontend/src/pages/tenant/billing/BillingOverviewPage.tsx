@@ -115,13 +115,20 @@ export default function BillingOverviewPage(): React.ReactElement {
       {/* ─── Mức sử dụng ────────────────────────────────────────────────── */}
       <section className="rounded-xl border border-slate-200 bg-white p-5">
         <h2 className="text-base font-semibold text-slate-900">Mức sử dụng</h2>
+        {/* Câu này trước §11.2 ghi "vượt hạn mức không khoá tính năng nào" — từ
+            ngày lớp chặn có thật thì nó là câu nói dối, và một câu nói dối ở
+            đúng chỗ người dùng tra cứu trước khi mua là thứ đắt nhất. */}
         <p className="mt-0.5 text-sm text-slate-500">
-          So với hạn mức của gói {plan.name}. Vượt hạn mức không khoá tính năng nào.
+          So với hạn mức của gói {plan.name}. Chạm hạn mức thì không tạo thêm được, nhưng dữ
+          liệu đã có vẫn giữ nguyên và dùng bình thường.
         </p>
 
         <div className="mt-4 space-y-4">
           <UsageBar label="Workspace" item={usage.workspaces} />
           <UsageBar label="Báo cáo" item={usage.reports} />
+          {/* Thành viên đếm theo CHỖ: người bị khoá tạm vẫn tính, người đã gỡ thì
+              không — bằng đúng số dòng ở màn hình Thành viên. */}
+          <UsageBar label="Thành viên" item={usage.members} />
           <UsageBar label="Dung lượng" item={usage.storageBytes} storage />
         </div>
       </section>

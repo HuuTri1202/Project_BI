@@ -1,4 +1,4 @@
-import {
+﻿import {
   JOB_TITLES,
   TENANT_ROLE_LABELS,
   emailRule,
@@ -13,6 +13,7 @@ import { z } from 'zod';
 import { Button } from '../../../components/ui/Button';
 import { Field, SelectField } from '../../../components/ui/Field';
 import { Modal } from '../../../components/ui/Modal';
+import { LimitAlert } from '../../billing/LimitAlert';
 import { getApiError } from '../../../services/apiClient';
 import { useCreateMember } from '../hooks';
 
@@ -50,6 +51,9 @@ export function CreateMemberModal({
   onCreated,
 }: CreateMemberModalProps): React.ReactElement {
   const [formError, setFormError] = useState<string | null>(null);
+  // Giữ cả MÃ lỗi, không chỉ câu chữ: LimitAlert cần nó để quyết định có gắn
+  // link `Xem các gói` hay không. So khớp bằng câu chữ thì hỏng ngay lần đổi từ ngữ.
+  const [formErrorCode, setFormErrorCode] = useState<string | null>(null);
   const createUser = useCreateMember();
 
   const { register, handleSubmit, setError, reset, formState } = useForm<FormValues>({
@@ -70,11 +74,13 @@ export function CreateMemberModal({
   const close = (): void => {
     reset();
     setFormError(null);
+    setFormErrorCode(null);
     onClose();
   };
 
   const onSubmit = handleSubmit(async (values) => {
     setFormError(null);
+    setFormErrorCode(null);
     try {
       const result = await createUser.mutateAsync(values);
       reset();
@@ -88,6 +94,7 @@ export function CreateMemberModal({
         return;
       }
       setFormError(apiError.message);
+      setFormErrorCode(apiError.error);
     }
   });
 
@@ -112,14 +119,7 @@ export function CreateMemberModal({
         </>
       }
     >
-      {formError && (
-        <div
-          role="alert"
-          className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3.5 py-3 text-sm text-red-700"
-        >
-          {formError}
-        </div>
-      )}
+      <LimitAlert message={formError} code={formErrorCode} />
 
       {/* Nút submit nằm ở footer, ngoài thẻ form — thuộc tính `form` nối chúng
           lại. Cách này giữ được hành vi Enter-để-gửi của form thật. */}

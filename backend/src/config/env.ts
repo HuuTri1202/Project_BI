@@ -198,6 +198,30 @@ const envSchema = z.object({
    */
   CUBE_SCHEMA_DIR: z.string().min(1).default('../infrastructure/cube/model/tenants'),
 
+  /*
+   * --- Sepay: TỰ ĐỌC SAO KÊ ngân hàng (§11.2) ---
+   *
+   * ═══ Vì sao cần đường KÉO khi đã có webhook ═══════════════════════════════
+   *
+   * Webhook là Sepay gọi VÀO hệ thống ta, nên nó đòi một URL công khai. Trên máy
+   * dev thì `localhost:4000` không có đường nào từ Internet tới, và hậu quả đúng
+   * như đã gặp: khách quét mã, tiền về tài khoản thật, mà đơn nằm `pending` mãi
+   * cho tới khi người vận hành bấm tay — tức là "tự động" chỉ tồn tại trên giấy.
+   *
+   * Token này đi chiều NGƯỢC LẠI: hệ thống tự gọi RA hỏi Sepay "có giao dịch nào
+   * mới không". Gọi ra thì máy nào cũng làm được, kể cả sau NAT, kể cả localhost.
+   *
+   * ⚠️ KHÔNG phải cùng thứ với `payment_methods.webhook_secret_sealed`. Cái kia
+   * là mật khẩu để Sepay CHỨNG MINH khi gọi vào; cái này là mật khẩu để TA chứng
+   * minh khi gọi ra. Chúng có thể trùng giá trị nhưng khác vai trò, và gộp lại
+   * thì ngày đổi một cái sẽ âm thầm làm hỏng cái kia.
+   *
+   * Không khai -> con chạy nền không bật. Đó là mặc định đúng: không có token thì
+   * mọi lần gọi đều 401, và một vòng lặp gõ cửa Sepay mỗi phút để nhận 401 thì
+   * chẳng phục vụ ai.
+   */
+  SEPAY_API_TOKEN: z.string().min(16).optional(),
+
   // --- Seed tài khoản quản trị đầu tiên (§2.7) ---
   // Đều có giá trị mặc định nên KHÔNG bắt buộc khai trong .env; chỉ script
   // seed đọc tới.

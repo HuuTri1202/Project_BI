@@ -1,8 +1,9 @@
 import type { BillingSummaryDto, BillingUsageDto, PlanDto } from '@bi/shared';
 
-import { mysqlPool } from '../../config/mysql';
 import * as billingRepo from '../../repositories/billing';
+import type { Db } from '../../repositories/db';
 import * as usageRepo from '../../repositories/usage';
+import { FREE_PLAN_CODE, hanMucHieuLuc, type HanMucHieuLuc } from './limits';
 
 /**
  * Gói đang hiệu lực và mức sử dụng của một tổ chức — §11.
@@ -18,67 +19,51 @@ import * as usageRepo from '../../repositories/usage';
  *
  * Hệ quả: `BillingSummaryDto.subscription` là `null` cho phần lớn tổ chức, và
  * đó KHÔNG phải lỗi hay trạng thái đang tải. `plan` thì luôn có mặt.
+ *
+ * ═══ §11.2: hạn mức KHÔNG còn đọc sống từ bảng giá ═════════════════════════
+ *
+ * `resolveCurrentPlan` từng sống ở file này và đọc hạn mức thẳng từ `plans`.
+ * Docblock của nó kết thúc bằng một điều kiện: "ngày nó bắt đầu CHẶN thao tác
+ * thì quyết định này phải xem lại". Ngày đó đã tới, nên hàm đó bị gỡ — nó không
+ * còn nơi gọi nào, và để lại một hàm mang chính sách đã bị thay là để lại một
+ * cái bẫy cho người sửa sau. Nguồn hạn mức duy nhất giờ là `limits.ts`.
  */
 
-/** Mã gói mặc định. Phải khớp dòng gieo ở migration 30. */
-export const FREE_PLAN_CODE = 'free';
+export { FREE_PLAN_CODE };
 
 /**
- * Gói Free, và cái giá của việc nó biến mất.
+ * Ghép hạn mức HIỆU LỰC vào bản mô tả gói.
  *
- * Ném lỗi thay vì trả về một gói rỗng bịa ra tại chỗ: nếu dòng `free` không còn
- * trong bảng thì mọi hạn mức hiển thị đều sai, và một gói bịa sẽ khiến màn hình
- * trông bình thường trong khi con số nó hiện không đến từ đâu cả. Hỏng to và
- * hỏng sớm còn hơn hỏng nhỏ và im lặng.
+ * ⚠️ Đây là chỗ giữ cho MỘT payload không chứa hai con số trái ngược nhau.
+ * `BillingSummaryDto` có hạn mức ở hai nơi — `plan.maxWorkspaces` và
+ * `usage.workspaces.limit` — và giao diện đọc cả hai. Nếu một bên đọc sống từ
+ * bảng giá còn bên kia đọc ảnh chụp thì màn hình hiện "3/10" trong khi API chặn
+ * ở 5, và bộ phận hỗ trợ không giải thích được cho khách.
+ *
+ * Nên cả hai lấy từ cùng một nguồn, ngay tại đây.
  */
-async function requireFreePlan(): Promise<PlanDto> {
-  const plan = await billingRepo.findPlanByCode(mysqlPool, FREE_PLAN_CODE);
-  if (plan === null) {
-    throw new Error(
-      `Không tìm thấy gói '${FREE_PLAN_CODE}' trong bảng plans. ` +
-        'Nó được gieo ở migration 30 — hãy chạy "npm run -w backend migrate".',
-    );
-  }
-  return plan;
+function apHanMuc(plan: PlanDto, hanMuc: HanMucHieuLuc): PlanDto {
+  return {
+    ...plan,
+    maxWorkspaces: hanMuc.workspaces,
+    maxReports: hanMuc.reports,
+    maxMembers: hanMuc.members,
+    maxStorageBytes: hanMuc.storageBytes,
+  };
 }
 
-/**
- * Gói đang có hiệu lực. Dùng cho mọi nơi cần biết hạn mức của một tổ chức.
- *
- * ⚠️ Hạn mức đọc SỐNG từ `plans` qua `plan_id`, không lấy từ ảnh chụp trong
- * `subscriptions`. Ảnh chụp ở đó chỉ giữ GIÁ — một sự kiện đã xảy ra. Hạn mức
- * là chính sách hiện hành, nên khi người vận hành nới gói Pro thì khách đang
- * dùng Pro được hưởng ngay.
- *
- * Điều đó cắt cả hai chiều, và phải nói ra: SIẾT gói Pro cũng ảnh hưởng ngay
- * tới khách đang giữa chu kỳ họ đã trả tiền. Chấp nhận được khi hạn mức chỉ
- * hiển thị; ngày nó bắt đầu CHẶN thao tác thì quyết định này phải xem lại.
- */
-export async function resolveCurrentPlan(tenantId: number, now: Date): Promise<PlanDto> {
-  const sub = await billingRepo.findActiveSubscription(mysqlPool, tenantId, now);
-  if (sub === null) return requireFreePlan();
-
-  const plan = await billingRepo.findPlanById(mysqlPool, sub.planId);
-  // Gói bị xoá mềm trong khi vẫn còn subscription trỏ vào — không nên xảy ra
-  // (`fk_subscriptions_plan` là RESTRICT nên không xoá CỨNG được), nhưng xoá
-  // mềm thì vẫn lọt. Rơi về Free là hướng an toàn: hiện hạn mức thấp hơn thực
-  // tế còn hơn cho khách một màn hình lỗi.
-  return plan ?? requireFreePlan();
-}
-
-function toUsage(
-  used: { workspaces: number; reports: number; storageBytes: number },
-  plan: PlanDto,
-): BillingUsageDto {
+function toUsage(used: usageRepo.TenantUsage, plan: PlanDto): BillingUsageDto {
   return {
     workspaces: { used: used.workspaces, limit: plan.maxWorkspaces },
     reports: { used: used.reports, limit: plan.maxReports },
+    members: { used: used.members, limit: plan.maxMembers },
     storageBytes: { used: used.storageBytes, limit: plan.maxStorageBytes },
   };
 }
 
 /** Toàn bộ trang Billing trong một lần gọi. */
 export async function buildBillingSummary(
+  db: Db,
   tenantId: number,
   now: Date,
 ): Promise<BillingSummaryDto> {
@@ -92,18 +77,20 @@ export async function buildBillingSummary(
    *
    * Rẻ: câu UPDATE dùng `idx_orders_status_expires` và gần như luôn khớp 0 dòng.
    */
-  await billingRepo.expireOverdueOrders(mysqlPool, now, tenantId);
+  await billingRepo.expireOverdueOrders(db, now, tenantId);
 
   // Tuần tự chứ không `Promise.all`: pool chỉ có 10 connection, và tiết kiệm
   // vài mili-giây bằng cách chiếm gấp ba connection là đổi chác sai chiều —
   // cùng lập luận đã ghi ở `GET /admin/overview`.
-  const subscription = await billingRepo.findActiveSubscription(mysqlPool, tenantId, now);
-  const plan =
+  const subscription = await billingRepo.findActiveSubscription(db, tenantId, now);
+  const goc =
     subscription === null
-      ? await requireFreePlan()
-      : ((await billingRepo.findPlanById(mysqlPool, subscription.planId)) ??
-        (await requireFreePlan()));
-  const used = await usageRepo.fetchTenantUsage(mysqlPool, tenantId);
+      ? await requireFreePlan(db)
+      : ((await billingRepo.findPlanById(db, subscription.planId)) ?? (await requireFreePlan(db)));
+
+  // Hạn mức đi qua `limits.ts`, không đọc thẳng `goc.max*` — xem `apHanMuc`.
+  const plan = apHanMuc(goc, await hanMucHieuLuc(db, tenantId, now));
+  const used = await usageRepo.fetchTenantUsage(db, tenantId);
 
   return {
     plan,
@@ -125,4 +112,23 @@ export async function buildBillingSummary(
           },
     usage: toUsage(used, plan),
   };
+}
+
+/**
+ * Bản mô tả gói Free, dùng khi tổ chức chưa mua gì.
+ *
+ * Ném lỗi thay vì trả về một gói rỗng bịa ra tại chỗ: nếu dòng `free` không còn
+ * trong bảng thì mọi hạn mức hiển thị đều sai, và một gói bịa sẽ khiến màn hình
+ * trông bình thường trong khi con số nó hiện không đến từ đâu cả. Hỏng to và
+ * hỏng sớm còn hơn hỏng nhỏ và im lặng.
+ */
+async function requireFreePlan(db: Db): Promise<PlanDto> {
+  const plan = await billingRepo.findPlanByCode(db, FREE_PLAN_CODE);
+  if (plan === null) {
+    throw new Error(
+      `Không tìm thấy gói '${FREE_PLAN_CODE}' trong bảng plans. ` +
+        'Nó được gieo ở migration 30 — hãy chạy "npm run -w backend migrate".',
+    );
+  }
+  return plan;
 }

@@ -160,6 +160,15 @@ export const BILLING_ERROR_CODES = {
   ORDER_ALREADY_PAID: 'OrderAlreadyPaid',
   /** Chữ ký webhook không khớp. Sự kiện vẫn được lưu lại. */
   WEBHOOK_SIGNATURE_INVALID: 'WebhookSignatureInvalid',
+  /**
+   * Thao tác bị chặn vì tổ chức đã chạm hạn mức của gói.
+   *
+   * 409 chứ không 403: đây không phải chuyện thiếu quyền — người dùng có đủ
+   * quyền, và cùng thao tác đó sẽ thành công sau khi họ nâng gói hoặc xoá bớt.
+   * 403 sẽ khiến giao diện hiện "bạn không được phép", một câu vừa sai vừa dẫn
+   * người ta đi hỏi quản trị viên tổ chức thay vì đi nâng gói.
+   */
+  LIMIT_EXCEEDED: 'LimitExceeded',
 } as const;
 
 export type BillingErrorCode = (typeof BILLING_ERROR_CODES)[keyof typeof BILLING_ERROR_CODES];
@@ -297,6 +306,17 @@ export interface UsageItemDto {
 export interface BillingUsageDto {
   workspaces: UsageItemDto;
   reports: UsageItemDto;
+  /**
+   * Thành viên đang chiếm CHỖ trong tổ chức.
+   *
+   * Đếm theo chỗ, không theo hoạt động: người bị khoá tạm VẪN tính, vì khoá đảo
+   * ngược được bằng một request — không tính họ thì khoá-mời-mở lại là cách lách
+   * hạn mức. Người đã gỡ khỏi tổ chức thì không tính.
+   *
+   * Con số này bằng đúng tổng số dòng ở màn hình Thành viên. Xem
+   * `repositories/usage.ts`.
+   */
+  members: UsageItemDto;
   /**
    * Dung lượng, đơn vị BYTE (không phải GB — quy đổi ở tầng hiển thị).
    *

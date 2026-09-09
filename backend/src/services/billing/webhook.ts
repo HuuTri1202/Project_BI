@@ -7,7 +7,7 @@ import { mysqlPool } from '../../config/mysql';
 import { open } from '../connections/secretBox';
 import { isOrderCode } from './orderCode';
 import { confirmPayment } from './confirmPayment';
-import { verifySignature } from './webhookSignature';
+import { verifySignature, verifyToken } from './webhookSignature';
 
 /**
  * Nhận webhook của cổng thanh toán — §11.
@@ -43,15 +43,36 @@ import { verifySignature } from './webhookSignature';
  * một payload thật là code trông đúng và sai ở những chỗ không đoán được.
  */
 
+/**
+ * Cách một cổng chứng minh mình là mình.
+ *
+ * ⚠️ HAI kiểu, không phải một — và đây là thứ làm hỏng cả đường tự động nếu bỏ
+ * qua. Các dịch vụ ĐỌC SAO KÊ ngân hàng ở Việt Nam (Sepay, Casso) KHÔNG ký HMAC
+ * trên thân request; chúng gửi một token dùng chung trong header
+ * (`Authorization: Apikey <key>`, `Secure-Token: <key>`). Viết sẵn mỗi HMAC rồi
+ * chờ tới ngày cắm dịch vụ thật mới phát hiện là mất cả buổi đi tìm lỗi ở khoá
+ * bí mật.
+ */
+export type XacThuc =
+  | { kieu: 'hmac'; header: string }
+  | { kieu: 'token'; header: string; boTienTo?: string };
+
+/** Một giao dịch đã bóc khỏi payload. Một webhook có thể mang nhiều. */
+export interface GiaoDich {
+  /** Id để chống xử lý lại. Rỗng thì người gọi băm thân request. */
+  eventId: string | null;
+  orderCode: string | null;
+  /** Số tiền, đơn vị ĐỒNG. `null` khi payload không nói. */
+  amount: number | null;
+  /** Tiền VÀO. Giao dịch chuyển đi bị bỏ qua, không phải bị coi là lỗi. */
+  vao: boolean;
+}
+
 export interface WebhookAdapter {
-  /** Header mang chữ ký. Mỗi cổng một tên. */
-  signatureHeader: string;
-  /** Bóc mã đơn khỏi payload đã parse. `null` khi không tìm thấy. */
-  extractOrderCode: (payload: Record<string, unknown>) => string | null;
-  /** Số tiền thực nhận, đơn vị ĐỒNG. `null` khi payload không nói. */
-  extractAmount: (payload: Record<string, unknown>) => number | null;
-  /** Id sự kiện của cổng, để chống xử lý lại. `null` thì ta băm thân request. */
-  extractEventId: (payload: Record<string, unknown>) => string | null;
+  /** Có thể có nhiều cách; hợp lệ khi MỘT cách qua được. */
+  xacThuc: XacThuc[];
+  /** Bóc mọi giao dịch trong payload đã parse. Mảng rỗng = không có gì để làm. */
+  bocGiaoDich: (payload: Record<string, unknown>) => GiaoDich[];
 }
 
 /** Đọc một khoá lồng nhau kiểu `data.orderCode`, trả `undefined` nếu đứt đường. */
@@ -90,29 +111,104 @@ function firstNumber(payload: Record<string, unknown>, paths: string[]): number 
  * cổng thật gửi về mà không cần sửa code, nhưng KHÔNG thay được việc kiểm với
  * payload thật.
  */
+const ORDER_CODE_PATHS = [
+  'orderCode',
+  'order_code',
+  'data.orderCode',
+  'data.order_code',
+  // Dịch vụ đọc sao kê đẩy NỘI DUNG CHUYỂN KHOẢN vào đây; mã đơn nằm lẫn trong
+  // đó và `timMaDon` bóc ra bằng regex.
+  'description',
+  'content',
+  'data.description',
+  'data.content',
+];
+
+const AMOUNT_PATHS = ['amount', 'data.amount', 'transferAmount', 'data.transferAmount'];
+
+const EVENT_ID_PATHS = [
+  'id',
+  'eventId',
+  'event_id',
+  'data.id',
+  'referenceCode',
+  'data.referenceCode',
+  // Casso gọi mã giao dịch ngân hàng là `tid`.
+  'tid',
+];
+
+/** Bóc một giao dịch từ một object phẳng — dùng cho cả phần tử của mảng. */
+function motGiaoDich(o: Record<string, unknown>): GiaoDich {
+  const amount = firstNumber(o, AMOUNT_PATHS);
+
+  /*
+   * Tiền vào hay tiền ra, ba cách nói và ba dịch vụ:
+   *
+   *   Sepay  `transferType: 'in' | 'out'`
+   *   Casso  không có cờ — SỐ TIỀN ÂM là tiền chuyển đi
+   *   khác   không nói gì; số dương thì coi là tiền vào
+   *
+   * ⚠️ Không có bước này thì mọi khoản người vận hành CHUYỂN ĐI cũng được đem đi
+   * khớp mã đơn, và một lần chuyển khoản có ghi nhầm mã đơn trong nội dung sẽ
+   * kích hoạt gói cho khách mà không ai trả tiền.
+   */
+  const loai = firstString(o, ['transferType', 'data.transferType']);
+  const vao = loai !== null ? loai.toLowerCase() === 'in' : amount === null || amount > 0;
+
+  return {
+    eventId: firstString(o, EVENT_ID_PATHS),
+    orderCode: firstString(o, ORDER_CODE_PATHS),
+    amount: amount === null ? null : Math.abs(amount),
+    vao,
+  };
+}
+
+/**
+ * Khuôn cho dịch vụ ĐỌC SAO KÊ ngân hàng (Sepay, Casso) — §11.2.
+ *
+ * Nhận cả hai hình dạng vì chúng chỉ khác nhau ở lớp bọc:
+ *
+ *   Sepay  một giao dịch phẳng ở gốc payload
+ *   Casso  `{ error: 0, data: [ ...nhiều giao dịch... ] }`
+ *
+ * ─── Vì sao nhận NHIỀU cách xác thực cùng lúc ─────────────────────────────
+ *
+ * Cả ba đều so với CÙNG một khoá bí mật, và phải có ít nhất một cách qua được.
+ * Nhận cả ba không nới lỏng gì — kẻ không có khoá vẫn không qua được cách nào —
+ * nhưng nó khiến việc đổi từ Sepay sang Casso là đổi cấu hình ở phía dịch vụ,
+ * không phải sửa code rồi triển khai lại giữa lúc đang mất webhook.
+ */
+const SAO_KE: WebhookAdapter = {
+  xacThuc: [
+    { kieu: 'token', header: 'authorization', boTienTo: 'Apikey ' },
+    { kieu: 'token', header: 'secure-token' },
+    { kieu: 'hmac', header: 'x-signature' },
+  ],
+  bocGiaoDich: (p) => {
+    const data = p['data'];
+    if (Array.isArray(data)) {
+      return data
+        .filter((x): x is Record<string, unknown> => typeof x === 'object' && x !== null)
+        .map(motGiaoDich);
+    }
+    return [motGiaoDich(p)];
+  },
+};
+
+/**
+ * Khuôn chung cho các cổng chưa có adapter riêng.
+ *
+ * Cố ý không viết sẵn adapter cho PayOS/MoMo: code chưa bao giờ đối diện một
+ * payload thật là code trông đúng và sai ở những chỗ không đoán được.
+ */
 const GENERIC: WebhookAdapter = {
-  signatureHeader: 'x-signature',
-  extractOrderCode: (p) =>
-    firstString(p, [
-      'orderCode',
-      'order_code',
-      'data.orderCode',
-      'data.order_code',
-      // Sepay đẩy nội dung chuyển khoản vào `content`; mã đơn nằm lẫn trong đó.
-      'description',
-      'content',
-      'data.description',
-      'data.content',
-    ]),
-  extractAmount: (p) =>
-    firstNumber(p, ['amount', 'data.amount', 'transferAmount', 'data.transferAmount']),
-  extractEventId: (p) =>
-    firstString(p, ['id', 'eventId', 'event_id', 'data.id', 'data.referenceCode', 'referenceCode']),
+  xacThuc: [{ kieu: 'hmac', header: 'x-signature' }],
+  bocGiaoDich: (p) => [motGiaoDich(p)],
 };
 
 export function adapterFor(provider: PaymentProvider): WebhookAdapter {
-  void provider;
-  return GENERIC;
+  // Chuyển khoản ngân hàng là đường mà dịch vụ đọc sao kê báo về — xem `SAO_KE`.
+  return provider === 'bank_transfer' || provider === 'sepay' ? SAO_KE : GENERIC;
 }
 
 export function isPaymentProvider(value: string): value is PaymentProvider {
@@ -164,6 +260,7 @@ function headerOf(headers: WebhookInput['headers'], name: string): string {
 export async function handleWebhook(input: WebhookInput): Promise<WebhookOutcome> {
   const adapter = adapterFor(input.provider);
   const rawText = input.rawBody.toString('utf8');
+  const bamThan = createHash('sha256').update(input.rawBody).digest('hex');
 
   let payload: Record<string, unknown> | null = null;
   try {
@@ -173,99 +270,182 @@ export async function handleWebhook(input: WebhookInput): Promise<WebhookOutcome
     payload = null;
   }
 
-  const signature = headerOf(input.headers, adapter.signatureHeader);
-  const orderCode = payload === null ? null : timMaDon(adapter.extractOrderCode(payload));
+  const secret = await docSecret(input.provider);
+  const { hopLe, chuoiDaGui } = kiemXacThuc(adapter, input, secret);
 
   /*
-   * `event_id` là NOT NULL, và khi cổng không cấp thì ta băm thân request.
+   * ─── LƯU TRƯỚC, luôn luôn ────────────────────────────────────────────────
    *
-   * Nhờ vậy việc phát lại NGUYÊN VĂN một body cũ bị `uq_webhook_event` chặn
-   * ngay tại INSERT — trước khi một dòng xử lý nào chạy. Để `null` thì hỏng
-   * hẳn: MySQL cho phép nhiều NULL trong một UNIQUE.
+   * Nhánh hỏng lưu MỘT dòng khoá theo băm thân request. Chỉ khi mọi thứ hợp lệ
+   * ta mới tách ra nhiều dòng theo từng giao dịch — xem vòng lặp dưới.
    */
-  const eventId =
-    (payload === null ? null : adapter.extractEventId(payload)) ??
-    createHash('sha256').update(input.rawBody).digest('hex');
-
-  const secret = await docSecret(input.provider);
-  const chuKyDung =
-    secret !== null && verifySignature({ rawBody: input.rawBody, signature, secret });
-
-  // ─── LƯU TRƯỚC, luôn luôn ────────────────────────────────────────────────
-  const luu = await luuSuKien({
-    provider: input.provider,
-    eventId,
-    signature,
-    signatureValid: chuKyDung,
-    orderCode,
-    payloadJson: payload === null ? { _raw: rawText.slice(0, 4000) } : payload,
-  });
-
-  if (luu.trungLap) {
-    // Đã nhận sự kiện này rồi. 200 để cổng ngừng gửi lại.
-    return { status: 200, message: 'Sự kiện đã được xử lý trước đó.', eventId: luu.id };
+  async function luuHong(loi: string, status: number, message: string): Promise<WebhookOutcome> {
+    const luu = await luuSuKien({
+      provider: input.provider,
+      eventId: bamThan,
+      signature: chuoiDaGui,
+      signatureValid: hopLe,
+      orderCode: null,
+      payloadJson: payload === null ? { _raw: rawText.slice(0, 4000) } : payload,
+    });
+    if (!luu.trungLap) await ghiKetQua(luu.id, loi);
+    return { status, message, eventId: luu.id };
   }
 
   if (secret === null) {
-    await ghiKetQua(luu.id, 'Phương thức thanh toán chưa cấu hình khoá bí mật webhook.');
-    return { status: 401, message: 'Chưa cấu hình khoá bí mật cho cổng này.', eventId: luu.id };
+    return luuHong(
+      'Phương thức thanh toán chưa cấu hình khoá bí mật webhook.',
+      401,
+      'Chưa cấu hình khoá bí mật cho cổng này.',
+    );
   }
 
-  if (!chuKyDung) {
-    await ghiKetQua(luu.id, 'Chữ ký không khớp.');
-    return { status: 401, message: 'Chữ ký không hợp lệ.', eventId: luu.id };
+  if (!hopLe) {
+    return luuHong('Chữ ký hoặc token không khớp.', 401, 'Chữ ký không hợp lệ.');
   }
 
   if (payload === null) {
-    await ghiKetQua(luu.id, 'Thân request không phải JSON hợp lệ.');
-    return { status: 200, message: 'Đã ghi nhận, nhưng thân request không đọc được.', eventId: luu.id };
+    return luuHong(
+      'Thân request không phải JSON hợp lệ.',
+      200,
+      'Đã ghi nhận, nhưng thân request không đọc được.',
+    );
   }
 
-  if (orderCode === null) {
-    await ghiKetQua(luu.id, 'Không tìm thấy mã đơn trong payload.');
-    return { status: 200, message: 'Đã ghi nhận, nhưng không tìm thấy mã đơn.', eventId: luu.id };
+  const giaoDichs = adapter.bocGiaoDich(payload);
+  if (giaoDichs.length === 0) {
+    return luuHong(
+      'Payload không chứa giao dịch nào.',
+      200,
+      'Đã ghi nhận, nhưng không có giao dịch nào trong payload.',
+    );
   }
 
-  const amount = adapter.extractAmount(payload);
-  if (amount === null || !Number.isInteger(amount) || amount <= 0) {
-    await ghiKetQua(luu.id, `Số tiền không hợp lệ: ${String(amount)}`);
-    return { status: 200, message: 'Đã ghi nhận, nhưng số tiền không hợp lệ.', eventId: luu.id };
-  }
+  // ─── Từng giao dịch một, mỗi cái một dòng sự kiện riêng ──────────────────
+  let apDung = 0;
+  let boQua = 0;
+  let suKienDau: number | null = null;
 
-  try {
-    const result = await confirmPayment({
-      orderCode,
-      amountVnd: amount,
-      providerTxnRef: eventId,
-      source: 'webhook',
-      rawPayload: payload,
-      occurredAt: new Date(),
-      // Webhook không có người thực hiện — nhật ký ghi `actor_user_id = NULL`,
-      // và đó là sự thật chứ không phải thiếu dữ liệu.
-      actor: { actorUserId: null, actorEmail: null, actorPlatformRole: null },
-    });
+  for (const [i, gd] of giaoDichs.entries()) {
+    const orderCode = timMaDon(gd.orderCode);
 
-    await ghiKetQua(luu.id, null);
-    return {
-      status: 200,
-      message: result.alreadyProcessed ? 'Đơn đã được ghi nhận trước đó.' : 'Đã ghi nhận thanh toán.',
-      eventId: luu.id,
-    };
-  } catch (err) {
     /*
-     * Vẫn trả 200. Đơn không tồn tại hay đã huỷ là chuyện GỬI LẠI KHÔNG SỬA
-     * ĐƯỢC — trả 4xx/5xx chỉ khiến cổng gửi lại cùng một webhook đó mỗi vài
-     * phút trong nhiều ngày. Lý do đã nằm trong cột `error` để người vận hành
-     * đọc.
+     * `event_id` là NOT NULL, và khi dịch vụ không cấp thì ta băm thân request
+     * kèm CHỈ SỐ trong mảng.
+     *
+     * Chỉ số là phần bắt buộc: hai giao dịch trong cùng một webhook mà dùng
+     * chung một `event_id` thì `uq_webhook_event` sẽ nuốt mất giao dịch thứ hai
+     * và coi nó là bản gửi lại — một khoản tiền có thật biến mất không dấu vết.
      */
-    const message = err instanceof Error ? err.message : String(err);
-    await ghiKetQua(luu.id, message.slice(0, 500));
-    return { status: 200, message: 'Đã ghi nhận, nhưng không áp dụng được.', eventId: luu.id };
+    const eventId = gd.eventId ?? `${bamThan}:${i}`;
+
+    const luu = await luuSuKien({
+      provider: input.provider,
+      eventId,
+      signature: chuoiDaGui,
+      signatureValid: true,
+      orderCode,
+      payloadJson: payload,
+    });
+    suKienDau ??= luu.id;
+
+    if (luu.trungLap) {
+      boQua += 1;
+      continue;
+    }
+
+    if (!gd.vao) {
+      await ghiKetQua(luu.id, 'Giao dịch chuyển ĐI, bỏ qua.');
+      boQua += 1;
+      continue;
+    }
+
+    if (orderCode === null) {
+      await ghiKetQua(luu.id, 'Không tìm thấy mã đơn trong nội dung chuyển khoản.');
+      boQua += 1;
+      continue;
+    }
+
+    const amount = gd.amount;
+    if (amount === null || !Number.isInteger(amount) || amount <= 0) {
+      await ghiKetQua(luu.id, `Số tiền không hợp lệ: ${String(amount)}`);
+      boQua += 1;
+      continue;
+    }
+
+    try {
+      await confirmPayment({
+        orderCode,
+        amountVnd: amount,
+        providerTxnRef: eventId,
+        source: 'webhook',
+        rawPayload: payload,
+        occurredAt: new Date(),
+        // Webhook không có người thực hiện — nhật ký ghi `actor_user_id = NULL`,
+        // và đó là sự thật chứ không phải thiếu dữ liệu.
+        actor: { actorUserId: null, actorEmail: null, actorPlatformRole: null },
+      });
+      await ghiKetQua(luu.id, null);
+      apDung += 1;
+    } catch (err) {
+      /*
+       * Vẫn không ném ra ngoài. Đơn không tồn tại hay đã huỷ là chuyện GỬI LẠI
+       * KHÔNG SỬA ĐƯỢC, và một giao dịch hỏng không được kéo theo những giao
+       * dịch khác trong cùng lô. Lý do nằm ở cột `error` cho người vận hành đọc.
+       */
+      const message = err instanceof Error ? err.message : String(err);
+      await ghiKetQua(luu.id, message.slice(0, 500));
+      boQua += 1;
+    }
   }
+
+  return {
+    status: 200,
+    message: `Đã nhận ${giaoDichs.length} giao dịch: áp dụng ${apDung}, bỏ qua ${boQua}.`,
+    eventId: suKienDau,
+  };
 }
 
-/** Khoá bí mật của cổng, đã giải mã. `null` khi chưa cấu hình. */
-async function docSecret(provider: PaymentProvider): Promise<string | null> {
+/**
+ * Thử mọi cách xác thực adapter khai. Hợp lệ khi MỘT cách qua được.
+ *
+ * Trả kèm chuỗi đã gửi để lưu vào `payment_webhook_events.signature` — với chữ
+ * ký sai thì đó chính là bằng chứng cần giữ.
+ */
+function kiemXacThuc(
+  adapter: WebhookAdapter,
+  input: WebhookInput,
+  secret: string | null,
+): { hopLe: boolean; chuoiDaGui: string } {
+  let chuoiDaGui = '';
+
+  for (const cach of adapter.xacThuc) {
+    const gui = headerOf(input.headers, cach.header);
+    if (gui === '') continue;
+    // Giữ chuỗi ĐẦU TIÊN có mặt, kể cả khi nó sai — không có nó thì cột
+    // `signature` trống trơn đúng lúc cần điều tra nhất.
+    if (chuoiDaGui === '') chuoiDaGui = gui;
+    if (secret === null) continue;
+
+    const qua =
+      cach.kieu === 'hmac'
+        ? verifySignature({ rawBody: input.rawBody, signature: gui, secret })
+        : verifyToken(gui, secret, cach.boTienTo);
+
+    if (qua) return { hopLe: true, chuoiDaGui: gui };
+  }
+
+  return { hopLe: false, chuoiDaGui };
+}
+
+/**
+ * Khoá bí mật của cổng, đã giải mã. `null` khi chưa cấu hình.
+ *
+ * Xuất ra vì bộ GIẢ LẬP cần nó để ký payload đúng cách rồi đi qua chính
+ * `handleWebhook` — nếu nó có đường riêng bỏ qua bước xác thực thì thứ được demo
+ * không còn là thứ sẽ chạy khi cắm dịch vụ thật.
+ */
+export async function docSecret(provider: PaymentProvider): Promise<string | null> {
   const [rows] = await mysqlPool.query<(RowDataPacket & { webhook_secret_sealed: string | null })[]>(
     `SELECT webhook_secret_sealed FROM payment_methods
       WHERE provider = ? AND deleted_at IS NULL AND is_active = 1

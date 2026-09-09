@@ -2664,4 +2664,110 @@ export const migrations: readonly Migration[] = [
           0, 20)`,
     ],
   },
+  {
+    /*
+     * ⚠️ Id 32, KHÔNG phải 29. Nhánh `feat/f10-column-description` đang giữ 29 và
+     * chưa merge; chỗ trống đó phải để nguyên. `migrate.ts` đối chiếu THEO ID, nên
+     * hai migration khác nhau cùng mang 29 sẽ khiến f10 bị bỏ qua trong im lặng
+     * với exit code 0 — xem cảnh báo dài ở migration 30.
+     *
+     * Chỗ trống vô hại: `applied` là một Set, không phải giá trị lớn nhất, nên 29
+     * vẫn chạy được sau khi 30/31/32 đã chạy.
+     */
+    id: 32,
+    name: 'subscription_limit_snapshot',
+    statements: [
+      /*
+       * ═══ Chụp ảnh HẠN MỨC vào subscription ═══════════════════════════════
+       *
+       * Migration 30 cố ý chỉ chụp GIÁ, và ghi rõ lý do: giá là một sự kiện đã
+       * xảy ra, còn hạn mức là chính sách hiện hành — nới gói Pro thì khách đang
+       * dùng Pro được hưởng ngay. Ghi chú đó kết thúc bằng một điều kiện:
+       *
+       *     "Chấp nhận được khi hạn mức chỉ hiển thị; ngày nó bắt đầu CHẶN thao
+       *      tác thì quyết định này phải xem lại."
+       *
+       * Hôm nay là ngày đó. Khi hạn mức chặn thật, đọc sống từ `plans` nghĩa là
+       * một lần sửa bảng giá lúc 3 giờ chiều sẽ KHOÁ NGAY những khách đã trả tiền
+       * cho gói cũ — họ mua "10 workspace", đang dùng 7, và đột nhiên không tạo
+       * thêm được vì người vận hành vừa hạ gói Pro xuống 5. Không có màn hình nào
+       * giải thích được chuyện đó cho họ.
+       *
+       * Nên hạn mức chuyển sang cùng loại với giá: chụp ảnh lúc kích hoạt. Khách
+       * được đúng thứ họ đã trả tiền, cho tới hết chu kỳ. Sửa bảng giá chỉ ảnh
+       * hưởng người mua TỪ ĐÓ TRỞ ĐI.
+       *
+       * ─── NULL = KHÔNG GIỚI HẠN, giữ đúng quy ước của `plans` ─────────────
+       *
+       * Không dùng 0: nó mang hai nghĩa đối nghịch ("không được cái nào" và
+       * "không giới hạn"), và bất kỳ ai đọc câu so sánh sẽ phải đoán.
+       *
+       * ⚠️ Và chính vì NULL đã có nghĩa đó rồi, nó KHÔNG thể kiêm thêm nghĩa
+       * "dòng này chưa được chụp ảnh". Đó là lý do có cột cờ — xem ngay dưới.
+       *
+       * ─── Cột CỜ, và vì sao bốn cột số là không đủ ────────────────────────
+       *
+       * NULL trong bốn cột kia ĐÃ mang nghĩa "không giới hạn". Nó không thể đồng
+       * thời mang nghĩa "dòng này chưa được chụp ảnh" — và nếu để nó mang cả hai
+       * thì mọi câu INSERT quên bốn cột mới sẽ âm thầm biến gói thành VÔ HẠN.
+       * Fail-open, đúng loại lỗi không ai phát hiện cho tới khi một tổ chức Free
+       * tạo được 200 báo cáo.
+       *
+       * Không phải giả thuyết: `tests/billingApi.integration.test.ts:505` chèn
+       * subscription bằng SQL thô, không có cột hạn mức, rồi khẳng định hạn mức
+       * workspace bằng 5. Có cột cờ thì dòng đó rơi về đọc sống và bài test vẫn
+       * đúng; không có cột cờ thì nó thành "vô hạn" và bài test đỏ — mà cái đỏ
+       * đó mới là thứ NHẸ nhất trong các hậu quả.
+       *
+       *   limits_captured_at IS NULL      -> chưa chụp, ĐỌC SỐNG từ plans
+       *   limits_captured_at IS NOT NULL  -> tin bốn cột trên, không nhìn plans
+       *
+       * CHECK chặn trạng thái nửa vời còn lại: ghi hạn mức mà quên cờ. Nửa ảnh
+       * chụp tệ hơn không có ảnh nào, vì nó trông như đã xong.
+       *
+       * Một câu ALTER cho tất cả: DDL của MySQL 8 là nguyên tử, nên nó hoặc áp
+       * dụng trọn vẹn hoặc không gì cả. Tách nhiều câu thì mới có trạng thái nửa
+       * vời mà lần chạy lại không gỡ được.
+       */
+      `ALTER TABLE subscriptions
+         ADD COLUMN max_workspaces     INT UNSIGNED    NULL AFTER price_vnd,
+         ADD COLUMN max_reports        INT UNSIGNED    NULL AFTER max_workspaces,
+         ADD COLUMN max_members        INT UNSIGNED    NULL AFTER max_reports,
+         ADD COLUMN max_storage_bytes  BIGINT UNSIGNED NULL AFTER max_members,
+         ADD COLUMN limits_captured_at DATETIME(3)     NULL AFTER max_storage_bytes,
+         ADD CONSTRAINT ck_subscriptions_limits_snapshot
+           CHECK (limits_captured_at IS NOT NULL
+                  OR (max_workspaces IS NULL AND max_reports IS NULL
+                      AND max_members IS NULL AND max_storage_bytes IS NULL))`,
+
+      /*
+       * Backfill: dòng cũ mượn hạn mức HIỆN TẠI của gói nó trỏ tới.
+       *
+       * Không có nguồn nào tốt hơn — hạn mức lúc họ mua không được lưu ở đâu cả,
+       * đó chính là thứ migration này đang sửa. Mượn giá trị hiện tại là phỏng
+       * đoán đúng nhất có thể, và nó khớp đúng hành vi mà những dòng đó vẫn đang
+       * chịu cho tới giây phút này.
+       *
+       * `JOIN plans` KHÔNG lọc `deleted_at IS NULL`: gói bị xoá mềm vẫn còn dòng
+       * (`fk_subscriptions_plan` là RESTRICT nên không xoá cứng được), và hạn mức
+       * của một gói đã ẩn vẫn đúng hơn NULL.
+       *
+       * `limits_captured_at = CURRENT_TIMESTAMP(3)` chứ KHÔNG phải `period_start`:
+       * giá trị vừa chép là bảng giá HÔM NAY, không phải hôm khách mua. Ghi mốc
+       * hôm mua là nói dối về nguồn gốc con số.
+       *
+       * ⚠️ `WHERE limits_captured_at IS NULL` là thứ khiến câu này chạy lại được:
+       * `migrate` chạy hết statements rồi mới ghi `schema_migrations`, không có
+       * transaction bao quanh.
+       */
+      `UPDATE subscriptions s
+         JOIN plans p ON p.id = s.plan_id
+          SET s.max_workspaces     = p.max_workspaces,
+              s.max_reports        = p.max_reports,
+              s.max_members        = p.max_members,
+              s.max_storage_bytes  = p.max_storage_bytes,
+              s.limits_captured_at = CURRENT_TIMESTAMP(3)
+        WHERE s.limits_captured_at IS NULL`,
+    ],
+  },
 ];
