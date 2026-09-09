@@ -1,6 +1,8 @@
 import {
   ADMIN_ERROR_CODES,
+  BILLING_ERROR_CODES,
   DATASET_ERROR_CODES,
+  ORDER_STATUS_LABELS,
   REPORT_ERROR_CODES,
   WORKSPACE_ERROR_CODES,
   type ConnectionPrerequisitesDto,
@@ -32,6 +34,7 @@ import { authorize } from '../../middleware/authorize';
 import { requireFreshMembership } from '../../middleware/requireFreshMembership';
 import * as adminMembersRepo from '../../repositories/adminMembers';
 import * as adminWorkspacesRepo from '../../repositories/adminWorkspaces';
+import * as billingRepo from '../../repositories/billing';
 import * as connectionsRepo from '../../repositories/connections';
 import * as datamodelsRepo from '../../repositories/datamodels';
 import * as datasetsRepo from '../../repositories/datasets';
@@ -52,6 +55,9 @@ import {
   testSavedConnection,
   updateConnection,
 } from '../../services/connections/connectionService';
+import { createOrder } from '../../services/billing/createOrder';
+import { buildBillingSummary } from '../../services/billing/entitlements';
+import { isQrKey } from '../../services/billing/qrImage';
 import { deleteDataset } from '../../services/connections/deleteDataset';
 import { DEFAULT_PORTS, DEFAULT_SSL, REQUIRED_GRANTS } from '../../services/connections/drivers';
 import { previewDataset } from '../../services/connections/previewDataset';
@@ -104,6 +110,7 @@ import {
   createMeasureBodySchema,
   createMemberBodySchema,
   createModelReportBodySchema,
+  createOrderBodySchema,
   createRelationshipBodySchema,
   createReportBodySchema,
   createUploadBodySchema,
@@ -115,7 +122,9 @@ import {
   listDatasetsQuerySchema,
   listLoadErrorsQuerySchema,
   listMembersQuerySchema,
+  listOrdersQuerySchema,
   listReportsQuerySchema,
+  orderCodeParamSchema,
   renameDatasetBodySchema,
   saveLayoutBodySchema,
   createFormulaMeasureBodySchema,
@@ -2401,6 +2410,264 @@ v1Router.post(
     const body = explorerQueryBodySchema.parse(req.body);
 
     res.json(await explainExplorerQuery(auth.tenantId, auth.userId, id, body));
+  }),
+);
+
+// ─── §11 Gói dịch vụ & thanh toán ────────────────────────────────────────────
+
+/**
+ * Bảng giá.
+ *
+ * Gác `billing:read` chứ không để công khai: hạn mức của từng gói là thông tin
+ * thương mại, và trang này chỉ có nghĩa với người đã đăng nhập. Ngày nào cần
+ * một trang giá công khai cho khách chưa có tài khoản thì đó là một route khác
+ * ở ngoài `/v1`, không phải nới quyền route này.
+ *
+ * KHÔNG phân trang: ba gói, và một bảng giá phải nhìn thấy hết trong một màn.
+ */
+v1Router.get(
+  '/plans',
+  authorize('billing', 'read'),
+  asyncHandler(async (_req, res) => {
+    res.json(await billingRepo.listPublicPlans(mysqlPool));
+  }),
+);
+
+/** Phương thức thanh toán đang bật. Giao diện Checkout đọc cái này. */
+v1Router.get(
+  '/payment-methods',
+  authorize('billing', 'read'),
+  asyncHandler(async (_req, res) => {
+    res.json(await billingRepo.listActivePaymentMethods(mysqlPool));
+  }),
+);
+
+/**
+ * Ảnh mã QR TĨNH của một phương thức (MoMo) — §11 mục 3.2.
+ *
+ * ─── Vì sao ảnh đi qua Express thay vì một URL công khai ───────────────────
+ *
+ * MinIO nằm trong mạng Docker nội bộ và cố ý KHÔNG publish ra ngoài, nên trình
+ * duyệt không nói chuyện với nó được. Còn presigned GET thì đưa ra một URL sống
+ * vài phút mà ai cầm cũng mở được — với một ảnh QR nhận tiền thì không có lý do
+ * gì để nới ra như vậy.
+ *
+ * Ảnh nặng vài chục KB và tải một lần cho mỗi lần mở màn thanh toán. Cho nó đi
+ * qua Node là cái giá đúng để đổi lấy việc nó vẫn nằm sau lớp xác thực.
+ *
+ * ⚠️ Khoá lấy từ DATABASE, không từ URL. Nhận khoá từ client là cho người ta
+ * đọc bất kỳ object nào trong bucket — kể cả file dữ liệu của tổ chức khác.
+ */
+v1Router.get(
+  '/payment-methods/:id/qr',
+  authorize('billing', 'read'),
+  asyncHandler(async (req, res) => {
+    const { id } = idParamSchema.parse(req.params);
+
+    const key = await billingRepo.qrObjectKey(mysqlPool, id);
+    if (key === null) throw notFound('Phương thức này không có mã QR tĩnh.');
+
+    // Chuỗi trong database phải đúng khuôn ta tự sinh. Một giá trị lạ ở đó
+    // nghĩa là dữ liệu đã bị can thiệp, và mang nó đi đọc object là đúng thứ
+    // ta vừa từ chối làm với tham số URL.
+    if (!isQrKey(key)) throw notFound('Mã QR của phương thức này không đọc được.');
+
+    const bytes = await storage.getObject(key);
+
+    res.setHeader('Content-Type', key.endsWith('.png') ? 'image/png' : 'image/jpeg');
+    // Ảnh gắn với một KHOÁ bất biến (uuid mới mỗi lần tải lên), nên cache lâu
+    // là an toàn: đổi ảnh nghĩa là đổi khoá, và trình duyệt sẽ hỏi lại vì DTO
+    // trả về một đường dẫn... trỏ tới cùng id. Nên `private` + thời hạn ngắn:
+    // đủ để không tải lại mỗi giây khi người dùng chờ thanh toán, đủ ngắn để
+    // người vận hành đổi ảnh xong thấy hiệu lực trong vòng vài phút.
+    res.setHeader('Cache-Control', 'private, max-age=300');
+    res.send(bytes);
+  }),
+);
+
+/**
+ * Toàn bộ trang Billing trong MỘT lần gọi: gói, hạn dùng, mức sử dụng.
+ *
+ * Gộp ba thứ thay vì ba endpoint vì chúng luôn hiện cùng nhau và luôn phải nhất
+ * quán với nhau — ba lần gọi rời nghĩa là ba ảnh chụp ở ba thời điểm, và thanh
+ * mức sử dụng có thể vẽ theo hạn mức của một gói vừa đổi.
+ */
+v1Router.get(
+  '/billing/me',
+  authorize('billing', 'read'),
+  asyncHandler(async (req, res) => {
+    const auth = requireAuth(req);
+    res.json(await buildBillingSummary(auth.tenantId, new Date()));
+  }),
+);
+
+v1Router.get(
+  '/billing/subscriptions',
+  authorize('billing', 'read'),
+  asyncHandler(async (req, res) => {
+    const auth = requireAuth(req);
+    // Trần 50: đây là lịch sử để đọc, không phải dữ liệu để phân trang. Một tổ
+    // chức mua hằng tháng suốt bốn năm cũng chưa chạm tới.
+    res.json(await billingRepo.listSubscriptionHistory(mysqlPool, auth.tenantId, 50));
+  }),
+);
+
+/**
+ * Tạo đơn — §11.
+ *
+ * `billing:modify` chứ không `read`: đây là thao tác cam kết tiền bạc. Chỉ vai
+ * trò `admin` của tổ chức có ô này (xem `DEFAULT_POLICY`), đúng ý — creator
+ * không nên tự mua gói cho công ty.
+ *
+ * Giới hạn nhịp vì mỗi lần gọi sinh một mã QR và một dòng chờ thanh toán. Bó
+ * theo IP như mọi bộ giới hạn khác của repo; 20 đơn trong 10 phút là rộng rãi
+ * cho người dùng thật và chật cho một vòng lặp.
+ */
+v1Router.post(
+  '/orders',
+  authorize('billing', 'modify'),
+  rateLimit({ bucket: 'billing-order', max: 20, windowSeconds: 600 }),
+  asyncHandler(async (req, res) => {
+    const auth = requireAuth(req);
+    const body = createOrderBodySchema.parse(req.body);
+
+    const order = await createOrder({
+      tenantId: auth.tenantId,
+      userId: auth.userId,
+      planId: body.planId,
+      paymentMethodId: body.paymentMethodId,
+      cycle: body.cycle,
+    });
+
+    res.status(201).json(order);
+  }),
+);
+
+v1Router.get(
+  '/orders',
+  authorize('billing', 'read'),
+  asyncHandler(async (req, res) => {
+    const auth = requireAuth(req);
+    const query = listOrdersQuerySchema.parse(req.query);
+
+    const sort = resolveSortColumn(query.sort, billingRepo.ORDER_SORT_KEYS, 'createdAt');
+    if (sort === null) {
+      throw badRequest('Cột sắp xếp không hợp lệ.', {
+        sort: `Chỉ nhận: ${billingRepo.ORDER_SORT_KEYS.join(', ')}`,
+      });
+    }
+
+    // Kiểm lười trước khi đọc: con cron chạy mỗi vài phút, nên không có dòng
+    // này thì danh sách hiện "đang chờ thanh toán" cho một đơn đã quá hạn.
+    await billingRepo.expireOverdueOrders(mysqlPool, new Date(), auth.tenantId);
+
+    const filter: billingRepo.OrderFilter = {
+      status: query.status,
+      sort,
+      order: query.order,
+      page: query.page,
+      pageSize: query.pageSize,
+    };
+
+    const total = await billingRepo.countOrders(mysqlPool, auth.tenantId, filter);
+    const items = await billingRepo.listOrders(mysqlPool, auth.tenantId, filter);
+
+    res.json(buildPageResult(items, total, query.page, query.pageSize));
+  }),
+);
+
+v1Router.get(
+  '/orders/:code',
+  authorize('billing', 'read'),
+  asyncHandler(async (req, res) => {
+    const auth = requireAuth(req);
+    const { code } = orderCodeParamSchema.parse(req.params);
+
+    await billingRepo.expireOverdueOrders(mysqlPool, new Date(), auth.tenantId);
+
+    const order = await billingRepo.findOrderByCode(mysqlPool, auth.tenantId, code);
+    // 404 cho đơn của tổ chức khác, KHÔNG phải 403 — cùng quy ước với cả repo.
+    // 403 là một lời xác nhận rằng mã đó có tồn tại.
+    if (order === null) {
+      throw new HttpError(
+        404,
+        BILLING_ERROR_CODES.ORDER_NOT_FOUND,
+        'Không tìm thấy đơn hàng này.',
+      );
+    }
+
+    res.json(order);
+  }),
+);
+
+/**
+ * Endpoint dành riêng cho việc HỎI LẠI mỗi ba giây.
+ *
+ * ─── Vì sao không dùng luôn `GET /orders/:code` ─────────────────────────────
+ *
+ * Vì cái kia JOIN sang `payment_methods` và trả về cả chuỗi QR — vài trăm byte
+ * mỗi lần, nhân với một request mỗi ba giây, nhân với số người đang mở màn hình
+ * thanh toán. Ở đây chỉ cần đúng một câu hỏi: trả tiền xong chưa.
+ *
+ * Giao diện dừng hỏi khi trạng thái rời khỏi `ORDER_STATUSES_LIVE` — danh sách
+ * đó ở `@bi/shared` để hai bên không bao giờ nói hai đằng.
+ */
+v1Router.get(
+  '/orders/:code/status',
+  authorize('billing', 'read'),
+  asyncHandler(async (req, res) => {
+    const auth = requireAuth(req);
+    const { code } = orderCodeParamSchema.parse(req.params);
+
+    await billingRepo.expireOverdueOrders(mysqlPool, new Date(), auth.tenantId);
+
+    const order = await billingRepo.findOrderByCode(mysqlPool, auth.tenantId, code);
+    if (order === null) {
+      throw new HttpError(
+        404,
+        BILLING_ERROR_CODES.ORDER_NOT_FOUND,
+        'Không tìm thấy đơn hàng này.',
+      );
+    }
+
+    res.json({
+      orderCode: order.orderCode,
+      status: order.status,
+      paidAt: order.paidAt,
+      expiresAt: order.expiresAt,
+    });
+  }),
+);
+
+/**
+ * Khách tự huỷ đơn còn đang chờ.
+ *
+ * `cancelled` chứ không `failed` — hai chuyện khác hẳn nhau, xem ghi chú ở
+ * `ORDER_STATUSES`. Chỉ huỷ được đơn `pending`: một đơn đã trả tiền mà huỷ được
+ * là đường ngắn nhất tới việc mất dấu một khoản tiền đã vào tài khoản.
+ */
+v1Router.post(
+  '/orders/:code/cancel',
+  authorize('billing', 'modify'),
+  asyncHandler(async (req, res) => {
+    const auth = requireAuth(req);
+    const { code } = orderCodeParamSchema.parse(req.params);
+
+    const affected = await billingRepo.cancelOrder(mysqlPool, auth.tenantId, code);
+    if (affected === 0) {
+      // Không phân biệt "không có đơn" với "đơn không còn chờ": cả hai đều dẫn
+      // tới cùng một việc người dùng phải làm là tải lại danh sách.
+      const order = await billingRepo.findOrderByCode(mysqlPool, auth.tenantId, code);
+      throw order === null
+        ? new HttpError(404, BILLING_ERROR_CODES.ORDER_NOT_FOUND, 'Không tìm thấy đơn hàng này.')
+        : new HttpError(
+            409,
+            BILLING_ERROR_CODES.ORDER_STATE_INVALID,
+            `Đơn này đang ở trạng thái "${ORDER_STATUS_LABELS[order.status]}" nên không huỷ được.`,
+          );
+    }
+
+    res.status(204).end();
   }),
 );
 

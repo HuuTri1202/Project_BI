@@ -51,6 +51,7 @@ export type PermissionFlag =
   | 'readDatasets'
   | 'readDataModels'
   | 'editContent'
+  | 'manageBilling'
   | 'adminConsole';
 
 export type Permissions = Record<PermissionFlag, boolean> & {
@@ -104,6 +105,16 @@ export type Permissions = Record<PermissionFlag, boolean> & {
   readDataModels: boolean;
   /** Tạo và sửa báo cáo, biểu đồ. */
   editContent: boolean;
+  /**
+   * §11 — xem gói dịch vụ, mức sử dụng và hoá đơn của tổ chức.
+   *
+   * Chỉ `admin` có, và đó là chủ ý: hạn mức cùng lịch sử thanh toán là thông
+   * tin thương mại của tổ chức, không phải thứ mọi người dựng báo cáo cần thấy.
+   *
+   * Hỏi ô `read` chứ không `modify` vì mục sidebar chỉ dẫn tới trang XEM; nút
+   * "Nâng cấp" bên trong mới cần `modify`, và backend gác nó riêng.
+   */
+  manageBilling: boolean;
   /** Console vận hành hệ thống — trục NỀN TẢNG, không phải trục tổ chức. */
   adminConsole: boolean;
 };
@@ -140,6 +151,7 @@ export function usePermissions(): Permissions {
       readDatasets: can(matrix, 'dataset', 'read'),
       readDataModels: can(matrix, 'datamodel', 'read'),
       editContent: can(matrix, 'report', 'modify'),
+      manageBilling: can(matrix, 'billing', 'read'),
       // KHÔNG lấy từ ma trận: đây là trục `users.role`, hoàn toàn tách khỏi
       // policy theo tổ chức. Trộn vào cùng một object phẳng sẽ khiến người viết
       // tưởng chúng cùng loại — đúng cái lẫn lộn đã sinh ra lỗi ở

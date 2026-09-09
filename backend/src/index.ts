@@ -7,6 +7,7 @@ import { closeRedis } from './config/redis';
 import { runMigrations } from './db/migrate';
 import { regenerateAllTenants } from './services/datamodel/cubeSchemaService';
 import { checkSchemaDir } from './services/datamodel/cubeSchemaStore';
+import { startBillingRunner, stopBillingRunner } from './services/billing/runner';
 import { startIngestRunner, stopIngestRunner } from './services/ingest/runner';
 
 let server: Server | undefined;
@@ -31,6 +32,11 @@ async function start(): Promise<void> {
   // đang làm phần giao diện. Đặt trước `listen` thì máy đó không mở nổi cổng
   // 4000 vì một thứ họ không dùng tới. Vòng lặp tự nuốt lỗi kết nối và ghi log.
   startIngestRunner();
+
+  // Vòng lặp §11 — cho hết hạn đơn quá giờ, năm phút một lượt. Chỉ chạm MySQL
+  // nên đặt trước hay sau `listen` đều được; đặt cạnh runner kia để hai vòng
+  // lặp nền nằm chung một chỗ trong file này.
+  startBillingRunner();
 
   // Cube schema (§10) dựng lại từ database, cùng lý do đặt sau `listen`.
   //
@@ -81,9 +87,9 @@ async function shutdown(signal: NodeJS.Signals): Promise<void> {
     console.log('[server] HTTP server closed');
   });
 
-  // TRƯỚC `closeMysql`, không phải sau: vòng lặp nạp đang giữ connection từ
+  // TRƯỚC `closeMysql`, không phải sau: hai vòng lặp nền đang giữ connection từ
   // chính pool đó. Xem `stopIngestRunner`.
-  await stopIngestRunner();
+  await Promise.all([stopIngestRunner(), stopBillingRunner()]);
 
   const results = await Promise.allSettled([closeMysql(), closeRedis(), closeClickhouse()]);
   for (const result of results) {

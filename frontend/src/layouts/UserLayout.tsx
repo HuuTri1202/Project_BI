@@ -4,6 +4,7 @@ import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { usePermissions } from '../auth/usePermissions';
 import { AccountMenu } from '../components/ui/AccountMenu';
 import { useAuth } from '../auth/useAuth';
+import { PlanBadge } from '../features/billing/PlanBadge';
 import { TenantSwitcher } from '../features/tenant/TenantSwitcher';
 import { WorkspaceSwitcher } from '../features/tenant/WorkspaceSwitcher';
 import { useWorkspace } from '../workspace/useWorkspace';
@@ -117,6 +118,22 @@ const NAV_ITEMS: NavItem[] = [
     needs: ['manageTenant', 'manageOrgConnections', 'manageWorkspaces', 'manageMembers'],
     icon: 'M4 21V7l6-3 6 3v14M4 21h16M10 21v-4h4v4M8 11h.01M12 11h.01M8 15h.01M12 15h.01',
   },
+  /*
+   * §11 — nằm NGAY DƯỚI "Quản lý tổ chức", và vị trí đó có lý do.
+   *
+   * Cả hai trả lời câu "tổ chức này đang thế nào", chỉ khác một bên là cấu hình
+   * còn một bên là thương mại. Đặt nó lên trên, cạnh Kho dữ liệu, sẽ ngụ ý đây
+   * là thứ dùng hằng ngày — trong khi người ta chỉ mở nó vài lần một năm.
+   *
+   * Cùng một ô quyền với route (`manageBilling`), nên mục hiện lên không bao
+   * giờ dẫn tới 403.
+   */
+  {
+    label: 'Gói dịch vụ & Thanh toán',
+    to: '/billing',
+    needs: ['manageBilling'],
+    icon: 'M3 10h18M3 7a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Zm4 7h4',
+  },
 ];
 
 function NavIcon({ path }: { path: string }): React.ReactElement {
@@ -147,6 +164,7 @@ function SidebarContent({
     <>
       <div className="flex h-16 shrink-0 items-center px-6">
         <span className="text-lg font-bold text-white">BI Platform</span>
+        <PlanBadge />
       </div>
 
       {/* §5.1 — hai bộ chuyển đặt trên sidebar, ngay dưới tên sản phẩm.

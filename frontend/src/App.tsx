@@ -1,4 +1,5 @@
 import { Navigate, Route, Routes } from 'react-router-dom';
+import { useAuth } from './auth/useAuth';
 import { RegisterPage } from './features/auth/RegisterPage';
 import { AdminLayout } from './layouts/AdminLayout';
 import { UserLayout } from './layouts/UserLayout';
@@ -10,6 +11,9 @@ import LoginPage from './pages/LoginPage';
 import NotFoundPage from './pages/NotFoundPage';
 import ProfilePage from './pages/ProfilePage';
 import ReportPage from './pages/ReportPage';
+import AdminBillingMethodsPage from './pages/admin/BillingMethodsPage';
+import AdminBillingOrdersPage from './pages/admin/BillingOrdersPage';
+import AdminBillingPlansPage from './pages/admin/BillingPlansPage';
 import OverviewPage from './pages/admin/OverviewPage';
 import TenantsPage from './pages/admin/TenantsPage';
 import UsersPage from './pages/admin/UsersPage';
@@ -20,6 +24,11 @@ import DataModelsPage from './pages/tenant/DataModelsPage';
 import ExplorerTab from './pages/tenant/datamodel/ExplorerTab';
 import RelationshipTab from './pages/tenant/datamodel/RelationshipTab';
 import SchemasTab from './pages/tenant/datamodel/SchemasTab';
+import BillingPage from './pages/tenant/BillingPage';
+import BillingOverviewPage from './pages/tenant/billing/BillingOverviewPage';
+import { CheckoutPage, OrderDetailPage } from './pages/tenant/billing/CheckoutPage';
+import OrdersPage from './pages/tenant/billing/OrdersPage';
+import PlansPage from './pages/tenant/billing/PlansPage';
 import ConnectionsPage from './pages/tenant/ConnectionsPage';
 import DatasetDetailPage from './pages/tenant/DatasetDetailPage';
 import DatasetsPage from './pages/tenant/DatasetsPage';
@@ -57,6 +66,22 @@ import { WorkspaceProvider } from './workspace/WorkspaceProvider';
  * vite.config.ts proxy `/health` thẳng sang Express nên đường dẫn đó không bao
  * giờ tới được SPA.
  */
+
+/**
+ * Điểm rẽ ở `/`: người vận hành nền tảng về console, còn lại về trang chủ.
+ *
+ * Cùng luật với `redirectTargetFor` và cố ý là hai chỗ chứ không một: cái kia lo
+ * SAU KHI ĐĂNG NHẬP, cái này lo mọi lần khác — gõ thẳng địa chỉ gốc, bấm logo,
+ * hay quay lại từ bookmark. Sửa một mà quên chỗ kia thì người vận hành vẫn rơi
+ * vào khu người dùng, chỉ qua một cửa khác.
+ *
+ * `replace` để nút Back không kẹt trong vòng lặp chuyển hướng.
+ */
+function HomeOrConsole(): React.ReactElement {
+  const { user } = useAuth();
+  return <Navigate to={user?.platformRole === 'superadmin' ? '/admin' : '/home'} replace />;
+}
+
 export default function App(): React.ReactElement {
   return (
     <Routes>
@@ -85,8 +110,13 @@ export default function App(): React.ReactElement {
         >
           {/* `/` là điểm rẽ, không phải trang nội dung: giữ nó là một trang thật
               nghĩa là có hai đường dẫn cùng hiện trang chủ, và mọi link nội bộ
-              phải chọn một trong hai. */}
-          <Route path="/" element={<Navigate to="/home" replace />} />
+              phải chọn một trong hai.
+
+              Rẽ theo TRỤC NỀN TẢNG, cùng luật với `redirectTargetFor`: chỉ sửa
+              điều hướng sau đăng nhập mà bỏ chỗ này thì người vận hành gõ thẳng
+              địa chỉ gốc hoặc bấm logo vẫn rơi vào khu người dùng — đúng thứ vừa
+              bỏ đi, chỉ qua một cửa khác. */}
+          <Route path="/" element={<HomeOrConsole />} />
           <Route path="/home" element={<HomePage />} />
           <Route path="/profile" element={<ProfilePage />} />
 
@@ -193,6 +223,24 @@ export default function App(): React.ReactElement {
           </Route>
           <Route path="/workspaces" element={<Navigate to="/organization/workspaces" replace />} />
           <Route path="/members" element={<Navigate to="/organization/members" replace />} />
+
+          {/* ─── §11 Gói dịch vụ & Thanh toán ──────────────────────────────
+              Cả năm route dùng CHUNG một ô quyền, nên gác một lần ở ngoài thay
+              vì lặp `TenantAdminRoute` năm lần — khác `/organization`, nơi mỗi
+              tab có một ô riêng.
+
+              Màn thanh toán và chi tiết đơn là ANH EM của khung tab, không phải
+              con: chúng chiếm trọn khu nội dung thay vì nằm dưới thanh tab —
+              cùng khuôn với wizard kết nối ở ngay trên. */}
+          <Route element={<TenantAdminRoute needs="manageBilling" />}>
+            <Route path="/billing" element={<BillingPage />}>
+              <Route index element={<BillingOverviewPage />} />
+              <Route path="plans" element={<PlansPage />} />
+              <Route path="orders" element={<OrdersPage />} />
+            </Route>
+            <Route path="/billing/checkout/:planId" element={<CheckoutPage />} />
+            <Route path="/billing/orders/:code" element={<OrderDetailPage />} />
+          </Route>
         </Route>
 
         {/* ─── Console vận hành hệ thống ───────────────────────────────── */}
@@ -202,6 +250,12 @@ export default function App(): React.ReactElement {
             <Route path="tenants" element={<TenantsPage />} />
             <Route path="users" element={<UsersPage />} />
             <Route path="workspaces" element={<WorkspacesPage />} />
+            {/* §11 — quản trị thanh toán. Không có cổng quyền riêng: cả khu
+                `/admin` đã gác bằng `AdminRoute` ở ngoài, và ba lớp guard ở
+                backend là chỗ chặn thật. */}
+            <Route path="billing/orders" element={<AdminBillingOrdersPage />} />
+            <Route path="billing/plans" element={<AdminBillingPlansPage />} />
+            <Route path="billing/methods" element={<AdminBillingMethodsPage />} />
           </Route>
         </Route>
       </Route>

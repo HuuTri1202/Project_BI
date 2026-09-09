@@ -45,6 +45,28 @@ export const RESOURCES = [
    * nhập — không phải điều ta muốn cho vai trò `creator`.
    */
   'connection',
+  /**
+   * Gói dịch vụ, đơn hàng và hoá đơn của tổ chức (§11).
+   *
+   * ─── Vì sao KHÔNG tái dùng `tenant` ────────────────────────────────────
+   *
+   * Hôm nay hai lựa chọn cho cùng một kết quả: chỉ Admin có `tenant:*`, và
+   * cũng chỉ Admin cần đụng tới thanh toán. Nên lý do phải là chuyện ngày mai.
+   *
+   * `tenant` đã có nghĩa xác định ở ngay trên: "đổi tên công ty và cấu hình
+   * cấp tổ chức". Ngày ta muốn Creator THẤY huy hiệu gói và mức sử dụng mà
+   * KHÔNG đổi được tên công ty, `tenant:read` không tách nổi hai việc đó — và
+   * lúc ấy phải làm đúng việc dòng này đang làm, chỉ là trên dữ liệu thật.
+   *
+   * Trục `read`/`modify` ánh xạ tự nhiên: `read` là xem gói, đơn hàng, hoá
+   * đơn; `modify` là tạo đơn mua và huỷ đơn. Không cần từ vựng mới.
+   *
+   * ⚠️ Endpoint QUẢN TRỊ gói (đặt giá, duyệt giao dịch, xem đơn của mọi tổ
+   * chức) KHÔNG đi qua Casbin — chúng nằm dưới `/api/admin`, gác bằng trục
+   * NỀN TẢNG (`users.role = 'superadmin'`). Casbin trả lời "vai trò trong một
+   * tổ chức", mà superadmin thì đứng ngoài mọi tổ chức.
+   */
+  'billing',
 ] as const;
 
 export type Resource = (typeof RESOURCES)[number];
@@ -63,6 +85,7 @@ export const RESOURCE_LABELS: Record<Resource, string> = {
   member: 'Thành viên',
   tenant: 'Tổ chức',
   connection: 'Kết nối CSDL',
+  billing: 'Gói dịch vụ & thanh toán',
 };
 
 export const ACTION_LABELS: Record<Action, string> = {
@@ -234,6 +257,7 @@ export function emptyPermissionMatrix(): PermissionMatrixDto {
     member: [],
     tenant: [],
     connection: [],
+    billing: [],
   };
 }
 

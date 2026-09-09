@@ -1,7 +1,9 @@
 import {
   AGGREGATES,
+  BILLING_CYCLES,
   CHART_TYPES,
   COLUMN_ROLES,
+  ORDER_STATUSES,
   DATAMODEL_NAME_MAX,
   DATASET_NAME_MAX,
   DATASET_SOURCES,
@@ -20,6 +22,7 @@ import {
   JOB_TITLES,
 } from '@bi/shared';
 import { z } from 'zod';
+import { ORDER_CODE_PATTERN } from '../../services/billing/orderCode';
 import { paginationSchema } from '../../utils/pagination';
 
 /**
@@ -555,6 +558,40 @@ export const explorerQueryBodySchema = z
     message: 'Hãy chọn ít nhất một chiều hoặc một thước đo',
     path: ['dimensionIds'],
   });
+
+// ─── Gói dịch vụ & thanh toán (§11) ──────────────────────────────────────────
+
+/**
+ * Tạo đơn mua gói.
+ *
+ * CỐ Ý không nhận `amount`. Số tiền do backend tính từ giá gói và chu kỳ, rồi
+ * chốt cứng vào đơn — nhận nó từ client là cho người ta tự đặt giá cho chính
+ * mình, và lớp kiểm duy nhất sẽ là một câu `if` ai đó có thể quên.
+ *
+ * Cũng không nhận `orderCode`: mã do server sinh, cùng lập luận với khoá lưu
+ * trữ của §7 (`createUploadBodySchema`).
+ */
+export const createOrderBodySchema = z.object({
+  planId: z.coerce.number().int().positive(),
+  paymentMethodId: z.coerce.number().int().positive(),
+  cycle: z.enum(BILLING_CYCLES),
+});
+
+/**
+ * Mã đơn trên URL.
+ *
+ * Kiểm KHUÔN ngay ở đây thay vì để repository nhận một chuỗi tuỳ ý: một tham số
+ * rác bị chặn trước khi chạm database, và thông báo lỗi nói đúng chuyện gì sai.
+ * `ORDER_CODE_PATTERN` là nguồn duy nhất của khuôn đó — xem `orderCode.ts`.
+ */
+export const orderCodeParamSchema = z.object({
+  code: z.string().regex(ORDER_CODE_PATTERN, 'Mã đơn hàng không đúng định dạng'),
+});
+
+export const listOrdersQuerySchema = paginationSchema.extend({
+  status: z.enum(ORDER_STATUSES).optional(),
+  sort: z.string().optional(),
+});
 
 /** Dòng lỗi của lần nạp gần nhất (§9.8). Chỉ cần phân trang, không có bộ lọc. */
 export const listLoadErrorsQuerySchema = paginationSchema;

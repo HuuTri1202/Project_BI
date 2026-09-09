@@ -1,10 +1,11 @@
-import {
+﻿import {
   PLATFORM_ERROR_CODES,
   type PlatformRole,
   type PlatformOverviewDto,
   type PlatformTenantDetailDto,
 } from '@bi/shared';
 import { Router } from 'express';
+import type { ResultSetHeader, RowDataPacket } from 'mysql2';
 
 import { getEnforcer, resetEnforcer } from '../../authz/enforcer';
 import { mysqlPool } from '../../config/mysql';
@@ -12,16 +13,30 @@ import { withTransaction } from '../../db/tx';
 import { authenticate, requireAuth } from '../../middleware/authenticate';
 import { requireFreshAdmin } from '../../middleware/requireFreshAdmin';
 import { requirePlatformRole } from '../../middleware/requireRole';
+import * as billingRepo from '../../repositories/billing';
 import * as platformRepo from '../../repositories/platform';
+import { AUDIT_ACTIONS, actorEmailOf, actorFrom, writeAudit } from '../../services/audit/log';
+import { confirmPayment } from '../../services/billing/confirmPayment';
+import { isOrderCode } from '../../services/billing/orderCode';
+import { tinhChuKy } from '../../services/billing/period';
+import { buildQrKey, parseQrDataUrl } from '../../services/billing/qrImage';
+import { seal } from '../../services/connections/secretBox';
+import { storage } from '../../storage';
 import { asyncHandler } from '../../utils/asyncHandler';
 import { badRequest, HttpError, notFound } from '../../utils/httpError';
 import { buildPageResult, resolveSortColumn } from '../../utils/pagination';
 import {
+  confirmOrderBodySchema,
+  createPlanBodySchema,
   idParamSchema,
+  listAdminOrdersQuerySchema,
   listTenantsQuerySchema,
   listUsersQuerySchema,
   listWorkspacesQuerySchema,
+  overrideSubscriptionBodySchema,
   setActiveBodySchema,
+  updatePaymentMethodBodySchema,
+  updatePlanBodySchema,
 } from './schemas';
 
 /**
@@ -373,5 +388,415 @@ adminRouter.delete(
     if (affected === 0) throw notFound('Không tìm thấy workspace này.');
 
     res.status(204).end();
+  }),
+);
+
+// ─── §11 Gói dịch vụ & thanh toán ────────────────────────────────────────────
+//
+// Cả khối gác bởi ba lớp đã mount ở đầu router — `authenticate +
+// requirePlatformRole('superadmin') + requireFreshAdmin`. KHÔNG đi qua Casbin,
+// và đó là đúng: Casbin trả lời "vai trò trong MỘT tổ chức", còn những endpoint
+// dưới đây thao tác trên bảng giá và đơn hàng của MỌI tổ chức.
+//
+// ⚠️ Thêm route ở đây thì phải thêm dòng vào bảng `ROUTES` của
+// `admin.integration.test.ts` — bài test đó khẳng định mọi endpoint đều trả 401
+// khi không token và 403 với người thường, và nó chạy theo BẢNG chứ không viết
+// tay từng ca, nên route quên gắn guard sẽ không tự lộ ra.
+
+/** Bảng giá đầy đủ, KỂ CẢ gói đã ẩn — console phải thấy thứ nó quản. */
+adminRouter.get(
+  '/billing/plans',
+  asyncHandler(async (_req, res) => {
+    res.json(await billingRepo.listAllPlans(mysqlPool));
+  }),
+);
+
+adminRouter.post(
+  '/billing/plans',
+  asyncHandler(async (req, res) => {
+    const auth = requireAuth(req);
+    const body = createPlanBodySchema.parse(req.body);
+
+    let id: number;
+    try {
+      id = await billingRepo.insertPlan(mysqlPool, { ...body, description: body.description ?? null });
+    } catch (err) {
+      // Bắt ở ràng buộc UNIQUE chứ không SELECT kiểm trước: giữa SELECT và
+      // INSERT luôn có khe hở cho hai request đồng thời.
+      if ((err as { code?: string }).code === 'ER_DUP_ENTRY') {
+        throw new HttpError(409, 'DuplicatePlanCode', 'Mã gói này đã được dùng.', {
+          code: 'Mã này đã tồn tại',
+        });
+      }
+      throw err;
+    }
+
+    await writeAudit(mysqlPool, {
+      ...actorFrom(req),
+      // `null`: đổi bảng giá ảnh hưởng MỌI tổ chức nên không quy về tổ chức nào.
+      tenantId: null,
+      actorUserId: auth.userId,
+      actorEmail: await actorEmailOf(mysqlPool, auth.userId),
+      actorPlatformRole: 'superadmin',
+      action: AUDIT_ACTIONS.PLAN_CREATE,
+      entityType: 'plan',
+      entityId: id,
+      after: body,
+    });
+
+    res.status(201).json(await billingRepo.findPlanById(mysqlPool, id));
+  }),
+);
+
+adminRouter.patch(
+  '/billing/plans/:id',
+  asyncHandler(async (req, res) => {
+    const auth = requireAuth(req);
+    const { id } = idParamSchema.parse(req.params);
+    const body = updatePlanBodySchema.parse(req.body);
+
+    /*
+     * Chụp trạng thái TRƯỚC để ghi vào nhật ký.
+     *
+     * Đây là thứ thay cho bảng `plan_price_history` mà đề bài yêu cầu: màn hình
+     * "lịch sử giá gói Pro" là một câu query trên `before_json->>'$.priceVnd'`.
+     * Một cuốn sổ thay vì hai — hai cuốn ghi cùng một sự kiện sẽ lệch nhau ở
+     * đúng chỗ không ai kiểm.
+     */
+    const before = await billingRepo.findPlanById(mysqlPool, id);
+    if (before === null) throw notFound('Không tìm thấy gói dịch vụ này.');
+
+    const affected = await billingRepo.updatePlan(mysqlPool, id, {
+      ...body,
+      description: body.description ?? null,
+    });
+    if (affected === 0) throw notFound('Không tìm thấy gói dịch vụ này.');
+
+    await writeAudit(mysqlPool, {
+      ...actorFrom(req),
+      tenantId: null,
+      actorUserId: auth.userId,
+      actorEmail: await actorEmailOf(mysqlPool, auth.userId),
+      actorPlatformRole: 'superadmin',
+      action: AUDIT_ACTIONS.PLAN_UPDATE,
+      entityType: 'plan',
+      entityId: id,
+      before,
+      after: body,
+    });
+
+    res.json(await billingRepo.findPlanById(mysqlPool, id));
+  }),
+);
+
+adminRouter.delete(
+  '/billing/plans/:id',
+  asyncHandler(async (req, res) => {
+    const auth = requireAuth(req);
+    const { id } = idParamSchema.parse(req.params);
+
+    const before = await billingRepo.findPlanById(mysqlPool, id);
+    // Xoá MỀM. Xoá cứng không làm được vì `fk_orders_plan` là RESTRICT — cố ý,
+    // để ảnh chụp trong đơn cũ vẫn trỏ tới một dòng có thật.
+    const affected = await billingRepo.softDeletePlan(mysqlPool, id);
+    if (affected === 0) throw notFound('Không tìm thấy gói dịch vụ này.');
+
+    await writeAudit(mysqlPool, {
+      ...actorFrom(req),
+      tenantId: null,
+      actorUserId: auth.userId,
+      actorEmail: await actorEmailOf(mysqlPool, auth.userId),
+      actorPlatformRole: 'superadmin',
+      action: AUDIT_ACTIONS.PLAN_DELETE,
+      entityType: 'plan',
+      entityId: id,
+      before,
+    });
+
+    res.status(204).end();
+  }),
+);
+
+/**
+ * Phương thức thanh toán, kèm GỢI Ý bốn ký tự cuối của khoá bí mật.
+ *
+ * ⚠️ `PaymentMethodDto` không có trường nào chứa bí mật, và không được có. Bốn
+ * ký tự cuối đi ra dưới một trường RIÊNG, tính tại đây — đủ để người vận hành
+ * nhận ra khoá họ vừa dán, không đủ để dựng lại nó.
+ */
+adminRouter.get(
+  '/billing/payment-methods',
+  asyncHandler(async (_req, res) => {
+    const methods = await billingRepo.listAllPaymentMethods(mysqlPool);
+
+    // Tuần tự chứ không `Promise.all`: mỗi lần gọi là một truy vấn cộng một lần
+    // giải mã AES, và danh sách này có đúng vài dòng. Chiếm bốn connection của
+    // pool 10 để tiết kiệm vài mili-giây là đổi chác sai chiều.
+    const out = [];
+    for (const m of methods) {
+      out.push({ ...m, webhookSecretHint: await billingRepo.paymentSecretHint(mysqlPool, m.id) });
+    }
+
+    res.json(out);
+  }),
+);
+
+adminRouter.patch(
+  '/billing/payment-methods/:id',
+  asyncHandler(async (req, res) => {
+    const auth = requireAuth(req);
+    const { id } = idParamSchema.parse(req.params);
+    const body = updatePaymentMethodBodySchema.parse(req.body);
+
+    const before = await billingRepo.findPaymentMethodById(mysqlPool, id);
+    if (before === null) throw notFound('Không tìm thấy phương thức thanh toán này.');
+
+    /*
+     * Mã hoá bí mật NGAY tại đây, trước khi xuống repository.
+     *
+     * `seal()` dùng lại nguyên vẹn từ §8 (`services/connections/secretBox.ts`) —
+     * AES-256-GCM với tiền tố phiên bản `v1.`. Repository cố ý không biết gì về
+     * mã hoá: nó nhận chuỗi đã seal, nên không có đường nào ghi nhầm bản rõ
+     * xuống cột đó.
+     *
+     * Ba trạng thái: vắng mặt = giữ nguyên, `null` = xoá khoá, chuỗi = đặt mới.
+     */
+    const sealed =
+      body.webhookSecret === undefined
+        ? undefined
+        : body.webhookSecret === null
+          ? null
+          : seal(body.webhookSecret);
+
+    /*
+     * Ảnh QR tĩnh — tải lên MinIO TRƯỚC khi ghi database.
+     *
+     * Thứ tự đó là chủ ý: ghi trước rồi tải lên mà tải hỏng sẽ để lại một bản
+     * ghi trỏ vào một object không tồn tại, và màn hình thanh toán của khách
+     * hiện một ô ảnh vỡ. Ngược lại thì cùng lắm là một object mồ côi trong
+     * bucket — vô hại, và dọn được.
+     *
+     * Khoá MỚI mỗi lần, không ghi đè khoá cũ: ảnh đang hiện trên màn hình khách
+     * không bị đổi giữa chừng bởi một lần lưu nửa vời.
+     */
+    let qrKey: string | null | undefined;
+    if (body.staticQrImage === null) {
+      qrKey = null;
+    } else if (body.staticQrImage !== undefined) {
+      const parsed = parseQrDataUrl(body.staticQrImage);
+      if (!parsed.ok) throw badRequest(parsed.reason, { staticQrImage: parsed.reason });
+
+      qrKey = buildQrKey(parsed.image.ext);
+      await storage.putObject(qrKey, parsed.image.bytes, parsed.image.contentType);
+    }
+
+    // Khoá cũ, để xoá SAU khi bản ghi đã trỏ sang ảnh mới.
+    const khoaCu = qrKey === undefined ? null : await billingRepo.qrObjectKey(mysqlPool, id);
+
+    const affected = await billingRepo.updatePaymentMethod(mysqlPool, id, {
+      name: body.name,
+      instructions: body.instructions,
+      bankBin: body.bankBin,
+      bankAccountNo: body.bankAccountNo,
+      bankAccountName: body.bankAccountName,
+      ...(sealed === undefined ? {} : { webhookSecretSealed: sealed }),
+      ...(qrKey === undefined ? {} : { staticQrKey: qrKey }),
+      isActive: body.isActive,
+      sortOrder: body.sortOrder,
+    });
+    if (affected === 0) throw badRequest('Không có thay đổi nào để lưu.');
+
+    /*
+     * Xoá ảnh cũ SAU khi bản ghi đã trỏ đi chỗ khác, và nuốt lỗi.
+     *
+     * Một object mồ côi trong bucket là rác vài chục KB. Một lần xoá hỏng làm
+     * đổ cả request nghĩa là người vận hành nhận lỗi 500 cho một thao tác đã
+     * thành công — họ sẽ bấm lại, và lần này ảnh mới đã lưu rồi.
+     */
+    if (khoaCu !== null && khoaCu !== qrKey) {
+      void storage.deleteObject(khoaCu).catch((err: unknown) => {
+        console.warn('[billing] không xoá được ảnh QR cũ:', khoaCu, err);
+      });
+    }
+
+    await writeAudit(mysqlPool, {
+      ...actorFrom(req),
+      tenantId: null,
+      actorUserId: auth.userId,
+      actorEmail: await actorEmailOf(mysqlPool, auth.userId),
+      actorPlatformRole: 'superadmin',
+      action: AUDIT_ACTIONS.PAYMENT_METHOD_UPDATE,
+      entityType: 'payment_method',
+      entityId: id,
+      before,
+      // ⚠️ KHÔNG ghi `webhookSecret` vào nhật ký. Nhật ký là bảng đọc được bởi
+      // mọi superadmin và không bao giờ bị xoá — ghi bí mật vào đó là tự huỷ
+      // toàn bộ công mã hoá ở trên.
+      after: { ...body, webhookSecret: body.webhookSecret === undefined ? undefined : '***' },
+    });
+
+    res.json(await billingRepo.findPaymentMethodById(mysqlPool, id));
+  }),
+);
+
+/** Đơn hàng của MỌI tổ chức. */
+adminRouter.get(
+  '/billing/orders',
+  asyncHandler(async (req, res) => {
+    const query = listAdminOrdersQuerySchema.parse(req.query);
+
+    const sort = resolveSortColumn(query.sort, billingRepo.ORDER_SORT_KEYS, 'createdAt');
+    if (sort === null) {
+      throw badRequest('Cột sắp xếp không hợp lệ.', {
+        sort: `Chỉ nhận: ${billingRepo.ORDER_SORT_KEYS.join(', ')}`,
+      });
+    }
+
+    // Cho hết hạn trước khi đọc, giống mọi đường đọc đơn khác — không thì danh
+    // sách của người vận hành hiện "đang chờ" cho những đơn đã chết.
+    await billingRepo.expireOverdueOrders(mysqlPool, new Date());
+
+    const filter: billingRepo.AdminOrderFilter = {
+      status: query.status,
+      tenantId: query.tenantId,
+      provider: query.provider,
+      search: query.q,
+      sort,
+      order: query.order,
+      page: query.page,
+      pageSize: query.pageSize,
+    };
+
+    const total = await billingRepo.countAdminOrders(mysqlPool, filter);
+    const items = await billingRepo.listAdminOrders(mysqlPool, filter);
+
+    res.json(buildPageResult(items, total, query.page, query.pageSize));
+  }),
+);
+
+/**
+ * Xác nhận đã nhận tiền — §11 mục 3.3.
+ *
+ * Đi qua CÙNG `confirmPayment` với webhook. Đó là điều kiện để bất biến "một
+ * đơn chỉ được trả tiền một lần" có nghĩa: hai đường ghi riêng nghĩa là hai bản
+ * kiểm tra, và chúng sẽ lệch nhau ở lần sửa đầu tiên.
+ *
+ * Trả 200 kèm `alreadyProcessed` thay vì 409 khi đơn đã được ghi nhận: người
+ * vận hành bấm hai lần, hoặc bấm sau khi webhook vừa về, là chuyện thường — và
+ * kết quả họ muốn (đơn đã thanh toán) đã đạt được.
+ */
+adminRouter.post(
+  '/billing/orders/:code/confirm',
+  asyncHandler(async (req, res) => {
+    const auth = requireAuth(req);
+    const code = String(req.params['code'] ?? '');
+    if (!isOrderCode(code)) throw badRequest('Mã đơn hàng không đúng định dạng.');
+
+    const body = confirmOrderBodySchema.parse(req.body);
+
+    const result = await confirmPayment({
+      orderCode: code,
+      amountVnd: body.amountVnd,
+      providerTxnRef: body.providerTxnRef,
+      source: 'manual',
+      // `ck_payment_txn_manual_has_actor` ở database cưỡng chế lần nữa: một xác
+      // nhận tay không có người chịu trách nhiệm là thứ không được tồn tại.
+      confirmedBy: auth.userId,
+      reason: body.reason ?? null,
+      actor: {
+        ...actorFrom(req),
+        actorUserId: auth.userId,
+        actorEmail: await actorEmailOf(mysqlPool, auth.userId),
+        actorPlatformRole: 'superadmin',
+      },
+    });
+
+    res.json(result);
+  }),
+);
+
+/**
+ * Gán gói thủ công cho một tổ chức — khách ký hợp đồng riêng.
+ *
+ * KHÔNG đi qua `confirmPayment`: ở đây không có đơn hàng và không có tiền nào
+ * đổi chủ, nên ép nó vào cùng đường sẽ phải bịa ra một đơn giả để thoả khoá
+ * ngoại — và một đơn giả trong sổ cái là thứ đối soát doanh thu sẽ đếm nhầm.
+ *
+ * `ck_subscriptions_override_has_reason` và `ck_subscriptions_purchase_has_order`
+ * ở database giữ cho hai loại subscription không lẫn vào nhau.
+ */
+adminRouter.post(
+  '/billing/subscriptions/override',
+  asyncHandler(async (req, res) => {
+    const auth = requireAuth(req);
+    const body = overrideSubscriptionBodySchema.parse(req.body);
+
+    const plan = await billingRepo.findPlanById(mysqlPool, body.planId);
+    if (plan === null) throw notFound('Không tìm thấy gói dịch vụ này.');
+
+    const result = await withTransaction(async (conn) => {
+      const now = new Date();
+
+      const [current] = await conn.query<(RowDataPacket & { id: number; period_end: Date })[]>(
+        "SELECT id, period_end FROM subscriptions WHERE tenant_id = ? AND status = 'active' FOR UPDATE",
+        [body.tenantId],
+      );
+      const dangChay = current[0];
+
+      // Đóng dòng cũ TRƯỚC. `uq_subscriptions_one_active` sẽ chặn nếu làm ngược
+      // — và đó là điều tốt, nhưng thứ tự đúng thì không cần tới nó.
+      if (dangChay !== undefined) {
+        await conn.query(
+          "UPDATE subscriptions SET status = 'superseded', ended_at = ? WHERE id = ?",
+          [now, dangChay.id],
+        );
+      }
+
+      const chuKy = tinhChuKy({
+        now,
+        currentPeriodEnd: dangChay?.period_end ?? null,
+        durationDays: body.durationDays,
+      });
+
+      const [inserted] = await conn.query<ResultSetHeader>(
+        `INSERT INTO subscriptions
+           (tenant_id, plan_id, order_id, status, source, plan_code, plan_name, price_vnd,
+            period_start, period_end, carried_over_days, previous_subscription_id,
+            granted_by, reason)
+         VALUES (?, ?, NULL, 'active', 'admin_override', ?, ?, 0, ?, ?, ?, ?, ?, ?)`,
+        [
+          body.tenantId,
+          plan.id,
+          plan.code,
+          plan.name,
+          chuKy.periodStart,
+          chuKy.periodEnd,
+          chuKy.carriedOverDays,
+          dangChay?.id ?? null,
+          auth.userId,
+          body.reason,
+        ],
+      );
+
+      await writeAudit(conn, {
+        ...actorFrom(req),
+        // CÓ `tenantId`: hành động của superadmin nhưng ĐỐI TƯỢNG nằm trong một
+        // tổ chức cụ thể, và cột này mô tả đối tượng.
+        tenantId: body.tenantId,
+        actorUserId: auth.userId,
+        actorEmail: await actorEmailOf(mysqlPool, auth.userId),
+        actorPlatformRole: 'superadmin',
+        action: AUDIT_ACTIONS.SUBSCRIPTION_OVERRIDE,
+        entityType: 'subscription',
+        entityId: inserted.insertId,
+        before: dangChay === undefined ? null : { subscriptionId: dangChay.id },
+        after: { planCode: plan.code, durationDays: body.durationDays },
+        reason: body.reason,
+      });
+
+      return inserted.insertId;
+    });
+
+    res.status(201).json({ subscriptionId: result });
   }),
 );
