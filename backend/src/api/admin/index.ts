@@ -4,10 +4,13 @@
   type PlatformOverviewDto,
   type PlatformTenantDetailDto,
 } from '@bi/shared';
+import { randomUUID } from 'node:crypto';
+
 import { Router } from 'express';
 import type { ResultSetHeader, RowDataPacket } from 'mysql2';
 
 import { getEnforcer, resetEnforcer } from '../../authz/enforcer';
+import { isProduction } from '../../config/env';
 import { mysqlPool } from '../../config/mysql';
 import { withTransaction } from '../../db/tx';
 import { authenticate, requireAuth } from '../../middleware/authenticate';
@@ -20,6 +23,7 @@ import { confirmPayment } from '../../services/billing/confirmPayment';
 import { isOrderCode } from '../../services/billing/orderCode';
 import { tinhChuKy } from '../../services/billing/period';
 import { buildQrKey, parseQrDataUrl } from '../../services/billing/qrImage';
+import { docSecret, handleWebhook } from '../../services/billing/webhook';
 import { seal } from '../../services/connections/secretBox';
 import { storage } from '../../storage';
 import { asyncHandler } from '../../utils/asyncHandler';
@@ -35,6 +39,7 @@ import {
   listWorkspacesQuerySchema,
   overrideSubscriptionBodySchema,
   setActiveBodySchema,
+  simulateTransferBodySchema,
   updatePaymentMethodBodySchema,
   updatePlanBodySchema,
 } from './schemas';
@@ -716,6 +721,93 @@ adminRouter.post(
 );
 
 /**
+ * Chuông báo của console: có bao nhiêu đơn đang cần người vận hành nhìn — §11.2.
+ *
+ * Endpoint RIÊNG, cố ý không gộp vào `GET /admin/overview`. Hai lý do:
+ *
+ *   · Nó bị hỏi lại theo chu kỳ để cái chuông tự cập nhật. `overview` chạy năm
+ *     câu đếm xuyên toàn nền tảng cộng một câu tăng trưởng theo ngày — hỏi lại
+ *     ngần ấy mỗi phút chỉ để biết một con số là đổi chác sai chiều.
+ *   · Nó phải nằm ngoài nhánh cache `admin-billing`, nếu không mỗi lần xác nhận
+ *     một đơn sẽ đặt lại vòng thăm dò. Cùng lý do đã ghi ở `billing/keys.ts`.
+ */
+adminRouter.get(
+  '/billing/attention',
+  asyncHandler(async (_req, res) => {
+    res.json({ count: await billingRepo.countOrdersCanNguoiNhin(mysqlPool) });
+  }),
+);
+
+/**
+ * Bộ GIẢ LẬP biến động số dư ngân hàng — §11.2.
+ *
+ * ═══ Vì sao thứ này tồn tại ════════════════════════════════════════════════
+ *
+ * "Hệ thống tự biết tiền đã về" không làm được bằng code thuần: không có cách
+ * nào đọc số dư một tài khoản ngân hàng nếu không qua một dịch vụ đã liên kết
+ * ngân hàng thật (Sepay, Casso). Toàn bộ đường ống đã dựng xong — adapter, xác
+ * thực token, chống phát lại, khớp mã đơn, luật số tiền — nhưng nó không CHẠY
+ * được cho tới ngày người vận hành đăng ký dịch vụ.
+ *
+ * Endpoint này dựng một payload đúng hình dạng dịch vụ thật, ký bằng ĐÚNG khoá
+ * bí mật đã cấu hình, rồi gọi vào chính `handleWebhook`. Không có đường tắt nào
+ * bỏ qua bước xác thực, không có nhánh `if (giaLap)` nào trong luồng xử lý — nên
+ * thứ được demo hôm nay chính là thứ sẽ chạy khi dịch vụ thật gửi về.
+ *
+ * ⚠️ TẮT CỨNG ở production. Một endpoint tự kích hoạt gói mà lọt lên production
+ * là lỗ hổng cấp gói miễn phí cho bất kỳ ai gọi được nó — kể cả khi nó đã nằm sau
+ * `requirePlatformRole('superadmin')`, vì một tài khoản superadmin bị chiếm thì
+ * không nên kèm luôn khả năng ghi khống sổ cái tiền.
+ */
+adminRouter.post(
+  '/billing/simulate-transfer',
+  asyncHandler(async (req, res) => {
+    if (isProduction) {
+      throw notFound('Bộ giả lập không có ở môi trường production.');
+    }
+
+    const body = simulateTransferBodySchema.parse(req.body);
+
+    const secret = await docSecret('bank_transfer');
+    if (secret === null) {
+      throw badRequest(
+        'Phương thức chuyển khoản chưa có khoá bí mật webhook. ' +
+          'Vào Phương thức thanh toán, mở Cấu hình và điền ô "Khoá bí mật webhook" trước.',
+      );
+    }
+
+    /*
+     * Hình dạng payload của Sepay: một giao dịch phẳng ở gốc.
+     *
+     * `content` mô phỏng đúng thứ ngân hàng thật gửi — mã đơn nằm LẪN trong một
+     * chuỗi có thêm chữ quanh nó, không phải đứng một mình. Đó là ca mà
+     * `timMaDon` phải bóc bằng regex, và nếu bộ giả lập gửi mã đơn trần thì nó bỏ
+     * qua đúng bước dễ hỏng nhất.
+     */
+    const payload = {
+      id: Date.now(),
+      gateway: 'Gia lap',
+      transactionDate: new Date().toISOString(),
+      accountNumber: '0000000000',
+      content: `CT DEN:0011 ${body.orderCode} GD ${Math.floor(Math.random() * 1_000_000)}`,
+      transferType: 'in',
+      transferAmount: body.amountVnd,
+      referenceCode: `GIALAP.${randomUUID()}`,
+      description: '',
+    };
+
+    const rawBody = Buffer.from(JSON.stringify(payload), 'utf8');
+    const outcome = await handleWebhook({
+      provider: 'bank_transfer',
+      rawBody,
+      headers: { authorization: `Apikey ${secret}` },
+    });
+
+    res.status(outcome.status).json(outcome);
+  }),
+);
+
+/**
  * Gán gói thủ công cho một tổ chức — khách ký hợp đồng riêng.
  *
  * KHÔNG đi qua `confirmPayment`: ở đây không có đơn hàng và không có tiền nào
@@ -758,17 +850,34 @@ adminRouter.post(
         durationDays: body.durationDays,
       });
 
+      /*
+       * Chụp hạn mức cùng lúc — §11.2, migration 32.
+       *
+       * `plan` ở đây là `PlanDto` đầy đủ đã đọc ở trên, nên chép thẳng. Nó được
+       * đọc NGOÀI transaction (dòng 734) và điều đó chấp nhận được: ảnh chụp
+       * theo định nghĩa là "giá trị tại thời điểm kích hoạt".
+       *
+       * `limits_captured_at` phải đi cùng bốn cột kia — `ck_subscriptions_limits_snapshot`
+       * cưỡng chế ở tầng database, vì NULL trong bốn cột đó nghĩa là KHÔNG GIỚI
+       * HẠN và ghi lệch sẽ âm thầm cấp gói vô hạn.
+       */
       const [inserted] = await conn.query<ResultSetHeader>(
         `INSERT INTO subscriptions
            (tenant_id, plan_id, order_id, status, source, plan_code, plan_name, price_vnd,
+            max_workspaces, max_reports, max_members, max_storage_bytes, limits_captured_at,
             period_start, period_end, carried_over_days, previous_subscription_id,
             granted_by, reason)
-         VALUES (?, ?, NULL, 'active', 'admin_override', ?, ?, 0, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, NULL, 'active', 'admin_override', ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           body.tenantId,
           plan.id,
           plan.code,
           plan.name,
+          plan.maxWorkspaces,
+          plan.maxReports,
+          plan.maxMembers,
+          plan.maxStorageBytes,
+          now,
           chuKy.periodStart,
           chuKy.periodEnd,
           chuKy.carriedOverDays,

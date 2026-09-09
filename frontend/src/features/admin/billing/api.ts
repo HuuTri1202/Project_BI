@@ -105,6 +105,24 @@ export async function updatePaymentMethod(
   return data;
 }
 
+/** Số đơn đang cần người vận hành nhìn — nguồn của chuông báo trên sidebar. */
+export async function fetchDonCanNhin(): Promise<number> {
+  const { data } = await apiClient.get<{ count: number }>('/admin/billing/attention');
+  return data.count;
+}
+
+/** Bộ giả lập biến động số dư — chỉ có ở môi trường dev, xem route ở backend. */
+export async function giaLapChuyenKhoan(input: {
+  orderCode: string;
+  amountVnd: number;
+}): Promise<{ message: string }> {
+  const { data } = await apiClient.post<{ message: string }>(
+    '/admin/billing/simulate-transfer',
+    input,
+  );
+  return data;
+}
+
 export interface AdminOrderQuery {
   page: number;
   pageSize: number;

@@ -212,6 +212,25 @@ export const updatePaymentMethodBodySchema = z.object({
   sortOrder: z.number().int().nonnegative().max(65535).optional(),
 });
 
+/**
+ * Bộ GIẢ LẬP biến động số dư — §11.2.
+ *
+ * Không có `providerTxnRef`: mã tham chiếu do bộ giả lập tự sinh, đúng như ngân
+ * hàng thật sẽ làm. Cho người gọi tự đặt là mở đường tự tay dựng một mã trùng
+ * với giao dịch có thật, tức là biến công cụ demo thành công cụ ghi đè sổ cái.
+ */
+export const simulateTransferBodySchema = z.object({
+  orderCode: z.string().trim().min(1).max(32),
+  /**
+   * Cho phép số tiền KHÁC số tiền của đơn, và đó là điểm chính.
+   *
+   * Ca đáng kiểm nhất của cả đường tự động là khách chuyển THIẾU: hệ thống phải
+   * ghi nhận tiền mà KHÔNG bật gói. Ép bằng đúng số tiền đơn ở đây là bỏ mất
+   * cách duy nhất để diễn lại ca đó.
+   */
+  amountVnd: z.number().int().positive().max(AMOUNT_VND_MAX),
+});
+
 export const listAdminOrdersQuerySchema = paginationSchema.extend({
   status: z.enum(ORDER_STATUSES).optional(),
   tenantId: z.coerce.number().int().positive().optional(),

@@ -57,6 +57,7 @@ import {
 } from '../../services/connections/connectionService';
 import { createOrder } from '../../services/billing/createOrder';
 import { buildBillingSummary } from '../../services/billing/entitlements';
+import { kiemHanMuc } from '../../services/billing/limits';
 import { isQrKey } from '../../services/billing/qrImage';
 import { deleteDataset } from '../../services/connections/deleteDataset';
 import { DEFAULT_PORTS, DEFAULT_SSL, REQUIRED_GRANTS } from '../../services/connections/drivers';
@@ -379,6 +380,16 @@ v1Router.post(
       );
     }
 
+    /*
+     * Hạn mức DUNG LƯỢNG của gói — §11.2. Cùng chỗ, cùng khuôn, cùng mục đích
+     * với khối 413 ngay trên: từ chối trước khi khách tải file lên.
+     *
+     * `?? 0` khi client không khai kích thước — khi đó câu kiểm chỉ chặn tổ chức
+     * ĐÃ đầy kho, thay vì đoán bừa một con số. Lớp chặn thật nằm ở `commit`, nơi
+     * có kích thước đo được từ `headObject`.
+     */
+    await kiemHanMuc(mysqlPool, auth.tenantId, 'storageBytes', new Date(), body.fileSize ?? 0);
+
     const workspace = await resolveWorkspace(mysqlPool, auth.tenantId, body.workspaceId);
     const s3Key = buildStorageKey(auth.tenantId, workspace.id, ext);
 
@@ -615,6 +626,11 @@ v1Router.post(
       );
     }
 
+    // Hạn mức gói — §11.2. Gắn ở ROUTE vì không có tầng service ở giữa:
+    // `reportsRepo.createReport` là repository thuần, và quy ước của repo là
+    // repository không mang luật nghiệp vụ.
+    await kiemHanMuc(mysqlPool, auth.tenantId, 'reports', new Date());
+
     // Bộ dữ liệu §8 tạo TRƯỚC khi hai phần được gộp chưa có workspace. Báo cáo
     // thì bắt buộc phải nằm trong một workspace, nên rơi về workspace đang mở của
     // người gọi — thà đặt vào chỗ họ đang đứng còn hơn từ chối tạo báo cáo trên
@@ -669,6 +685,11 @@ v1Router.post(
     if (!fields.measures.some((f) => f.id === body.config.measureId)) {
       throw badRequest('Thước đo đã chọn không còn trong mô hình. Hãy tải lại trang rồi chọn lại.');
     }
+
+    // Hạn mức gói — §11.2. Đặt SAU hai câu kiểm chiều/thước đo: lỗi cụ thể hơn
+    // thì nói trước, và người chọn nhầm trường không nên nhận thông báo "hết hạn
+    // mức" cho một việc họ chưa làm sai.
+    await kiemHanMuc(mysqlPool, auth.tenantId, 'reports', new Date());
 
     const id = await reportsRepo.createModelReport(mysqlPool, auth.tenantId, {
       // Báo cáo nằm cùng workspace với mô hình. Khác nhánh bộ dữ liệu — ở đó
@@ -2497,7 +2518,7 @@ v1Router.get(
   authorize('billing', 'read'),
   asyncHandler(async (req, res) => {
     const auth = requireAuth(req);
-    res.json(await buildBillingSummary(auth.tenantId, new Date()));
+    res.json(await buildBillingSummary(mysqlPool, auth.tenantId, new Date()));
   }),
 );
 

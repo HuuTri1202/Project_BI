@@ -10,6 +10,7 @@ import { conLai, dinhDangTien } from '../../../features/billing/format';
 import {
   useCancelOrder,
   useCreateOrder,
+  useInvalidateBilling,
   useOrder,
   useOrderStatus,
   usePaymentMethods,
@@ -186,9 +187,19 @@ export function CheckoutPage(): React.ReactElement {
 
 // ─── Giai đoạn 2: chờ tiền về ────────────────────────────────────────────────
 
+/**
+ * Số giây hiện màn "thành công" trước khi tự chuyển về trang gói.
+ *
+ * Đủ để đọc xong hai câu, chưa đủ để thành chờ đợi. Ngắn hơn thì cái xác nhận
+ * duy nhất khách nhận được sau khi trả tiền chỉ loé lên rồi biến mất.
+ */
+const GIAY_TRUOC_KHI_CHUYEN = 4;
+
 export function OrderDetailPage(): React.ReactElement {
   const { code } = useParams<{ code: string }>();
   const now = useDongHo();
+  const navigate = useNavigate();
+  const invalidate = useInvalidateBilling();
 
   const order = useOrder(code ?? null);
   const cancel = useCancelOrder();
@@ -203,6 +214,42 @@ export function OrderDetailPage(): React.ReactElement {
   const status = useOrderStatus(code ?? null);
   const hienTai = status.data?.status ?? order.data?.status;
 
+  /*
+   * ─── Tiền về xong thì màn hình phải TỰ đi tiếp — §11.2 ───────────────────
+   *
+   * Trước đây nhánh `paid` chỉ vẽ một băng-rôn xanh rồi đứng im, và để lại HAI
+   * việc cho người dùng:
+   *
+   *   1. tự bấm "Xem gói của tôi";
+   *   2. và tới nơi thì thấy hạn mức CŨ, vì `useBillingSummary` giữ cache 30
+   *      giây và không ai bảo nó rằng gói vừa đổi.
+   *
+   * Việc thứ hai tệ hơn nhiều: khách vừa trả tiền, mở trang gói, và thấy đúng
+   * con số của gói Free. Không có gì nói rằng họ chỉ cần đợi thêm.
+   *
+   * `invalidate` chạy MỘT lần ngay khi trạng thái đổi; đồng hồ đếm ngược cho
+   * khách kịp ĐỌC là đã thành công trước khi chuyển — ném họ sang màn khác ngay
+   * lập tức thì cái xác nhận duy nhất họ nhận được chỉ loé lên một khoảnh khắc.
+   */
+  const daTra = hienTai === 'paid';
+  const [conMayGiay, setConMayGiay] = useState(GIAY_TRUOC_KHI_CHUYEN);
+
+  useEffect(() => {
+    if (!daTra) return;
+
+    void invalidate();
+    const dong = setInterval(() => setConMayGiay((n) => n - 1), 1000);
+    const hen = setTimeout(() => navigate('/billing'), GIAY_TRUOC_KHI_CHUYEN * 1000);
+
+    return () => {
+      clearInterval(dong);
+      clearTimeout(hen);
+    };
+    // `invalidate` và `navigate` ổn định giữa các lần render; đưa vào đây chỉ
+    // khiến hiệu ứng chạy lại và đặt lại đồng hồ.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [daTra]);
+
   if (order.isError) return <ErrorState message={getApiError(order.error).message} />;
   if (order.isPending || order.data === undefined) return <TableSkeleton rows={4} />;
 
@@ -215,19 +262,28 @@ export function OrderDetailPage(): React.ReactElement {
   const laViDienTu = don.provider === 'momo';
 
   // ─── Đã thanh toán ────────────────────────────────────────────────────────
-  if (hienTai === 'paid') {
+  if (daTra) {
     return (
       <div className="mx-auto w-full max-w-lg overflow-y-auto pr-1">
         <div className="rounded-xl border border-green-200 bg-green-50 p-6 text-center">
           <p className="text-base font-semibold text-green-900">Thanh toán thành công</p>
           <p className="mt-1 text-sm text-green-800">
-            Gói <strong>{don.planName}</strong> đã có hiệu lực ngay.
+            Gói <strong>{don.planName}</strong> đã có hiệu lực ngay. Hạn mức của tổ chức đã được
+            nâng lên.
           </p>
           <div className="mt-4 flex justify-center gap-2">
             <Link to="/billing">
               <Button variant="primary">Xem gói của tôi</Button>
             </Link>
           </div>
+          {/* Nút vẫn còn, và đó là chủ ý: đồng hồ nói trước chuyện sắp xảy ra,
+              nhưng ai không muốn đợi thì bấm. Tự chuyển mà không báo là giật màn
+              hình khỏi tay người đang đọc. */}
+          <p className="mt-3 text-xs text-green-800">
+            {conMayGiay > 0
+              ? `Tự chuyển về trang gói sau ${conMayGiay} giây…`
+              : 'Đang chuyển…'}
+          </p>
         </div>
       </div>
     );
@@ -250,6 +306,40 @@ export function OrderDetailPage(): React.ReactElement {
             <Link to="/billing/plans">
               <Button variant="primary">Chọn gói khác</Button>
             </Link>
+            <Link to="/billing/orders">
+              <Button>Xem lịch sử đơn</Button>
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  /*
+   * ─── Tiền ĐÃ về nhưng chưa khớp số — §11.2 ──────────────────────────────
+   *
+   * `awaiting_confirmation` nằm trong `ORDER_STATUSES_LIVE`, nên nếu không có
+   * nhánh này khách sẽ thấy lại đúng màn hình "quét mã QR đi" cho một khoản tiền
+   * họ VỪA chuyển — và nút Huỷ đơn nằm ngay đó. Bấm vào thì không có gì xảy ra
+   * (`cancelOrder` chỉ đụng đơn `pending`, cố ý, vì tiền đã vào tài khoản), nên
+   * họ nhận một nút chết mà không hiểu vì sao.
+   *
+   * Không nói con số cụ thể ở đây. Hệ thống biết số tiền nhận được ít hơn, nhưng
+   * "bạn chuyển thiếu 50.000đ" có thể sai — khách chuyển làm hai lần, hoặc ngân
+   * hàng trừ phí, và đổ lỗi nhầm cho người vừa trả tiền là cách nhanh nhất biến
+   * một việc nhỏ thành một cuộc tranh cãi.
+   */
+  if (hienTai === 'awaiting_confirmation') {
+    return (
+      <div className="mx-auto w-full max-w-lg overflow-y-auto pr-1">
+        <div className="rounded-xl border border-amber-200 bg-amber-50 p-6 text-center">
+          <p className="text-base font-semibold text-amber-900">Đã nhận được tiền của bạn</p>
+          <p className="mt-1 text-sm text-amber-800">
+            Khoản chuyển cho đơn <span className="font-mono">{don.orderCode}</span> đã về, nhưng
+            số tiền chưa khớp với đơn nên cần quản trị viên đối chiếu. Gói sẽ bật ngay sau đó —
+            màn hình này tự cập nhật, bạn không cần tải lại trang.
+          </p>
+          <div className="mt-4 flex justify-center gap-2">
             <Link to="/billing/orders">
               <Button>Xem lịch sử đơn</Button>
             </Link>

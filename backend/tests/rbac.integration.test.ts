@@ -1,4 +1,4 @@
-import {
+﻿import {
   ACTIONS,
   DEFAULT_POLICY,
   RESOURCES,
@@ -16,7 +16,7 @@ import { enforce, permissionMatrixFor, resetEnforcer } from '../src/authz/enforc
 import { closeMysql, mysqlPool } from '../src/config/mysql';
 import { closeRedis } from '../src/config/redis';
 import { resetDatabase } from './helpers/db';
-import { bearer, makeMembership, makeTenant, makeUser, signTokenFor } from './helpers/fixtures';
+import { bearer, capGoiKhongGioiHan, makeMembership, makeTenant, makeUser, signTokenFor } from './helpers/fixtures';
 
 /**
  * Test phân quyền RBAC bằng Casbin — §6.
@@ -57,7 +57,6 @@ beforeEach(async () => {
 
   const tenantA = await makeTenant('Công ty Alpha', 'cong-ty-alpha');
   const tenantB = await makeTenant('Công ty Beta', 'cong-ty-beta');
-
   const alice = await makeUser('alice@alpha.test', 'Nguyễn Thị An');
   const bob = await makeUser('bob@alpha.test', 'Trần Văn Bình');
   const dave = await makeUser('dave@alpha.test', 'Phạm Văn Dũng');
@@ -65,6 +64,15 @@ beforeEach(async () => {
   await makeMembership(alice, tenantA, 'admin');
   await makeMembership(bob, tenantA, 'creator');
   await makeMembership(dave, tenantA, 'viewer');
+
+  // Gói không giới hạn — §11.2. Bộ này không kiểm thanh toán, nhưng nó dựng
+  // nhiều workspace/thành viên hơn hạn mức gói mặc định. Xem ghi chú dài ở
+  // `capGoiKhongGioiHan`; lớp chặn có bộ riêng là `billingLimits`.
+  //
+  // Đặt SAU khi user đã có: `ck_subscriptions_override_has_reason` đòi
+  // `granted_by` khác NULL, nên không gọi trước được.
+  await capGoiKhongGioiHan(tenantA, alice);
+  await capGoiKhongGioiHan(tenantB, alice);
 
   f = {
     tenantA,

@@ -12,8 +12,8 @@ import {
   isQrKey,
   parseQrDataUrl,
 } from '../src/services/billing/qrImage';
-import { timMaDon } from '../src/services/billing/webhook';
-import { signPayload, verifySignature } from '../src/services/billing/webhookSignature';
+import { adapterFor, timMaDon } from '../src/services/billing/webhook';
+import { signPayload, verifySignature, verifyToken } from '../src/services/billing/webhookSignature';
 import { buildVietQrPayload, crc16, normalizeContent } from '../src/services/billing/vietqr';
 
 /**
@@ -265,6 +265,98 @@ describe('§11 bóc mã đơn khỏi nội dung chuyển khoản', () => {
     expect(timMaDon(null)).toBeNull();
     // Chứa I/L/O/U -> không thuộc bảng chữ nên không phải mã của ta.
     expect(timMaDon('BIIIIIIIIIII')).toBeNull();
+  });
+});
+
+describe('§11.2 token của dịch vụ đọc sao kê', () => {
+  const KHOA = 'kho4-bi-mat-cua-sepay';
+
+  it('nhận đúng token, kể cả khi có tiền tố', () => {
+    expect(verifyToken(KHOA, KHOA)).toBe(true);
+    expect(verifyToken(`Apikey ${KHOA}`, KHOA, 'Apikey ')).toBe(true);
+    // Header `Authorization` bị nhiều thư viện HTTP chuẩn hoá lại cách viết hoa,
+    // và cách viết hoa của một từ khoá công khai không phải bí mật.
+    expect(verifyToken(`APIKEY ${KHOA}`, KHOA, 'Apikey ')).toBe(true);
+  });
+
+  it('từ chối token sai, rỗng, hoặc thiếu tiền tố bắt buộc', () => {
+    expect(verifyToken('sai', KHOA)).toBe(false);
+    expect(verifyToken('', KHOA)).toBe(false);
+    expect(verifyToken(KHOA, '')).toBe(false);
+    // Khai tiền tố mà token không có -> không được phép lọt bằng cách so trần.
+    expect(verifyToken(KHOA, KHOA, 'Apikey ')).toBe(false);
+  });
+
+  it('token dài hơn khoá nhưng trùng phần đầu vẫn bị từ chối', () => {
+    // Ca này canh phép kiểm độ dài. Thiếu nó thì `timingSafeEqual` NÉM chứ không
+    // trả `false`, và một chuỗi dài bất kỳ thành lỗi 500 thay vì 401.
+    expect(verifyToken(`${KHOA}them`, KHOA)).toBe(false);
+  });
+});
+
+describe('§11.2 bóc giao dịch khỏi payload dịch vụ sao kê', () => {
+  const adapter = adapterFor('bank_transfer');
+
+  it('nhận hình dạng phẳng của Sepay', () => {
+    const gd = adapter.bocGiaoDich({
+      id: 92704,
+      content: 'CT DEN:0011 BI7K3XQ92FMR GD 123456',
+      transferType: 'in',
+      transferAmount: 199000,
+      referenceCode: 'MBVCB.3278907687',
+    });
+
+    expect(gd).toHaveLength(1);
+    expect(gd[0]?.amount).toBe(199000);
+    expect(gd[0]?.vao).toBe(true);
+  });
+
+  it('nhận MẢNG của Casso — nhiều giao dịch trong một webhook', () => {
+    /*
+     * Không có nhánh mảng thì cả lô chỉ được bóc thành một giao dịch từ object
+     * gốc (không có mã đơn, không có số tiền), và MỌI khoản tiền trong lô biến
+     * mất không dấu vết.
+     */
+    const gd = adapter.bocGiaoDich({
+      error: 0,
+      data: [
+        { id: 1, description: 'BI7K3XQ92FMR', amount: 199000, tid: 'A1' },
+        { id: 2, description: 'BI9M2P4RT7XK', amount: 299000, tid: 'A2' },
+      ],
+    });
+
+    expect(gd).toHaveLength(2);
+    expect(gd.map((x) => x.amount)).toEqual([199000, 299000]);
+
+    /*
+     * `tid` chứ không phải `id`, và đó là hành vi ĐÚNG chứ không phải tình cờ.
+     *
+     * `id` của Casso là số, mà `firstString` chỉ nhận chuỗi — nên nó bị bỏ qua và
+     * `tid` được dùng. Kết quả tốt hơn: `tid` là mã giao dịch của NGÂN HÀNG, còn
+     * `id` chỉ là số thứ tự dòng trong database của Casso. Đổi dịch vụ đọc sao kê
+     * thì `id` đánh lại từ đầu, `tid` thì không — và khoá chống xử lý lại phải
+     * gắn với khoản tiền, không gắn với người kể về khoản tiền đó.
+     */
+    expect(gd.map((x) => x.eventId)).toEqual(['A1', 'A2']);
+  });
+
+  it('phân biệt tiền VÀO và tiền RA — cả hai cách các dịch vụ nói', () => {
+    /*
+     * Đây là ca giữ cho khoản người vận hành CHUYỂN ĐI không bị đem đi khớp mã
+     * đơn. Một lần chuyển khoản có ghi nhầm mã đơn trong nội dung sẽ kích hoạt
+     * gói mà không ai trả tiền.
+     */
+    const sepayRa = adapter.bocGiaoDich({ transferType: 'out', transferAmount: 199000 });
+    expect(sepayRa[0]?.vao).toBe(false);
+
+    // Casso không có cờ — số tiền ÂM là tiền chuyển đi.
+    const cassoRa = adapter.bocGiaoDich({ data: [{ amount: -199000, description: 'x' }] });
+    expect(cassoRa[0]?.vao).toBe(false);
+    // Và số tiền phải về trị tuyệt đối, không âm.
+    expect(cassoRa[0]?.amount).toBe(199000);
+
+    const cassoVao = adapter.bocGiaoDich({ data: [{ amount: 199000, description: 'x' }] });
+    expect(cassoVao[0]?.vao).toBe(true);
   });
 });
 

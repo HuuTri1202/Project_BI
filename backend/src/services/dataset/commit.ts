@@ -2,6 +2,8 @@ import { DATASET_ERROR_CODES, type FileExt } from '@bi/shared';
 
 import { withTransaction } from '../../db/tx';
 import * as datasetsRepo from '../../repositories/datasets';
+import * as usageRepo from '../../repositories/usage';
+import { kiemHanMuc } from '../billing/limits';
 import { queueAutoLoad } from '../ingest/autoLoad';
 import { HttpError } from '../../utils/httpError';
 import { analyzeDataset } from './analyze';
@@ -94,6 +96,33 @@ export async function commitDatasets(input: CommitInput): Promise<CommittedDatas
   // thái `ready` và vài cái còn `pending`, trong khi người dùng tin rằng cả lô
   // đã vào. Hoặc tất cả, hoặc không.
   const created = await withTransaction(async (conn) => {
+    /*
+     * ─── Hạn mức DUNG LƯỢNG — §11.2 ────────────────────────────────────────
+     *
+     * Đây là chỗ duy nhất ghi `file_size_bytes`, nên guard ở đây thì không đường
+     * nào vòng qua được. Kiểm ở `POST /datasets/uploads` là phép lịch sự dựa trên
+     * số client KHAI; số ở đây đo được từ `headObject`.
+     *
+     * ⚠️ Khoá tổ chức TRƯỚC khi đếm. Đây là hạn mức duy nhất tiêu tài nguyên vật
+     * lý có hoá đơn: năm tab commit song song ở gói 5GB có thể cùng thấy "còn
+     * 1GB" và nhét vào 5GB thừa, mà MinIO thì giữ chúng vĩnh viễn. Transaction đã
+     * có sẵn nên cái khoá này tốn đúng một câu SELECT theo khoá chính, và nó chỉ
+     * tuần tự hoá thao tác của CÙNG một tổ chức.
+     */
+    await conn.query('SELECT id FROM tenants WHERE id = ? FOR UPDATE', [input.tenantId]);
+
+    /*
+     * ⚠️ Phần THÊM THẬT, không phải nguyên kích thước file.
+     *
+     * `demDungLuong` gom theo `s3_key`. Nếu khoá này đã ghi số byte — commit lần
+     * hai trên cùng một file — thì số đó ĐÃ nằm trong tổng, và cộng thêm lần nữa
+     * là tính đôi. Một lần gọi cho cả lô, không phải mỗi sheet: nhiều sheet dùng
+     * chung một `s3_key` nên file 50MB ba sheet vẫn chỉ tốn 50MB.
+     */
+    const daGhi = await usageRepo.dungLuongDaGhi(conn, input.tenantId, input.s3Key);
+    const themThat = Math.max(0, analyzed.fileSize - daGhi);
+    await kiemHanMuc(conn, input.tenantId, 'storageBytes', new Date(), themThat);
+
     const created: CommittedDataset[] = [];
 
     for (const [index, sheet] of sheets.entries()) {

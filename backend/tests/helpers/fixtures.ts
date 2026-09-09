@@ -1,5 +1,5 @@
 import type { TenantRole } from '@bi/shared';
-import type { ResultSetHeader } from 'mysql2';
+import type { ResultSetHeader, RowDataPacket } from 'mysql2';
 import { mysqlPool } from '../../src/config/mysql';
 import { hashPassword } from '../../src/services/auth/password';
 import { signAccessToken } from '../../src/services/auth/token';
@@ -74,6 +74,59 @@ export async function makeMembership(
       options.isActive === false || options.removed === true ? 0 : 1,
       options.removed === true ? new Date() : null,
     ],
+  );
+}
+
+/**
+ * Cấp cho tổ chức một gói KHÔNG GIỚI HẠN — §11.2.
+ *
+ * ═══ Vì sao thứ này cần tồn tại ════════════════════════════════════════════
+ *
+ * Từ §11.2 hạn mức gói CHẶN thật, và gói mặc định (Free) cho 1 workspace, 3 báo
+ * cáo, 3 thành viên. Rất nhiều bài test không nói gì về thanh toán vẫn dựng bốn
+ * thành viên hoặc hai workspace — vì tới hôm qua không có gì cản.
+ *
+ * Chúng đỏ là ĐÚNG, và câu trả lời KHÔNG phải là nới hạn mức gói Free trong
+ * `reseedBillingCatalog`: làm vậy thì không bài test nào còn đi qua lớp chặn
+ * nữa, và nó sẽ hỏng trong im lặng.
+ *
+ * Câu trả lời là nói ra: bài test nào cần nhiều hơn gói mặc định thì gọi hàm này
+ * và nêu rõ điều đó. `grep` ra là thấy ngay bài nào phụ thuộc vào việc được cấp
+ * gói, bài nào đang kiểm chính lớp chặn.
+ *
+ * ⚠️ Bốn cột hạn mức để NULL (= không giới hạn) và `limits_captured_at` khác
+ * NULL. Cặp đó bắt buộc đi cùng nhau — `ck_subscriptions_limits_snapshot` chặn
+ * ngay nếu không, vì "có hạn mức mà không có cờ" sẽ âm thầm thành gói vô hạn ở
+ * đường đọc sống.
+ *
+ * ⚠️ `grantedBy` BẮT BUỘC, và phải là một user có thật. Bản đầu của hàm này
+ * truyền `NULL` và mọi lời gọi đều nổ:
+ *
+ *     ck_subscriptions_override_has_reason:
+ *       source <> 'admin_override' OR (granted_by IS NOT NULL AND reason IS NOT NULL)
+ *
+ * Ràng buộc đó có lý do riêng của nó — một gói cấp tay mà không biết AI cấp là
+ * thứ không được tồn tại — nên hàm này phải chiều nó, và người gọi phải tạo user
+ * TRƯỚC khi gọi.
+ */
+export async function capGoiKhongGioiHan(tenantId: number, grantedBy: number): Promise<void> {
+  const [plan] = await mysqlPool.query<(RowDataPacket & { id: number })[]>(
+    "SELECT id FROM plans WHERE code = 'business' LIMIT 1",
+  );
+  const planId = plan[0]?.id;
+  if (planId === undefined) {
+    throw new Error("Không tìm thấy gói 'business' — migration 30 chưa chạy?");
+  }
+
+  await mysqlPool.query(
+    `INSERT INTO subscriptions
+       (tenant_id, plan_id, order_id, status, source, plan_code, plan_name, price_vnd,
+        max_workspaces, max_reports, max_members, max_storage_bytes, limits_captured_at,
+        period_start, period_end, granted_by, reason)
+     VALUES (?, ?, NULL, 'active', 'admin_override', 'business', 'Doanh nghiệp', 0,
+             NULL, NULL, NULL, NULL, NOW(3),
+             NOW(3), NOW(3) + INTERVAL 365 DAY, ?, 'fixture test')`,
+    [tenantId, planId, grantedBy],
   );
 }
 

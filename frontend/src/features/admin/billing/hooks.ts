@@ -24,6 +24,42 @@ export const adminBillingKeys = {
   orders: (query: unknown) => [...adminBillingKeys.all, 'orders', query] as const,
 };
 
+/**
+ * Khoá của chuông báo — CỐ Ý nằm ngoài `adminBillingKeys.all`.
+ *
+ * Mọi mutation của khu này gọi `invalidateQueries(adminBillingKeys.all)`. Nếu
+ * chuông nằm trong nhánh đó thì mỗi lần xác nhận một đơn sẽ huỷ và dựng lại query
+ * của chuông, tức là ĐẶT LẠI vòng thăm dò — và một vòng thăm dò bị đặt lại liên
+ * tục thì không còn là vòng thăm dò nữa. Cùng lý do đã ghi cho `orderStatus` ở
+ * `features/billing/keys.ts`.
+ *
+ * Đổi lại phải tự làm mới nó sau khi xác nhận — xem `useConfirmOrder`.
+ */
+const chuongKey = ['admin-billing-attention'] as const;
+
+/**
+ * Số đơn đang cần người vận hành nhìn.
+ *
+ * ⚠️ Đây là vòng thăm dò CHẠY MÃI, khác hẳn ba vòng thăm dò còn lại của repo —
+ * chúng đều tự dừng khi việc chúng theo dõi kết thúc. Ở đây không có "kết thúc":
+ * tiền có thể về bất cứ lúc nào, kể cả lúc không ai bấm gì.
+ *
+ * Nên nhịp phải chọn có ý thức: 60 giây, không phải 3 giây. Đây là thông báo,
+ * không phải thanh tiến trình — chậm một phút không ai thiệt, còn gõ cửa server
+ * hai mươi lần mỗi phút cho mỗi tab admin đang mở thì có.
+ *
+ * `refetchIntervalInBackground` để MẶC ĐỊNH (tắt): tab admin nằm im dưới đáy
+ * cửa sổ suốt đêm không cần đếm lại; nó sẽ tự đếm khi người ta quay lại.
+ */
+export function useDonCanNhin(): UseQueryResult<number> {
+  return useQuery({
+    queryKey: chuongKey,
+    queryFn: api.fetchDonCanNhin,
+    refetchInterval: 60_000,
+    staleTime: 30_000,
+  });
+}
+
 export function useAdminPlans(): UseQueryResult<PlanDto[]> {
   return useQuery({ queryKey: adminBillingKeys.plans(), queryFn: api.fetchAdminPlans });
 }
@@ -47,6 +83,29 @@ function useInvalidate(): () => Promise<void> {
   return async () => {
     await queryClient.invalidateQueries({ queryKey: adminBillingKeys.all });
   };
+}
+
+/**
+ * Bắn một biến động số dư giả vào đúng đường webhook thật — §11.2, chỉ ở dev.
+ *
+ * Dọn cache RỘNG sau khi xong, kể cả chuông: một lần giả lập có thể đổi trạng
+ * thái đơn, kích hoạt gói cho một tổ chức, và làm số đơn chờ đối chiếu tăng hoặc
+ * giảm — cả ba đều đang hiện trên màn hình người vừa bấm.
+ */
+export function useGiaLapChuyenKhoan(): UseMutationResult<
+  { message: string },
+  Error,
+  { orderCode: string; amountVnd: number }
+> {
+  const invalidate = useInvalidate();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: api.giaLapChuyenKhoan,
+    onSuccess: async () => {
+      await invalidate();
+      await queryClient.invalidateQueries({ queryKey: chuongKey });
+    },
+  });
 }
 
 export function useCreatePlan(): UseMutationResult<PlanDto, Error, api.PlanWriteInput> {
@@ -93,7 +152,22 @@ export function useUpdatePaymentMethod(): UseMutationResult<
  */
 export function useConfirmOrder(): UseMutationResult<api.ConfirmResult, Error, api.ConfirmInput> {
   const invalidate = useInvalidate();
-  return useMutation({ mutationFn: api.confirmOrder, onSuccess: invalidate });
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: api.confirmOrder,
+    onSuccess: async () => {
+      await invalidate();
+      /*
+       * Chuông phải tự làm mới ở ĐÂY, tường minh.
+       *
+       * Nó cố ý nằm ngoài `adminBillingKeys.all` để `invalidate` không đặt lại
+       * vòng thăm dò của nó — cái giá phải trả là chỗ này. Không có dòng dưới
+       * thì người vận hành vừa xử lý xong đơn cuối cùng vẫn thấy số đếm cũ trên
+       * sidebar tới một phút, và sẽ đi tìm một đơn không còn ở đó.
+       */
+      await queryClient.invalidateQueries({ queryKey: chuongKey });
+    },
+  });
 }
 
 export function useOverrideSubscription(): UseMutationResult<

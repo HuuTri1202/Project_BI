@@ -8,6 +8,7 @@ import { closeRedis } from '../src/config/redis';
 import { resetDatabase } from './helpers/db';
 import {
   bearer,
+  capGoiKhongGioiHan,
   makeMembership,
   makeReport,
   makeTenant,
@@ -79,6 +80,14 @@ beforeEach(async () => {
   await makeMembership(bob, tenantA, 'viewer');
   await makeMembership(carol, tenantB, 'admin');
 
+  // Gói không giới hạn — §11.2. Bộ này kiểm console vận hành, không kiểm thanh
+  // toán, nhưng nó dựng nhiều workspace/báo cáo hơn hạn mức gói mặc định. Đặt
+  // SAU khối tạo user: `ck_subscriptions_override_has_reason` đòi `granted_by`
+  // khác NULL.
+  await capGoiKhongGioiHan(tenantRoot, root);
+  await capGoiKhongGioiHan(tenantA, alice);
+  await capGoiKhongGioiHan(tenantB, carol);
+
   f = {
     tenantRoot,
     tenantA,
@@ -129,6 +138,12 @@ describe('cổng vào console — chỉ superadmin', () => {
     ['get', '/api/admin/billing/orders'],
     ['post', '/api/admin/billing/orders/BI0123456789/confirm'],
     ['post', '/api/admin/billing/subscriptions/override'],
+    ['get', '/api/admin/billing/attention'],
+    // §11.2 — bộ giả lập biến động số dư. Nó kích hoạt gói THẬT qua đúng đường
+    // webhook, nên guard ở đây quan trọng ngang route xác nhận thanh toán. Nó
+    // còn bị tắt cứng ở production (`isProduction`), nhưng đó là lớp thứ hai —
+    // lớp thứ nhất vẫn phải là quyền.
+    ['post', '/api/admin/billing/simulate-transfer'],
   ];
 
   /** Gọi đúng phương thức, giữ nguyên kiểu — không ép qua `Record<string, ...>`. */

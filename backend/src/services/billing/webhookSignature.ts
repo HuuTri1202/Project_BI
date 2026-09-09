@@ -80,3 +80,36 @@ export function verifySignature(input: VerifyInput): boolean {
 
   return timingSafeEqual(a, b);
 }
+
+/**
+ * So một TOKEN dùng chung với khoá bí mật — §11.2.
+ *
+ * Các dịch vụ đọc sao kê ngân hàng (Sepay, Casso) không ký HMAC; chúng gửi
+ * nguyên khoá trong một header. Yếu hơn HMAC thật — token đi trên đường mỗi lần
+ * gọi, và nó không ràng buộc gì với NỘI DUNG request — nhưng đó là thứ chúng
+ * cung cấp, và một bản kiểm sai còn tệ hơn.
+ *
+ * ⚠️ Vẫn phải `timingSafeEqual`. Cám dỗ viết `token === secret` ở đây rất lớn vì
+ * "chỉ là so hai chuỗi", và nó rò đúng cái mà `verifySignature` bên trên dành cả
+ * một docblock để tránh — với hậu quả nặng hơn, vì thứ rò ra là chính khoá bí
+ * mật chứ không phải chữ ký của một request.
+ *
+ * @param boTienTo Tiền tố cần cắt trước khi so, ví dụ `'Apikey '` của Sepay.
+ */
+export function verifyToken(token: string, secret: string, boTienTo?: string): boolean {
+  if (secret === '' || token === '') return false;
+
+  let nhan = token.trim();
+  if (boTienTo !== undefined) {
+    // So tiền tố KHÔNG phân biệt hoa thường: header `Authorization` được nhiều
+    // thư viện HTTP chuẩn hoá lại, và `apikey` vs `Apikey` không phải bí mật.
+    if (!nhan.toLowerCase().startsWith(boTienTo.toLowerCase())) return false;
+    nhan = nhan.slice(boTienTo.length).trim();
+  }
+
+  const a = Buffer.from(nhan, 'utf8');
+  const b = Buffer.from(secret, 'utf8');
+  if (a.length !== b.length) return false;
+
+  return timingSafeEqual(a, b);
+}

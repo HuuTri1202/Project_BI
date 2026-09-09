@@ -10,7 +10,11 @@ import { Pagination } from '../../components/ui/Pagination';
 import { TBody, TableWrap, Td, THead, Th, Tr } from '../../components/ui/Table';
 import { EmptyState, ErrorState, TableSkeleton } from '../../components/ui/states';
 import type { AdminOrderDto } from '../../features/admin/billing/api';
-import { useAdminOrders, useConfirmOrder } from '../../features/admin/billing/hooks';
+import {
+  useAdminOrders,
+  useConfirmOrder,
+  useGiaLapChuyenKhoan,
+} from '../../features/admin/billing/hooks';
 import { OrderStatusBadge } from '../../features/billing/OrderStatusBadge';
 import { dinhDangNgayGio, dinhDangTien } from '../../features/billing/format';
 import { useListQueryState } from '../../hooks/useListQueryState';
@@ -22,6 +26,40 @@ import { getApiError } from '../../services/apiClient';
  * Đây là màn hình người vận hành mở ra mỗi ngày với sao kê ngân hàng bên cạnh:
  * dò mã đơn trên sao kê, tìm nó ở đây, đối chiếu số tiền, rồi xác nhận.
  */
+
+/**
+ * Nút GIẢ LẬP tiền về — §11.2, chỉ có ở môi trường dev.
+ *
+ * ═══ Vì sao một nút "giả" lại nằm cạnh một nút thật ═══════════════════════
+ *
+ * Vì đường tự động không tự chạy được: đọc số dư tài khoản ngân hàng cần một
+ * dịch vụ trung gian đã liên kết ngân hàng (Sepay, Casso), và cho tới ngày người
+ * vận hành đăng ký thì toàn bộ đường ống — adapter, xác thực token, chống phát
+ * lại, khớp mã đơn, luật số tiền — là code chưa từng chạy một lần nào.
+ *
+ * Nút này gửi một payload đúng hình dạng dịch vụ thật vào chính endpoint webhook
+ * thật, ký bằng đúng khoá bí mật đã cấu hình. Không có nhánh nào trong luồng xử
+ * lý biết mình đang bị giả lập.
+ *
+ * ⚠️ `import.meta.env.DEV` chỉ ẩn NÚT. Lớp chặn thật nằm ở backend
+ * (`isProduction`), vì một nút ẩn không phải là một quyền bị thu hồi.
+ */
+function GiaLapButton({ order }: { order: AdminOrderDto }): React.ReactElement | null {
+  const giaLap = useGiaLapChuyenKhoan();
+
+  if (!import.meta.env.DEV) return null;
+
+  return (
+    <Button
+      size="sm"
+      disabled={giaLap.isPending}
+      title={`Giả lập ngân hàng báo có ${dinhDangTien(order.amountVnd)} cho đơn ${order.orderCode}`}
+      onClick={() => giaLap.mutate({ orderCode: order.orderCode, amountVnd: order.amountVnd })}
+    >
+      Giả lập tiền về
+    </Button>
+  );
+}
 
 interface OrderQuery {
   page: number;
@@ -303,9 +341,12 @@ export default function BillingOrdersPage(): React.ReactElement {
                       {['pending', 'awaiting_confirmation', 'expired', 'failed'].includes(
                         order.status,
                       ) && (
-                        <Button size="sm" onClick={() => setConfirming(order)}>
-                          Đã nhận tiền
-                        </Button>
+                        <div className="flex justify-end gap-2">
+                          <GiaLapButton order={order} />
+                          <Button size="sm" onClick={() => setConfirming(order)}>
+                            Đã nhận tiền
+                          </Button>
+                        </div>
                       )}
                     </Td>
                   </Tr>
