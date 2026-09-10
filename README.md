@@ -2252,6 +2252,70 @@ chuỗi thì chú giải là thứ DUY NHẤT nói màu nào là chuỗi nào �
 một mớ đường màu không đọc được. Công tắc "Hiện chú giải" nằm sẵn trong bảng
 cấu hình cho ai muốn.
 
+### View Vega là một máy đang chạy, không phải một bức ảnh (§10.17)
+
+> đang bị lỗi gì đấy khi load biểu đồ thì bị giật màn hình rất khó chịu
+
+Tới §10.16, `VegaChart` dựng lại TOÀN BỘ view mỗi khi `spec` hoặc `data` đổi tham
+chiếu: xoá sạch thẻ chứa, biên dịch lại spec, tính lại thang đo, vẽ lại từ
+pixel đầu tiên. Giữa hai việc đó ô trống trơn.
+
+#### Đo trước khi sửa
+
+Đầu tiên là đo cái KHÔNG hỏng, để khỏi chữa nhầm chỗ. Nạp trang trong Chromium
+đầy đủ (thanh cuộn thật), lấy mẫu vị trí mọi khối 60ms một lần:
+
+```
+số lần mỗi biểu đồ được dựng     1     (cả trang xem lẫn trình dựng)
+khối đổi chỗ trong lúc nạp       0
+layout-shift                     0,0042
+```
+
+Nạp trang KHÔNG giật. Cái giật nằm ở mọi thứ xảy ra SAU đó — và nó đo được
+bằng "chớp trắng": quãng thời gian một ô không có `<svg>` nào.
+
+|                                 | trước                                   | sau                                 |
+| ------------------------------- | --------------------------------------- | ----------------------------------- |
+| đổi số nhóm (một vòng tới Cube) | 1 lần dựng lại, **chớp 20ms**           | 0 lần, không chớp                   |
+| kéo co giãn một ô, 10 nhịp      | 6 lần dựng lại, **chớp 7–22ms** mỗi lần | 1 lần                               |
+| đổi bảng màu                    | 1 lần, chớp 13ms                        | 1 lần (không tránh được — xem dưới) |
+
+#### Phép chữa: đẩy thay đổi vào view đang sống
+
+Một view Vega là một **máy dataflow** đang chạy. Hai thứ đổi liên tục nhất đều
+có đường vào chính thức, không cần dựng lại gì:
+
+```
+số liệu về      view.data('bang', rows)  rồi  runAsync()
+ô đổi kích cỡ   view.width(w).height(h)  rồi  runAsync()
+```
+
+Cái thứ hai chính là thứ vega-embed tự dùng cho `width: 'container'` khi cửa sổ
+đổi cỡ — nên đây không phải một mẹo, mà là đường đi vốn có.
+
+Việc còn lại là biết khi nào PHẢI dựng lại. `khongKichThuoc()` băm spec thành
+một chuỗi JSON **sau khi bỏ `width`/`height`**; chuỗi đó đổi thì mới dựng lại.
+Kéo tay nắm co giãn chỉ đổi hai khoá vừa bỏ, nên nó không còn dựng lại gì.
+
+⚠️ `VegaChart` ghi đè khoá `data` của MỌI spec đi qua nó bằng một bộ dữ liệu có
+TÊN (`'bang'`). Không có tên thì `view.data()` không có gì để trỏ vào, và một
+spec do nơi khác dựng (biểu đồ khu quản trị) sẽ rơi ngược về đường dựng lại.
+
+⚠️ Hai hàm thuần ấy nằm ở `vegaSpecKey.ts` chứ không nằm trong `VegaChart.tsx`:
+quy tắc `react-refresh` chỉ thay nóng được module chỉ xuất component. Cùng lý do
+`canvasLayout.ts` tách khỏi `CanvasGrid`.
+
+#### Cái vẫn phải dựng lại, và vì sao không chữa
+
+Đổi **bảng màu**, đổi **cách sắp**, đổi **loại biểu đồ** — cả ba đều đổi cấu
+trúc spec. Màu chẳng hạn nằm trong `scale.range`, mà Vega không có setter lúc
+chạy cho thang đo: nó được TÍNH ra khi biên dịch. Vá bằng tay là dựng lại một
+nửa Vega bên trong `VegaChart`.
+
+Và ba việc ấy đều là người dùng CHỦ ĐỘNG bấm, đợi một cái chớp 13ms sau cú bấm
+của mình là chuyện khác hẳn với việc màn hình tự giật trong lúc mình chỉ ngồi
+nhìn.
+
 ### Báo cáo đã lưu vẽ NGAY, rồi mới làm mới ngầm
 
 Báo cáo lưu **cấu hình**, không lưu con số. Nên mỗi lần mở là một lượt tính lại
@@ -2444,6 +2508,7 @@ dùng một khung khác thứ họ vừa dựng, mà không nói gì.
 | `backend/tests/datamodel.integration.test.ts` §10.12 | `?page=` có trần, `canvas-data?pageId=` tính đúng trang được hỏi (mã lạ rơi về trang đầu, không 404), và `overflow` của một client CHƯA cập nhật được nhận rồi bỏ qua thay vì 400 — lỗi kiểu đó chỉ hiện ra sau khi deploy, và chỉ với người chưa tải lại trang                   |
 | `frontend/tests/groupPaging.test.tsx`                | hai cái nút ‹ › và thanh thẻ trang. Phần lớn ca kiểm chuyện **không** bày ra nút: cấu hình không chia trang, dữ liệu vừa một trang, không có `onPage`. Một cặp nút chết chỉ nói với người dùng rằng có gì đó hỏng                                                                 |
 | `frontend/tests/sidePanel.test.tsx`                  | hai cột bên gấp lại được (§10.15). Phần lớn ca kiểm hai thứ hỏng LẶNG LẼ quanh cái nút: hai cột dùng chung một khoá thì gấp cột này gấp luôn cột kia, và `localStorage` bị chặn thì ĐỌC cũng ném lỗi — một lỗi lúc render là cả trình dựng trắng màn                              |
+| `frontend/tests/vegaSpecKey.test.ts`                 | thứ quyết định "vẽ lại từ đầu" hay "cập nhật tại chỗ" (§10.17). Hỏng theo hai hướng ngược nhau và không hướng nào đỏ ở đâu cả: quá nhạy thì mỗi nhịp kéo là một lần chớp trắng, quá trơ thì đổi bảng màu mà biểu đồ đứng yên                                                      |
 | `frontend/tests/reportViewPage.test.tsx`             | trang xem mở được cho **mọi** vai trò, và nút "Chỉnh sửa" chỉ có mặt khi nó thật sự dẫn tới một trình dựng dùng được — không phải bảo mật, mà là đừng bày ra một cái nút dẫn tới 403                                                                                              |
 
 Không ca nào cần ClickHouse trả số thật. Việc đó đã được chứng minh bằng tay

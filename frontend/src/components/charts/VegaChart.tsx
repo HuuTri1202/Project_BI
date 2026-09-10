@@ -1,5 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { TopLevelSpec } from 'vega-lite';
+
+import { khongKichThuoc, soDo } from './vegaSpecKey';
 
 /**
  * Bọc Vega-Lite cho React.
@@ -20,7 +22,46 @@ import type { TopLevelSpec } from 'vega-lite';
  *
  * Nó là dependency thứ tư, hay chạy sau bản phát hành của vega-lite, và thay thế
  * đúng khoảng ba mươi dòng dưới đây.
+ *
+ * ═══ Cập nhật TẠI CHỖ, không dựng lại — §10.17 ══════════════════════════════
+ *
+ * Một view Vega là một MÁY DATAFLOW đang chạy, không phải một bức ảnh. Dựng lại
+ * nó cho mỗi thay đổi là xoá sạch thẻ chứa, biên dịch lại spec, tính lại thang
+ * đo và vẽ lại từ pixel đầu tiên — và giữa hai việc đó, ô trống trơn.
+ *
+ * Đo trên trình duyệt thật, mỗi lần dựng lại là một CHỚP TRẮNG 7–22ms:
+ *
+ *   đổi số liệu (một vòng tới Cube)   1 lần dựng lại, chớp 20ms
+ *   kéo co giãn một ô, 10 nhịp        6 lần dựng lại, chớp 7–22ms mỗi lần
+ *
+ * Người dùng gọi đúng tên nó ra: "khi load biểu đồ thì bị giật màn hình rất khó
+ * chịu". Nên từ §10.17 chỉ có ĐỔI CẤU TRÚC mới dựng lại; hai thứ đổi liên tục
+ * nhất thì đẩy thẳng vào view đang sống:
+ *
+ *   số liệu về      `view.data(...)` rồi `runAsync()`
+ *   ô đổi kích cỡ   `view.width()/height()` rồi `runAsync()`
+ *
+ * Cả hai đều là API chính thức của Vega, và cái thứ hai chính là thứ vega-embed
+ * tự dùng cho `width: 'container'` khi cửa sổ đổi cỡ.
  */
+
+/**
+ * Tên bộ dữ liệu bên trong view — bắt buộc phải có thì mới đẩy số liệu mới vào
+ * được bằng `view.data(TEN_DU_LIEU, ...)`.
+ *
+ * `VegaChart` GHI ĐÈ khoá `data` của mọi spec đi qua nó (xem chú thích ở prop
+ * `spec`), nên cái tên này luôn tồn tại — kể cả với spec do nơi khác dựng.
+ */
+const TEN_DU_LIEU = 'bang';
+
+/** Một view Vega đang sống — chỉ khai đúng phần `VegaChart` đụng tới. */
+interface VegaView {
+  finalize: () => void;
+  width: (value: number) => VegaView;
+  height: (value: number) => VegaView;
+  data: (name: string, values: unknown) => VegaView;
+  runAsync: () => Promise<unknown>;
+}
 
 interface VegaChartProps<T extends object> {
   /**
@@ -45,7 +86,23 @@ export function VegaChart<T extends object>({
   className,
 }: VegaChartProps<T>): React.ReactElement {
   const hostRef = useRef<HTMLDivElement>(null);
+  const viewRef = useRef<VegaView | null>(null);
   const [failed, setFailed] = useState(false);
+
+  /*
+   * Bản MỚI NHẤT của hai prop, cho hàm bất đồng bộ bên dưới.
+   *
+   * Việc dựng view có một quãng `await import(...)` ở giữa. Số liệu hoặc kích
+   * thước đổi trong quãng đó thì hai effect kia bỏ qua (chưa có view nào), nên
+   * chính lần dựng này phải nhặt lấy bản mới — nếu không, biểu đồ vẽ ra bằng
+   * dữ liệu của một phần nghìn giây trước và đứng yên như thế.
+   */
+  const moiNhat = useRef({ spec, data });
+  moiNhat.current = { spec, data };
+
+  const khoaCauTruc = useMemo(() => khongKichThuoc(spec), [spec]);
+  const rong = soDo(spec, 'width');
+  const cao = soDo(spec, 'height');
 
   useEffect(() => {
     const host = hostRef.current;
@@ -55,16 +112,24 @@ export function VegaChart<T extends object>({
     // `vegaEmbed` chạy hai lượt và để lại hai view sống cùng hai ResizeObserver
     // trên một thẻ div — biểu đồ nhân đôi, và bộ nhớ không được giải phóng.
     let cancelled = false;
-    let view: { finalize: () => void } | null = null;
+    let view: VegaView | null = null;
 
     void (async () => {
       try {
         const { default: vegaEmbed } = await import('vega-embed');
         if (cancelled) return;
 
+        const { spec: specMoi, data: dataMoi } = moiNhat.current;
         const result = await vegaEmbed(
           host,
-          { ...spec, data: { values: data as unknown as Record<string, unknown>[] } },
+          {
+            ...specMoi,
+            // Tên bộ dữ liệu là điều kiện để `view.data()` đẩy số mới vào được.
+            data: {
+              name: TEN_DU_LIEU,
+              values: dataMoi as unknown as Record<string, unknown>[],
+            },
+          },
           {
             actions: false,
             // 'svg' chứ không phải 'canvas': màu lấy từ biến CSS của Tailwind là
@@ -80,7 +145,8 @@ export function VegaChart<T extends object>({
           result.view.finalize();
           return;
         }
-        view = result.view;
+        view = result.view as unknown as VegaView;
+        viewRef.current = view;
       } catch {
         if (!cancelled) setFailed(true);
       }
@@ -89,9 +155,44 @@ export function VegaChart<T extends object>({
     return () => {
       cancelled = true;
       view?.finalize();
+      if (viewRef.current === view) viewRef.current = null;
       host.replaceChildren();
     };
-  }, [spec, data]);
+    /*
+     * KHÔNG có `spec` và `data` trong danh sách phụ thuộc, và đó là cả điểm của
+     * §10.17: chỉ đổi CẤU TRÚC mới dựng lại view. Kích thước và số liệu đi
+     * đường riêng ở hai effect ngay dưới, còn bản mới nhất của chúng thì lấy
+     * qua `moiNhat`.
+     */
+  }, [khoaCauTruc]);
+
+  /*
+   * Số liệu mới đẩy thẳng vào view đang sống.
+   *
+   * `view.data` thay cả bộ dữ liệu rồi `runAsync` tính lại thang đo và vẽ lại —
+   * không xoá thẻ chứa, nên không có khung hình nào trống. Chưa có view (đang
+   * dựng) thì bỏ qua: lần dựng ấy sẽ tự nhặt bản mới nhất.
+   */
+  useEffect(() => {
+    const view = viewRef.current;
+    if (view === null) return;
+    view.data(TEN_DU_LIEU, data as unknown as Record<string, unknown>[]);
+    void view.runAsync();
+  }, [data]);
+
+  /*
+   * Kích thước mới cũng vậy — đây là đường vega-embed tự đi khi cửa sổ đổi cỡ.
+   *
+   * `null` nghĩa là spec khai `'container'` (hoặc không khai): ở đó vega-embed
+   * đang tự đo thẻ bọc, và ghi đè bằng một con số sẽ giẫm lên phép đo của nó.
+   */
+  useEffect(() => {
+    const view = viewRef.current;
+    if (view === null || (rong === null && cao === null)) return;
+    if (rong !== null) view.width(rong);
+    if (cao !== null) view.height(cao);
+    void view.runAsync();
+  }, [rong, cao]);
 
   if (failed) {
     return (
