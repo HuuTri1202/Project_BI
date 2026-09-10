@@ -1506,6 +1506,10 @@ thứ backend **đoán** cho từng cột; ở đây nó là ràng buộc **cứ
 
 ### Trần nhóm nói ra LUẬT của nó, và cho chọn đầu hay cuối bảng
 
+> ⚠️ **§10.15 bỏ ô chọn "Giữ lại nhóm nào".** Việc nó làm không mất — nó gộp
+> vào ô "Sắp xếp" ngay bên dưới. Phần dưới đây giữ lại vì nó giải thích vì sao
+> "20 nhóm" phải nói ra luật chọn của mình.
+
 ```
 Số nhóm tối đa      [ 20 nhóm        ]
 Giữ lại nhóm nào    [ Nhóm lớn nhất  ]
@@ -1574,7 +1578,11 @@ Danh sách và nhãn đọc từ `CHART_SORTS` / `CHART_SORT_LABELS` ở
 `CHART_SORTS` cho `z.enum`. Thêm một cách sắp là sửa đúng một chỗ — ô chọn và
 bộ kiểm không lệch nhau được.
 
-#### "Nhỏ → lớn" KHÔNG phải "các nhóm nhỏ nhất"
+#### "Nhỏ → lớn" KHÔNG phải "các nhóm nhỏ nhất" — cho tới §10.15
+
+> ⚠️ Từ §10.15 nó ĐÚNG là các nhóm nhỏ nhất: lựa chọn này suy ra
+> `config.pick = 'bottom'` và đổi hẳn câu hỏi gửi xuống Cube. Câu cảnh báo bên
+> dưới đã được gỡ khỏi giao diện.
 
 Backend sắp giảm dần rồi mới cắt top-N. Nên sắp tăng dần trên tập đã cắt cho ra
 **N nhóm lớn nhất, xếp ngược** — một biểu đồ trông hoàn toàn hợp lý và đọc ra
@@ -1736,10 +1744,13 @@ trường hợp đó, chọn bảng nào cũng ra hình y hệt — nên ô ch�
 
 ### Chia trang thay cho cột "Khác": hai cái nút ‹ › (§10.12)
 
+> ⚠️ **§10.15 bỏ ô chọn `overflow`** và giữ lại vế chia trang cho mọi biểu đồ.
+> Hai cái nút, `offset` và cách `hasMore` được tính thì vẫn đúng như mô tả ở đây.
+
 ```
 Số nhóm mỗi trang      [ 5 nhóm                          ]
-Khi còn nhóm chưa hiện [ Chia trang — bấm ‹ › để xem hết ]
-Trang đầu bắt đầu từ   [ Nhóm lớn nhất                   ]
+Khi còn nhóm chưa hiện [ Chia trang — bấm ‹ › để xem hết ]   ← §10.15 bỏ
+Trang đầu bắt đầu từ   [ Nhóm lớn nhất                   ]   ← §10.15 bỏ
 ```
 
 Trần nhóm luôn phải có — một chiều ba nghìn giá trị mà vẽ hết thì không đọc được
@@ -1938,6 +1949,10 @@ một biểu đồ dài không mất gì.
 
 ### Bỏ dữ liệu là lựa chọn tệ nhất — nên nó không còn được chọn (§10.14)
 
+> ⚠️ §10.15 đi hết nốt đoạn đường này: cột "Khác" cũng không còn được chọn
+> nữa, nên `overflowOf` và `laCongDuoc` nhắc bên dưới đã bị xoá cùng ô chọn.
+> Bảng ba lựa chọn thì vẫn là cách gọn nhất để thấy vì sao.
+
 > với các biểu đồ dữ liệu quá lớn … sẽ có nút bấm qua bên để xem biểu đồ trên
 > cùng 1 dim vs measure đó
 
@@ -2046,6 +2061,134 @@ Lần mở **đầu tiên sau khi Cube khởi động** vẫn tốn 2785ms cho v
 schema. Đó là một lần cho mỗi vòng đời của container, không phải mỗi lần mở báo
 cáo. Ảnh chụp số liệu trên đĩa (`querySnapshots`) lo những lần mở **sau**; lần
 đầu thì theo định nghĩa là chưa có gì để chụp.
+
+### Bốn ô chọn xuống hai, một bảng màu có tác dụng, hai cột gấp được (§10.15)
+
+Ba lời than, cùng một màn hình.
+
+#### 1. "Bỏ cột khi còn nhóm chưa hiện và giữ lại nhóm nào đi"
+
+> vì mặc định sẽ tạo ra nhiều biểu đồ báo cáo và người dùng sẽ bấm sang trang
+> từ từ để xem nó
+
+Bảng "Định dạng" có bốn ô chọn nói về cùng một chuyện, đọc từ trên xuống:
+
+```
+Số nhóm tối đa          [ 20 nhóm                            ]
+Khi còn nhóm chưa hiện  [ Gộp thành cột "Khác" nếu cộng được ]  ← bỏ
+Giữ lại nhóm nào        [ Nhóm lớn nhất                      ]  ← bỏ
+Sắp xếp trục            [ Theo giá trị (lớn → nhỏ)           ]
+```
+
+Cả hai ô ở giữa đều bị bỏ, nhưng vì hai lý do khác nhau.
+
+**`overflow` biến mất khỏi cả hệ thống.** Cột "Khác" trả lời được đúng một câu —
+"phần còn lại lớn cỡ nào" — và không bao giờ trả lời được câu người ta hỏi tiếp,
+"trong đó có gì". Trên một chiều 1800 giá trị nó còn nuốt cả biểu đồ: một cái
+cột 48 triệu đứng cạnh hai mươi cái cột li ti. Chia trang trả lời được cả hai
+câu, nên nó ở lại một mình. Bỏ **hẳn** ô chọn thay vì đổi mặc định: hai lựa chọn
+loại trừ nhau mà một trong hai luôn tốt hơn thì cái ô ấy chỉ đang bắt người dùng
+học một khái niệm để rồi chọn đúng cái mặc định.
+
+**`pick` thì gộp vào ô "Sắp xếp", không mất.** Hai ô này vốn nói về cùng một
+chuyện, và ba trong bốn tổ hợp của chúng đọc lên nghe giống nhau — người dùng
+chọn "nhỏ → lớn" rồi tưởng mình đang xem các nhóm nhỏ nhất, trong khi thứ hiện
+ra vẫn là hai mươi nhóm **lớn nhất xếp ngược**. Giao diện phải in một dòng chú
+thích để đính chính chính nó (xem §10.12 ở trên). Nay:
+
+```
+sort = 'value-asc'  ->  pick = 'bottom'   xin Cube đúng các nhóm NHỎ NHẤT
+mọi cách sắp khác   ->  pick = 'top'
+```
+
+Phép suy ra nằm ở `pickOf` trong `builder/visual.ts` — **cạnh** hai hàm dựng khoá
+cache, không phải trong `VisualPanel`. Bảng cấu hình chỉ tồn tại khi màn hình
+đang mở; khoá cache thì được dựng cả ở trang xem, nơi không có bảng cấu hình
+nào.
+
+⚠️ `pick` vẫn được **lưu** vào `config` chứ không chuyển sang `options`. Backend
+đọc `config` và không bao giờ đọc `options` — ranh giới "options không đổi số"
+còn nguyên, và `pick` vẫn nằm trong khoá cache như từ §10.11.
+
+⚠️ `fromDto` đọc `pick: 'bottom'` của bản ghi cũ ra thành `sort: 'value-asc'`.
+Thiếu bước đó thì mở một báo cáo "20 nhóm nhỏ nhất" rồi bấm Lưu là nó lặng lẽ
+thành "20 nhóm lớn nhất" — người dùng không đụng vào ô nào cả.
+
+⚠️ `reportModelConfigSchema` **không** `.strict()`, nên một tab đang mở từ trước
+bản này vẫn gửi `overflow` lên và chỉ bị bỏ qua, không nhận 400. Có một ca
+integration khoá đúng chuyện đó.
+
+Nhánh **bộ dữ liệu** (`aggregateWarehouse`) không đổi: nó không có `offset`, không
+có trình dựng, và không còn báo cáo mới nào đi qua đó. Cột "Khác" vẫn còn ở đấy.
+
+#### 2. Bảng màu bấm được, tô sáng được, lưu được — mà biểu đồ đứng yên
+
+> phần bảng màu chỉ hiển thị bấm được với các biểu đồ có thể điều chỉnh biểu đồ
+> thôi, chứ như biểu đồ cột lại ko thể thay đổi bảng màu
+
+Đúng, và lý do nằm ở hai hằng số:
+
+|                           | trước §10.15        | sau                                 |
+| ------------------------- | ------------------- | ----------------------------------- |
+| biểu đồ MỘT chuỗi         | `--color-brand-600` | màu **đầu tiên** của bảng đang chọn |
+| bản đồ nhiệt              | `scheme: 'blues'`   | thang nhạt → màu đầu tiên của bảng  |
+| nhiều chuỗi, biểu đồ tròn | cả dãy              | không đổi                           |
+
+Bảng cấu hình thôi xin lỗi cho một ô chọn không làm gì, và chuyển sang nói nó
+làm gì: _"Biểu đồ một chuỗi dùng MÀU ĐẦU TIÊN của bảng."_
+
+Màu đầu tiên là lựa chọn đúng chứ không phải lựa chọn tiện: nó cũng là màu Vega
+gán cho chuỗi thứ nhất, nên thả thêm một chiều vào ô Nhóm màu thì CHUỖI ĐẦU
+**giữ nguyên** màu cũ thay vì cả biểu đồ nhảy sang một dãy màu khác.
+
+⚠️ **Không** tô mỗi nhóm một màu. Màu khi đó mã hoá đúng thứ trục ngang đã mã
+hoá, và với hai mươi nhóm thì dãy tám màu phải quay vòng — hai nhóm khác hẳn
+nhau mang cùng một màu, thứ mắt đọc thành "hai nhóm này cùng loại".
+
+⚠️ Đây là một lần **vẽ lại có chủ ý**: mọi biểu đồ một chuỗi đã lưu đổi từ tím
+chàm sang màu đầu của bảng nó đang mang. Không tránh được nếu muốn ô chọn có tác
+dụng, và cái mất đi chỉ là một màu chưa từng ai chọn.
+
+⚠️ Thang bản đồ nhiệt nội suy trong không gian `lab`, không phải `rgb`: `rgb`
+trộn thẳng ba kênh nên khúc giữa xám và tối hơn hai đầu — hai ô giá trị khác
+nhau lại trông đậm ngang nhau.
+
+Đo trên trình duyệt thật, cùng một biểu đồ cột, chỉ đổi bảng màu:
+
+```
+Tươi sáng  #118dff   (10 mark)
+Trầm dịu   #2e69b2   (10 mark)
+```
+
+#### 3. Hai cột bên gấp lại được
+
+> thêm các nút thu gọn mục chỉnh biểu đồ và mục mô hình dữ liệu để trang hiển
+> thị biểu đồ báo cáo được rộng hơn, hiện tại đang hơi bé
+
+Hai cột bên chiếm 288 + 256 = **544px cố định**. Trên một màn 1500px thì khung
+biểu đồ — thứ duy nhất người ta đang thật sự nhìn — còn 892px, và mười hai ô
+chia nhau chỗ đó.
+
+Nhưng cả hai cột đều **có lúc** cần: bảng trường lúc kéo thả, bảng cấu hình lúc
+chỉnh. Nên câu trả lời không phải bỏ bớt một cột mà là cho người dùng gấp nó
+lại. Đo được:
+
+```
+khung biểu đồ:  892px  ->  1372px   (+480px, đúng 544 trừ hai thanh ray 32px)
+```
+
+Ba chi tiết trong `SidePanel` không được bỏ:
+
+1. Gấp thành một **thanh ray** còn thấy được, không biến mất. Một cột biến mất
+   hẳn thì đường mở lại nó cũng biến mất theo.
+2. Cả thanh ray **là** cái nút. Một nút 20px trong một thanh 32px là ba phần tư
+   diện tích bấm vào không có tác dụng.
+3. Nhớ trong `localStorage`, **mỗi cột một khoá**. Dùng chung một khoá thì gấp
+   cột này là gấp luôn cột kia, trông y như một lỗi vẽ lại.
+
+⚠️ Chiều rộng đi vào bằng **lớp Tailwind** (`"w-72"`) chứ không bằng số pixel:
+Tailwind quét mã nguồn để sinh CSS, nên một lớp dựng lúc chạy sẽ không có CSS
+nào và cột rơi về rộng-theo-nội-dung.
 
 ### Báo cáo đã lưu vẽ NGAY, rồi mới làm mới ngầm
 
@@ -2236,9 +2379,9 @@ dùng một khung khác thứ họ vừa dựng, mà không nói gì.
 | `frontend/tests/canvasVisual.test.ts`                | phép tính bố cục và luật của một ô — `findSlot`, `clampBox`, `assignField`, `toDto`, và `hasUnsavedWork`. Sai ở đây không hiện ra như lỗi: một ô lệch cột trông y hệt một ô người dùng tự đặt lệch, còn `hasUnsavedWork` sai là mất việc của người dùng mà không một câu cảnh báo |
 | `frontend/tests/CanvasView.test.tsx`                 | render thật trong DOM: ghép số liệu theo `visualId` (ca này **đảo thứ tự** mảng trả về), và một ô hỏng không kéo theo ô khác                                                                                                                                                      |
 | `backend/tests/datamodel.integration.test.ts` §10.10 | 20 ca ở tầng cấu hình — trùng mã ô, khung rỗng, tràn lưới, quá trần, trường lạ, chuyển đổi, ranh giới với báo cáo trên bộ dữ liệu, và **hình dạng cũ `{visuals}` vẫn ghi được rồi đọc ra một trang**                                                                              |
-| `backend/tests/datamodel.integration.test.ts` §10.12 | `overflow` đi trọn vòng lưu/đọc, vắng mặt rơi về `'other'`, giá trị lạ bị chặn ở cửa, `?page=` có trần, và `canvas-data?pageId=` tính đúng trang được hỏi (mã lạ rơi về trang đầu, không 404)                                                                                     |
+| `backend/tests/datamodel.integration.test.ts` §10.12 | `?page=` có trần, `canvas-data?pageId=` tính đúng trang được hỏi (mã lạ rơi về trang đầu, không 404), và `overflow` của một client CHƯA cập nhật được nhận rồi bỏ qua thay vì 400 — lỗi kiểu đó chỉ hiện ra sau khi deploy, và chỉ với người chưa tải lại trang                   |
 | `frontend/tests/groupPaging.test.tsx`                | hai cái nút ‹ › và thanh thẻ trang. Phần lớn ca kiểm chuyện **không** bày ra nút: cấu hình không chia trang, dữ liệu vừa một trang, không có `onPage`. Một cặp nút chết chỉ nói với người dùng rằng có gì đó hỏng                                                                 |
-| `backend/tests/groupOverflow.test.ts`                | luật "cộng được thì gộp, không cộng thì chia trang" — một bảng tám phép gộp, nên thêm một phép mới mà quên nghĩ tới chuyện này sẽ lộ ra ở đây chứ không lộ ra trên máy người dùng                                                                                                 |
+| `frontend/tests/sidePanel.test.tsx`                  | hai cột bên gấp lại được (§10.15). Phần lớn ca kiểm hai thứ hỏng LẶNG LẼ quanh cái nút: hai cột dùng chung một khoá thì gấp cột này gấp luôn cột kia, và `localStorage` bị chặn thì ĐỌC cũng ném lỗi — một lỗi lúc render là cả trình dựng trắng màn                              |
 | `frontend/tests/reportViewPage.test.tsx`             | trang xem mở được cho **mọi** vai trò, và nút "Chỉnh sửa" chỉ có mặt khi nó thật sự dẫn tới một trình dựng dùng được — không phải bảo mật, mà là đừng bày ra một cái nút dẫn tới 403                                                                                              |
 
 Không ca nào cần ClickHouse trả số thật. Việc đó đã được chứng minh bằng tay

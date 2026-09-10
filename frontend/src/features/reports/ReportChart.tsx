@@ -174,9 +174,10 @@ export function ReportChart({
  * thành một cột "Khác" và không có đường nào nhìn vào bên trong nó. Người dùng
  * biết còn dữ liệu, thấy nó được cộng lại thành một cột, và không mở ra được.
  *
- * Hai cái nút này là đường đó. Cấu hình chọn `overflow: 'pages'` thì backend
- * trả về `paging`, và mỗi lần bấm là một truy vấn với `offset` khác — không
- * phải cắt lại một tập đã tải về, mà là hỏi Cube một câu khác.
+ * Hai cái nút này là đường đó. Backend trả về `paging` cho MỌI biểu đồ dựng
+ * trên mô hình (§10.15 — trước đó phải chọn `overflow: 'pages'` mới có), và mỗi
+ * lần bấm là một truy vấn với `offset` khác — không phải cắt lại một tập đã tải
+ * về, mà là hỏi Cube một câu khác.
  *
  * ═══ Vì sao chỉ có "Trang N" chứ không có "Trang N/M" ═══════════════════════
  *
@@ -244,9 +245,13 @@ function Pager({
  * Ba câu cho ba tình huống khác nhau, và gộp chúng lại là nói sai ít nhất một
  * lần:
  *
- *   có "Khác"       phần vượt được CỘNG vào một cột, không mất thông tin tổng.
- *   không cộng được phần vượt bị BỎ HẲN — tỉ lệ và trung bình không cộng được.
- *   có chiều thứ hai phần vượt là một mặt phẳng, không chia cho từng chuỗi được.
+ *   có chiều thứ hai trần CHUỖI đã cắt bớt màu; hai cái nút ‹ › lật nhóm chứ
+ *                    không lật màu, nên chỗ này vẫn phải nói ra.
+ *   có "Khác"        phần vượt được CỘNG vào một cột, không mất thông tin tổng.
+ *   không cộng được  phần vượt bị BỎ HẲN — tỉ lệ và trung bình không cộng được.
+ *
+ * ⚠️ Hai câu sau chỉ còn nhánh BỘ DỮ LIỆU đi tới được. Báo cáo dựng trên mô
+ * hình luôn chia trang từ §10.15, nên ở đó `grouped` chỉ còn bật vì trần chuỗi.
  */
 function TruncationNote({ data }: { data: ReportDataDto }): React.ReactElement | null {
   if (!data.grouped) return null;

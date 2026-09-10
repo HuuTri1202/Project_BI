@@ -5,7 +5,6 @@ import {
   type ChartType,
   type DatasetSource,
   PAGE_NAME_MAX,
-  type GroupOverflow,
   type ReportCanvasDto,
   type ReportConfigDto,
   type ReportDto,
@@ -127,16 +126,16 @@ function parseModelConfig(raw: unknown): ReportModelConfigDto | null {
   // mọi báo cáo lưu trước bản này. Giá trị lạ cũng rơi về `'top'` chứ không
   // làm hỏng bản ghi — nó chỉ là một lựa chọn, không phải một ID.
   const pick = obj.pick === 'bottom' ? 'bottom' : 'top';
-  // Cùng luật khoan dung cho `overflow`: vắng mặt hoặc lạ = `'other'`, tức cột
-  // "Khác" như mọi báo cáo lưu trước §10.12.
-  const overflow: GroupOverflow = obj.overflow === 'pages' ? 'pages' : 'other';
+  // `overflow` của §10.12–§10.14 cố ý KHÔNG được đọc: từ §10.15 mọi biểu đồ
+  // dựng trên mô hình đều chia trang. Bản ghi cũ còn mang trường đó trong cột
+  // `config` thì nó nằm im ở đó — dọn nó đòi một migration ghi lại toàn bộ JSON
+  // của mọi báo cáo, để đổi lấy đúng một trường không ai đọc nữa.
 
   return {
     dimensionId: Number(obj.dimensionId),
     measureId: Number(obj.measureId),
     limit: typeof obj.limit === 'number' ? obj.limit : 20,
     pick,
-    overflow,
     seriesDimensionId: Number.isInteger(series) ? Number(series) : null,
     // `exactOptionalPropertyTypes` phân biệt "vắng mặt" với "có mà undefined",
     // nên không gán thẳng `options` được — phải chọn một trong hai hình dạng.

@@ -6,15 +6,9 @@ import {
   CHART_TYPE_HINTS,
   CHART_TYPE_LABELS,
   CHART_VALUE_LABELS,
-  GROUP_OVERFLOW_LABELS,
-  GROUP_OVERFLOWS,
-  GROUP_PICK_LABELS,
-  GROUP_PICKS,
   VISUAL_TITLE_MAX,
   type ChartSort,
   type ExplorerFieldDto,
-  type GroupOverflow,
-  type GroupPick,
 } from '@bi/shared';
 
 import { CHART_CHOICES } from '../chartCatalog';
@@ -54,18 +48,22 @@ export function VisualPanel({
   const chosenSeries = dimensions.find((f) => f.id === series) ?? null;
 
   /*
-   * Bảng màu có ĐỔI được gì trên biểu đồ này không.
+   * Bảng màu dùng CẢ DÃY, hay chỉ dùng màu đầu tiên — §10.15.
    *
-   * Một biểu đồ cột một chuỗi tô đúng một màu, nên chọn bảng nào cũng ra hình
-   * y hệt — người dùng bấm thử ba dòng, không thấy gì đổi, rồi kết luận bộ chọn
-   * hỏng. Bản đồ nhiệt cũng vậy nhưng vì lý do khác: màu ở đó là ĐỘ ĐẬM của
-   * con số, một thang liên tục, không phải bảng phân loại.
+   * Trước bản này câu hỏi là "bảng màu có tác dụng không", và với biểu đồ một
+   * chuỗi câu trả lời là KHÔNG: nó tô bằng màu thương hiệu bất kể người dùng
+   * chọn gì. Người dùng bấm thử từng dòng, không thấy gì đổi, rồi kết luận bộ
+   * chọn hỏng — và họ đúng.
+   *
+   *   "phần bảng màu chỉ hiển thị bấm được với các biểu đồ có thể điều chỉnh
+   *    biểu đồ thôi, chứ như biểu đồ cột lại ko thể thay đổi bảng màu"
+   *
+   * Giờ mọi loại đều nghe theo bảng màu (xem `markColorFor` trong `chartSpec`),
+   * nên câu hỏi còn lại chỉ là dùng bao nhiêu màu trong dãy — và câu chú thích
+   * bên dưới nói ra điều đó thay vì xin lỗi cho một ô chọn không làm gì.
    */
-  const paletteMatters =
+  const caDay =
     draft.chartType === 'pie' || (draft.chartType !== 'heatmap' && chosenSeries !== null);
-
-  /** Chia trang: cùng ba ô chọn, nhưng chúng đọc ra một câu khác hẳn. */
-  const paged = draft.overflow === 'pages';
 
   const drop = (slot: 'dimension' | 'measure' | 'series', field: DragField): void => {
     const patch = assignField(draft, slot, field);
@@ -78,7 +76,7 @@ export function VisualPanel({
   return (
     <div className="space-y-5">
       <div>
-        <PanelTitle>Biểu đồ</PanelTitle>
+        <PanelTitle>Loại biểu đồ</PanelTitle>
         <div className="mt-2 grid grid-cols-4 gap-1.5">
           {CHART_CHOICES.map((choice) => (
             <button
@@ -169,58 +167,29 @@ export function VisualPanel({
           </span>
         </label>
 
-        {/* Ba ô đi CÙNG NHAU và phải đọc được như MỘT CÂU, theo đúng thứ tự này:
-            "20 nhóm mỗi trang, chia trang, bắt đầu từ nhóm lớn nhất". Tách
-            "bao nhiêu" khỏi "phần thừa đi đâu" khỏi "đầu hay cuối bảng" ra ba
-            chỗ khác nhau trong bảng là để người dùng đọc được một phần ba câu. */}
+        {/* ─── Hai ô, không phải bốn — §10.15 ────────────────────────────
+            Tới §10.14 chỗ này có bốn ô chọn nói về cùng một chuyện: bao nhiêu
+            nhóm, phần thừa đi đâu, giữ đầu nào của bảng xếp hạng, xếp trục ra
+            sao. Người dùng bảo bỏ hai ô giữa đi — và họ đúng: phần thừa giờ
+            luôn sang trang sau, còn "giữ đầu nào" thì chính ô "Sắp xếp" đã
+            nói rồi. Xem `pickOf` trong `visual.ts`. */}
         <Choice
-          label={paged ? 'Số nhóm mỗi trang' : 'Số nhóm tối đa'}
+          label="Số nhóm mỗi trang"
           value={String(draft.limit)}
           onChange={(v) => onChange({ limit: Number(v) })}
           options={LIMIT_CHOICES.map((n) => ({ value: String(n), label: `${n} nhóm` }))}
-        />
-
-        <Choice
-          label="Khi còn nhóm chưa hiện"
-          value={draft.overflow}
-          onChange={(v) => onChange({ overflow: v as GroupOverflow })}
-          options={GROUP_OVERFLOWS.map((o) => ({ value: o, label: GROUP_OVERFLOW_LABELS[o] }))}
-          hint={
-            paged
-              ? 'Không nhóm nào bị giấu — vì vậy cũng không còn cột “Khác”, kể cả ở trang đầu.'
-              : 'Một cột duy nhất cho tất cả phần còn lại. Chỉ gộp được khi phép tính cộng được; tỉ lệ, trung bình hay biểu đồ có chiều thứ hai sẽ tự chia trang thay vì bỏ mất phần thừa.'
-          }
-        />
-
-        <Choice
-          label={paged ? 'Trang đầu bắt đầu từ' : 'Giữ lại nhóm nào'}
-          value={draft.pick}
-          onChange={(v) => onChange({ pick: v as GroupPick })}
-          options={GROUP_PICKS.map((p) => ({ value: p, label: GROUP_PICK_LABELS[p] }))}
-          hint={
-            paged
-              ? `Xếp hạng theo ${chosenMeasure?.label ?? 'thước đo'}; hai nút ‹ › đi tiếp theo đúng thứ hạng đó.`
-              : draft.seriesId !== null && seriesUsed(draft) !== null
-                ? `Xếp hạng theo ${chosenMeasure?.label ?? 'thước đo'}. Có chiều thứ hai thì phần bị cắt KHÔNG gộp thành “Khác” — chia nó cho từng chuỗi là bịa ra số.`
-                : `Xếp hạng theo ${chosenMeasure?.label ?? 'thước đo'}.`
-          }
+          hint="Không nhóm nào bị bỏ đi: phần vượt nằm ở trang sau, mở bằng hai nút ‹ › dưới góc phải ô."
         />
 
         {/* Nhãn đọc từ `CHART_SORT_LABELS`, danh sách đọc từ `CHART_SORTS` — thêm
             một cách sắp là sửa đúng một chỗ ở `shared`, và ô chọn với bộ kiểm
             của backend không thể lệch nhau. */}
         <Choice
-          label="Sắp xếp trục"
+          label="Sắp xếp"
           value={draft.options.sort}
           onChange={(v) => setOption({ sort: v as ChartSort })}
           options={CHART_SORTS.map((s) => ({ value: s, label: CHART_SORT_LABELS[s] }))}
-          hint={
-            draft.options.sort !== 'value-asc' || draft.pick !== 'top'
-              ? undefined
-              : paged
-                ? 'Chỉ sắp lại những nhóm của TRANG NÀY — đây vẫn là các nhóm lớn nhất, xếp ngược. Muốn nhóm nhỏ nhất trước thì đổi “Trang đầu bắt đầu từ”.'
-                : 'Chỉ sắp lại những nhóm đang hiện — đây là các nhóm LỚN nhất xếp ngược. Muốn đúng các nhóm nhỏ nhất thì đổi “Giữ lại nhóm nào”.'
-          }
+          hint={sapXepHint(draft.options.sort, draft.limit, chosenMeasure?.label)}
         />
 
         <PaletteChoice
@@ -228,11 +197,11 @@ export function VisualPanel({
           value={draft.options.palette}
           onChange={(palette) => setOption({ palette })}
           hint={
-            paletteMatters
+            caDay
               ? undefined
               : draft.chartType === 'heatmap'
-                ? 'Bản đồ nhiệt tô theo ĐỘ ĐẬM của con số, không theo bảng phân loại.'
-                : 'Biểu đồ một chuỗi chỉ dùng một màu. Bảng màu có tác dụng khi ô Nhóm màu có một chiều, hoặc với biểu đồ tròn.'
+                ? 'Bản đồ nhiệt tô theo ĐỘ ĐẬM của con số: thang màu chạy từ nhạt tới MÀU ĐẦU TIÊN của bảng.'
+                : 'Biểu đồ một chuỗi dùng MÀU ĐẦU TIÊN của bảng. Thả một chiều vào ô Nhóm màu thì cả dãy được dùng.'
           }
         />
 
@@ -273,4 +242,30 @@ export function VisualPanel({
       </div>
     </div>
   );
+}
+
+/**
+ * Câu chú thích dưới ô "Sắp xếp".
+ *
+ * Ô này làm HAI việc khác nhau tuỳ lựa chọn, và người dùng có quyền biết mình
+ * đang dùng việc nào:
+ *
+ *   theo giá trị  đổi cả CÂU HỎI gửi xuống Cube — "nhỏ → lớn" xin đúng các
+ *                 nhóm nhỏ nhất, chứ không xếp ngược một tập đã cắt.
+ *   theo tên      chỉ đổi thứ tự trên trục. Các trang vẫn đi theo thước đo,
+ *                 vì "trang 2 theo bảng chữ cái" là một câu hỏi khác.
+ *
+ * Trước §10.15 chỗ này phải in ra một lời đính chính ("đây vẫn là các nhóm lớn
+ * nhất, xếp ngược") vì ô chọn nói một đằng còn dữ liệu một nẻo. Giờ nó chỉ còn
+ * nói ra thứ đang xảy ra.
+ */
+function sapXepHint(
+  sort: ChartSort,
+  limit: number,
+  measure: string | undefined,
+): string | undefined {
+  const thuocDo = measure ?? 'thước đo';
+  if (sort === 'value-asc') return `Trang 1 là ${limit} nhóm NHỎ NHẤT theo ${thuocDo}.`;
+  if (sort === 'value') return undefined;
+  return `Xếp theo tên trong phạm vi trang này; các trang vẫn đi theo thứ hạng của ${thuocDo}.`;
 }

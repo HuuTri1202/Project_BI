@@ -1,6 +1,6 @@
 import { MAX_GROUP_PAGE, type ReportDataDto, type ReportModelConfigDto } from '@bi/shared';
 
-import { laCongDuoc, loadModelContext, runExplorerQuery, type ModelContext } from './explorer';
+import { loadModelContext, runExplorerQuery, type ModelContext } from './explorer';
 
 /**
  * Số liệu cho một báo cáo dựng trên MÔ HÌNH — §10.8.
@@ -19,13 +19,13 @@ import { laCongDuoc, loadModelContext, runExplorerQuery, type ModelContext } fro
  *
  * ═══ Vì sao hỏi thừa MỘT dòng ═══════════════════════════════════════════════
  *
- * Biểu đồ cắt ở `limit` nhóm. Nhưng "cắt rồi" và "vừa đủ" trông y hệt nhau trên
- * màn hình, nên người xem không phân biệt được "5 vùng" với "5 vùng lớn nhất
- * trong 13". Hỏi `limit + 1` rồi bỏ dòng cuối là cách rẻ nhất biết được điều
- * đó — không tốn thêm một vòng tới Cube như cách đếm nhóm riêng.
+ * Một trang có `limit` nhóm. Nhưng "hết rồi" và "còn nữa" trông y hệt nhau trên
+ * màn hình, nên nút › phải biết được điều đó trước khi người dùng bấm vào nó.
+ * Hỏi `limit + 1` rồi bỏ dòng cuối là cách rẻ nhất: không tốn thêm một vòng tới
+ * Cube như cách đếm nhóm riêng, và cũng chính là thứ cho biết trang này có phải
+ * trang cuối hay không.
  */
 
-const OTHER_LABEL = 'Khác';
 const EMPTY_LABEL = '(trống)';
 
 /** Trần cứng, kể cả khi cấu hình cũ lưu một số lớn hơn. */
@@ -44,57 +44,32 @@ const MAX_GROUPS = 100;
 const SERIES_CAP = 12;
 
 /**
- * Trang đang xem, kẹp vào khoảng hợp lệ — và về 0 khi biểu đồ không chia trang.
+ * Trang đang xem, kẹp vào khoảng hợp lệ.
  *
  * Kẹp chứ không từ chối: số trang đến từ một cú bấm nút, và người dùng bấm quá
- * nhanh vào ‹ ở trang đầu không đáng nhận một màn hình lỗi. Về 0 khi không chia
- * trang là thứ bảo đảm một `?page=3` gõ tay vào thanh địa chỉ không lặng lẽ làm
- * biến mất cột "Khác" của một báo cáo không hề chia trang.
+ * nhanh vào ‹ ở trang đầu không đáng nhận một màn hình lỗi. Cùng lý do với
+ * `MAX_GROUP_PAGE` ở đầu kia — `?page=99999` gõ tay vào thanh địa chỉ là một
+ * `OFFSET` khổng lồ gửi thẳng xuống ClickHouse.
  */
-function pageOf(paged: boolean, page: number): number {
-  if (!paged) return 0;
+function pageOf(page: number): number {
   return Math.max(0, Math.min(MAX_GROUP_PAGE, Math.trunc(page)));
 }
 
-/**
- * Phần vượt trần đi đâu — §10.14.
+/*
+ * ═══ Phần vượt trần: mọi biểu đồ đều CHIA TRANG — §10.15 ════════════════════
  *
- * ═══ Vì sao "Khác" KHÔNG còn là mặc định của mọi biểu đồ ════════════════════
+ * §10.12 thêm một ô chọn: gộp phần vượt thành cột "Khác", hay chia trang.
+ * §10.14 bỏ vế thứ ba (bỏ hẳn dữ liệu) khỏi ô đó. §10.15 bỏ nốt cái ô.
  *
- * Cột "Khác" chỉ dựng được khi phép tính CỘNG ĐƯỢC. Trung bình của các trung
- * bình không phải trung bình, và "Khác" của min/max thì vô nghĩa. Tới §10.13,
- * cấu hình mặc định (`'other'`) gặp một thước đo không cộng được thì phần vượt
- * trần bị BỎ HẲN khỏi biểu đồ, kèm một dòng chữ nói rằng nó đã bị bỏ.
+ *     "Bỏ cột khi còn nhóm chưa hiện và giữ lại nhóm nào đi vì mặc định sẽ tạo
+ *      ra nhiều biểu đồ báo cáo và người dùng sẽ bấm sang trang từ từ để xem nó"
  *
- * Đó là một ngõ cụt, và người dùng gặp đúng nó:
- *
- *     "với các biểu đồ dữ liệu quá lớn … sẽ có nút bấm qua bên để xem biểu đồ
- *      trên cùng 1 dim vs measure đó"
- *
- * Hai cái nút ‹ › đã có từ §10.12, nhưng chúng nằm sau một ô chọn mà người dùng
- * phải tự tìm ra. Nên luật đổi thành một câu:
- *
- *     cộng được   -> gộp phần vượt thành cột "Khác"
- *     không cộng  -> CHIA TRANG, để mọi nhóm đều mở ra được
- *
- * Bỏ dữ liệu đi là lựa chọn tệ nhất trong ba lựa chọn, và nó không còn được
- * chọn nữa. Trang 1 vẫn đúng những nhóm cũ — chỉ mọc thêm hai cái nút thay cho
- * một dòng chữ báo mất mát.
- *
- * ⚠️ Hai chiều thì KHÔNG BAO GIỜ có "Khác" (xem `aggregateWithSeries`), nên nhánh
- * đó luôn chia trang khi còn nhóm.
+ * Cùng với ô chọn, ba thứ biến mất khỏi file này: truy vấn tổng-toàn-bộ chỉ
+ * dùng để tính cột "Khác", phép hỏi `laCongDuoc` để biết có được gộp không, và
+ * cờ `grouped` của nhánh một chiều — chia trang thì không nhóm nào bị giấu, nên
+ * không còn gì để cảnh báo. Cái mất đi cùng chúng là câu "phần còn lại lớn cỡ
+ * nào"; cái được là câu "trong đó có gì", và một truy vấn ít hơn cho mỗi ô.
  */
-export function overflowOf(
-  ctx: ModelContext,
-  config: ReportModelConfigDto,
-  hasSeries: boolean,
-): { paged: boolean; additive: boolean } {
-  if (config.overflow === 'pages') return { paged: true, additive: false };
-  if (hasSeries) return { paged: true, additive: false };
-
-  const additive = laCongDuoc(ctx, config.measureId);
-  return { paged: !additive, additive };
-}
 
 export async function aggregateFromModel(
   tenantId: number,
@@ -117,19 +92,19 @@ export async function aggregateFromModel(
   const seriesId = config.seriesDimensionId ?? null;
   const hasSeries = seriesId !== null && seriesId !== config.dimensionId;
 
-  const { paged, additive } = overflowOf(ctx, config, hasSeries);
-  const page = pageOf(paged, pageIn);
+  const page = pageOf(pageIn);
 
   if (hasSeries) {
     return aggregateWithSeries(tenantId, userId, dataModelId, config, seriesId, limit, page, ctx);
   }
 
   /*
-   * `pick` chọn nhóm NÀO; `options.sort` chọn thứ tự chúng nằm trên trục.
+   * `pick` chọn đọc bảng xếp hạng từ ĐẦU nào.
    *
-   * Hai việc tách hẳn nhau, và đó là điều kiện để cả hai cùng nói thật. Cắt
-   * top-N là phép của TRUY VẤN — sắp lại một tập đã cắt thì mãi mãi vẫn là các
-   * nhóm lớn nhất, chỉ xếp ngược. Nên "nhỏ nhất" phải hỏi Cube bằng `asc`.
+   * Cắt top-N là phép của TRUY VẤN — sắp lại một tập đã cắt thì mãi mãi vẫn là
+   * các nhóm lớn nhất, chỉ xếp ngược. Nên "nhỏ nhất" phải hỏi Cube bằng `asc`,
+   * và đó cũng là lý do trình dựng phải suy trường này ra rồi LƯU nó vào
+   * `config` thay vì để backend đọc `options.sort` (§10.15).
    */
   const bottom = config.pick === 'bottom';
 
@@ -138,7 +113,8 @@ export async function aggregateFromModel(
     userId,
     dataModelId,
     { dimensionIds: [config.dimensionId], measureIds: [config.measureId], limit: limit + 1 },
-    // `offset` chỉ khác 0 khi biểu đồ chia trang — `pageOf` đã lo điều đó.
+    // `offset` chỉ có mặt từ trang 2 trở đi: `offset: 0` là đúng câu hỏi cũ
+    // viết dài hơn, và mọi thứ đi vào truy vấn Cube đều đáng để ngắn.
     {
       ctx,
       ...(bottom ? { order: 'asc' as const } : {}),
@@ -173,38 +149,6 @@ export async function aggregateFromModel(
   // Đã đảo ở trên nên phần cần bỏ luôn nằm ở ĐẦU khi lấy nhóm nhỏ nhất.
   const rows = bottom ? all.slice(Math.max(0, all.length - limit)) : all.slice(0, limit);
 
-  /*
-   * Chia trang thì KHÔNG có "Khác", và `grouped` phải là `false`.
-   *
-   * Hai thứ này đi liền nhau vì chúng nói cùng một điều: có nhóm nào bị GIẤU
-   * không. Chia trang thì không — mọi nhóm đều mở ra được bằng hai cái nút. Để
-   * `grouped` bật là để trang xem in ra "chỉ hiện các nhóm lớn nhất" ngay dưới
-   * một biểu đồ có nút xem tiếp, tức nói sai ở đúng chỗ dễ tin nhất.
-   */
-  const grouped = !paged && hasMore;
-
-  /*
-   * `grouped` bật thì `additive` CHẮC CHẮN bật — xem `overflowOf`: không cộng được
-   * là chia trang, mà chia trang thì `grouped` tắt. Nên nhánh này không phải hỏi
-   * lại phép tính lần nữa.
-   */
-  if (grouped && additive) {
-    // Tổng của TOÀN BỘ, không phải tổng phần đang hiện. Một truy vấn nữa là giá
-    // phải trả; đọc cả danh sách nhóm về Node để tự cộng thì một chiều có một
-    // triệu giá trị phân biệt sẽ kéo một triệu dòng qua mạng.
-    const total = await runExplorerQuery(
-      tenantId,
-      userId,
-      dataModelId,
-      { dimensionIds: [], measureIds: [config.measureId], limit: 1 },
-      { ctx },
-    );
-
-    const grand = Number(total.rows[0]?.[0] ?? 0);
-    const shown = rows.reduce((acc, r) => acc + r.value, 0);
-    rows.push({ label: OTHER_LABEL, value: round(grand - shown) });
-  }
-
   return {
     rows,
     dimensionLabel: dimensionCol?.label ?? '',
@@ -212,8 +156,16 @@ export async function aggregateFromModel(
     // phép gộp đã nằm trong định nghĩa của thước đo, và người dùng đặt tên cho
     // nó rồi. Ghép thêm "Tổng" vào trước sẽ ra "Tổng Biên lợi nhuận".
     measureLabel: measureCol?.label ?? '',
-    grouped,
-    ...(paged ? { paging: { page, hasMore } } : {}),
+    /*
+     * LUÔN `false` ở nhánh này — xem khối §10.15 đầu file.
+     *
+     * `grouped` nghĩa là "có nhóm bị GIẤU khỏi biểu đồ". Chia trang thì không:
+     * mọi nhóm đều mở ra được bằng hai cái nút. Để nó bật là in ra "chỉ hiện
+     * các nhóm lớn nhất" ngay bên dưới một biểu đồ có nút xem tiếp, tức nói sai
+     * ở đúng chỗ dễ tin nhất.
+     */
+    grouped: false,
+    paging: { page, hasMore },
     format: measureCol?.format,
   };
 }
@@ -238,13 +190,12 @@ export async function aggregateFromModel(
  * vài chục dòng — chúng rẻ hơn hẳn vòng cuối, vốn cũng là vòng duy nhất tồn tại
  * ở nhánh một chuỗi.
  *
- * ═══ Vì sao KHÔNG có dòng "Khác" ════════════════════════════════════════════
+ * ═══ Hai trần, và chỉ MỘT trong hai chia trang được ═════════════════════════
  *
- * Nhánh một chiều cộng phần bị cắt thành một cột "Khác". Ở đây phần bị cắt là
- * một MẶT PHẲNG nhóm × chuỗi, và chia nó cho từng chuỗi thì phải bịa ra tỉ lệ.
- * Cột "Khác" của mọi chuỗi chồng lên nhau sẽ trông như một nhóm thật, mang một
- * cơ cấu màu hoàn toàn do ta nghĩ ra. Thà thiếu còn hơn bịa; `grouped` nói ra
- * là đã cắt.
+ * Trần NHÓM đi theo trang, y như nhánh một chiều. Trần CHUỖI thì không: nó tồn
+ * tại để mắt còn phân biệt được màu (12 là ngưỡng), và "xem tiếp mười hai màu
+ * nữa" không phải câu hỏi ai đó hỏi — hai cái nút ‹ › lật nhóm, không lật màu.
+ * Nên `grouped` ở nhánh này nói đúng một điều: CHUỖI đã bị cắt.
  */
 async function aggregateWithSeries(
   tenantId: number,
@@ -281,12 +232,6 @@ async function aggregateWithSeries(
    * nhất — bỏ chuỗi lớn đi thì các cột còn lại cộng không ra tổng nào cả.
    */
   const bottom = config.pick === 'bottom';
-  /*
-   * LUÔN chia trang khi còn nhóm — nhánh hai chiều không bao giờ dựng được cột
-   * "Khác" (xem chú thích đầu hàm), nên lựa chọn duy nhất còn lại là bỏ dữ liệu
-   * hoặc mở đường tới nó. §10.14 chọn vế thứ hai.
-   */
-  const paged = true;
 
   const [ranking, seriesRanking] = await Promise.all([
     runExplorerQuery(
@@ -400,10 +345,10 @@ async function aggregateWithSeries(
     dimensionLabel: dimensionCol?.label ?? '',
     measureLabel: measureCol?.label ?? '',
     seriesLabel: seriesCol?.label ?? '',
-    // Chia trang thì chiều chính không còn bị cắt — nhưng CHUỖI thì vẫn, và đó
-    // là một câu cắt hoàn toàn khác mà hai cái nút ‹ › không chữa được.
-    grouped: (!paged && cutGroups) || cutSeries,
-    ...(paged ? { paging: { page, hasMore: cutGroups } } : {}),
+    // Chiều chính không còn bị cắt — nhưng CHUỖI thì vẫn, và đó là một câu cắt
+    // hoàn toàn khác mà hai cái nút ‹ › không chữa được.
+    grouped: cutSeries,
+    paging: { page, hasMore: cutGroups },
     format: measureCol?.format,
   };
 }
@@ -413,9 +358,4 @@ function labelOf(cell: string | number | null): string {
   if (cell === null) return EMPTY_LABEL;
   const text = String(cell).trim();
   return text === '' ? EMPTY_LABEL : text;
-}
-
-/** Cùng thang làm tròn với `aggregateWarehouse` — cắt rác dấu phẩy động. */
-function round(n: number): number {
-  return Math.round(n * 10 ** 4) / 10 ** 4;
 }

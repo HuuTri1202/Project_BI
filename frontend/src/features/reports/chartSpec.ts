@@ -9,7 +9,7 @@ import {
 } from '@bi/shared';
 import type { TopLevelSpec } from 'vega-lite';
 
-import { CHART_AXIS_CONFIG, readBrandColor } from '../admin/charts/theme';
+import { CHART_AXIS_CONFIG } from '../admin/charts/theme';
 
 /**
  * Dựng spec Vega-Lite cho một báo cáo — §10.9.
@@ -52,8 +52,20 @@ const LEGACY_SCHEMES: Partial<Record<ChartPalette, string>> = {
   dark: 'dark2',
 };
 
-/** Thang màu của bản đồ nhiệt — liên tục, không phân loại. */
-const HEATMAP_SCHEME = 'blues';
+/**
+ * Đầu NHẠT của thang bản đồ nhiệt. Đầu đậm là màu đầu tiên của bảng màu.
+ *
+ * Trước §10.15 cả thang là `scheme: 'blues'` của Vega — một cái tên cứng, nên
+ * bản đồ nhiệt là loại biểu đồ duy nhất không nghe theo bảng màu người dùng
+ * chọn. Giờ nó nghe, nhưng vẫn là một thang MỘT SẮC ĐỘ đi từ nhạt tới đậm:
+ * màu ở đây mã hoá ĐỘ LỚN của con số, và một thang nhiều hướng màu thì không
+ * đọc ra được cái nào lớn hơn cái nào.
+ *
+ * Nội suy trong không gian `lab` chứ không phải `rgb`: `rgb` trộn thẳng ba kênh
+ * nên khúc giữa của thang xám và tối hơn hẳn hai đầu, tức hai ô có giá trị khác
+ * nhau lại trông đậm ngang nhau.
+ */
+const HEATMAP_LOW = '#f1f5f9';
 
 /**
  * Chiều cao khi KHÔNG ai nói ô cao bao nhiêu.
@@ -225,7 +237,7 @@ export function buildChartSpec({
           field: 'value',
           type: 'quantitative',
           title: data.measureLabel,
-          scale: { scheme: HEATMAP_SCHEME },
+          scale: { range: [HEATMAP_LOW, markColorFor(opts.palette)], interpolate: 'lab' },
           ...(opts.showLegend === false
             ? { legend: null }
             : valueFormat === undefined
@@ -262,7 +274,7 @@ export function buildChartSpec({
 
   // ─── Bốn loại còn lại: một trục nhóm, một trục giá trị ─────────────────────
   const horizontal = chartType === 'hbar';
-  const brand = readBrandColor('--color-brand-600', '#4f46e5');
+  const mau = markColorFor(opts.palette);
 
   const groupAxis = {
     field: 'label',
@@ -315,7 +327,7 @@ export function buildChartSpec({
 
   const mark =
     chartType === 'line'
-      ? { type: 'line' as const, point: true, tooltip: true, ...(multi ? {} : { color: brand }) }
+      ? { type: 'line' as const, point: true, tooltip: true, ...(multi ? {} : { color: mau }) }
       : chartType === 'area'
         ? {
             type: 'area' as const,
@@ -323,7 +335,7 @@ export function buildChartSpec({
             // Chồng lên nhau thì phải nhìn xuyên được, nếu không miền vẽ sau
             // xoá hẳn miền vẽ trước khỏi màn hình.
             opacity: multi && !stacked ? 0.55 : 0.85,
-            ...(multi ? {} : { color: brand }),
+            ...(multi ? {} : { color: mau }),
           }
         : chartType === 'scatter'
           ? {
@@ -331,13 +343,13 @@ export function buildChartSpec({
               filled: true,
               size: 110,
               tooltip: true,
-              ...(multi ? {} : { color: brand }),
+              ...(multi ? {} : { color: mau }),
             }
           : {
               type: 'bar' as const,
               tooltip: true,
               cornerRadiusEnd: 3,
-              ...(multi ? {} : { color: brand }),
+              ...(multi ? {} : { color: mau }),
             };
 
   const encoding = horizontal
@@ -443,6 +455,39 @@ function colorScaleFor(
 }
 
 /**
+ * MỘT màu từ bảng màu — cho biểu đồ chỉ có một chuỗi, và cho đầu đậm của thang
+ * bản đồ nhiệt.
+ *
+ * ═══ Vì sao không còn là màu thương hiệu ════════════════════════════════════
+ *
+ * Tới §10.14, mark của biểu đồ một chuỗi tô bằng `--color-brand-600` — một
+ * hằng số. Hệ quả: bộ chọn bảng màu bấm được, tô sáng được, lưu được, mà biểu
+ * đồ cột thì đứng yên. Người dùng gọi đúng tên nó ra:
+ *
+ *   "phần bảng màu … như biểu đồ cột lại ko thể thay đổi bảng màu"
+ *
+ * Lấy màu ĐẦU TIÊN của bảng là câu trả lời đúng cho cả hai phía. Người dùng
+ * đổi bảng thì biểu đồ đổi màu; và màu ấy vẫn là màu Vega sẽ gán cho chuỗi thứ
+ * nhất, nên thả thêm một chiều vào ô Nhóm màu thì CHUỖI ĐẦU giữ nguyên màu cũ
+ * thay vì cả biểu đồ nhảy sang một dãy màu khác.
+ *
+ * ⚠️ KHÔNG tô mỗi nhóm một màu. Màu khi đó mã hoá đúng thứ trục ngang đã mã
+ * hoá, và với hai mươi nhóm thì dãy tám màu phải quay vòng — hai nhóm khác hẳn
+ * nhau mang cùng một màu, thứ mắt đọc thành "hai nhóm này cùng loại".
+ *
+ * ⚠️ Đây là một lần VẼ LẠI có chủ ý: mọi biểu đồ một chuỗi đã lưu đổi từ tím
+ * chàm sang màu đầu của bảng nó đang mang. Không tránh được nếu muốn ô chọn có
+ * tác dụng, và cái mất đi chỉ là một màu chưa từng ai chọn.
+ */
+function markColorFor(palette: ChartPalette | undefined): string {
+  const scale = colorScaleFor(palette);
+  // `scheme` là một cái tên chỉ Vega tra được, không phải một danh sách hex —
+  // bảng màu cũ nào rơi vào nhánh đó thì lấy màu đầu của bảng mặc định.
+  const range = 'range' in scale ? scale.range : undefined;
+  return range?.[0] ?? CHART_PALETTE_COLORS[DEFAULT_CHART_PALETTE]?.[0] ?? '#118DFF';
+}
+
+/**
  * Thứ tự trên trục nhóm — xem `CHART_SORTS`.
  *
  * `null` = GIỮ NGUYÊN thứ tự backend đã sắp (giảm dần theo thước đo). Đó là
@@ -454,6 +499,9 @@ function colorScaleFor(
  * Ba lựa chọn kia sắp lại cả "Khác" theo đúng luật của chúng. Không phải bỏ
  * sót: `'label'` đã làm vậy từ đầu, và mọi công cụ BI cũng thế — khi người
  * dùng RA LỆNH sắp, một cái cột đứng yên một chỗ mới là thứ khó hiểu.
+ *
+ * ⚠️ Dòng "Khác" chỉ còn đến từ nhánh BỘ DỮ LIỆU (`aggregateWarehouse`). Báo cáo
+ * dựng trên mô hình chia trang thay vì gộp, từ §10.15.
  *
  * `'value-asc'` sắp bằng `op: 'sum'` chứ không đảo ngược mảng: biểu đồ nhiều
  * chuỗi có nhiều dòng cùng một nhãn, nên thứ tự phải tính trên TỔNG của nhãn

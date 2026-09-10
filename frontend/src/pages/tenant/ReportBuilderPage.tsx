@@ -29,7 +29,7 @@ import {
 import { CanvasBoard } from '../../features/reports/builder/CanvasBoard';
 import { PageTabs } from '../../features/reports/PageTabs';
 import { ReportShell } from '../../features/reports/ReportShell';
-import { PanelTitle } from '../../features/reports/builder/controls';
+import { SidePanel } from '../../features/reports/builder/SidePanel';
 import type { DragField } from '../../features/reports/builder/dnd';
 import { FieldsPanel } from '../../features/reports/builder/FieldsPanel';
 import { groupBySheet } from '../../features/reports/builder/sheets';
@@ -796,14 +796,15 @@ function Builder({
           </section>
 
           {/* ─── Cấu hình ô đang chọn ─────────────────────────────────── */}
-          <aside className="w-72 shrink-0 overflow-y-auto border-l border-slate-200 pl-4">
+          {/* Hai cột bên GẤP LẠI được từ §10.15 — xem `SidePanel`. Khoá nhớ đặt
+              theo VIỆC của cột ("visual", "fields") chứ không theo chiều rộng
+              hay thứ tự, để đổi bố cục sau này không làm mất lựa chọn đã lưu
+              của người dùng. */}
+          <SidePanel title="Chỉnh biểu đồ" storageKey="visual" width="w-72">
             {selected === null ? (
-              <>
-                <PanelTitle>Biểu đồ</PanelTitle>
-                <p className="mt-2 text-xs leading-snug text-slate-400">
-                  Bấm vào một ô trên khung để sửa biểu đồ của nó.
-                </p>
-              </>
+              <p className="text-xs leading-snug text-slate-400">
+                Bấm vào một ô trên khung để sửa biểu đồ của nó.
+              </p>
             ) : (
               <VisualPanel
                 draft={selected}
@@ -813,11 +814,10 @@ function Builder({
                 onChange={(changes) => patch(selected.id, changes)}
               />
             )}
-          </aside>
+          </SidePanel>
 
           {/* ─── Mô hình dữ liệu ──────────────────────────────────────── */}
-          <aside className="flex w-64 shrink-0 flex-col overflow-hidden border-l border-slate-200 pl-4">
-            <PanelTitle>Mô hình dữ liệu</PanelTitle>
+          <SidePanel title="Mô hình dữ liệu" storageKey="fields" width="w-64">
             {fields.isError ? (
               <p className="mt-2 text-xs text-red-600">{getApiError(fields.error).message}</p>
             ) : fields.isPending ? (
@@ -829,7 +829,7 @@ function Builder({
                     "30 chiều · 13 thước đo" ngay trên nó lại dựng lại đúng cái
                     ranh giới vừa bỏ — và ranh giới đó do phép đoán của backend
                     vẽ ra, không phải do người dùng. */}
-                <p className="mt-0.5 text-xs text-slate-400">
+                <p className="shrink-0 text-xs text-slate-400">
                   {sheetCount} bảng · {dimensions.length + measures.length} trường
                 </p>
                 <FieldsPanel
@@ -842,7 +842,7 @@ function Builder({
                 />
               </>
             )}
-          </aside>
+          </SidePanel>
         </div>
       )}
 

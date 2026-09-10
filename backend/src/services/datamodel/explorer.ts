@@ -298,31 +298,6 @@ export async function loadModelContext(
   return { index, schemaVersion };
 }
 
-/**
- * Phép gộp của thước đo này có CỘNG ĐƯỢC không — §10.14.
- *
- * Quyết định hai chuyện cùng lúc, và đó là lý do nó nằm ở đây chứ không nằm
- * trong nhánh vẽ "Khác":
- *
- *   cộng được    -> phần vượt trần gộp thành một cột "Khác"
- *   không cộng   -> phần vượt trần CHIA TRANG, vì gộp lại thì sai số
- *
- * Đọc từ chỉ mục đã nạp thay vì hỏi `listMeasures` lần nữa: chỉ mục vốn đã
- * chứa đủ, và mỗi lần hỏi thêm là một vòng MySQL cho mỗi ô.
- *
- * ⚠️ `'rowExpr'` KHÔNG cộng được ở đây dù tổng của một biểu thức dòng về lý
- * thuyết vẫn là một tổng. Giữ nguyên ranh giới cũ (`kind === 'column'`) là cố
- * ý: đổi nó sẽ làm mọi báo cáo đang dùng thước đo biểu thức dòng lặng lẽ mọc
- * thêm một cột "Khác" mà không ai xin.
- */
-export function laCongDuoc(ctx: ModelContext, measureId: number): boolean {
-  const measure = ctx.index.measures.get(measureId);
-  if (measure === undefined) return false;
-  // `'rows'` là đếm số dòng — tổng của các phần đếm chính là phần đếm của tổng.
-  const nenTang = measure.nguon.kind === 'column' || measure.nguon.kind === 'rows';
-  return nenTang && (measure.agg === 'sum' || measure.agg === 'count');
-}
-
 function buildQuery(
   index: ModelIndex,
   input: ExplorerQueryDto,

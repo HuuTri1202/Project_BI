@@ -335,6 +335,73 @@ describe('buildChartSpec', () => {
       expect(CHART_PALETTE_COLORS[palette]).toHaveLength(8);
     }
   });
+  /* ─── Bảng màu đụng tới MỌI loại biểu đồ — §10.15 ────────────────────────
+   *
+   * Tới §10.14, biểu đồ một chuỗi tô bằng `--color-brand-600` và bản đồ nhiệt tô
+   * bằng `scheme: 'blues'` — hai hằng số. Bộ chọn bảng màu bấm được, lưu được, mà
+   * biểu đồ đứng yên:
+   *
+   *   "phần bảng màu … như biểu đồ cột lại ko thể thay đổi bảng màu"
+   *
+   * Bốn ca dưới đây khoá cả bốn nhánh màu: một chuỗi, nhiều chuỗi, bảng màu cũ
+   * chỉ có tên scheme, và thang liên tục của bản đồ nhiệt.
+   */
+  const mauMark = (spec: unknown): unknown => (spec as { mark?: { color?: string } }).mark?.color;
+
+  it('biểu đồ MỘT chuỗi tô bằng màu ĐẦU TIÊN của bảng đang chọn', () => {
+    // Đây là ca người dùng gõ thẳng tên ra: biểu đồ cột, một chuỗi, đổi bảng
+    // màu mà không thấy gì đổi.
+    for (const chartType of ['bar', 'hbar', 'line', 'area', 'scatter'] as const) {
+      const sang = buildChartSpec({ chartType, data: fakeData(), options: { palette: 'bright' } });
+      const diu = buildChartSpec({ chartType, data: fakeData(), options: { palette: 'muted' } });
+
+      expect(mauMark(sang), chartType).toBe(CHART_PALETTE_COLORS.bright?.[0]);
+      expect(mauMark(diu), chartType).toBe(CHART_PALETTE_COLORS.muted?.[0]);
+      expect(mauMark(sang), chartType).not.toBe(mauMark(diu));
+    }
+  });
+
+  it('NHIỀU chuỗi thì màu do thang quyết định — mark không được mang màu cứng', () => {
+    // Một màu cứng ở mark sẽ ĐÈ lên thang màu và mọi chuỗi tô cùng một màu.
+    const spec = buildChartSpec({
+      chartType: 'bar',
+      data: WITH_SERIES,
+      options: { palette: 'muted' },
+    }) as { encoding: { color: { scale: { range?: string[] } } } };
+
+    expect(mauMark(spec)).toBeUndefined();
+    expect(spec.encoding.color.scale.range).toEqual(CHART_PALETTE_COLORS.muted);
+  });
+
+  it('bảng màu CŨ chỉ có tên scheme thì mark lấy màu đầu của bảng mặc định', () => {
+    // `tableau10` là một cái tên chỉ Vega tra được — không có dãy hex nào để lấy
+    // màu đầu. Rơi về mặc định chứ không vẽ ra một mark không màu.
+    const spec = buildChartSpec({
+      chartType: 'bar',
+      data: fakeData(),
+      options: { palette: 'tableau10' },
+    });
+
+    expect(mauMark(spec)).toBe(CHART_PALETTE_COLORS[DEFAULT_CHART_PALETTE]?.[0]);
+  });
+
+  it('bản đồ nhiệt: thang MỘT sắc độ, từ nhạt tới màu đầu của bảng', () => {
+    // Màu ở đây mã hoá ĐỘ LỚN, nên thang phải đi một hướng. Hai đầu chứ không
+    // phải tám màu: một thang phân loại thì không đọc ra được cái nào lớn hơn.
+    const spec = buildChartSpec({
+      chartType: 'heatmap',
+      data: WITH_SERIES,
+      options: { palette: 'muted' },
+    }) as {
+      layer: { encoding: { color: { scale: { range: string[]; interpolate: string } } } }[];
+    };
+
+    const scale = spec.layer[0]?.encoding.color.scale;
+    expect(scale?.range).toHaveLength(2);
+    expect(scale?.range[1]).toBe(CHART_PALETTE_COLORS.muted?.[0]);
+    expect(scale?.interpolate).toBe('lab');
+  });
+
   /* ─── Biểu đồ vừa KHUNG, không vừa dữ liệu — §10.13 ───────────────────────
    *
    * Ô trên khung cao theo LƯỚI; spec thì trước đây cao theo DỮ LIỆU. Chỗ nào

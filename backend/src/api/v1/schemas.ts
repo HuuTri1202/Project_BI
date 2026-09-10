@@ -15,7 +15,6 @@ import {
   DATASET_NAME_MAX,
   DATASET_SOURCES,
   DATASET_STATUSES,
-  GROUP_OVERFLOWS,
   GROUP_PICKS,
   LOAD_STATUSES,
   MAX_GROUP_PAGE,
@@ -194,8 +193,9 @@ export const reportConfigSchema = z.object({
   dimension: z.string().trim().min(1, 'Hãy chọn cột để nhóm'),
   measure: z.string().trim().min(1).nullable().default(null),
   aggregate: z.enum(AGGREGATES).default('count'),
-  // Trần 100: quá số này thì biểu đồ thành một hàng rào không đọc được, và phần
-  // vượt đã được gộp vào "Khác" nên không mất thông tin tổng.
+  // Trần 100: quá số này thì biểu đồ thành một hàng rào không đọc được. Nhánh
+  // bộ dữ liệu gộp phần vượt vào "Khác" nên không mất thông tin tổng; nhánh mô
+  // hình chia trang (§10.15).
   limit: z.coerce.number().int().min(1).max(100).default(20),
 });
 
@@ -259,20 +259,17 @@ export const reportModelConfigSchema = z.object({
   measureId: z.coerce.number().int().positive(),
   limit: z.coerce.number().int().min(1).max(100).default(20),
   /**
-   * Vượt trần thì giữ nhóm lớn nhất hay nhỏ nhất — xem `GROUP_PICKS`.
+   * Đọc bảng xếp hạng từ đầu nào — xem `GROUP_PICKS`.
    *
    * Ở TRONG `config` chứ không trong `options`, vì nó đổi SỐ LIỆU: nó đổi câu
    * hỏi gửi xuống Cube. Nhầm sang `options` là nó không vào khoá cache và đổi
    * lựa chọn sẽ trả về đúng câu trả lời cũ.
+   *
+   * Trình dựng suy nó ra từ `options.sort` (§10.15) và vẫn gửi lên đây. Schema
+   * KHÔNG `.strict()`, nên một client cũ còn gửi kèm `overflow` chỉ bị bỏ qua
+   * chứ không nhận 400.
    */
   pick: z.enum(GROUP_PICKS).optional(),
-  /**
-   * Phần vượt trần gộp thành "Khác" hay chia trang — xem `GROUP_OVERFLOWS`.
-   *
-   * Cũng ở TRONG `config` và cũng vì nó đổi số liệu: nó bỏ hẳn một dòng khỏi
-   * kết quả và mở đường cho `offset`.
-   */
-  overflow: z.enum(GROUP_OVERFLOWS).optional(),
   /**
    * Chiều thứ hai — tách chuỗi (§10.9). Router kiểm nó có thật trong mô hình và
    * kiểm nó KHÁC chiều chính; zod chỉ lo hình dạng.

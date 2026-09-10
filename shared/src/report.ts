@@ -113,11 +113,15 @@ export const CHART_VALUE_LABELS: readonly ChartType[] = ['bar', 'hbar', 'heatmap
  * trông y hệt dòng thứ hai: cả hai bắt đầu bằng một ô vuông xanh dương, nên
  * người dùng đọc ra hai lựa chọn giống nhau và không biết chọn cái nào.
  *
- * Nó giống nhau vì nó THẬT SỰ không làm gì cả. Biểu đồ một chuỗi tô bằng màu
- * thương hiệu bất kể bảng màu nào đang chọn (xem `mark.color` trong
- * `chartSpec`), còn biểu đồ nhiều chuỗi thì `brand` rơi về đúng bảng mặc
- * định. Một lựa chọn không đổi được một pixel nào là một lựa chọn nên biến mất,
- * không phải một lựa chọn nên giải thích thêm.
+ * Nó giống nhau vì nó THẬT SỰ không làm gì cả. Biểu đồ một chuỗi hồi đó tô
+ * bằng màu thương hiệu bất kể bảng màu nào đang chọn, còn biểu đồ nhiều chuỗi
+ * thì `brand` rơi về đúng bảng mặc định. Một lựa chọn không đổi được một pixel
+ * nào là một lựa chọn nên biến mất, không phải một lựa chọn nên giải thích thêm.
+ *
+ * ⚠️ Vế đầu của câu đó đã HẾT đúng từ §10.15: biểu đồ một chuỗi giờ tô bằng
+ * MÀU ĐẦU TIÊN của bảng đang chọn, nên bảng màu có tác dụng trên mọi loại biểu
+ * đồ. `brand` vẫn ở lại nhóm cũ vì nó không có dãy hex nào để lấy màu đầu —
+ * `normalizePalette` đưa nó về bảng mặc định trước khi tới đó.
  *
  * Nên `brand` xuống `CHART_PALETTES_LEGACY`: báo cáo đã lưu vẫn nhận nó, vẫn
  * vẽ ra y hệt, chỉ không được mời chọn nữa. Xem `normalizePalette`.
@@ -245,6 +249,10 @@ export function normalizePalette(palette: ChartPalette | undefined): ChartPalett
  * dễ bị đem so nhất, nên chúng được xếp để cách nhau xa nhất. Đổi thứ tự cũng
  * là đổi bảng màu — CHẠY LẠI bộ kiểm, đừng ước lượng bằng mắt.
  *
+ * ⚠️ Màu ĐẦU TIÊN gánh thêm một việc từ §10.15: nó là màu của biểu đồ một
+ * chuỗi, và là đầu đậm của thang bản đồ nhiệt. Đổi nó là đổi màu của phần lớn
+ * biểu đồ trong hệ thống, không chỉ đổi chuỗi thứ nhất của biểu đồ nhiều chuỗi.
+ *
  * ⚠️ Bảng cũ có mặt ở đây thì phải giữ NGUYÊN dãy màu của nó (`teal`), hoặc
  * trỏ về đúng dãy nó vẫn vẽ (`powerbi`). Sửa một mã là lặng lẽ vẽ lại báo cáo
  * người khác đã lưu.
@@ -277,11 +285,14 @@ export const CHART_PALETTE_COLORS: Partial<Record<ChartPalette, readonly string[
  * `'value'` — thứ tự backend đã trả về — nên cấu hình cũ không có trường này
  * vẫn vẽ ra đúng biểu đồ cũ.
  *
- * ⚠️ Sắp xếp chỉ đụng những nhóm ĐANG HIỆN. Trần nhóm ("Số nhóm tối đa") vẫn
- * cắt theo giá trị LỚN NHẤT ở phía backend, nên `'value-asc'` cho ra "N nhóm
- * lớn nhất, xếp ngược" chứ không phải "N nhóm nhỏ nhất" — muốn nhóm nhỏ nhất
- * thì phải đổi truy vấn, không phải đổi cách sắp. Trình dựng nói câu đó ngay
- * dưới ô chọn thay vì để người dùng tự suy ra từ một biểu đồ trông hợp lý.
+ * ⚠️ `'value-asc'` ĐỔI CẢ TRUY VẤN từ §10.15, không chỉ đổi cách sắp: nó suy ra
+ * `config.pick = 'bottom'`, tức xin Cube đúng các nhóm NHỎ NHẤT. Trước đó nó chỉ
+ * xếp ngược một tập đã cắt theo giá trị lớn nhất, nên nhãn "nhỏ → lớn" nói một
+ * đằng còn dữ liệu là một nẻo — xem `GROUP_PICKS`.
+ *
+ * Hai cách sắp theo TÊN không đụng tới truy vấn: chúng vẫn nhận các nhóm lớn
+ * nhất rồi xếp theo bảng chữ cái. "Hai mươi nhóm theo thứ tự A→Z" là một câu
+ * hỏi khác hẳn, và nó cần Cube sắp theo chiều chứ không theo thước đo.
  */
 export const CHART_SORTS = ['value', 'value-asc', 'label', 'label-desc'] as const;
 export type ChartSort = (typeof CHART_SORTS)[number];
@@ -323,67 +334,51 @@ export interface ReportConfigDto {
 }
 
 /**
- * Khi dữ liệu nhiều hơn trần nhóm thì GIỮ LẠI nhóm nào.
+ * Bảng xếp hạng nhóm được đọc từ ĐẦU nào — lớn nhất xuống, hay nhỏ nhất lên.
  *
- * ─── Vì sao cần một ô chọn cho việc này ─────────────────────────────────────
+ * ─── Từ §10.15 nó KHÔNG còn là một ô chọn riêng ─────────────────────────────
  *
- * Trần nhóm luôn tồn tại: một chiều có ba nghìn giá trị mà vẽ hết thì không đọc
- * được gì. Nhưng trước bản này màn hình chỉ nói "Số nhóm tối đa: 20" và không
- * nói MỘT CHỮ nào về việc 20 nhóm đó được chọn ra sao — người dùng đọc nó thành
- * "hai mươi nhóm ngẫu nhiên nào đó".
+ * Bảng cấu hình từng có hai ô cạnh nhau nói về cùng một chuyện: "Giữ lại nhóm
+ * nào" (lớn nhất / nhỏ nhất) và "Sắp xếp trục" (giá trị lớn → nhỏ / nhỏ →
+ * lớn). Hai ô, bốn tổ hợp, và cái bẫy nằm ở chỗ ba trong bốn tổ hợp đọc lên
+ * nghe giống nhau: chọn "nhỏ → lớn" ở ô thứ hai thì người dùng tưởng mình đang
+ * xem các nhóm nhỏ nhất, trong khi thứ hiện ra vẫn là hai mươi nhóm LỚN nhất
+ * xếp ngược. Giao diện phải in ra một dòng chú thích để đính chính chính nó.
  *
- * Nó chưa bao giờ ngẫu nhiên: backend sắp giảm dần theo thước đo rồi cắt. Nhưng
- * một luật không nói ra thì cũng như không có, và "20 nhóm lớn nhất" với "20
- * nhóm nhỏ nhất" là hai câu hỏi khác nhau mà người dùng đều có quyền hỏi.
+ * Nên `pick` giờ được SUY RA từ `options.sort`: "nhỏ → lớn" hỏi Cube các nhóm
+ * nhỏ nhất, mọi cách sắp khác giữ các nhóm lớn nhất. Một ô chọn, và nó làm
+ * đúng thứ nhãn của nó hứa.
  *
- * ⚠️ Đây là trường ĐỔI SỐ LIỆU, nên nó nằm trong `ReportModelConfigDto` chứ
- * không phải `ReportChartOptionsDto`. Nhầm chỗ là nó không vào khoá cache, và
- * đổi từ "lớn nhất" sang "nhỏ nhất" sẽ trả về đúng câu trả lời cũ.
+ * ⚠️ Trường vẫn ở lại `ReportModelConfigDto` chứ KHÔNG chuyển sang
+ * `ReportChartOptionsDto`, dù thứ suy ra nó nằm bên kia. Nó đổi câu hỏi gửi
+ * xuống Cube, nên nó phải nằm trong khoá cache — và backend phải đọc được nó
+ * mà không phải đọc khối `options`, để ranh giới "options không đổi số" còn
+ * nguyên. Phép suy ra nằm ở `pickOf` trong trình dựng, đúng chỗ dựng khoá.
  */
 export const GROUP_PICKS = ['top', 'bottom'] as const;
 export type GroupPick = (typeof GROUP_PICKS)[number];
 
-export const GROUP_PICK_LABELS: Record<GroupPick, string> = {
-  top: 'Nhóm lớn nhất',
-  bottom: 'Nhóm nhỏ nhất',
-};
-
-/**
- * Phần VƯỢT QUÁ trần nhóm đi đâu — §10.12.
+/* ─── §10.15 Phần vượt trần LUÔN chia trang ──────────────────────────────────
  *
- * ─── Hai câu trả lời, và chúng loại trừ nhau ────────────────────────────────
+ * Từ §10.12 tới §10.14 ở đây có một ô chọn `overflow`: gộp phần vượt thành cột
+ * "Khác", hay chia trang. §10.15 bỏ ô đó và giữ lại vế thứ hai.
  *
- *   `'other'`  gộp tất cả phần còn lại thành MỘT cột "Khác". Người đọc thấy
- *              được phần bị cắt LỚN CỠ NÀO, nhưng không bao giờ thấy bên trong
- *              nó có những nhóm gì. Đây là hành vi từ §10.8, nên nó là mặc định
- *              và mọi báo cáo đã lưu giữ nguyên từng con số.
+ *   "Bỏ cột khi còn nhóm chưa hiện và giữ lại nhóm nào đi vì mặc định sẽ tạo
+ *    ra nhiều biểu đồ báo cáo và người dùng sẽ bấm sang trang từ từ để xem nó"
  *
- *   `'pages'`  chia dữ liệu thành TRANG, mỗi trang `limit` nhóm, và biểu đồ
- *              mọc ra hai nút ‹ › ở góc dưới. Không nhóm nào bị giấu — chúng
- *              chỉ nằm ở trang khác.
+ * Cột "Khác" trả lời được đúng một câu — "phần còn lại lớn cỡ nào" — và không
+ * bao giờ trả lời được câu người ta hỏi tiếp: "trong đó có gì". Trên một chiều
+ * 1800 giá trị nó còn nuốt cả biểu đồ: một cái cột 48 triệu đứng cạnh hai mươi
+ * cái cột li ti, và hình dạng của dữ liệu thật biến mất sau nó.
  *
- * Không gộp được hai thứ này. Một cột "Khác" trên trang 2 sẽ có nghĩa là "phần
- * còn lại BÊN DƯỚI trang này", tức không tính những nhóm ở trang 1 — một cái
- * cột trông y hệt cột "Khác" của trang 1 mà mang một con số khác hẳn. Nên chọn
- * chia trang là bỏ hẳn cột "Khác", ở mọi trang kể cả trang đầu.
+ * Chia trang trả lời được cả hai, nên nó ở lại một mình. Bỏ HẲN ô chọn thay vì
+ * đổi mặc định: hai lựa chọn loại trừ nhau mà một trong hai luôn tốt hơn thì
+ * cái ô ấy chỉ đang bắt người dùng học một khái niệm để rồi chọn đúng cái
+ * mặc định.
  *
- * ⚠️ Đây là trường ĐỔI SỐ LIỆU (nó đổi `offset` và bỏ một dòng khỏi kết quả),
- * nên nó nằm trong `ReportModelConfigDto` chứ không phải `ReportChartOptionsDto`.
+ * Nhánh bộ dữ liệu (`aggregateWarehouse`) KHÔNG đổi: nó không có `offset`, không
+ * có trình dựng, và không còn báo cáo mới nào đi qua đó.
  */
-export const GROUP_OVERFLOWS = ['other', 'pages'] as const;
-export type GroupOverflow = (typeof GROUP_OVERFLOWS)[number];
-
-/**
- * ⚠️ `'other'` là "gộp NẾU gộp được", không phải "luôn gộp" — §10.14.
- *
- * Cột "Khác" chỉ dựng được khi phép tính cộng được. Gặp trung bình hay tỉ lệ
- * thì lựa chọn này tự rơi về chia trang, vì lựa chọn còn lại là bỏ hẳn dữ liệu.
- * Nhãn nói ra điều kiện đó thay vì hứa một cột không phải lúc nào cũng có.
- */
-export const GROUP_OVERFLOW_LABELS: Record<GroupOverflow, string> = {
-  other: 'Gộp thành cột “Khác” nếu cộng được',
-  pages: 'Luôn chia trang — bấm ‹ › để xem hết',
-};
 
 /**
  * Trần số trang.
@@ -418,32 +413,29 @@ export const REPORT_SOURCE_LABELS: Record<ReportSource, string> = {
 export interface ReportModelConfigDto {
   dimensionId: number;
   measureId: number;
-  /** Số nhóm tối đa hiện trên biểu đồ; phần còn lại gộp thành "Khác". */
+  /**
+   * Số nhóm MỖI TRANG — §10.15.
+   *
+   * Tới §10.14 nó là "số nhóm tối đa", và phần vượt bị gộp lại hoặc bỏ đi. Giờ
+   * phần vượt nằm ở trang sau, nên con số này chỉ còn nói ĐỘ DÀY của một trang.
+   *
+   * ⚠️ Trang ĐANG XEM cố ý KHÔNG được lưu ở đây. Nó là chỗ người đọc đang đứng
+   * trong một lượt xem, không phải một thuộc tính của báo cáo — lưu nó nghĩa là
+   * mở báo cáo lần sau sẽ rơi vào trang 7 mà không hiểu vì sao. Xem tham số
+   * `page` của `aggregateFromModel`.
+   */
   limit: number;
   /**
-   * Vượt trần thì giữ nhóm LỚN NHẤT hay NHỎ NHẤT — xem `GROUP_PICKS`.
+   * Đọc bảng xếp hạng từ đầu nào — xem `GROUP_PICKS`.
    *
    * Vắng mặt = `'top'`, đúng hành vi từ §10.8, nên báo cáo đã lưu không đổi
    * một con số nào.
    *
-   * Chỉ chọn xem những nhóm NÀO được lấy. Thứ tự chúng nằm trên trục là việc
-   * của `options.sort`, và backend luôn trả về giảm dần bất kể `pick` — hai
-   * việc đó tách hẳn nhau, nếu không thì đổi `pick` sẽ lặng lẽ làm sai nhãn
-   * "lớn → nhỏ" của ô sắp xếp.
+   * Từ §10.15 trình dựng SUY RA trường này từ `options.sort` thay vì hỏi bằng
+   * một ô chọn thứ hai — nhưng nó vẫn được LƯU ra đây, vì backend chỉ đọc
+   * `config` và không bao giờ đọc `options`.
    */
   pick?: GroupPick | undefined;
-  /**
-   * Phần vượt trần đi đâu: gộp thành "Khác", hay chia trang — xem `GROUP_OVERFLOWS`.
-   *
-   * Vắng mặt = `'other'`, đúng hành vi từ §10.8, nên báo cáo đã lưu không đổi
-   * một con số nào.
-   *
-   * ⚠️ Trang ĐANG XEM không nằm ở đây và cố ý không được lưu. Nó là chỗ người
-   * đọc đang đứng trong một lượt xem, không phải một thuộc tính của báo cáo —
-   * lưu nó nghĩa là mở báo cáo ra lần sau sẽ rơi vào trang 7 mà không hiểu vì
-   * sao. Xem tham số `page` của `aggregateFromModel`.
-   */
-  overflow?: GroupOverflow | undefined;
   /**
    * Chiều THỨ HAI — tách biểu đồ thành nhiều chuỗi, mỗi chuỗi một màu (§10.9).
    *
@@ -452,8 +444,8 @@ export interface ReportModelConfigDto {
    * liệu — đó là lý do nó là trường TUỲ CHỌN chứ không phải một `config` phiên
    * bản 2.
    *
-   * ⚠️ Có chiều thứ hai thì KHÔNG còn dòng "Khác": phần bị cắt không chia được
-   * cho từng chuỗi mà không bịa ra số. Xem `aggregateFromModel`.
+   * ⚠️ Chiều thứ hai có trần RIÊNG (12 chuỗi) và trần đó KHÔNG chia trang: hai
+   * cái nút ‹ › lật nhóm, không lật màu. Xem `aggregateWithSeries`.
    */
   seriesDimensionId?: number | null | undefined;
   /**
@@ -487,12 +479,12 @@ export interface ReportChartOptionsDto {
    * Thứ tự các nhóm trên trục — xem `CHART_SORTS`.
    *
    * `'value'` (mặc định) giữ NGUYÊN thứ tự backend trả về, tức giảm dần theo
-   * thước đo, và nhờ vậy dòng "Khác" nằm cuối như nó phải thế.
+   * thước đo.
    *
-   * ⚠️ Ba lựa chọn còn lại SẮP LẠI cả dòng "Khác" theo đúng luật của chúng —
-   * "Khác" là một nhãn như mọi nhãn khác trong mắt Vega. Đó là hành vi của
-   * `'label'` từ đầu và của mọi công cụ BI, nên `'value-asc'` cũng theo, chứ
-   * không phải một ngoại lệ mới.
+   * ⚠️ Đây là trường DUY NHẤT trong khối này đụng tới số liệu, và nó đụng gián
+   * tiếp: `'value-asc'` suy ra `config.pick = 'bottom'` (§10.15). Ranh giới vẫn
+   * nguyên — backend chỉ đọc `config.pick` — nhưng ai đổi phép suy ra ở
+   * `pickOf` thì phải nhớ nó cũng là một khoá cache.
    */
   sort?: ChartSort | undefined;
   palette?: ChartPalette | undefined;
@@ -777,13 +769,16 @@ export interface ReportDataDto {
   /**
    * Có nhóm nào bị cắt khỏi biểu đồ không — để trang xem NÓI RA điều đó.
    *
-   * Luôn `false` khi `paging` có mặt và chỉ có một chiều: chia trang thì không
-   * nhóm nào bị cắt, chúng chỉ nằm ở trang khác, và câu "chỉ hiện các nhóm lớn
-   * nhất" ở đó là nói sai.
+   * Từ §10.15 nhánh mô hình một chiều luôn `false`: chia trang thì không nhóm
+   * nào bị cắt, chúng chỉ nằm ở trang khác, và câu "chỉ hiện các nhóm lớn nhất"
+   * ở đó là nói sai. Còn `true` ở hai chỗ — trần CHUỖI của biểu đồ hai chiều,
+   * và nhánh bộ dữ liệu vốn không chia trang.
    */
   grouped: boolean;
   /**
-   * Trang đang xem — chỉ có mặt khi cấu hình chọn `overflow: 'pages'` (§10.12).
+   * Trang đang xem — mọi biểu đồ dựng trên MÔ HÌNH đều có, từ §10.15.
+   *
+   * Vắng mặt ở nhánh bộ dữ liệu, nơi không có `offset` nào để đi tiếp.
    *
    * `hasMore` đến từ mẹo hỏi thừa MỘT dòng, cùng mẹo đã dùng cho `grouped`, nên
    * nó KHÔNG tốn thêm một vòng nào tới Cube.

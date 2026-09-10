@@ -10,7 +10,6 @@ import {
   normalizePalette,
   PAGE_NAME_MAX,
   type ChartType,
-  type GroupOverflow,
   type GroupPick,
   type ReportCanvasDto,
   type ReportChartOptionsDto,
@@ -40,11 +39,17 @@ export interface VisualDraft {
   dimensionId: number | null;
   measureId: number | null;
   seriesId: number | null;
+  /** Số nhóm MỖI TRANG — xem `ReportModelConfigDto.limit`. */
   limit: number;
-  /** Vượt trần thì lấy nhóm lớn nhất hay nhỏ nhất — xem `GROUP_PICKS`. */
-  pick: GroupPick;
-  /** Phần vượt trần gộp thành "Khác" hay chia trang — xem `GROUP_OVERFLOWS`. */
-  overflow: GroupOverflow;
+  /*
+   * KHÔNG có `pick` và KHÔNG có `overflow` — §10.15.
+   *
+   * `overflow` biến mất khỏi cả hệ thống: mọi biểu đồ đều chia trang. `pick`
+   * thì vẫn đi vào cấu hình được lưu, nhưng nó được SUY RA từ `options.sort`
+   * chứ không được soạn riêng — xem `pickOf`. Giữ một bản sao ở đây nghĩa là
+   * hai chỗ cùng nói về thứ tự nhóm, và chúng sẽ lệch nhau ngay lần đầu ai đó
+   * sửa một chỗ mà quên chỗ kia.
+   */
   options: Required<ReportChartOptionsDto>;
   /** Rỗng = dùng câu tự sinh từ chiều và thước đo. Xem `titleOf`. */
   title: string;
@@ -70,6 +75,22 @@ export const DEFAULT_OPTIONS: Required<ReportChartOptionsDto> = {
 };
 
 export const LIMIT_CHOICES = [5, 10, 20, 50, 100] as const;
+
+/**
+ * Đọc bảng xếp hạng từ đầu nào — SUY RA từ ô "Sắp xếp", không hỏi riêng.
+ *
+ * Đây là toàn bộ phép suy ra của §10.15, và nó nằm ở đây — cạnh hai hàm dựng
+ * khoá cache — chứ không nằm trong `VisualPanel`. Bảng cấu hình chỉ được đọc
+ * khi màn hình đang mở; khoá cache thì được dựng cả ở trang xem, nơi không có
+ * bảng cấu hình nào.
+ *
+ * ⚠️ Ba hàm phải dùng CHUNG nó: `previewConfigOfDraft` (khoá cache của trình
+ * dựng), `toDto` (thứ được lưu), và qua đó cả `previewConfigOfDto` ở trang
+ * xem. Lệch một chỗ là xem trước một đằng, lưu xong một nẻo.
+ */
+export function pickOf(draft: VisualDraft): GroupPick {
+  return draft.options.sort === 'value-asc' ? 'bottom' : 'top';
+}
 
 /**
  * Mã ô — phải sống sót qua một lần lưu rồi mở lại.
@@ -122,8 +143,6 @@ export function emptyVisual(at: { x: number; y: number }): VisualDraft {
     measureId: null,
     seriesId: null,
     limit: 20,
-    pick: 'top',
-    overflow: 'other',
     options: { ...DEFAULT_OPTIONS },
     title: '',
     x: at.x,
@@ -141,8 +160,6 @@ export function fromDto(visual: ReportVisualDto): VisualDraft {
     measureId: visual.config.measureId,
     seriesId: visual.config.seriesDimensionId ?? null,
     limit: visual.config.limit,
-    pick: visual.config.pick ?? 'top',
-    overflow: visual.config.overflow ?? 'other',
     /*
      * `normalizePalette` SAU phép trải, không phải trước.
      *
@@ -155,6 +172,21 @@ export function fromDto(visual: ReportVisualDto): VisualDraft {
       ...DEFAULT_OPTIONS,
       ...visual.config.options,
       palette: normalizePalette(visual.config.options?.palette),
+      /*
+       * Báo cáo lưu trước §10.15 mang `pick` riêng — đọc nó ra thành ô "Sắp
+       * xếp", vì ô kia không còn tồn tại.
+       *
+       * Không làm bước này thì mở một báo cáo "20 nhóm NHỎ NHẤT" ra rồi bấm Lưu
+       * là nó lặng lẽ thành "20 nhóm lớn nhất": `pickOf` suy từ `sort`, mà `sort`
+       * của bản ghi đó là `'value'`.
+       *
+       * ⚠️ Tổ hợp hiếm `pick: 'bottom'` + sắp theo TÊN mất phần sắp theo tên: giữ
+       * đúng NHỮNG NHÓM NÀO quan trọng hơn giữ thứ tự chúng đứng trên trục.
+       */
+      sort:
+        visual.config.pick === 'bottom'
+          ? 'value-asc'
+          : (visual.config.options?.sort ?? DEFAULT_OPTIONS.sort),
     },
     title: visual.title ?? '',
     x: visual.x,
@@ -187,15 +219,11 @@ export interface PreviewConfig {
    * `pick` đổi câu hỏi gửi xuống Cube, nên nó phải nằm trong khoá cache. Bỏ
    * quên thì đổi từ "lớn nhất" sang "nhỏ nhất" là một lần trúng cache và biểu
    * đồ đứng yên — không lỗi, không request, chỉ là một ô chọn không làm gì.
+   *
+   * Nó là trường DUY NHẤT ở đây được suy ra từ `options` (§10.15), và đó chính
+   * là lý do phép suy ra phải nằm ở `pickOf` chứ không nằm trong giao diện.
    */
   pick: GroupPick;
-  /**
-   * Cũng PHẢI có mặt, và cùng lý do với `pick`.
-   *
-   * Chia trang bỏ hẳn dòng "Khác" khỏi kết quả, nên nó đổi câu trả lời chứ
-   * không chỉ đổi cách vẽ.
-   */
-  overflow: GroupOverflow;
   seriesDimensionId: number | null;
 }
 
@@ -206,8 +234,7 @@ export function previewConfigOfDraft(draft: VisualDraft): PreviewConfig | null {
     dimensionId: draft.dimensionId,
     measureId: draft.measureId,
     limit: draft.limit,
-    pick: draft.pick,
-    overflow: draft.overflow,
+    pick: pickOf(draft),
     seriesDimensionId: seriesUsed(draft),
   };
 }
@@ -224,7 +251,6 @@ export function previewConfigOfDto(config: ReportModelConfigDto): PreviewConfig 
     measureId: config.measureId,
     limit: config.limit,
     pick: config.pick ?? 'top',
-    overflow: config.overflow ?? 'other',
     seriesDimensionId: config.seriesDimensionId ?? null,
   };
 }
@@ -247,8 +273,7 @@ export function toDto(draft: VisualDraft): ReportVisualDto | null {
       dimensionId: draft.dimensionId,
       measureId: draft.measureId,
       limit: draft.limit,
-      pick: draft.pick,
-      overflow: draft.overflow,
+      pick: pickOf(draft),
       seriesDimensionId: seriesUsed(draft),
       options: draft.options,
     },

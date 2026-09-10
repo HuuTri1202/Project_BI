@@ -12,6 +12,8 @@ import {
   hasAnyVisual,
   hasUnsavedWork,
   nextPageName,
+  pickOf,
+  previewConfigOfDraft,
   readyPages,
   readyVisuals,
   seriesUsed,
@@ -223,6 +225,82 @@ describe('toDto', () => {
       w: 5,
       h: 9,
     });
+  });
+});
+
+/* ═══ §10.15 Một ô chọn thay cho ba ═══════════════════════════════════════
+ *
+ * Bảng cấu hình bỏ hai ô: "Khi còn nhóm chưa hiện" (`overflow`) và "Giữ lại nhóm
+ * nào" (`pick`). Cái đầu biến mất khỏi cả hệ thống — mọi biểu đồ đều chia trang.
+ * Cái thứ hai vẫn được LƯU, nhưng suy ra từ ô "Sắp xếp".
+ *
+ * Nguy hiểm của phép suy ra nằm ở chỗ nó phải xảy ra ở HAI nơi cùng lúc: khoá
+ * cache (`previewConfigOfDraft`) và thứ được lưu (`toDto`). Lệch nhau là xem
+ * trước một đằng, lưu xong một nẻo — mà cả hai đều không đỏ ở đâu cả.
+ */
+describe('pickOf — "nhỏ → lớn" hỏi đúng các nhóm nhỏ nhất', () => {
+  it('chỉ `value-asc` đọc bảng xếp hạng từ dưới lên', () => {
+    const voi = (sort: VisualDraft['options']['sort']): VisualDraft =>
+      draft({ options: { ...draft().options, sort } });
+
+    expect(pickOf(voi('value'))).toBe('top');
+    expect(pickOf(voi('value-asc'))).toBe('bottom');
+    // Sắp theo TÊN không nói gì về việc lấy nhóm nào: nó vẫn là các nhóm lớn
+    // nhất, chỉ xếp theo bảng chữ cái. "Trang 2 theo bảng chữ cái" là một câu
+    // hỏi khác, và nó cần Cube sắp theo chiều chứ không theo thước đo.
+    expect(pickOf(voi('label'))).toBe('top');
+    expect(pickOf(voi('label-desc'))).toBe('top');
+  });
+
+  it('khoá cache và thứ được LƯU suy ra giống hệt nhau', () => {
+    const nhoNhat = draft({ options: { ...draft().options, sort: 'value-asc' } });
+
+    expect(previewConfigOfDraft(nhoNhat)?.pick).toBe('bottom');
+    expect(toDto(nhoNhat)?.config.pick).toBe('bottom');
+  });
+
+  it('cấu hình được lưu KHÔNG còn mang `overflow`', () => {
+    // Trường đã bị xoá khỏi hợp đồng. Còn sót lại một bản sao ở client nghĩa là
+    // người sau đọc nó và tưởng nó có tác dụng.
+    const config = toDto(draft())?.config as object;
+    expect('overflow' in config).toBe(false);
+  });
+
+  it('báo cáo CŨ "nhóm nhỏ nhất" mở ra vẫn là nhóm nhỏ nhất', () => {
+    /*
+     * Bản ghi trước §10.15 mang `pick: 'bottom'` mà `sort` vẫn là mặc định. Không
+     * đọc nó ra thành ô "Sắp xếp" thì mở báo cáo rồi bấm Lưu là nó lặng lẽ đổi
+     * thành "20 nhóm lớn nhất" — người dùng không đụng vào ô nào cả.
+     */
+    const cu: ReportVisualDto = {
+      id: 'cu',
+      chartType: 'bar',
+      config: { dimensionId: D1, measureId: M, limit: 20, pick: 'bottom' },
+      x: 0,
+      y: 0,
+      w: 6,
+      h: 7,
+    };
+
+    const nap = fromDto(cu);
+    expect(nap.options.sort).toBe('value-asc');
+    expect(toDto(nap)?.config.pick).toBe('bottom');
+  });
+
+  it('báo cáo CŨ "nhóm lớn nhất" giữ nguyên cách sắp của nó', () => {
+    const cu: ReportVisualDto = {
+      id: 'cu2',
+      chartType: 'bar',
+      config: { dimensionId: D1, measureId: M, limit: 20, pick: 'top', options: { sort: 'label' } },
+      x: 0,
+      y: 0,
+      w: 6,
+      h: 7,
+    };
+
+    const nap = fromDto(cu);
+    expect(nap.options.sort).toBe('label');
+    expect(toDto(nap)?.config.pick).toBe('top');
   });
 });
 

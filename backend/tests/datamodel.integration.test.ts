@@ -1290,11 +1290,12 @@ describe('§10.10 khung nhiều biểu đồ', () => {
   });
 });
 
-/* ═══ §10.12 chia trang nhóm ═══════════════════════════════════════════════
+/* ═══ §10.12 chia trang nhóm, §10.15 bỏ ô chọn ════════════════════════════
  *
- * `overflow` là trường thứ ba đi vào `config` mà ĐỔI SỐ LIỆU (sau `limit` và
- * `pick`), nên nó cần đúng bộ ca mà hai trường kia đã cần: đi trọn vòng lưu rồi
- * đọc lại, vắng mặt thì rơi về hành vi cũ, và giá trị lạ bị từ chối ở cửa.
+ * §10.12 thêm `overflow` vào `config`: gộp phần vượt thành cột "Khác", hay chia
+ * trang. §10.15 bỏ hẳn trường đó — mọi biểu đồ dựng trên mô hình đều chia
+ * trang — nên bộ ca ở đây đổi theo, và ca quan trọng nhất là ca CŨ: một client
+ * chưa cập nhật vẫn gửi `overflow` lên, và nó không được phép làm hỏng lần lưu.
  */
 describe('§10.12 chia trang nhóm', () => {
   /** Cùng bộ đồ nghề với §10.10 — mô hình rỗng chưa có thước đo nào. */
@@ -1315,34 +1316,32 @@ describe('§10.12 chia trang nhóm', () => {
       .send({ datamodelId: f.modelA, name: 'Chia trang', chartType: 'bar', config });
   }
 
-  it('`overflow` đi trọn vòng lưu rồi đọc lại', async () => {
+  it('`overflow` của client CŨ được nhận rồi bỏ qua, không 400 — §10.15', async () => {
+    /*
+     * Một tab đang mở từ trước bản này vẫn gửi `overflow` kèm mỗi lần lưu. Nếu
+     * `reportModelConfigSchema` là `.strict()` thì người dùng ấy bấm Lưu và nhận
+     * 400 mà không hiểu vì sao — một lỗi chỉ hiện ra sau khi deploy, và chỉ với
+     * người chưa tải lại trang.
+     *
+     * Trường bị BỎ HẲN chứ không lưu im lặng: giữ lại một trường không ai đọc
+     * nữa là hẹn cho người sau đọc nó và tưởng nó có tác dụng.
+     */
     const { dimensionId, measureId } = await fields();
 
     const res = await taoBaoCao({ dimensionId, measureId, limit: 5, overflow: 'pages' });
     expect(res.status).toBe(201);
-    expect(res.body.modelConfig.overflow).toBe('pages');
-  });
+    expect(res.body.modelConfig.overflow).toBeUndefined();
 
-  it('vắng mặt thì rơi về "Khác" — mọi báo cáo cũ giữ nguyên từng con số', async () => {
-    const { dimensionId, measureId } = await fields();
-
-    const res = await taoBaoCao({ dimensionId, measureId, limit: 5 });
-    expect(res.status).toBe(201);
-    expect(res.body.modelConfig.overflow).toBe('other');
-  });
-
-  it('giá trị lạ bị TỪ CHỐI ở cửa, không lưu im lặng', async () => {
-    const { dimensionId, measureId } = await fields();
-
-    const res = await taoBaoCao({ dimensionId, measureId, limit: 5, overflow: 'cuon' });
-    expect(res.status).toBe(400);
+    const la = await taoBaoCao({ dimensionId, measureId, limit: 5, overflow: 'cuon' });
+    expect(la.status).toBe(201);
+    expect(la.body.modelConfig.overflow).toBeUndefined();
   });
 
   it('`?page=` chỉ nhận số không âm và có TRẦN', async () => {
     // `offset` đi thẳng vào truy vấn Cube; một `?page=99999999` là một lượt quét
     // bỏ qua mười tỉ dòng.
     const { dimensionId, measureId } = await fields();
-    const created = await taoBaoCao({ dimensionId, measureId, limit: 5, overflow: 'pages' });
+    const created = await taoBaoCao({ dimensionId, measureId, limit: 5 });
 
     const am = await request(app)
       .get(`/api/v1/reports/${created.body.id}/data?page=-1`)
@@ -1381,7 +1380,7 @@ describe('§10.12 chia trang nhóm', () => {
                 {
                   id: 'co-that',
                   chartType: 'bar',
-                  config: { dimensionId, measureId, limit: 5, overflow: 'pages' },
+                  config: { dimensionId, measureId, limit: 5 },
                   x: 0,
                   y: 0,
                   w: 6,
