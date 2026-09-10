@@ -373,9 +373,16 @@ export const GROUP_PICK_LABELS: Record<GroupPick, string> = {
 export const GROUP_OVERFLOWS = ['other', 'pages'] as const;
 export type GroupOverflow = (typeof GROUP_OVERFLOWS)[number];
 
+/**
+ * ⚠️ `'other'` là "gộp NẾU gộp được", không phải "luôn gộp" — §10.14.
+ *
+ * Cột "Khác" chỉ dựng được khi phép tính cộng được. Gặp trung bình hay tỉ lệ
+ * thì lựa chọn này tự rơi về chia trang, vì lựa chọn còn lại là bỏ hẳn dữ liệu.
+ * Nhãn nói ra điều kiện đó thay vì hứa một cột không phải lúc nào cũng có.
+ */
 export const GROUP_OVERFLOW_LABELS: Record<GroupOverflow, string> = {
-  other: 'Gộp thành một cột “Khác”',
-  pages: 'Chia trang — bấm ‹ › để xem hết',
+  other: 'Gộp thành cột “Khác” nếu cộng được',
+  pages: 'Luôn chia trang — bấm ‹ › để xem hết',
 };
 
 /**

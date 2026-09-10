@@ -188,7 +188,7 @@ export function VisualPanel({
           hint={
             paged
               ? 'Không nhóm nào bị giấu — vì vậy cũng không còn cột “Khác”, kể cả ở trang đầu.'
-              : 'Một cột duy nhất cho tất cả phần còn lại. Chỉ gộp được khi phép tính cộng được — tỉ lệ và trung bình thì phần thừa bị bỏ hẳn.'
+              : 'Một cột duy nhất cho tất cả phần còn lại. Chỉ gộp được khi phép tính cộng được; tỉ lệ, trung bình hay biểu đồ có chiều thứ hai sẽ tự chia trang thay vì bỏ mất phần thừa.'
           }
         />
 

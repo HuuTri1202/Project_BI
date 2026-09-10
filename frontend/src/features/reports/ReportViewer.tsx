@@ -103,12 +103,20 @@ export function ReportViewer({ report }: { report: ReportDto }): React.ReactElem
    */
   const data = useReportData(canvas === null && chartType !== null ? report.id : null, groupPage);
 
-  // Một request cho cả TRANG ĐANG MỞ, không phải mỗi ô một request và cũng
-  // không phải cả báo cáo. Xem route `GET /reports/:id/canvas-data`.
-  const canvasData = useReportCanvasData(
-    canvas !== null ? report.id : null,
-    activePage?.id ?? null,
-  );
+  /**
+   * Một request cho cả TRANG ĐANG MỞ — xem route `GET /reports/:id/canvas-data`.
+   *
+   * Trang ĐẦU cố ý hỏi bằng `null` chứ không bằng mã trang thật, để trùng khoá
+   * với lời gọi sớm trong `ReportViewPage` (§10.14). Dùng mã thật ở đây thì hai
+   * bên khác khoá, và cái nổ sớm thành ra chỉ hâm nóng một ô cache không ai đọc
+   * — mất trắng phần thời gian vừa tiết kiệm được.
+   *
+   * Chuẩn hoá cả chiều ngược lại: bấm sang trang 2 rồi bấm về trang 1 cũng quy
+   * về `null`, nên không sinh thêm một lượt tính cho đúng thứ đã có sẵn.
+   */
+  const firstPageId = pages[0]?.id;
+  const pageKey = activePage !== undefined && activePage.id !== firstPageId ? activePage.id : null;
+  const canvasData = useReportCanvasData(canvas !== null ? report.id : null, pageKey);
 
   const datamodelId = report.datamodelId;
 

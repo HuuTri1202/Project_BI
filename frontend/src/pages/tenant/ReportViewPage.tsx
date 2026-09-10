@@ -4,7 +4,7 @@ import { usePermissions } from '../../auth/usePermissions';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import { ErrorState, TableSkeleton } from '../../components/ui/states';
-import { useReport } from '../../features/datasets/hooks';
+import { useReport, useReportCanvasData } from '../../features/datasets/hooks';
 import { ReportShell } from '../../features/reports/ReportShell';
 import { ReportViewer } from '../../features/reports/ReportViewer';
 import { getApiError } from '../../services/apiClient';
@@ -54,6 +54,33 @@ export default function ReportViewPage(): React.ReactElement {
   const id = toId(params['reportId']);
   const report = useReport(id);
   const loaded = report.data;
+
+  /**
+   * Số liệu của TRANG ĐẦU, hỏi NGAY — không chờ báo cáo nạp xong (§10.14).
+   *
+   * ═══ Vì sao lời gọi này nằm ở đây, không nằm trong `ReportViewer` ═══════════
+   *
+   * `ReportViewer` chỉ render SAU khi báo cáo về, nên mọi truy vấn bên trong nó
+   * bắt buộc xếp sau. Đo trên máy phát triển, một báo cáo 12 ô:
+   *
+   *     GET /reports/:id      xong ở 360ms
+   *     GET canvas-data       xong ở 1109ms   (chỉ bắt đầu lúc 360ms)
+   *     biểu đồ hiện ra       1289ms
+   *
+   * Hai request đó KHÔNG phụ thuộc nhau: endpoint số liệu chỉ cần `id`, thứ đã
+   * nằm sẵn trên thanh địa chỉ. Nổ cùng lúc thì phần chờ chỉ còn là cái dài hơn
+   * trong hai cái, chứ không phải tổng của chúng.
+   *
+   * `pageId = null` nghĩa là "trang đầu, trang nào cũng được" — backend tự rơi về
+   * `pages[0]` khi không nhận được mã trang. Nhờ vậy ta hỏi được TRƯỚC khi biết
+   * báo cáo có những trang nào.
+   *
+   * ⚠️ Báo cáo MỘT biểu đồ (§7.6) sẽ ăn 409 ở đây, và điều đó chấp nhận được:
+   * lỗi 4xx không được thử lại (xem `createQueryClient`), không ai đọc kết quả
+   * này, và nhánh một biểu đồ có truy vấn riêng của nó. Một request rẻ đổi lấy
+   * 360ms cho nhánh phổ biến hơn hẳn.
+   */
+  useReportCanvasData(id, null);
 
   const backToList = (): void => void navigate('/reports');
 

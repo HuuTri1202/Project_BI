@@ -1,8 +1,6 @@
 import { MAX_GROUP_PAGE, type ReportDataDto, type ReportModelConfigDto } from '@bi/shared';
 
-import { mysqlPool } from '../../config/mysql';
-import * as datamodelsRepo from '../../repositories/datamodels';
-import { runExplorerQuery } from './explorer';
+import { laCongDuoc, loadModelContext, runExplorerQuery, type ModelContext } from './explorer';
 
 /**
  * Số liệu cho một báo cáo dựng trên MÔ HÌNH — §10.8.
@@ -46,16 +44,56 @@ const MAX_GROUPS = 100;
 const SERIES_CAP = 12;
 
 /**
- * Trang đang xem, kẹp vào khoảng hợp lệ — và về 0 khi cấu hình không chia trang.
+ * Trang đang xem, kẹp vào khoảng hợp lệ — và về 0 khi biểu đồ không chia trang.
  *
  * Kẹp chứ không từ chối: số trang đến từ một cú bấm nút, và người dùng bấm quá
- * nhanh vào ‹ ở trang đầu không đáng nhận một màn hình lỗi. Về 0 khi
- * `overflow !== 'pages'` là thứ bảo đảm một `?page=3` gõ tay vào thanh địa chỉ
- * không lặng lẽ làm biến mất cột "Khác" của một báo cáo không hề chia trang.
+ * nhanh vào ‹ ở trang đầu không đáng nhận một màn hình lỗi. Về 0 khi không chia
+ * trang là thứ bảo đảm một `?page=3` gõ tay vào thanh địa chỉ không lặng lẽ làm
+ * biến mất cột "Khác" của một báo cáo không hề chia trang.
  */
-function pageOf(config: ReportModelConfigDto, page: number): number {
-  if (config.overflow !== 'pages') return 0;
+function pageOf(paged: boolean, page: number): number {
+  if (!paged) return 0;
   return Math.max(0, Math.min(MAX_GROUP_PAGE, Math.trunc(page)));
+}
+
+/**
+ * Phần vượt trần đi đâu — §10.14.
+ *
+ * ═══ Vì sao "Khác" KHÔNG còn là mặc định của mọi biểu đồ ════════════════════
+ *
+ * Cột "Khác" chỉ dựng được khi phép tính CỘNG ĐƯỢC. Trung bình của các trung
+ * bình không phải trung bình, và "Khác" của min/max thì vô nghĩa. Tới §10.13,
+ * cấu hình mặc định (`'other'`) gặp một thước đo không cộng được thì phần vượt
+ * trần bị BỎ HẲN khỏi biểu đồ, kèm một dòng chữ nói rằng nó đã bị bỏ.
+ *
+ * Đó là một ngõ cụt, và người dùng gặp đúng nó:
+ *
+ *     "với các biểu đồ dữ liệu quá lớn … sẽ có nút bấm qua bên để xem biểu đồ
+ *      trên cùng 1 dim vs measure đó"
+ *
+ * Hai cái nút ‹ › đã có từ §10.12, nhưng chúng nằm sau một ô chọn mà người dùng
+ * phải tự tìm ra. Nên luật đổi thành một câu:
+ *
+ *     cộng được   -> gộp phần vượt thành cột "Khác"
+ *     không cộng  -> CHIA TRANG, để mọi nhóm đều mở ra được
+ *
+ * Bỏ dữ liệu đi là lựa chọn tệ nhất trong ba lựa chọn, và nó không còn được
+ * chọn nữa. Trang 1 vẫn đúng những nhóm cũ — chỉ mọc thêm hai cái nút thay cho
+ * một dòng chữ báo mất mát.
+ *
+ * ⚠️ Hai chiều thì KHÔNG BAO GIỜ có "Khác" (xem `aggregateWithSeries`), nên nhánh
+ * đó luôn chia trang khi còn nhóm.
+ */
+export function overflowOf(
+  ctx: ModelContext,
+  config: ReportModelConfigDto,
+  hasSeries: boolean,
+): { paged: boolean; additive: boolean } {
+  if (config.overflow === 'pages') return { paged: true, additive: false };
+  if (hasSeries) return { paged: true, additive: false };
+
+  const additive = laCongDuoc(ctx, config.measureId);
+  return { paged: !additive, additive };
 }
 
 export async function aggregateFromModel(
@@ -63,16 +101,27 @@ export async function aggregateFromModel(
   userId: number,
   dataModelId: number,
   config: ReportModelConfigDto,
-  /** Trang nhóm đang xem — xem `pageOf`. Bỏ qua khi cấu hình không chia trang. */
+  /** Trang nhóm đang xem — xem `pageOf`. Bỏ qua khi biểu đồ không chia trang. */
   pageIn = 0,
+  /**
+   * Chỉ mục mô hình đã nạp sẵn — §10.14.
+   *
+   * Một khung 12 ô truyền CÙNG một ngữ cảnh cho cả 12 lần gọi. Vắng mặt thì hàm
+   * tự nạp, nên mọi đường gọi lẻ không phải đổi gì.
+   */
+  ctxIn?: ModelContext,
 ): Promise<ReportDataDto> {
+  const ctx = ctxIn ?? (await loadModelContext(tenantId, dataModelId));
   const limit = Math.min(MAX_GROUPS, Math.max(1, config.limit));
-  const paged = config.overflow === 'pages';
-  const page = pageOf(config, pageIn);
 
   const seriesId = config.seriesDimensionId ?? null;
-  if (seriesId !== null && seriesId !== config.dimensionId) {
-    return aggregateWithSeries(tenantId, userId, dataModelId, config, seriesId, limit, page);
+  const hasSeries = seriesId !== null && seriesId !== config.dimensionId;
+
+  const { paged, additive } = overflowOf(ctx, config, hasSeries);
+  const page = pageOf(paged, pageIn);
+
+  if (hasSeries) {
+    return aggregateWithSeries(tenantId, userId, dataModelId, config, seriesId, limit, page, ctx);
   }
 
   /*
@@ -89,8 +138,12 @@ export async function aggregateFromModel(
     userId,
     dataModelId,
     { dimensionIds: [config.dimensionId], measureIds: [config.measureId], limit: limit + 1 },
-    // `offset` chỉ khác 0 khi cấu hình chia trang — `pageOf` đã lo điều đó.
-    { ...(bottom ? { order: 'asc' as const } : {}), ...(page > 0 ? { offset: page * limit } : {}) },
+    // `offset` chỉ khác 0 khi biểu đồ chia trang — `pageOf` đã lo điều đó.
+    {
+      ctx,
+      ...(bottom ? { order: 'asc' as const } : {}),
+      ...(page > 0 ? { offset: page * limit } : {}),
+    },
   );
 
   // `buildQuery` đẩy chiều trước, thước đo sau, và luôn đúng hai cột vì ta gửi
@@ -130,36 +183,26 @@ export async function aggregateFromModel(
    */
   const grouped = !paged && hasMore;
 
-  if (grouped) {
-    /*
-     * Chỉ gộp "Khác" khi phép tính CỘNG ĐƯỢC — nguyên văn luật của
-     * `aggregateWarehouse`. Trung bình của các trung bình không phải trung
-     * bình, và "Khác" của min/max thì vô nghĩa.
-     *
-     * Thước đo TÍNH TOÁN (§10.6) luôn rơi vào nhánh không cộng được, kể cả khi
-     * hai vế của nó đều là tổng: tổng của các tỉ lệ không phải một tỉ lệ.
-     */
-    const measures = await datamodelsRepo.listMeasures(mysqlPool, tenantId, dataModelId);
-    const measure = measures.find((m) => m.id === config.measureId);
-    const additive =
-      measure !== undefined &&
-      measure.kind === 'column' &&
-      (measure.agg === 'sum' || measure.agg === 'count');
+  /*
+   * `grouped` bật thì `additive` CHẮC CHẮN bật — xem `overflowOf`: không cộng được
+   * là chia trang, mà chia trang thì `grouped` tắt. Nên nhánh này không phải hỏi
+   * lại phép tính lần nữa.
+   */
+  if (grouped && additive) {
+    // Tổng của TOÀN BỘ, không phải tổng phần đang hiện. Một truy vấn nữa là giá
+    // phải trả; đọc cả danh sách nhóm về Node để tự cộng thì một chiều có một
+    // triệu giá trị phân biệt sẽ kéo một triệu dòng qua mạng.
+    const total = await runExplorerQuery(
+      tenantId,
+      userId,
+      dataModelId,
+      { dimensionIds: [], measureIds: [config.measureId], limit: 1 },
+      { ctx },
+    );
 
-    if (additive) {
-      // Tổng của TOÀN BỘ, không phải tổng phần đang hiện. Một truy vấn nữa là
-      // giá phải trả; đọc cả danh sách nhóm về Node để tự cộng thì một chiều có
-      // một triệu giá trị phân biệt sẽ kéo một triệu dòng qua mạng.
-      const total = await runExplorerQuery(tenantId, userId, dataModelId, {
-        dimensionIds: [],
-        measureIds: [config.measureId],
-        limit: 1,
-      });
-
-      const grand = Number(total.rows[0]?.[0] ?? 0);
-      const shown = rows.reduce((acc, r) => acc + r.value, 0);
-      rows.push({ label: OTHER_LABEL, value: round(grand - shown) });
-    }
+    const grand = Number(total.rows[0]?.[0] ?? 0);
+    const shown = rows.reduce((acc, r) => acc + r.value, 0);
+    rows.push({ label: OTHER_LABEL, value: round(grand - shown) });
   }
 
   return {
@@ -210,8 +253,10 @@ async function aggregateWithSeries(
   config: ReportModelConfigDto,
   seriesId: number,
   limit: number,
-  /** Trang nhóm — đã kẹp bởi `pageOf`, nên `0` khi cấu hình không chia trang. */
+  /** Trang nhóm — đã kẹp bởi `pageOf`, nên `0` khi biểu đồ không chia trang. */
   page: number,
+  /** Ngữ cảnh mô hình dùng chung — xem `aggregateFromModel`. */
+  ctx: ModelContext,
 ): Promise<ReportDataDto> {
   /*
    * Bước 1 — xếp hạng CẢ HAI chiều, song song.
@@ -236,7 +281,12 @@ async function aggregateWithSeries(
    * nhất — bỏ chuỗi lớn đi thì các cột còn lại cộng không ra tổng nào cả.
    */
   const bottom = config.pick === 'bottom';
-  const paged = config.overflow === 'pages';
+  /*
+   * LUÔN chia trang khi còn nhóm — nhánh hai chiều không bao giờ dựng được cột
+   * "Khác" (xem chú thích đầu hàm), nên lựa chọn duy nhất còn lại là bỏ dữ liệu
+   * hoặc mở đường tới nó. §10.14 chọn vế thứ hai.
+   */
+  const paged = true;
 
   const [ranking, seriesRanking] = await Promise.all([
     runExplorerQuery(
@@ -248,15 +298,18 @@ async function aggregateWithSeries(
       // tại để mắt còn phân biệt được màu, và "xem tiếp mười hai màu nữa" không
       // phải một câu hỏi ai đó hỏi.
       {
+        ctx,
         ...(bottom ? { order: 'asc' as const } : {}),
         ...(page > 0 ? { offset: page * limit } : {}),
       },
     ),
-    runExplorerQuery(tenantId, userId, dataModelId, {
-      dimensionIds: [seriesId],
-      measureIds: [config.measureId],
-      limit: SERIES_CAP + 1,
-    }),
+    runExplorerQuery(
+      tenantId,
+      userId,
+      dataModelId,
+      { dimensionIds: [seriesId], measureIds: [config.measureId], limit: SERIES_CAP + 1 },
+      { ctx },
+    ),
   ]);
 
   // Giữ cả giá trị THÔ lẫn nhãn hiển thị. Nhãn để sắp xếp và để vẽ; giá trị thô
@@ -316,6 +369,7 @@ async function aggregateWithSeries(
       limit: rowCap + 1,
     },
     {
+      ctx,
       restrict: [
         { dimensionId: config.dimensionId, values: keepGroups.map((k) => k.raw) },
         { dimensionId: seriesId, values: keepSeries.map((k) => k.raw) },

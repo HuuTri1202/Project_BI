@@ -98,6 +98,7 @@ import {
   deleteMeasure,
 } from '../../services/datamodel/measures';
 import { aggregateFromModel } from '../../services/datamodel/modelReportData';
+import { loadModelContext } from '../../services/datamodel/explorer';
 import { aggregateInWarehouse } from '../../services/dataset/aggregateWarehouse';
 import { analyzeDataset, clearAnalyzeCache } from '../../services/dataset/analyze';
 import { commitDatasets } from '../../services/dataset/commit';
@@ -988,9 +989,21 @@ v1Router.get(
       report.canvas.pages.find((p) => p.id === query.pageId) ?? report.canvas.pages[0];
     const cells = page?.visuals ?? [];
 
+    /*
+     * Chỉ mục mô hình nạp MỘT lần cho cả trang — §10.14.
+     *
+     * Trước bản này mỗi ô tự nạp: `findOne` + ba truy vấn danh sách + một truy
+     * vấn `schemaVersion`. Mười hai ô là 60 vòng MySQL cho một thứ không đổi
+     * giữa chúng, và pool 10 kết nối biến chúng thành một hàng đợi.
+     *
+     * Nạp TRƯỚC `Promise.allSettled` chứ không để ô đầu tiên nạp hộ: các ô chạy
+     * song song, nên cả mười hai đều xuất phát trước khi ô nào kịp nạp xong.
+     */
+    const ctx = await loadModelContext(auth.tenantId, datamodelId);
+
     const settled = await Promise.allSettled(
       cells.map((visual) =>
-        aggregateFromModel(auth.tenantId, auth.userId, datamodelId, visual.config),
+        aggregateFromModel(auth.tenantId, auth.userId, datamodelId, visual.config, 0, ctx),
       ),
     );
 

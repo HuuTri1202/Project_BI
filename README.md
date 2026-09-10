@@ -1936,6 +1936,117 @@ Chỉ bật ở chế độ vừa-khung. Bật sẵn ở chế độ cũ là đ�
 vùng vẽ cuộn được. Trang xem một biểu đồ nằm ở nhánh đó — nó cuộn cả trang, nên
 một biểu đồ dài không mất gì.
 
+### Bỏ dữ liệu là lựa chọn tệ nhất — nên nó không còn được chọn (§10.14)
+
+> với các biểu đồ dữ liệu quá lớn … sẽ có nút bấm qua bên để xem biểu đồ trên
+> cùng 1 dim vs measure đó
+
+Hai cái nút ‹ › đã có từ §10.12, nhưng chúng nằm sau một ô chọn mà người dùng
+phải tự tìm ra. Mặc định thì phần vượt trần gộp vào cột **"Khác"** — và cột đó
+chỉ dựng được khi phép tính **cộng được**. Gặp trung bình hay tỉ lệ, phần vượt
+bị **bỏ hẳn** khỏi biểu đồ, kèm một dòng chữ nói rằng nó đã bị bỏ.
+
+Ba lựa chọn cho phần vượt trần, xếp theo mức tệ:
+
+|            | người xem nhận được gì                                                |
+| ---------- | --------------------------------------------------------------------- |
+| gộp "Khác" | một cột mang toàn bộ phần còn lại — không mất thông tin tổng          |
+| chia trang | mọi nhóm đều mở ra được, chỉ không cùng lúc                           |
+| **bỏ hẳn** | **một biểu đồ trông đầy đủ nhưng thiếu, và một dòng chữ nhỏ báo tin** |
+
+§10.14 bỏ vế thứ ba. Luật gọn lại thành một câu:
+
+```
+cộng được   ->  gộp phần vượt thành cột "Khác"
+không cộng  ->  CHIA TRANG
+```
+
+Trang 1 vẫn đúng những nhóm cũ — chỉ mọc thêm hai cái nút thay cho một dòng chữ
+báo mất mát. Biểu đồ có **chiều thứ hai** cũng luôn chia trang: ở đó phần bị cắt
+là một mặt phẳng, chia nó cho từng chuỗi là bịa ra số.
+
+Ô chọn vẫn còn, và giờ nó nói đúng thứ nó làm: _"Gộp thành cột 'Khác' nếu cộng
+được"_ / _"Luôn chia trang"_. Vế thứ hai là để ai muốn xem hết ngay cả trên một
+thước đo tổng.
+
+⚠️ Quyết định này đọc từ **định nghĩa thước đo**, không từ dữ liệu — nên nó nằm
+ở `overflowOf`, chạy **trước** khi hỏi Cube. Phải vậy: `offset` của trang là một
+phép của truy vấn, nên "có chia trang không" phải biết trước khi dựng truy vấn.
+
+⚠️ `rowExpr` (§F9) cố ý **vẫn** không cộng được, dù tổng của một biểu thức dòng
+về lý thuyết vẫn là một tổng. Đổi ranh giới đó sẽ làm mọi báo cáo đang dùng
+thước đo biểu thức dòng lặng lẽ mọc thêm một cột "Khác" mà không ai xin.
+
+### Mở một báo cáo đã lưu: 1289ms xuống 1112ms, và phần server xuống 3 lần (§10.14)
+
+Người dùng nói biểu đồ hiện ra quá lâu ở lần mở đầu. Đo trước khi sửa, báo cáo
+12 ô trên 51.000 dòng:
+
+|                                    |                         |
+| ---------------------------------- | ----------------------- |
+| Cube lần đầu (biên dịch schema)    | 2785ms, sau đó 45–170ms |
+| `GET /reports/:id/canvas-data`     | 391–775ms               |
+| App khởi động + `GET /reports/:id` | 360ms                   |
+| **biểu đồ hiện ra**                | **1289ms**              |
+
+Hai chỗ thắt, và cả hai là chuyện cấu trúc chứ không phải chuyện tinh chỉnh.
+
+#### 1. Mười hai ô nạp lại cùng một chỉ mục mô hình
+
+Mỗi ô gọi `runExplorerQuery`, mà hàm đó tự nạp chỉ mục: `findOne` + ba truy vấn
+danh sách + một truy vấn `schemaVersion`. Mười hai ô là **60 vòng MySQL** cho
+một thứ không đổi giữa chúng — và pool 10 kết nối biến chúng thành một hàng đợi.
+
+`loadModelContext` nạp một lần, route `canvas-data` gọi nó **trước**
+`Promise.allSettled` rồi truyền xuống. Nạp trong ô đầu tiên thì không ăn thua:
+mười hai ô xuất phát cùng lúc, không ô nào kịp nạp hộ ô nào.
+
+    canvas-data 12 ô:  391–775ms  ->  117–165ms
+
+Chỉ mục đó cũng đã chứa `agg` và loại nguồn của mọi thước đo, nên `overflowOf`
+đọc thẳng từ đấy thay vì hỏi `listMeasures` thêm một lần cho mỗi ô.
+
+#### 2. Hai request nối đuôi nhau mà lẽ ra không cần
+
+`ReportViewer` chỉ render **sau** khi báo cáo về, nên truy vấn số liệu bên trong
+nó bắt buộc xếp sau — mất trắng 360ms. Nhưng endpoint số liệu chỉ cần `id`, thứ
+đã nằm sẵn trên thanh địa chỉ.
+
+`ReportViewPage` gọi `useReportCanvasData(id, null)` ngay từ lượt render đầu.
+`pageId = null` nghĩa là "trang đầu, trang nào cũng được" — backend tự rơi về
+`pages[0]`, nên hỏi được **trước khi biết báo cáo có những trang nào**. Đo bằng
+waterfall thật:
+
+```
+   328ms  bắt đầu  /reports/36            ─┐  cùng khởi hành
+   328ms  bắt đầu  /reports/36/canvas-data ─┘
+   365ms  xong     /reports/36
+   952ms  xong     /reports/36/canvas-data
+  1112ms  BIỂU ĐỒ HIỆN RA
+```
+
+⚠️ `ReportViewer` phải hỏi trang đầu bằng `null` chứ **không** bằng mã trang
+thật, nếu không hai bên khác khoá cache và lời gọi sớm chỉ hâm nóng một ô không
+ai đọc — mất trắng đúng phần vừa tiết kiệm được.
+
+#### Đã thử và đã BỎ: nới trần đồng thời của Cube
+
+Đo 1/2/4/8/12 truy vấn song song qua `report-preview` thấy độ trễ phẳng tới 4
+rồi tăng tuyến tính — hình dạng của một hàng đợi. Đặt `CUBEJS_CONCURRENCY: 12`,
+khởi động lại Cube, đo lại: `canvas-data` **giữ nguyên trung vị 162ms**.
+
+Phép đo dẫn tới giả thuyết đó gọi `report-preview` mười hai lần, mà đường ấy nạp
+lại chỉ mục cho **mỗi** lần gọi. Thứ đo được là hàng đợi **pool MySQL**, không
+phải hàng đợi Cube. Biến môi trường đã được gỡ; chú thích ở
+`infrastructure/docker-compose.yml` giữ lại kết quả để người sau khỏi thử lại.
+
+#### Cái KHÔNG chữa được ở tầng này
+
+Lần mở **đầu tiên sau khi Cube khởi động** vẫn tốn 2785ms cho việc biên dịch
+schema. Đó là một lần cho mỗi vòng đời của container, không phải mỗi lần mở báo
+cáo. Ảnh chụp số liệu trên đĩa (`querySnapshots`) lo những lần mở **sau**; lần
+đầu thì theo định nghĩa là chưa có gì để chụp.
+
 ### Báo cáo đã lưu vẽ NGAY, rồi mới làm mới ngầm
 
 Báo cáo lưu **cấu hình**, không lưu con số. Nên mỗi lần mở là một lượt tính lại
@@ -2127,6 +2238,7 @@ dùng một khung khác thứ họ vừa dựng, mà không nói gì.
 | `backend/tests/datamodel.integration.test.ts` §10.10 | 20 ca ở tầng cấu hình — trùng mã ô, khung rỗng, tràn lưới, quá trần, trường lạ, chuyển đổi, ranh giới với báo cáo trên bộ dữ liệu, và **hình dạng cũ `{visuals}` vẫn ghi được rồi đọc ra một trang**                                                                              |
 | `backend/tests/datamodel.integration.test.ts` §10.12 | `overflow` đi trọn vòng lưu/đọc, vắng mặt rơi về `'other'`, giá trị lạ bị chặn ở cửa, `?page=` có trần, và `canvas-data?pageId=` tính đúng trang được hỏi (mã lạ rơi về trang đầu, không 404)                                                                                     |
 | `frontend/tests/groupPaging.test.tsx`                | hai cái nút ‹ › và thanh thẻ trang. Phần lớn ca kiểm chuyện **không** bày ra nút: cấu hình không chia trang, dữ liệu vừa một trang, không có `onPage`. Một cặp nút chết chỉ nói với người dùng rằng có gì đó hỏng                                                                 |
+| `backend/tests/groupOverflow.test.ts`                | luật "cộng được thì gộp, không cộng thì chia trang" — một bảng tám phép gộp, nên thêm một phép mới mà quên nghĩ tới chuyện này sẽ lộ ra ở đây chứ không lộ ra trên máy người dùng                                                                                                 |
 | `frontend/tests/reportViewPage.test.tsx`             | trang xem mở được cho **mọi** vai trò, và nút "Chỉnh sửa" chỉ có mặt khi nó thật sự dẫn tới một trình dựng dùng được — không phải bảo mật, mà là đừng bày ra một cái nút dẫn tới 403                                                                                              |
 
 Không ca nào cần ClickHouse trả số thật. Việc đó đã được chứng minh bằng tay

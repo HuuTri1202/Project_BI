@@ -260,6 +260,67 @@ interface InternalQueryOptions {
    * để hiện hai mươi cái cột.
    */
   offset?: number;
+  /**
+   * Chỉ mục mô hình đã nạp sẵn — §10.14.
+   *
+   * Một khung 12 ô hỏi 12 câu trên CÙNG một mô hình. Không có tham số này thì
+   * mỗi câu tự nạp lại chỉ mục: `findOne` + ba truy vấn danh sách + một truy
+   * vấn `schemaVersion`, tức 60 vòng MySQL cho một thứ không đổi giữa chúng.
+   * Pool mặc định 10 kết nối, nên chúng còn xếp hàng chờ nhau.
+   *
+   * Nạp một lần ở nơi gọi rồi truyền xuống. Vắng mặt thì hàm tự nạp — mọi
+   * đường gọi lẻ (Explorer, xem trước một ô) không phải đổi gì.
+   */
+  ctx?: ModelContext;
+}
+
+/**
+ * Mọi thứ một truy vấn cần biết về mô hình, nạp đúng MỘT lần — §10.14.
+ *
+ * Gộp chỉ mục và `schemaVersion` vào một hộp vì chúng luôn đi cùng nhau:
+ * `buildQuery` cần chỉ mục, còn token gửi cho Cube cần phiên bản schema. Tách
+ * đôi thì nơi gọi phải nhớ nạp cả hai, và quên một cái là lại thêm một vòng
+ * MySQL cho mỗi ô.
+ */
+export interface ModelContext {
+  index: ModelIndex;
+  schemaVersion: string;
+}
+
+export async function loadModelContext(
+  tenantId: number,
+  dataModelId: number,
+): Promise<ModelContext> {
+  const [index, schemaVersion] = await Promise.all([
+    indexModel(tenantId, dataModelId),
+    datamodelsRepo.schemaVersion(mysqlPool, tenantId),
+  ]);
+  return { index, schemaVersion };
+}
+
+/**
+ * Phép gộp của thước đo này có CỘNG ĐƯỢC không — §10.14.
+ *
+ * Quyết định hai chuyện cùng lúc, và đó là lý do nó nằm ở đây chứ không nằm
+ * trong nhánh vẽ "Khác":
+ *
+ *   cộng được    -> phần vượt trần gộp thành một cột "Khác"
+ *   không cộng   -> phần vượt trần CHIA TRANG, vì gộp lại thì sai số
+ *
+ * Đọc từ chỉ mục đã nạp thay vì hỏi `listMeasures` lần nữa: chỉ mục vốn đã
+ * chứa đủ, và mỗi lần hỏi thêm là một vòng MySQL cho mỗi ô.
+ *
+ * ⚠️ `'rowExpr'` KHÔNG cộng được ở đây dù tổng của một biểu thức dòng về lý
+ * thuyết vẫn là một tổng. Giữ nguyên ranh giới cũ (`kind === 'column'`) là cố
+ * ý: đổi nó sẽ làm mọi báo cáo đang dùng thước đo biểu thức dòng lặng lẽ mọc
+ * thêm một cột "Khác" mà không ai xin.
+ */
+export function laCongDuoc(ctx: ModelContext, measureId: number): boolean {
+  const measure = ctx.index.measures.get(measureId);
+  if (measure === undefined) return false;
+  // `'rows'` là đếm số dòng — tổng của các phần đếm chính là phần đếm của tổng.
+  const nenTang = measure.nguon.kind === 'column' || measure.nguon.kind === 'rows';
+  return nenTang && (measure.agg === 'sum' || measure.agg === 'count');
 }
 
 function buildQuery(
@@ -400,11 +461,13 @@ export async function runExplorerQuery(
   /** Đường nội bộ, không có trong hợp đồng HTTP — xem `InternalQueryOptions`. */
   internal: InternalQueryOptions = {},
 ): Promise<ExplorerResultDto> {
-  const index = await indexModel(tenantId, dataModelId);
-  const { query, columns, keys, limit } = buildQuery(index, input, internal);
+  const ctx = internal.ctx ?? (await loadModelContext(tenantId, dataModelId));
+  const { query, columns, keys, limit } = buildQuery(ctx.index, input, internal);
 
-  const schemaVersion = await datamodelsRepo.schemaVersion(mysqlPool, tenantId);
-  const result = await loadFromCube({ tenantId, userId, dataModelId, schemaVersion }, query);
+  const result = await loadFromCube(
+    { tenantId, userId, dataModelId, schemaVersion: ctx.schemaVersion },
+    query,
+  );
 
   const rows = result.data.map((row) => keys.map((key) => toCell(row[key])));
 

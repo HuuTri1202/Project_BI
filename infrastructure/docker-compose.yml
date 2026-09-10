@@ -214,6 +214,16 @@ services:
       # ngủ. 300 giây là dung sai cho việc đó — xem CLOCK_TOLERANCE trong
       # cube/cube.js để biết vì sao nới ra không phải là hạ tiêu chuẩn an toàn.
       CUBEJS_CLOCK_TOLERANCE: ${CUBEJS_CLOCK_TOLERANCE:-300}
+      # ⚠️ ĐÃ THỬ và ĐÃ BỎ: `CUBEJS_CONCURRENCY: 12`.
+      #
+      # Giả thuyết là 12 ô của một khung xếp hàng sau trần đồng thời của driver
+      # ClickHouse. Đo lại sau khi đặt: `GET /reports/:id/canvas-data` giữ nguyên
+      # trung vị 162ms — không đổi một chút nào. Phép đo dẫn tới giả thuyết đó
+      # gọi `report-preview` 12 lần, mà đường ấy nạp lại chỉ mục mô hình cho mỗi
+      # lần gọi; thứ đo được là hàng đợi POOL MYSQL, không phải hàng đợi Cube.
+      #
+      # Chỗ thắt thật đã được gỡ ở tầng ứng dụng (§10.14): nạp chỉ mục MỘT lần
+      # cho cả khung. Đừng đặt lại biến này nếu chưa đo được nó làm gì.
       CUBEJS_LOG_LEVEL: info
       TZ: Asia/Ho_Chi_Minh
     ports:
