@@ -1,19 +1,31 @@
 import {
   AGGREGATES,
+  CANVAS_COLUMNS,
+  CANVAS_MAX_PAGES,
+  CANVAS_MAX_VISUALS,
+  CANVAS_MIN_H,
+  CANVAS_MIN_W,
+  CHART_PALETTES_ALL,
+  CHART_SORTS,
   CHART_TYPES,
   COLUMN_ROLES,
   DATAMODEL_NAME_MAX,
   DATASET_NAME_MAX,
   DATASET_SOURCES,
   DATASET_STATUSES,
+  GROUP_OVERFLOWS,
+  GROUP_PICKS,
   LOAD_STATUSES,
+  MAX_GROUP_PAGE,
   MEASURE_AGGS,
   MEASURE_FORMATS,
   MEASURE_NAME_MAX,
   MEASURE_OPS,
   RELATIONSHIP_KINDS,
+  PAGE_NAME_MAX,
   REPORT_NAME_MAX,
   TIME_GRANULARITIES,
+  VISUAL_TITLE_MAX,
   companyNameRule,
   emailRule,
   fullNameRule,
@@ -204,6 +216,31 @@ export const updateReportBodySchema = z.object({
 });
 
 /**
+ * Tuỳ chọn TRÌNH BÀY của biểu đồ — §10.9.
+ *
+ * Backend KHÔNG đọc khối này: nó không đi vào truy vấn Cube, nó chỉ được lưu
+ * rồi trả lại nguyên vẹn cho trình vẽ. Vẫn phải kiểm hình dạng, vì thứ lọt qua
+ * đây sẽ nằm trong cột `config` mãi mãi — và một `palette: 'DROP TABLE'` tuy vô
+ * hại với SQL (nó là JSON) nhưng sẽ làm Vega từ chối vẽ, ở một màn hình cách
+ * chỗ gây lỗi rất xa.
+ *
+ * `.strict()` để một trường viết sai chính tả bị TỪ CHỐI thay vì được lưu im
+ * lặng rồi không bao giờ có tác dụng.
+ */
+export const reportChartOptionsSchema = z
+  .object({
+    stacked: z.boolean().optional(),
+    showLegend: z.boolean().optional(),
+    showValues: z.boolean().optional(),
+    sort: z.enum(CHART_SORTS).optional(),
+    // `_ALL` chứ không `CHART_PALETTES`: danh sách sau là những bảng màu bộ
+    // chọn còn MỜI, còn ở đây phải nhận cả những bảng màu đã lưu trong báo cáo
+    // cũ. Hẹp lại là mọi báo cáo cũ mở ra được, sửa được, nhưng bấm Lưu thì 400.
+    palette: z.enum(CHART_PALETTES_ALL).optional(),
+  })
+  .strict();
+
+/**
  * Báo cáo dựng trên MÔ HÌNH — §10.8.
  *
  * Toàn ID, không một tên cột nào — cùng luật với `explorerQueryBodySchema`.
@@ -218,6 +255,69 @@ export const reportModelConfigSchema = z.object({
   dimensionId: z.coerce.number().int().positive(),
   measureId: z.coerce.number().int().positive(),
   limit: z.coerce.number().int().min(1).max(100).default(20),
+  /**
+   * Vượt trần thì giữ nhóm lớn nhất hay nhỏ nhất — xem `GROUP_PICKS`.
+   *
+   * Ở TRONG `config` chứ không trong `options`, vì nó đổi SỐ LIỆU: nó đổi câu
+   * hỏi gửi xuống Cube. Nhầm sang `options` là nó không vào khoá cache và đổi
+   * lựa chọn sẽ trả về đúng câu trả lời cũ.
+   */
+  pick: z.enum(GROUP_PICKS).optional(),
+  /**
+   * Phần vượt trần gộp thành "Khác" hay chia trang — xem `GROUP_OVERFLOWS`.
+   *
+   * Cũng ở TRONG `config` và cũng vì nó đổi số liệu: nó bỏ hẳn một dòng khỏi
+   * kết quả và mở đường cho `offset`.
+   */
+  overflow: z.enum(GROUP_OVERFLOWS).optional(),
+  /**
+   * Chiều thứ hai — tách chuỗi (§10.9). Router kiểm nó có thật trong mô hình và
+   * kiểm nó KHÁC chiều chính; zod chỉ lo hình dạng.
+   *
+   * `.nullish()` chứ không `.optional()`: trình dựng gửi `null` khi người dùng
+   * gỡ chiều ra khỏi ô Nhóm màu, và một `undefined` ở đó sẽ bị `JSON.stringify`
+   * xoá khỏi thân request — cùng ý nghĩa nhưng hai hình dạng, nên nhận cả hai.
+   */
+  seriesDimensionId: z.coerce.number().int().positive().nullish(),
+  options: reportChartOptionsSchema.optional(),
+});
+
+/**
+ * Sửa báo cáo đã dựng trên mô hình — §10.9.
+ *
+ * Không nhận `datamodelId`: báo cáo đã gắn với một mô hình từ lúc tạo, và cho
+ * client khai lại là mở đường chuyển một báo cáo sang mô hình khác qua một
+ * endpoint không hề nói rằng nó làm việc đó. Đổi nguồn thì tạo báo cáo mới.
+ */
+export const updateModelReportBodySchema = z.object({
+  name: z.string().trim().min(1, 'Tên báo cáo không được để trống').max(REPORT_NAME_MAX),
+  chartType: z.enum(CHART_TYPES),
+  config: reportModelConfigSchema,
+});
+
+/**
+ * Xem trước số liệu trong trình dựng — §10.9.
+ *
+ * Không có `name`: chưa có báo cáo nào để đặt tên. Đó cũng là điểm khác duy
+ * nhất so với `updateModelReportBodySchema`, và là lý do nó không dùng lại
+ * `.omit()` — hai schema tình cờ giống nhau ở hai trường không có nghĩa là một
+ * cái phái sinh từ cái kia, và ràng chúng vào nhau sẽ khiến việc thêm một
+ * trường vào thân request lưu kéo theo cả thân request xem trước.
+ */
+export const modelReportPreviewBodySchema = z.object({
+  chartType: z.enum(CHART_TYPES),
+  config: reportModelConfigSchema,
+  /**
+   * Trang nhóm đang xem — §10.12.
+   *
+   * Ở NGOÀI `config` một cách cố ý, dù nó có đổi số liệu. `config` là thứ được
+   * LƯU vào báo cáo, còn trang đang xem là chỗ người đọc đang đứng trong một
+   * lượt xem. Nhét vào trong nghĩa là bấm ‹ › một cái rồi bấm Lưu sẽ ghi lại
+   * "báo cáo này mở ra ở trang 4".
+   *
+   * Service tự bỏ qua nó khi cấu hình không chia trang — xem `pageOf`.
+   */
+  page: z.coerce.number().int().min(0).max(MAX_GROUP_PAGE).optional(),
 });
 
 /**
@@ -232,6 +332,154 @@ export const createModelReportBodySchema = z.object({
   name: z.string().trim().min(1, 'Tên báo cáo không được để trống').max(REPORT_NAME_MAX),
   chartType: z.enum(CHART_TYPES),
   config: reportModelConfigSchema,
+});
+
+/**
+ * Một ô trên khung — §10.10.
+ *
+ * Toạ độ được KẸP ở đây chứ không ở tầng đọc: `x + w` vượt quá số cột cho ra
+ * một ô tràn khỏi khung ở mọi màn hình, và `w = 0` cho một ô vô hình mà người
+ * dùng không bấm được để xoá. Kẹp lúc ghi nghĩa là dữ liệu trong database luôn
+ * vẽ được, không phải sửa lại ở từng nơi đọc.
+ *
+ * `y` KHÔNG có trần: khung cuộn dọc, nên hàng thứ 300 vẫn là một vị trí hợp lệ.
+ * `.max(500)` chỉ để một số vô lý không đẩy thanh cuộn đi hàng vạn pixel.
+ *
+ * ⚠️ `.strict()` — cùng lý do với `reportChartOptionsSchema`: một trường viết
+ * sai chính tả phải bị từ chối, không phải được lưu rồi im lặng vô tác dụng.
+ */
+export const reportVisualSchema = z
+  .object({
+    /**
+     * Khoá do trình duyệt sinh. Giới hạn ký tự vì chuỗi này quay lại trong
+     * `ReportVisualDataDto.visualId` và được dùng làm khoá React — một chuỗi
+     * dài vô hạn hay chứa ký tự lạ không có ích gì ngoài việc làm log khó đọc.
+     */
+    id: z
+      .string()
+      .trim()
+      .min(1)
+      .max(40)
+      .regex(/^[A-Za-z0-9_-]+$/, 'Mã ô chỉ nhận chữ, số, gạch ngang và gạch dưới'),
+    chartType: z.enum(CHART_TYPES),
+    config: reportModelConfigSchema,
+    title: z.string().trim().max(VISUAL_TITLE_MAX).optional(),
+    x: z.coerce
+      .number()
+      .int()
+      .min(0)
+      .max(CANVAS_COLUMNS - 1),
+    y: z.coerce.number().int().min(0).max(500),
+    w: z.coerce.number().int().min(CANVAS_MIN_W).max(CANVAS_COLUMNS),
+    h: z.coerce.number().int().min(CANVAS_MIN_H).max(60),
+  })
+  .strict()
+  // Kẹp bề rộng vào trong khung thay vì từ chối: một ô ở cột 9 rộng 6 là chuyện
+  // kéo thả bình thường sinh ra, và trả lỗi cho nó nghĩa là người dùng mất cả
+  // lần lưu vì một ô thò ra ngoài mép.
+  .transform((v) => ({ ...v, w: Math.min(v.w, CANVAS_COLUMNS - v.x) }));
+
+/**
+ * Khung — §10.10.
+ *
+ * `id` phải DUY NHẤT trong một khung. Trùng nhau thì `GET /reports/:id/
+ * canvas-data` trả hai bản ghi cùng khoá và trình vẽ ghép số liệu vào nhầm ô —
+ * biểu đồ đúng hình, sai số. Đây là loại lỗi không ai nhìn ra bằng mắt, nên nó
+ * bị chặn ở cửa.
+ */
+/**
+ * Một TRANG — §10.12.
+ *
+ * `visuals` KHÔNG có `.min(1)`: một trang vừa thêm chưa có ô nào, và người ta
+ * hay bấm Lưu ngay lúc đó. Từ chối nó nghĩa là trang vừa tạo biến mất mà không
+ * có thông báo nào — luật "ít nhất một ô" áp cho cả KHUNG, ở ngay dưới.
+ */
+export const reportPageSchema = z
+  .object({
+    id: z
+      .string()
+      .trim()
+      .min(1)
+      .max(40)
+      .regex(/^[A-Za-z0-9_-]+$/, 'Mã trang chỉ nhận chữ, số, gạch ngang và gạch dưới'),
+    name: z.string().trim().min(1, 'Tên trang không được để trống').max(PAGE_NAME_MAX),
+    visuals: z
+      .array(reportVisualSchema)
+      .max(CANVAS_MAX_VISUALS, `Một trang tối đa ${CANVAS_MAX_VISUALS} biểu đồ`),
+  })
+  .strict();
+
+/**
+ * Khung — §10.10, thành nhiều TRANG ở §10.12.
+ *
+ * `id` của ô phải duy nhất trên CẢ KHUNG, không chỉ trong một trang. Trùng nhau
+ * thì `GET /reports/:id/canvas-data` trả hai bản ghi cùng khoá và trình vẽ ghép
+ * số liệu vào nhầm ô — biểu đồ đúng hình, sai số. Đây là loại lỗi không ai nhìn
+ * ra bằng mắt, nên nó bị chặn ở cửa. Duy nhất theo trang thì không đủ: chuyển ô
+ * sang trang khác là một thao tác bình thường, và nó sẽ mang mã cũ đi theo.
+ *
+ * ⚠️ Hình dạng CŨ (`{ visuals: [...] }`) vẫn được nhận và quy về một trang.
+ * Không phải để chiều một client tưởng tượng: một tab đang mở từ trước lúc
+ * triển khai vẫn gửi hình dạng đó, và câu trả lời cho nó phải là "đã lưu", chứ
+ * không phải một lỗi 400 làm mất khung người ta vừa dựng.
+ */
+export const reportCanvasSchema = z.preprocess(
+  (raw) => {
+    if (raw === null || typeof raw !== 'object') return raw;
+    const obj = raw as { pages?: unknown; visuals?: unknown };
+    if (obj.pages !== undefined || !Array.isArray(obj.visuals)) return raw;
+    return { pages: [{ id: 'p1', name: 'Trang 1', visuals: obj.visuals }] };
+  },
+  z.object({
+    pages: z
+      .array(reportPageSchema)
+      .min(1, 'Báo cáo phải có ít nhất một trang')
+      .max(CANVAS_MAX_PAGES, `Một báo cáo tối đa ${CANVAS_MAX_PAGES} trang`)
+      .refine(
+        (list) => list.reduce((sum, p) => sum + p.visuals.length, 0) > 0,
+        'Khung phải có ít nhất một biểu đồ',
+      )
+      .refine(
+        (list) => new Set(list.map((p) => p.id)).size === list.length,
+        'Hai trang trong cùng một báo cáo không được trùng mã',
+      )
+      .refine((list) => {
+        const ids = list.flatMap((p) => p.visuals.map((v) => v.id));
+        return new Set(ids).size === ids.length;
+      }, 'Hai ô trong cùng một báo cáo không được trùng mã'),
+  }),
+);
+
+export const createCanvasReportBodySchema = z.object({
+  datamodelId: z.coerce.number().int().positive(),
+  name: z.string().trim().min(1, 'Tên báo cáo không được để trống').max(REPORT_NAME_MAX),
+  canvas: reportCanvasSchema,
+});
+
+/** Không nhận `datamodelId` — cùng lý do với `updateModelReportBodySchema`. */
+export const updateCanvasReportBodySchema = z.object({
+  name: z.string().trim().min(1, 'Tên báo cáo không được để trống').max(REPORT_NAME_MAX),
+  canvas: reportCanvasSchema,
+});
+
+/**
+ * Trang nhóm cho một lần ĐỌC số liệu — `?page=` trên các endpoint báo cáo.
+ *
+ * Kẹp bằng `.max` chứ không để tự do: `offset` đi thẳng vào truy vấn Cube, và
+ * một `?page=99999999` là một lượt quét ClickHouse bỏ qua mười tỉ dòng.
+ */
+export const reportPageQuerySchema = z.object({
+  page: z.coerce.number().int().min(0).max(MAX_GROUP_PAGE).optional(),
+});
+
+/** Trang NÀO của khung được tính số liệu — xem `GET /reports/:id/canvas-data`. */
+export const canvasDataQuerySchema = reportPageQuerySchema.extend({
+  pageId: z.string().trim().max(40).optional(),
+});
+
+export const visualIdParamSchema = z.object({
+  id: z.coerce.number().int().positive(),
+  visualId: z.string().trim().min(1).max(40),
 });
 
 export const listReportsQuerySchema = paginationSchema.extend({

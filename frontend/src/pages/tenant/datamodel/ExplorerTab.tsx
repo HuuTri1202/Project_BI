@@ -18,6 +18,7 @@ import { Badge } from '../../../components/ui/Badge';
 import { Button } from '../../../components/ui/Button';
 import { TBody, Td, Th, THead, TableWrap, Tr } from '../../../components/ui/Table';
 import { EmptyState, ErrorState, TableSkeleton } from '../../../components/ui/states';
+import { CubeOfflineNotice } from '../../../features/datamodels/CubeOfflineNotice';
 import {
   useExplorerFields,
   useExplorerStatus,
@@ -580,26 +581,14 @@ export default function ExplorerTab(): React.ReactElement {
   // câu không dẫn tới bất kỳ hành động nào.
   if (status.data !== undefined && !status.data.cubeReady) {
     return (
-      <div className="rounded-xl border border-amber-200 bg-amber-50 px-5 py-4" role="alert">
-        <h2 className="text-sm font-semibold text-amber-900">
-          Chưa kết nối được tới tầng ngữ nghĩa (Cube.js)
-        </h2>
-        <p className="mt-1.5 text-sm text-amber-900">
-          Chạy lệnh sau ở thư mục gốc rồi bấm Thử lại:
-        </p>
-        <code className="mt-2 block rounded-lg bg-amber-100 px-3 py-2 font-mono text-sm text-amber-900">
-          {status.data.command}
-        </code>
-        <p className="mt-2.5 text-sm text-amber-800">
-          Hai tab <strong>Schemas</strong> và <strong>Relationship</strong> vẫn dùng được bình
-          thường — chúng không cần Cube.
-        </p>
-        <div className="mt-3">
-          <Button onClick={() => void status.refetch()} loading={status.isFetching}>
-            Thử lại
-          </Button>
-        </div>
-      </div>
+      <CubeOfflineNotice
+        command={status.data.command}
+        onRetry={() => void status.refetch()}
+        retrying={status.isFetching}
+      >
+        Hai tab <strong>Schemas</strong> và <strong>Relationship</strong> vẫn dùng được bình
+        thường — chúng không cần Cube.
+      </CubeOfflineNotice>
     );
   }
 

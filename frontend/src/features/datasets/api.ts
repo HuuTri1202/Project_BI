@@ -2,14 +2,18 @@ import type {
   AnalyzeResultDto,
   ChartType,
   CommitDatasetsInput,
+  CreateCanvasReportInput,
   CreateModelReportInput,
   CreateReportInput,
   CreateUploadResultDto,
   DatasetDetailDto,
   PageResult,
+  ReportCanvasDataDto,
   ReportConfigDto,
   ReportDataDto,
   ReportDto,
+  UpdateCanvasReportInput,
+  UpdateModelReportInput,
 } from '@bi/shared';
 import { apiClient } from '../../services/apiClient';
 
@@ -92,8 +96,31 @@ export async function fetchReport(id: number): Promise<ReportDto> {
   return data;
 }
 
-export async function fetchReportData(id: number): Promise<ReportDataDto> {
-  const { data } = await apiClient.get<ReportDataDto>(`/v1/reports/${id}/data`);
+export async function fetchReportData(id: number, page = 0): Promise<ReportDataDto> {
+  const { data } = await apiClient.get<ReportDataDto>(`/v1/reports/${id}/data`, {
+    // Không gửi `page=0`: mọi báo cáo không chia trang sẽ mang thêm một tham số
+    // vô nghĩa trong log truy cập, và một tham số vô nghĩa ở khắp nơi là một
+    // tham số không ai để ý khi nó bắt đầu có nghĩa.
+    ...(page > 0 ? { params: { page } } : {}),
+  });
+  return data;
+}
+
+/**
+ * Số liệu của MỘT ô ở một TRANG NHÓM — §10.12, cho hai cái nút ‹ ›.
+ *
+ * Đường riêng thay vì gọi lại `report-preview`: endpoint kia gác `datamodel:read`
+ * mà viewer không có, nên hai cái nút sẽ chết ở đúng người cần chúng nhất.
+ */
+export async function fetchReportVisualData(
+  id: number,
+  visualId: string,
+  page: number,
+): Promise<ReportDataDto> {
+  const { data } = await apiClient.get<ReportDataDto>(
+    `/v1/reports/${id}/visuals/${encodeURIComponent(visualId)}/data`,
+    { params: { page } },
+  );
   return data;
 }
 
@@ -124,6 +151,58 @@ export async function updateReport(
   input: { name: string; chartType: ChartType; config: ReportConfigDto },
 ): Promise<ReportDto> {
   const { data } = await apiClient.patch<ReportDto>(`/v1/reports/${id}`, input);
+  return data;
+}
+
+/**
+ * Sửa báo cáo dựng trên MÔ HÌNH — §10.9.
+ *
+ * Đường riêng vì `config` là hình dạng khác hẳn: toàn ID thay cho tên cột. Gửi
+ * nhầm sang `updateReport` thì backend đọc ra một cấu hình rỗng và báo cáo mất
+ * biểu đồ — nên hai vế đều chặn, xem chú thích ở hai route.
+ */
+export async function updateModelReport(
+  id: number,
+  input: UpdateModelReportInput,
+): Promise<ReportDto> {
+  const { data } = await apiClient.patch<ReportDto>(`/v1/reports/${id}/from-datamodel`, input);
+  return data;
+}
+
+/**
+ * Số liệu của mọi ô trên MỘT TRANG — một request, xem route cùng tên.
+ *
+ * `pageId === null` nghĩa là "trang đầu", và backend cũng rơi về đó khi mã trang
+ * không còn tồn tại — trang vừa bị người khác xoá thì rơi về đầu chứ không phải
+ * ra một màn hình lỗi.
+ */
+export async function fetchReportCanvasData(
+  id: number,
+  pageId: string | null,
+): Promise<ReportCanvasDataDto> {
+  const { data } = await apiClient.get<ReportCanvasDataDto>(`/v1/reports/${id}/canvas-data`, {
+    ...(pageId === null ? {} : { params: { pageId } }),
+  });
+  return data;
+}
+
+/** Tạo báo cáo NHIỀU biểu đồ — §10.10. */
+export async function createCanvasReport(input: CreateCanvasReportInput): Promise<ReportDto> {
+  const { data } = await apiClient.post<ReportDto>('/v1/reports/canvas', input);
+  return data;
+}
+
+/**
+ * Lưu một khung — §10.10.
+ *
+ * ⚠️ Cũng là đường CHUYỂN ĐỔI: gọi nó trên một báo cáo một-biểu-đồ sẽ biến nó
+ * thành báo cáo nhiều biểu đồ, và không có đường ngược lại. Xem route cùng tên.
+ */
+export async function updateCanvasReport(
+  id: number,
+  input: UpdateCanvasReportInput,
+): Promise<ReportDto> {
+  const { data } = await apiClient.patch<ReportDto>(`/v1/reports/${id}/canvas`, input);
   return data;
 }
 

@@ -22,7 +22,25 @@ import type { MeasureFormat } from './datamodel';
  * dựng tên cube. Một ID bịa ra không trỏ được sang mô hình của người khác.
  */
 
-export const CHART_TYPES = ['bar', 'line', 'area', 'pie', 'table'] as const;
+/**
+ * ⚠️ NỐI VÀO CUỐI, không chèn vào giữa.
+ *
+ * Danh sách này là bản sao của `reports.chart_type` — một ENUM của MySQL, mà
+ * MySQL lưu ENUM theo SỐ THỨ TỰ. Chèn `'hbar'` vào sau `'bar'` cho đẹp mắt sẽ
+ * đổi nghĩa của mọi dòng đã lưu: báo cáo đang là `'line'` lặng lẽ thành
+ * `'hbar'`. Ba loại thêm ở §10.9 vì vậy đứng cuối, dù thứ tự đó không phải thứ
+ * tự người dùng nên thấy — thứ tự hiển thị do trình dựng biểu đồ tự sắp.
+ */
+export const CHART_TYPES = [
+  'bar',
+  'line',
+  'area',
+  'pie',
+  'table',
+  'hbar',
+  'scatter',
+  'heatmap',
+] as const;
 export type ChartType = (typeof CHART_TYPES)[number];
 
 export const CHART_TYPE_LABELS: Record<ChartType, string> = {
@@ -31,6 +49,248 @@ export const CHART_TYPE_LABELS: Record<ChartType, string> = {
   area: 'Biểu đồ miền',
   pie: 'Biểu đồ tròn',
   table: 'Bảng số liệu',
+  hbar: 'Biểu đồ thanh ngang',
+  scatter: 'Biểu đồ phân tán',
+  heatmap: 'Bản đồ nhiệt',
+};
+
+/**
+ * Một câu nói loại biểu đồ này ĐỌC RA ĐIỀU GÌ, không phải nó trông thế nào.
+ *
+ * Người đứng trước tám ô vuông trong trình dựng không thiếu hình minh hoạ —
+ * họ thiếu câu trả lời cho "cái nào hợp với số liệu tôi vừa kéo vào". Nên mỗi
+ * câu nói về DỮ LIỆU chứ không về hình: "so sánh giữa các nhóm" giúp chọn,
+ * "các cột đứng cạnh nhau" thì không.
+ */
+export const CHART_TYPE_HINTS: Record<ChartType, string> = {
+  bar: 'So sánh giá trị giữa các nhóm. Chọn mặc định khi chưa biết chọn gì.',
+  hbar: 'Như biểu đồ cột, nhưng tên nhóm dài vẫn đọc được vì nó nằm ngang.',
+  line: 'Diễn biến theo thời gian hoặc theo một chiều có thứ tự.',
+  area: 'Như đường, nhưng nhấn vào ĐỘ LỚN tích luỹ bên dưới.',
+  pie: 'Tỉ trọng của từng phần trong một tổng. Quá 6–7 nhóm là không đọc nổi.',
+  scatter: 'Từng nhóm là một điểm — thấy ngay nhóm nào lệch hẳn khỏi số còn lại.',
+  heatmap: 'Hai chiều bắt chéo nhau, giá trị đọc bằng độ đậm của màu.',
+  table: 'Con số chính xác, không diễn giải. Dùng khi người đọc cần tra cứu.',
+};
+
+/**
+ * Loại biểu đồ nào dùng được chiều thứ hai (tách chuỗi / tô màu).
+ *
+ * Ba trạng thái chứ không hai:
+ *   `'no'`        không nhận — biểu đồ tròn đã dùng màu để phân lát cắt rồi.
+ *   `'optional'`  nhận thì tách chuỗi, không nhận thì vẽ một chuỗi duy nhất.
+ *   `'required'`  BẮT BUỘC — bản đồ nhiệt cần đủ hai trục mới có ô để tô.
+ *
+ * Trình dựng đọc bảng này để bật/tắt ô "Nhóm màu" và để chặn nút Lưu, nên nó
+ * phải nằm ở `shared`: backend kiểm lại cùng một luật ở `POST /reports/
+ * from-datamodel`, và hai bảng chép tay sẽ lệch nhau ngay lần thêm loại thứ chín.
+ */
+export const CHART_SERIES_SUPPORT: Record<ChartType, 'no' | 'optional' | 'required'> = {
+  bar: 'optional',
+  hbar: 'optional',
+  line: 'optional',
+  area: 'optional',
+  scatter: 'optional',
+  heatmap: 'required',
+  pie: 'no',
+  table: 'optional',
+};
+
+/** Loại biểu đồ có xếp chồng được không — chỉ hỏi khi đã có chiều thứ hai. */
+export const CHART_STACKABLE: readonly ChartType[] = ['bar', 'hbar', 'area'];
+
+/** Loại biểu đồ in được con số lên từng mark. Xem `ReportChartOptionsDto`. */
+export const CHART_VALUE_LABELS: readonly ChartType[] = ['bar', 'hbar', 'heatmap'];
+
+/**
+ * Bảng màu của biểu đồ — những bảng người dùng CHỌN ĐƯỢC hôm nay.
+ *
+ * Thứ tự trong mảng này là thứ tự trong bộ chọn.
+ *
+ * ─── Vì sao chỉ còn HAI, và vì sao `brand` không nằm trong đó ───────────────
+ *
+ * Bộ chọn từng có ba dòng, và dòng đầu là `brand` — "một màu thương hiệu". Nó
+ * trông y hệt dòng thứ hai: cả hai bắt đầu bằng một ô vuông xanh dương, nên
+ * người dùng đọc ra hai lựa chọn giống nhau và không biết chọn cái nào.
+ *
+ * Nó giống nhau vì nó THẬT SỰ không làm gì cả. Biểu đồ một chuỗi tô bằng màu
+ * thương hiệu bất kể bảng màu nào đang chọn (xem `mark.color` trong
+ * `chartSpec`), còn biểu đồ nhiều chuỗi thì `brand` rơi về đúng bảng mặc
+ * định. Một lựa chọn không đổi được một pixel nào là một lựa chọn nên biến mất,
+ * không phải một lựa chọn nên giải thích thêm.
+ *
+ * Nên `brand` xuống `CHART_PALETTES_LEGACY`: báo cáo đã lưu vẫn nhận nó, vẫn
+ * vẽ ra y hệt, chỉ không được mời chọn nữa. Xem `normalizePalette`.
+ *
+ * ─── Vì sao tên nói về CẢ DÃY, không nói về màu đầu tiên ────────────────────
+ *
+ * Hai tên cũ là "Power BI" và "Xanh ngọc". Cái đầu mượn tên một sản phẩm khác
+ * ngay trong ứng dụng của người dùng; cái sau đặt tên cho ĐÚNG MỘT ô trong tám
+ * ô, nên hàng chữ "Xanh ngọc" nằm cạnh một dãy có cam, đỏ, tím và vàng.
+ *
+ * Tên mới nói về tính chất của cả dãy — cái duy nhất người chọn thật sự đang
+ * chọn.
+ */
+export const CHART_PALETTES = ['bright', 'muted'] as const;
+
+/** Bảng dùng khi cấu hình không nói gì, hoặc nói một bảng không phân loại được. */
+export const DEFAULT_CHART_PALETTE = 'bright' as const;
+
+/**
+ * Bảng màu CŨ — không còn mời chọn, nhưng vẫn phải vẽ ra y hệt.
+ *
+ * Báo cáo đã lưu mang một trong bốn tên này trong cột `config`, và mở lại rồi
+ * bấm Lưu sẽ gửi chính nó lên. Bỏ khỏi `z.enum` là biến mọi báo cáo cũ thành
+ * không lưu lại được; đổi màu của chúng là lặng lẽ vẽ lại báo cáo của người
+ * khác. Nên chúng ở lại, đúng màu cũ, chỉ không xuất hiện trong bộ chọn nữa.
+ *
+ * Bộ chọn vẫn HIỆN bảng màu cũ mà báo cáo đang dùng — xem `PaletteChoice`.
+ * Giấu nó đi thì mở một báo cáo cũ sẽ thấy bộ chọn tô sáng một bảng màu không
+ * phải bảng đang vẽ.
+ */
+export const CHART_PALETTES_LEGACY = [
+  'brand',
+  'powerbi',
+  'teal',
+  'tableau10',
+  'tableau20',
+  'pastel',
+  'dark',
+] as const;
+
+export const CHART_PALETTES_ALL = [...CHART_PALETTES, ...CHART_PALETTES_LEGACY] as const;
+export type ChartPalette = (typeof CHART_PALETTES_ALL)[number];
+
+export const CHART_PALETTE_LABELS: Record<ChartPalette, string> = {
+  bright: 'Tươi sáng',
+  muted: 'Trầm dịu',
+  brand: 'Một màu thương hiệu (cũ)',
+  powerbi: 'Tươi sáng (tên cũ)',
+  teal: 'Xanh ngọc (cũ)',
+  tableau10: 'Phân loại 10 màu (cũ)',
+  tableau20: 'Phân loại 20 màu (cũ)',
+  pastel: 'Pastel dịu (cũ)',
+  dark: 'Đậm tương phản (cũ)',
+};
+
+/**
+ * Một câu nói bảng màu này HỢP VỚI VIỆC GÌ — chỉ cho những bảng còn được mời.
+ *
+ * Dãy ô vuông đã cho thấy màu; câu này trả lời câu hỏi còn lại, "vậy tôi chọn
+ * cái nào". Hai dãy đều tám màu và đều tách bạch, nên khác biệt thật nằm ở nơi
+ * biểu đồ sẽ được nhìn chứ không ở chỗ nào đẹp hơn.
+ */
+export const CHART_PALETTE_HINTS: Record<(typeof CHART_PALETTES)[number], string> = {
+  bright: 'Màu mạnh, nổi trên màn hình.',
+  muted: 'Cùng tám hướng màu nhưng dịu hơn, đỡ chói khi nhìn lâu.',
+};
+
+/**
+ * Bảng màu cũ nào vẽ y hệt một bảng còn được mời.
+ *
+ * Chỉ `brand` và `powerbi` — hai cái tên đã đổi mà màu thì không đổi một mã
+ * nào. Đưa chúng về tên mới ngay lúc nạp là điều kiện để bộ chọn không phải
+ * hiện thêm một dòng "(cũ)" cho thứ đang vẽ giống hệt dòng ngay trên nó.
+ *
+ * `teal` KHÔNG có mặt: bảng "Trầm dịu" là một dãy màu KHÁC, không phải `teal`
+ * đổi tên. Gộp nó vào đây sẽ lặng lẽ vẽ lại mọi báo cáo đang dùng `teal`.
+ */
+const PALETTE_ALIASES: Partial<Record<ChartPalette, (typeof CHART_PALETTES)[number]>> = {
+  brand: DEFAULT_CHART_PALETTE,
+  powerbi: 'bright',
+};
+
+/**
+ * Tên bảng màu mà bộ chọn nên tô sáng, cho một giá trị đã lưu bất kỳ.
+ *
+ * An toàn đúng vì `PALETTE_ALIASES` chỉ chứa những bảng vẽ ra KHÔNG KHÁC một
+ * pixel. Người dùng mở báo cáo cũ, thấy đúng bảng đang vẽ được tô sáng, bấm Lưu
+ * — và cấu hình đổi tên mà biểu đồ đứng yên.
+ */
+export function normalizePalette(palette: ChartPalette | undefined): ChartPalette {
+  if (palette === undefined) return DEFAULT_CHART_PALETTE;
+  return PALETTE_ALIASES[palette] ?? palette;
+}
+
+/**
+ * Màu THẬT của từng bảng, theo đúng thứ tự gán cho chuỗi thứ 1, 2, 3…
+ *
+ * ═══ Vì sao là danh sách hex, không phải tên scheme của Vega ════════════════
+ *
+ * Bảng màu cũ khai `scheme: 'tableau10'` — một cái tên mà chỉ Vega hiểu. Hậu
+ * quả: bộ chọn không có cách nào VẼ được bảng màu ra cho người dùng nhìn, nên
+ * nó chỉ liệt kê "Phân loại 10 màu", "Pastel dịu", "Đậm tương phản" và bắt
+ * người ta chọn màu bằng cách đọc chữ. Danh sách hex ở đây vừa là thứ Vega
+ * nhận (`scale.range`), vừa là thứ bộ chọn tô ra thành từng ô vuông.
+ *
+ * ═══ Vì sao ĐÚNG những màu này ══════════════════════════════════════════════
+ *
+ * Cả hai dãy đều được kiểm BẰNG MÁY chứ không bằng mắt, và cùng năm phép: dải
+ * sáng an toàn, sàn sắc độ, khoảng cách ΔE giữa hai màu LIỀN KỀ dưới cả ba kiểu
+ * loạn sắc (protan/deutan/tritan), khoảng cách với mắt thường, và tương phản
+ * với nền. Cả hai PASS cả năm, không một cảnh báo.
+ *
+ * `bright` xuất phát từ bảng mặc định của Power BI với ba màu bị kéo vào dải:
+ *
+ *   #12239E -> #2F4BBF   xanh đậm và tím đậm nằm DƯỚI dải sáng an toàn: trên
+ *   #6B007B -> #8E2A9E   nền trắng chúng đọc ra gần như cùng một vệt tối
+ *   #D9B300 -> #B08A00   vàng gốc chỉ đạt tương phản 1,97:1 với nền — dưới 3:1
+ *
+ * `muted` được dựng từ đầu trong không gian OKLCH với sắc độ 0,11–0,13 (thấp
+ * hơn hẳn `bright`) — đó là thứ làm nó "dịu". Sáng tối XEN KẼ nhau chứ không
+ * đều: độ sáng là chiều duy nhất mắt loạn sắc vẫn đọc được, nên hai màu cạnh
+ * nhau luôn lệch nhau một bậc sáng. Không có nó thì cặp đỏ–lục trượt ngay.
+ *
+ * ⚠️ Thứ tự trong hai mảng KHÔNG phải để cho đẹp: hai màu cạnh nhau là hai màu
+ * dễ bị đem so nhất, nên chúng được xếp để cách nhau xa nhất. Đổi thứ tự cũng
+ * là đổi bảng màu — CHẠY LẠI bộ kiểm, đừng ước lượng bằng mắt.
+ *
+ * ⚠️ Bảng cũ có mặt ở đây thì phải giữ NGUYÊN dãy màu của nó (`teal`), hoặc
+ * trỏ về đúng dãy nó vẫn vẽ (`powerbi`). Sửa một mã là lặng lẽ vẽ lại báo cáo
+ * người khác đã lưu.
+ */
+const BRIGHT = [
+  '#118DFF',
+  '#E66C37',
+  '#2F4BBF',
+  '#B08A00',
+  '#8E2A9E',
+  '#D64550',
+  '#744EC2',
+  '#E044A7',
+] as const;
+
+export const CHART_PALETTE_COLORS: Partial<Record<ChartPalette, readonly string[]>> = {
+  bright: BRIGHT,
+  muted: ['#2E69B2', '#C87F37', '#7B52A4', '#089CA2', '#AF4C4D', '#8D8F37', '#A64C7B', '#4EA364'],
+  // Tên cũ của `bright`, cùng một dãy — không phải bản sao chép tay.
+  powerbi: BRIGHT,
+  teal: ['#00A19B', '#D2691E', '#3D6FD9', '#C94F5E', '#7B3FA0', '#A8761B', '#B3477F', '#4F9A3F'],
+  // `brand` cố ý VẮNG MẶT: màu của nó đến từ biến CSS lúc chạy, không phải từ
+  // một danh sách. Xem `normalizePalette` — nó không bao giờ tới được đây nữa.
+};
+
+/**
+ * Thứ tự các nhóm trên trục.
+ *
+ * Hai cặp, mỗi cặp hai chiều: theo GIÁ TRỊ và theo TÊN. Mặc định là
+ * `'value'` — thứ tự backend đã trả về — nên cấu hình cũ không có trường này
+ * vẫn vẽ ra đúng biểu đồ cũ.
+ *
+ * ⚠️ Sắp xếp chỉ đụng những nhóm ĐANG HIỆN. Trần nhóm ("Số nhóm tối đa") vẫn
+ * cắt theo giá trị LỚN NHẤT ở phía backend, nên `'value-asc'` cho ra "N nhóm
+ * lớn nhất, xếp ngược" chứ không phải "N nhóm nhỏ nhất" — muốn nhóm nhỏ nhất
+ * thì phải đổi truy vấn, không phải đổi cách sắp. Trình dựng nói câu đó ngay
+ * dưới ô chọn thay vì để người dùng tự suy ra từ một biểu đồ trông hợp lý.
+ */
+export const CHART_SORTS = ['value', 'value-asc', 'label', 'label-desc'] as const;
+export type ChartSort = (typeof CHART_SORTS)[number];
+
+export const CHART_SORT_LABELS: Record<ChartSort, string> = {
+  value: 'Theo giá trị (lớn → nhỏ)',
+  'value-asc': 'Theo giá trị (nhỏ → lớn)',
+  label: 'Theo tên (A → Z)',
+  'label-desc': 'Theo tên (Z → A)',
 };
 
 /** Phép tổng hợp khi nhiều dòng rơi vào cùng một nhóm. */
@@ -62,6 +322,71 @@ export interface ReportConfigDto {
   limit: number;
 }
 
+/**
+ * Khi dữ liệu nhiều hơn trần nhóm thì GIỮ LẠI nhóm nào.
+ *
+ * ─── Vì sao cần một ô chọn cho việc này ─────────────────────────────────────
+ *
+ * Trần nhóm luôn tồn tại: một chiều có ba nghìn giá trị mà vẽ hết thì không đọc
+ * được gì. Nhưng trước bản này màn hình chỉ nói "Số nhóm tối đa: 20" và không
+ * nói MỘT CHỮ nào về việc 20 nhóm đó được chọn ra sao — người dùng đọc nó thành
+ * "hai mươi nhóm ngẫu nhiên nào đó".
+ *
+ * Nó chưa bao giờ ngẫu nhiên: backend sắp giảm dần theo thước đo rồi cắt. Nhưng
+ * một luật không nói ra thì cũng như không có, và "20 nhóm lớn nhất" với "20
+ * nhóm nhỏ nhất" là hai câu hỏi khác nhau mà người dùng đều có quyền hỏi.
+ *
+ * ⚠️ Đây là trường ĐỔI SỐ LIỆU, nên nó nằm trong `ReportModelConfigDto` chứ
+ * không phải `ReportChartOptionsDto`. Nhầm chỗ là nó không vào khoá cache, và
+ * đổi từ "lớn nhất" sang "nhỏ nhất" sẽ trả về đúng câu trả lời cũ.
+ */
+export const GROUP_PICKS = ['top', 'bottom'] as const;
+export type GroupPick = (typeof GROUP_PICKS)[number];
+
+export const GROUP_PICK_LABELS: Record<GroupPick, string> = {
+  top: 'Nhóm lớn nhất',
+  bottom: 'Nhóm nhỏ nhất',
+};
+
+/**
+ * Phần VƯỢT QUÁ trần nhóm đi đâu — §10.12.
+ *
+ * ─── Hai câu trả lời, và chúng loại trừ nhau ────────────────────────────────
+ *
+ *   `'other'`  gộp tất cả phần còn lại thành MỘT cột "Khác". Người đọc thấy
+ *              được phần bị cắt LỚN CỠ NÀO, nhưng không bao giờ thấy bên trong
+ *              nó có những nhóm gì. Đây là hành vi từ §10.8, nên nó là mặc định
+ *              và mọi báo cáo đã lưu giữ nguyên từng con số.
+ *
+ *   `'pages'`  chia dữ liệu thành TRANG, mỗi trang `limit` nhóm, và biểu đồ
+ *              mọc ra hai nút ‹ › ở góc dưới. Không nhóm nào bị giấu — chúng
+ *              chỉ nằm ở trang khác.
+ *
+ * Không gộp được hai thứ này. Một cột "Khác" trên trang 2 sẽ có nghĩa là "phần
+ * còn lại BÊN DƯỚI trang này", tức không tính những nhóm ở trang 1 — một cái
+ * cột trông y hệt cột "Khác" của trang 1 mà mang một con số khác hẳn. Nên chọn
+ * chia trang là bỏ hẳn cột "Khác", ở mọi trang kể cả trang đầu.
+ *
+ * ⚠️ Đây là trường ĐỔI SỐ LIỆU (nó đổi `offset` và bỏ một dòng khỏi kết quả),
+ * nên nó nằm trong `ReportModelConfigDto` chứ không phải `ReportChartOptionsDto`.
+ */
+export const GROUP_OVERFLOWS = ['other', 'pages'] as const;
+export type GroupOverflow = (typeof GROUP_OVERFLOWS)[number];
+
+export const GROUP_OVERFLOW_LABELS: Record<GroupOverflow, string> = {
+  other: 'Gộp thành một cột “Khác”',
+  pages: 'Chia trang — bấm ‹ › để xem hết',
+};
+
+/**
+ * Trần số trang.
+ *
+ * Không phải giới hạn kỹ thuật mà là điểm dừng cho `offset`: 200 trang × 100
+ * nhóm là hai vạn nhóm, và ai bấm tới đó thì thứ họ cần là một cái bảng chứ
+ * không phải một biểu đồ.
+ */
+export const MAX_GROUP_PAGE = 199;
+
 /** Nguồn số liệu của một báo cáo — xem ghi chú đầu file. */
 export const REPORT_SOURCES = ['dataset', 'datamodel'] as const;
 export type ReportSource = (typeof REPORT_SOURCES)[number];
@@ -88,6 +413,242 @@ export interface ReportModelConfigDto {
   measureId: number;
   /** Số nhóm tối đa hiện trên biểu đồ; phần còn lại gộp thành "Khác". */
   limit: number;
+  /**
+   * Vượt trần thì giữ nhóm LỚN NHẤT hay NHỎ NHẤT — xem `GROUP_PICKS`.
+   *
+   * Vắng mặt = `'top'`, đúng hành vi từ §10.8, nên báo cáo đã lưu không đổi
+   * một con số nào.
+   *
+   * Chỉ chọn xem những nhóm NÀO được lấy. Thứ tự chúng nằm trên trục là việc
+   * của `options.sort`, và backend luôn trả về giảm dần bất kể `pick` — hai
+   * việc đó tách hẳn nhau, nếu không thì đổi `pick` sẽ lặng lẽ làm sai nhãn
+   * "lớn → nhỏ" của ô sắp xếp.
+   */
+  pick?: GroupPick | undefined;
+  /**
+   * Phần vượt trần đi đâu: gộp thành "Khác", hay chia trang — xem `GROUP_OVERFLOWS`.
+   *
+   * Vắng mặt = `'other'`, đúng hành vi từ §10.8, nên báo cáo đã lưu không đổi
+   * một con số nào.
+   *
+   * ⚠️ Trang ĐANG XEM không nằm ở đây và cố ý không được lưu. Nó là chỗ người
+   * đọc đang đứng trong một lượt xem, không phải một thuộc tính của báo cáo —
+   * lưu nó nghĩa là mở báo cáo ra lần sau sẽ rơi vào trang 7 mà không hiểu vì
+   * sao. Xem tham số `page` của `aggregateFromModel`.
+   */
+  overflow?: GroupOverflow | undefined;
+  /**
+   * Chiều THỨ HAI — tách biểu đồ thành nhiều chuỗi, mỗi chuỗi một màu (§10.9).
+   *
+   * Vắng mặt hoặc `null` = biểu đồ một chuỗi, tức đúng hành vi từ §10.8. Mọi
+   * báo cáo đã lưu trước bản này đọc ra đúng như cũ, nên không cần migrate dữ
+   * liệu — đó là lý do nó là trường TUỲ CHỌN chứ không phải một `config` phiên
+   * bản 2.
+   *
+   * ⚠️ Có chiều thứ hai thì KHÔNG còn dòng "Khác": phần bị cắt không chia được
+   * cho từng chuỗi mà không bịa ra số. Xem `aggregateFromModel`.
+   */
+  seriesDimensionId?: number | null | undefined;
+  /**
+   * Cách TRÌNH BÀY, không đụng tới con số — xem `ReportChartOptionsDto`.
+   *
+   * Nằm trong cùng một cột `config` vì nó cùng vòng đời với báo cáo và cùng
+   * người sửa. Tách ra cột riêng nghĩa là một migration cho mỗi lần thêm một
+   * công tắc, đúng cái giá mà việc lưu JSON sinh ra để khỏi phải trả.
+   */
+  options?: ReportChartOptionsDto | undefined;
+}
+
+/**
+ * Tuỳ chọn TRÌNH BÀY của biểu đồ — §10.9.
+ *
+ * Ranh giới với `ReportModelConfigDto` rất cứng và đáng giữ: mọi thứ ở đây đổi
+ * HÌNH mà không đổi SỐ. Nhờ vậy backend không phải đọc khối này (nó không ảnh
+ * hưởng tới truy vấn Cube), và bật tắt một công tắc trong trình dựng không tốn
+ * một vòng tới ClickHouse.
+ *
+ * Mọi trường đều tuỳ chọn và mọi giá trị vắng mặt đều rơi về mặc định của §10.8
+ * — cấu hình cũ vì vậy vẫn vẽ ra đúng biểu đồ cũ.
+ */
+export interface ReportChartOptionsDto {
+  /** Xếp chồng thay vì đặt cạnh nhau. Chỉ có nghĩa khi đã có chiều thứ hai. */
+  stacked?: boolean | undefined;
+  showLegend?: boolean | undefined;
+  /** In con số lên từng mark — chỉ vài loại làm được, xem `CHART_VALUE_LABELS`. */
+  showValues?: boolean | undefined;
+  /**
+   * Thứ tự các nhóm trên trục — xem `CHART_SORTS`.
+   *
+   * `'value'` (mặc định) giữ NGUYÊN thứ tự backend trả về, tức giảm dần theo
+   * thước đo, và nhờ vậy dòng "Khác" nằm cuối như nó phải thế.
+   *
+   * ⚠️ Ba lựa chọn còn lại SẮP LẠI cả dòng "Khác" theo đúng luật của chúng —
+   * "Khác" là một nhãn như mọi nhãn khác trong mắt Vega. Đó là hành vi của
+   * `'label'` từ đầu và của mọi công cụ BI, nên `'value-asc'` cũng theo, chứ
+   * không phải một ngoại lệ mới.
+   */
+  sort?: ChartSort | undefined;
+  palette?: ChartPalette | undefined;
+}
+
+/* ─── §10.10 Khung nhiều biểu đồ ─────────────────────────────────────────────
+ *
+ * Tới §10.9 một báo cáo là MỘT biểu đồ. Điều đó đủ để trả lời một câu hỏi, và
+ * không đủ để kể một câu chuyện: "doanh thu theo khu vực" cạnh "doanh thu theo
+ * tháng" cạnh một bảng chi tiết là ba câu hỏi phải đọc CÙNG NHAU mới ra nghĩa.
+ * Trước bản này người dùng phải mở ba trang và tự nhớ.
+ *
+ * ─── Vì sao lưới chứ không phải toạ độ pixel ───────────────────────────────
+ *
+ * Vị trí lưu bằng ĐƠN VỊ LƯỚI, không phải pixel. Người dựng báo cáo trên màn
+ * 27 inch, người xem mở trên laptop 13 inch — lưu pixel nghĩa là mọi ô lệch chỗ
+ * ở mọi màn hình khác màn hình đã dựng. Lưới 12 cột co giãn theo bề rộng thật,
+ * nên bố cục giữ nguyên TỈ LỆ ở mọi khổ.
+ *
+ * 12 vì nó chia hết cho 2, 3, 4 và 6 — bốn cách chia mà người ta thật sự dùng.
+ *
+ * ─── Các ô ĐƯỢC PHÉP đè lên nhau ───────────────────────────────────────────
+ *
+ * Không có bước tự đẩy nhau ra như `react-grid-layout`. Đẩy tự động nghĩa là
+ * kéo một ô làm ba ô khác nhảy chỗ, và người dùng mất luôn bố cục vừa sắp.
+ * Cho đè lên nhau là hành vi của Power BI, và nó dễ đoán hơn hẳn.
+ */
+
+/** Số cột của lưới. Đổi số này là đổi nghĩa của mọi `x`/`w` đã lưu. */
+export const CANVAS_COLUMNS = 12;
+
+/**
+ * Chiều cao một hàng lưới, tính bằng pixel.
+ *
+ * Dùng CHUNG giữa trình dựng và trang xem — hai con số khác nhau nghĩa là báo
+ * cáo dựng xong trông một kiểu, mở ra trông một kiểu khác.
+ */
+export const CANVAS_ROW_HEIGHT = 44;
+
+/** Kích thước tối thiểu của một ô, tính bằng đơn vị lưới. */
+export const CANVAS_MIN_W = 2;
+export const CANVAS_MIN_H = 3;
+
+/** Kích thước một ô mới thả xuống — nửa bề rộng, đủ cao để đọc được trục. */
+export const CANVAS_DEFAULT_W = 6;
+export const CANVAS_DEFAULT_H = 7;
+
+/**
+ * Trần số ô trên MỘT TRANG.
+ *
+ * Không phải giới hạn kỹ thuật mà là giới hạn CHI PHÍ: mỗi ô là một truy vấn
+ * Cube riêng khi mở trang. Hai mươi ô là hai mươi lượt quét ClickHouse cho một
+ * lần bấm, và không ai đọc nổi hai mươi biểu đồ cùng lúc.
+ *
+ * ⚠️ Trần này là MỖI TRANG, không phải mỗi báo cáo — và điều đó không nới lỏng
+ * lập luận chi phí ở trên, vì `GET /reports/:id/canvas-data` chỉ tính số liệu
+ * cho ĐÚNG một trang. Mở một báo cáo mười trang vẫn tốn đúng một trang truy vấn.
+ */
+export const CANVAS_MAX_VISUALS = 12;
+
+/**
+ * Trần số trang trên một báo cáo — §10.12.
+ *
+ * Đây là giới hạn về việc ĐỌC ĐƯỢC, không phải về chi phí (chỉ trang đang mở
+ * mới tốn truy vấn). Quá mười cái thẻ ở mép dưới thì không còn đọc được cái nào
+ * là cái nào, và thứ người dùng cần khi đó là hai báo cáo chứ không phải một.
+ */
+export const CANVAS_MAX_PAGES = 10;
+
+export const VISUAL_TITLE_MAX = 120;
+export const PAGE_NAME_MAX = 60;
+
+/** Một ô trên khung — một biểu đồ kèm chỗ đứng của nó. */
+export interface ReportVisualDto {
+  /**
+   * Khoá ổn định do trình duyệt sinh, KHÔNG phải số thứ tự trong mảng.
+   *
+   * Số thứ tự đổi mỗi lần xoá một ô ở giữa, và khi đó dữ liệu trả về cho ô số 2
+   * sẽ được vẽ vào ô đã tụt xuống vị trí đó — biểu đồ đúng, số liệu của ô khác.
+   */
+  id: string;
+  chartType: ChartType;
+  config: ReportModelConfigDto;
+  /** Tiêu đề riêng; vắng mặt hoặc rỗng = dùng câu tự sinh từ chiều và thước đo. */
+  title?: string | undefined;
+  /** Cột bắt đầu, `0` tới `CANVAS_COLUMNS - 1`. */
+  x: number;
+  /** Hàng bắt đầu, đếm từ `0` và không có trần — khung cuộn dọc. */
+  y: number;
+  w: number;
+  h: number;
+}
+
+/**
+ * Một TRANG của báo cáo — §10.12.
+ *
+ * ─── Vì sao một báo cáo cần nhiều trang ─────────────────────────────────────
+ *
+ * §10.10 cho một báo cáo nhiều biểu đồ trên MỘT khung, và điều đó đủ cho tới
+ * lúc câu chuyện dài hơn một màn hình. "Tổng quan" và "Chi tiết theo khu vực"
+ * là hai thứ người ta đọc NỐI TIẾP nhau, không phải cạnh nhau — nhồi cả hai vào
+ * một khung là bắt người đọc cuộn, và cuộn thì mất chỗ vừa đọc.
+ *
+ * Đúng mô hình của một sheet trong Excel, và cố ý: người dùng đã biết cách dùng
+ * nó rồi.
+ *
+ * ─── Trang RỖNG là hợp lệ ───────────────────────────────────────────────────
+ *
+ * `visuals` được phép rỗng. Người ta thêm một trang TRƯỚC rồi mới dựng biểu đồ
+ * cho nó, và bắt trang phải có sẵn một ô mới lưu được nghĩa là bấm Lưu giữa
+ * chừng sẽ làm biến mất một trang vừa tạo. Cả khung thì vẫn phải có ít nhất một
+ * ô — xem `reportCanvasSchema`.
+ */
+export interface ReportPageDto {
+  /** Khoá ổn định, cùng luật với `ReportVisualDto.id` và cùng lý do. */
+  id: string;
+  name: string;
+  visuals: ReportVisualDto[];
+}
+
+/**
+ * Khung của một báo cáo — một hoặc nhiều trang.
+ *
+ * ⚠️ Hình dạng CŨ (`{ visuals: [...] }`, tức §10.10) vẫn được đường ĐỌC nhận và
+ * quy về một trang duy nhất — xem `parseCanvas`. Không có bước migrate dữ liệu:
+ * cột `reports.canvas` là JSON, và một bản ghi cũ vẫn là một bản ghi đúng.
+ */
+export interface ReportCanvasDto {
+  pages: ReportPageDto[];
+}
+
+/** Mọi ô của mọi trang. Dùng khi câu hỏi thật sự là về cả báo cáo. */
+export function allVisuals(canvas: ReportCanvasDto): ReportVisualDto[] {
+  return canvas.pages.flatMap((p) => p.visuals);
+}
+
+/** Tạo báo cáo nhiều biểu đồ — §10.10. */
+export interface CreateCanvasReportInput {
+  datamodelId: number;
+  name: string;
+  canvas: ReportCanvasDto;
+}
+
+export interface UpdateCanvasReportInput {
+  name: string;
+  canvas: ReportCanvasDto;
+}
+
+/**
+ * Số liệu của MỘT ô.
+ *
+ * `error` là câu chữ chứ không phải mã lỗi, và nó nằm ở TỪNG ô chứ không ở cả
+ * request: một ô trỏ vào thước đo vừa bị xoá không được phép làm trắng cả trang
+ * — bảy ô còn lại vẫn đọc được, và ô hỏng tự nói ra nó hỏng vì sao.
+ */
+export interface ReportVisualDataDto {
+  visualId: string;
+  data: ReportDataDto | null;
+  error?: string | undefined;
+}
+
+export interface ReportCanvasDataDto {
+  visuals: ReportVisualDataDto[];
 }
 
 /**
@@ -122,6 +683,16 @@ export interface ReportDto {
   config: ReportConfigDto | null;
   /** Chỉ khi `source === 'datamodel'`. */
   modelConfig: ReportModelConfigDto | null;
+  /**
+   * Nhiều biểu đồ trên một khung — §10.10. Chỉ khi `source === 'datamodel'`.
+   *
+   * `null` = báo cáo MỘT biểu đồ, tức mọi báo cáo có trước §10.10. Trang xem
+   * phân nhánh trên chính trường này, nên không cần migrate dữ liệu cũ.
+   *
+   * ⚠️ Khi khác `null` thì ĐÂY là bản gốc, còn `chartType`/`modelConfig` chỉ là
+   * bản sao của `canvas.visuals[0]` — xem `updateCanvasReport`.
+   */
+  canvas: ReportCanvasDto | null;
   creatorName: string | null;
   createdAt: string;
   updatedAt: string;
@@ -162,14 +733,59 @@ export interface UpdateReportInput {
   config: ReportConfigDto;
 }
 
+/**
+ * Sửa một báo cáo ĐÃ dựng trên mô hình — §10.9.
+ *
+ * Đi đường riêng (`PATCH /reports/:id/from-datamodel`) chứ không nhồi vào
+ * `UpdateReportInput`, cùng lập luận với `CreateModelReportInput`: hai `config`
+ * là hai hình dạng không giao nhau (tên cột so với ID), và một union ở zod chỉ
+ * đẻ ra thông báo lỗi "không khớp nhánh nào".
+ *
+ * Trước bản này `PATCH /reports/:id` từ chối thẳng báo cáo trên mô hình với câu
+ * "hãy tạo báo cáo mới" — đúng vào lúc chưa có màn hình nào sửa được nó. Trình
+ * dựng biểu đồ là màn hình đó.
+ */
+export interface UpdateModelReportInput {
+  name: string;
+  chartType: ChartType;
+  config: ReportModelConfigDto;
+}
+
 /** Dữ liệu đã tổng hợp sẵn cho biểu đồ — frontend không tính lại gì. */
 export interface ReportDataDto {
-  rows: { label: string; value: number }[];
+  /**
+   * `series` chỉ có mặt khi cấu hình khai `seriesDimensionId` (§10.9).
+   *
+   * Thêm một trường TUỲ CHỌN vào từng dòng, chứ không đổi `rows` thành một hình
+   * dạng khác: nhánh bộ dữ liệu (§7.6) không bao giờ đặt nó, và trình vẽ chỉ
+   * cần hỏi `seriesLabel` có mặt hay không để biết mình đang vẽ một chuỗi hay
+   * nhiều chuỗi.
+   */
+  rows: { label: string; value: number; series?: string }[];
   /** Nhãn trục, lấy từ tên field người dùng đặt chứ không phải tên cột gốc. */
   dimensionLabel: string;
   measureLabel: string;
-  /** Có nhóm nào bị gộp vào "Khác" không. */
+  /** Có mặt = biểu đồ nhiều chuỗi, và đây là tên chiều tách chuỗi. */
+  seriesLabel?: string | undefined;
+  /**
+   * Có nhóm nào bị cắt khỏi biểu đồ không — để trang xem NÓI RA điều đó.
+   *
+   * Luôn `false` khi `paging` có mặt và chỉ có một chiều: chia trang thì không
+   * nhóm nào bị cắt, chúng chỉ nằm ở trang khác, và câu "chỉ hiện các nhóm lớn
+   * nhất" ở đó là nói sai.
+   */
   grouped: boolean;
+  /**
+   * Trang đang xem — chỉ có mặt khi cấu hình chọn `overflow: 'pages'` (§10.12).
+   *
+   * `hasMore` đến từ mẹo hỏi thừa MỘT dòng, cùng mẹo đã dùng cho `grouped`, nên
+   * nó KHÔNG tốn thêm một vòng nào tới Cube.
+   *
+   * Cố ý không có tổng số trang: biết nó đòi đếm toàn bộ giá trị phân biệt của
+   * chiều, tức một lượt quét nữa trên mỗi lần vẽ, cho một con số chỉ để in ra.
+   * "Còn nữa" hay "hết rồi" là thứ hai cái nút thật sự cần.
+   */
+  paging?: { page: number; hasMore: boolean } | undefined;
   /**
    * Cách ĐỌC con số, không phải cách tính nó — §10.6.
    *

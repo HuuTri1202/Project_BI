@@ -10,6 +10,7 @@ import {
   type AuthStatus,
   type LoginOutcome,
 } from './authContext';
+import { clearSnapshots } from '../services/querySnapshots';
 import { clearToken, readToken, writeToken } from './tokenStorage';
 
 interface Session {
@@ -49,9 +50,16 @@ export function AuthProvider({ children }: { children: ReactNode }): React.React
    * email và số liệu của tổ chức trước sẽ hiện ra cho người sau, ít nhất cho tới
    * lần refetch kế tiếp. Trên máy dùng chung đó là rò rỉ dữ liệu giữa hai tổ
    * chức, không phải lỗi hiển thị.
+   *
+   * `clearSnapshots()` là cùng một lập luận, cho một kho SỐNG LÂU HƠN: ảnh chụp
+   * số liệu báo cáo nằm trong `localStorage` nên nó qua được cả lần đóng trình
+   * duyệt. Không xoá thì người đăng nhập sau mở một báo cáo cũ và thấy doanh
+   * thu của người trước hiện ra một nhịp trước khi bị số mới đè lên — mà một
+   * nhịp là đủ để đọc. Xem `services/querySnapshots.ts`.
    */
   const clearSession = useCallback(() => {
     clearToken();
+    clearSnapshots();
     queryClient.clear();
     setSession(ANONYMOUS);
   }, [queryClient]);
@@ -138,6 +146,9 @@ export function AuthProvider({ children }: { children: ReactNode }): React.React
     async (tenantId: number): Promise<void> => {
       const res = await authApi.switchTenant(tenantId);
       writeToken(res.token);
+      // Ảnh chụp khoá theo id mô hình, mà id thì không mang tổ chức nào trong
+      // nó. Cùng lý do `queryClient.clear()` đứng ngay dưới.
+      clearSnapshots();
       queryClient.clear();
       setSession({
         status: 'authenticated',

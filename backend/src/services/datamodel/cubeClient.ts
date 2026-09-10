@@ -55,12 +55,39 @@ function sign(context: CubeSecurityContext): string {
   return jwt.sign(context, env.CUBEJS_API_SECRET, { expiresIn: TOKEN_TTL_SECONDS });
 }
 
+/**
+ * Bộ lọc của Cube.
+ *
+ * Hẹp đúng bằng thứ đang dùng: `equals` trên một danh sách giá trị, `notSet`
+ * cho ô trống, và `or` để ghép hai cái đó. Cube nhận nhiều toán tử hơn, nhưng
+ * khai thừa ở đây là mời người viết sau dùng chúng qua một đường chưa được kiểm
+ * — mà đường duy nhất tạo ra bộ lọc hiện nay là `aggregateWithSeries`, nơi giá
+ * trị đến từ chính một truy vấn của backend chứ không từ body request.
+ *
+ * ⚠️ KHÔNG có đường nào cho client tự khai bộ lọc: `explorerQueryBodySchema`
+ * không nhận trường này. Mở nó ra là mở một kênh gửi chuỗi tuỳ ý xuống tầng
+ * truy vấn, đúng thứ mà cả §10 được thiết kế để tránh.
+ */
+export type CubeFilter =
+  | { member: string; operator: 'equals'; values: string[] }
+  | { member: string; operator: 'notSet' }
+  | { or: CubeFilter[] };
+
 export interface CubeQuery {
   measures: string[];
   dimensions: string[];
   timeDimensions?: { dimension: string; granularity: string }[];
+  filters?: CubeFilter[];
   order?: Record<string, 'asc' | 'desc'>;
   limit?: number;
+  /**
+   * Bỏ qua bao nhiêu dòng đầu — chỉ dùng cho việc CHIA TRANG nhóm (§10.12).
+   *
+   * Chỉ có nghĩa khi đi kèm `order`, và `buildQuery` luôn đặt `order` khi có ít
+   * nhất một thước đo. Không có thứ tự ổn định thì trang 2 có thể trả lại chính
+   * những dòng của trang 1.
+   */
+  offset?: number;
 }
 
 export interface CubeLoadResult {

@@ -10,6 +10,7 @@ import type {
   ExplorerResultDto,
   ExplorerSqlDto,
   PageResult,
+  ReportDataDto,
 } from '@bi/shared';
 import {
   keepPreviousData,
@@ -19,7 +20,9 @@ import {
   type UseMutationResult,
   type UseQueryResult,
 } from '@tanstack/react-query';
+import { useMemo } from 'react';
 
+import { readSnapshot, snapshotIdOf, writeSnapshot } from '../../services/querySnapshots';
 import { useWorkspace } from '../../workspace/useWorkspace';
 import * as api from './api';
 import { dataModelKeys } from './keys';
@@ -47,6 +50,14 @@ import { dataModelKeys } from './keys';
  */
 export function useDataModels(
   query: Omit<api.DataModelListQuery, 'workspaceId'>,
+  /**
+   * `enabled: false` để HOÃN request cho tới lúc thật sự cần.
+   *
+   * Dùng ở hộp thoại chọn mô hình: nó nằm sẵn trong cây từ lúc trang chủ mở
+   * ra, nên không có cờ này thì mọi lượt ghé trang chủ đều kéo về một danh sách
+   * mà phần lớn không ai mở.
+   */
+  options?: { enabled?: boolean },
 ): UseQueryResult<PageResult<DataModelDto>> {
   const { current } = useWorkspace();
   const workspaceId = current?.id ?? null;
@@ -54,7 +65,7 @@ export function useDataModels(
   return useQuery({
     queryKey: dataModelKeys.list(workspaceId, query),
     queryFn: () => api.fetchDataModels({ ...query, workspaceId: workspaceId as number }),
-    enabled: workspaceId !== null,
+    enabled: workspaceId !== null && options?.enabled !== false,
     placeholderData: keepPreviousData,
   });
 }
@@ -105,9 +116,7 @@ export function useMeasures(id: number | null): UseQueryResult<DataModelMeasureD
   });
 }
 
-export function useRelationships(
-  id: number | null,
-): UseQueryResult<DataModelRelationshipDto[]> {
+export function useRelationships(id: number | null): UseQueryResult<DataModelRelationshipDto[]> {
   return useQuery({
     queryKey: dataModelKeys.relationships(id ?? 0),
     queryFn: () => api.fetchRelationships(id as number),
@@ -120,6 +129,98 @@ export function useExplorerFields(id: number | null): UseQueryResult<ExplorerFie
     queryKey: dataModelKeys.fields(id ?? 0),
     queryFn: () => api.fetchExplorerFields(id as number),
     enabled: id !== null,
+  });
+}
+
+/**
+ * Số liệu xem trước của trình dựng biểu đồ — §10.9.
+ *
+ * ═══ Vì sao là QUERY, trong khi Explorer dùng MUTATION ══════════════════════
+ *
+ * Explorer bắt bấm "Chạy truy vấn" vì ở đó người dùng tích dần nhiều trường rồi
+ * mới hỏi một lần — tự chạy sau mỗi ô tích là một lượt quét ClickHouse cho một
+ * câu hỏi chưa hoàn chỉnh.
+ *
+ * Trình dựng thì ngược lại: một chiều và một thước đo là ĐỦ để có biểu đồ, và
+ * mỗi lần đổi là một câu hỏi trọn vẹn. Bắt bấm thêm một nút ở đó là chèn một
+ * bước vào giữa "kéo thả" và "thấy kết quả" — đúng khoảnh khắc mà cả màn hình
+ * này tồn tại để rút ngắn.
+ *
+ * Khoá cache chỉ mang thứ đổi số liệu, nên đổi bảng màu không tốn vòng mạng
+ * nào, và quay lại một cấu hình vừa xem thì hiện ra ngay từ cache.
+ *
+ * `retry: false`: lỗi hay gặp nhất ở đây là 400 "chiều không còn trong mô hình"
+ * — thử lại ba lần không đổi được gì ngoài việc giữ người dùng chờ.
+ *
+ * ═══ Mở một báo cáo ĐÃ LƯU thì vẽ NGAY ══════════════════════════════════════
+ *
+ * Cache của react-query nằm trong bộ nhớ của tab: F5, hay mở lại sau khi đóng
+ * trình duyệt, là mất sạch. Nên trước bản này, mở một báo cáo đã lưu luôn bắt
+ * đầu bằng "Đang tính…" và vài giây chờ — để rồi vẽ ra ĐÚNG cái biểu đồ lần
+ * trước. Chậm nhất là lần đầu sau khi Cube khởi động hoặc sau khi mô hình đổi:
+ * đo được 4.638 ms, so với 49–175 ms khi Cube đã biên dịch xong schema.
+ *
+ * `querySnapshots` giữ câu trả lời cuối trên đĩa và nạp lại qua `initialData`.
+ * Không phải để KHỎI hỏi — `initialDataUpdatedAt` mang đúng lúc con số được
+ * tính, nên `staleTime` vẫn bắn một lượt làm mới ngay khi mở. Người dùng thấy
+ * biểu đồ ở khung hình đầu tiên, con số đúng tới sau, và ô tự nói "đang cập
+ * nhật…" trong lúc chờ.
+ *
+ * Ảnh chụp KHÔNG che được lỗi: `isError` vẫn thắng ở `CanvasBoard`, nên Cube
+ * chết là ô hiện câu lỗi chứ không phải một biểu đồ cũ trông như còn sống.
+ */
+export function useModelReportPreview(
+  id: number | null,
+  input: api.ModelReportPreviewInput | null,
+): UseQueryResult<ReportDataDto> {
+  const page = input?.page ?? 0;
+  const queryKey = dataModelKeys.reportPreview(id ?? 0, input?.config ?? null, page);
+  // `localStorage` là I/O đồng bộ. Đọc một lần cho mỗi khoá chứ không phải mỗi
+  // lần render — một ô đang được kéo re-render vài chục lần một giây.
+  const snapshotId = snapshotIdOf(queryKey);
+  /*
+   * CHỈ chụp trang đầu.
+   *
+   * Ảnh chụp tồn tại để "mở một báo cáo đã lưu là thấy biểu đồ ngay", và một
+   * báo cáo mở ra bao giờ cũng ở trang đầu. Chụp cả những trang người dùng lật
+   * qua là lấy chỗ của những báo cáo KHÁC trong một ngân sách 40 mục — đổi một
+   * thứ có ích lấy một thứ không ai đợi.
+   */
+  const cacheable = page === 0;
+  const saved = useMemo(
+    () => (cacheable ? readSnapshot<ReportDataDto>(snapshotId) : null),
+    [cacheable, snapshotId],
+  );
+
+  return useQuery({
+    /*
+     * Khoá theo `config`, KHÔNG theo cả `input`.
+     *
+     * `chartType` vẫn đi trong thân request — backend kiểm nó, và đó là lớp
+     * chặn cuối. Nhưng nó không đổi được SỐ LIỆU: trang tự quy chiều thứ hai về
+     * `null` cho loại không nhận nó, và tự chặn hẳn truy vấn với loại bắt buộc
+     * phải có mà chưa có. Nên hai loại biểu đồ với cùng một `config` luôn nhận
+     * về cùng một câu trả lời.
+     *
+     * Để `chartType` vào khoá thì lướt thử tám loại là tám lượt quét ClickHouse
+     * cho đúng một con số — đúng thứ khiến người dùng ngại bấm thử.
+     */
+    queryKey,
+    queryFn: async () => {
+      const data = await api.previewModelReport(id as number, input as api.ModelReportPreviewInput);
+      writeSnapshot(snapshotId, data);
+      return data;
+    },
+    enabled: id !== null && input !== null,
+    retry: false,
+    // Trải ra chứ không đặt `initialData: saved?.data`: `undefined` cho
+    // `initialData` là hợp lệ và có nghĩa "không có", nhưng nó vẫn đi kèm một
+    // `initialDataUpdatedAt` — query sẽ tưởng mình đang giữ dữ liệu cũ.
+    ...(saved === null ? {} : { initialData: saved.data, initialDataUpdatedAt: saved.at }),
+    // Giữ biểu đồ CŨ trên màn hình trong lúc nạp cấu hình mới. Không có nó thì
+    // mỗi lần thả một trường, khung biểu đồ trắng xoá rồi mới vẽ lại — nhấp
+    // nháy đúng vào lúc người dùng đang so sánh trước và sau.
+    placeholderData: keepPreviousData,
   });
 }
 
@@ -194,7 +295,9 @@ export function useSaveSchema(
  * bảng đúng một lần lúc tạo, và sau đó muốn thêm một bảng thì phải xoá cả mô
  * hình rồi dựng lại từ đầu, mất sạch alias, thước đo và quan hệ đã khai.
  */
-export function useAddDatasets(id: number): UseMutationResult<DataModelDetailDto, unknown, number[]> {
+export function useAddDatasets(
+  id: number,
+): UseMutationResult<DataModelDetailDto, unknown, number[]> {
   const invalidate = useInvalidateDataModel();
   return useMutation({
     mutationFn: (datasetIds) => api.addDatasets(id, datasetIds),

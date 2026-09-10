@@ -216,10 +216,58 @@ function unknownField(): HttpError {
  * chức — nên một ID bịa ra không trỏ được sang mô hình của người khác, nó chỉ
  * rơi vào `unknownField()`.
  */
+/**
+ * Bó truy vấn vào đúng một danh sách giá trị của MỘT chiều — §10.9.
+ *
+ * ⚠️ Đường NỘI BỘ, cố ý không có trong `ExplorerQueryDto`. Nghĩa là không client
+ * nào gửi được nó: `explorerQueryBodySchema` không khai trường này, và hai
+ * endpoint `/query` với `/query/sql` chỉ chuyển tiếp thân request đã qua zod.
+ *
+ * Chỉ `aggregateWithSeries` dùng, và giá trị nó truyền vào đến từ CHÍNH một
+ * truy vấn Cube ngay trước đó — không phải từ người dùng. Đó là điều kiện để
+ * mở đường này mà không phá luật "chuỗi đi vào truy vấn phải lấy từ database
+ * của ta".
+ */
+export interface QueryRestriction {
+  dimensionId: number;
+  /** Giá trị THÔ từ Cube, chưa qua `labelOf`. `null` = ô trống. */
+  values: (string | number | null)[];
+}
+
+/**
+ * Những thứ chỉ đường NỘI BỘ được dùng — không có trong hợp đồng HTTP.
+ *
+ * Gom vào một object thay vì thêm tham số vị trí thứ sáu: hai thứ trong đây
+ * không liên quan gì nhau, và `runExplorerQuery(a, b, c, d, [], 'asc')` ở chỗ
+ * gọi không nói được cái mảng rỗng kia là gì.
+ */
+interface InternalQueryOptions {
+  /** Bó truy vấn vào đúng những giá trị đã chọn — xem `QueryRestriction`. */
+  restrict?: readonly QueryRestriction[];
+  /**
+   * Chiều sắp theo thước đo đầu tiên. Mặc định `'desc'`.
+   *
+   * `'asc'` tồn tại cho đúng một việc: lấy các nhóm NHỎ NHẤT (`pick: 'bottom'`
+   * của báo cáo). Cắt top-N là một phép của TRUY VẤN, không phải của cách vẽ —
+   * sắp lại một tập đã cắt thì mãi mãi vẫn là các nhóm lớn nhất.
+   */
+  order?: 'asc' | 'desc';
+  /**
+   * Bỏ qua `offset` nhóm đầu tiên — chia trang biểu đồ (§10.12).
+   *
+   * Cùng lập luận với `order`: "trang 2" là một phép của TRUY VẤN. Lấy về tất
+   * cả rồi cắt trong Node nghĩa là kéo cả một chiều ba nghìn giá trị qua mạng
+   * để hiện hai mươi cái cột.
+   */
+  offset?: number;
+}
+
 function buildQuery(
   index: ModelIndex,
   input: ExplorerQueryDto,
+  internal: InternalQueryOptions = {},
 ): { query: CubeQuery; columns: ExplorerResultDto['columns']; keys: string[]; limit: number } {
+  const restrict = internal.restrict ?? [];
   const columns: ExplorerResultDto['columns'] = [];
   const keys: string[] = [];
 
@@ -293,14 +341,53 @@ function buildQuery(
     ];
   }
 
+  // Nhiều bộ giới hạn được Cube nối bằng AND — đúng ý: "nhóm nằm trong top-N
+  // VÀ chuỗi nằm trong top-K".
+  const filters: NonNullable<CubeQuery['filters']> = [];
+  for (const bo of restrict) {
+    const found = index.columns.get(bo.dimensionId);
+    if (found === undefined) throw unknownField();
+    const member = `${found.cubeName}.${dimensionNameFor(bo.dimensionId)}`;
+
+    /*
+     * Ô TRỐNG phải đi bằng toán tử riêng.
+     *
+     * `equals` với một danh sách chuỗi không bắt được `NULL` — SQL so sánh
+     * `NULL = 'x'` ra `NULL`, không ra `false`, nên nhóm "(trống)" sẽ biến mất
+     * khỏi biểu đồ dù nó vừa lọt vào top-N ở truy vấn xếp hạng. Ghép hai toán
+     * tử bằng `or` là cách duy nhất giữ được nó.
+     */
+    const cuThe = bo.values.filter((v) => v !== null).map((v) => String(v));
+    const coTrong = bo.values.some((v) => v === null);
+
+    const clauses: NonNullable<CubeQuery['filters']> = [];
+    if (cuThe.length > 0) clauses.push({ member, operator: 'equals', values: cuThe });
+    if (coTrong) clauses.push({ member, operator: 'notSet' });
+
+    // Danh sách rỗng thì KHÔNG thêm gì cả. Một `or: []` được Cube đọc thành
+    // "không dòng nào khớp", tức biểu đồ trắng — mà tình huống này chỉ xảy ra
+    // khi truy vấn xếp hạng không trả về giá trị nào, và khi đó biểu đồ vốn đã
+    // trống. Bỏ qua là hành vi đúng và cũng là hành vi rẻ hơn.
+    if (clauses.length === 1) filters.push(...clauses);
+    else if (clauses.length > 1) filters.push({ or: clauses });
+  }
+  if (filters.length > 0) query.filters = filters;
+
   // Sắp theo thước đo ĐẦU TIÊN, giảm dần. Không sắp thì ClickHouse trả theo thứ
   // tự nội bộ và bảng kết quả đổi thứ tự giữa hai lần chạy cùng một truy vấn —
   // trông như dữ liệu không ổn định.
   const firstMeasure = measures[0];
-  if (firstMeasure !== undefined) query.order = { [firstMeasure]: 'desc' };
+  if (firstMeasure !== undefined) query.order = { [firstMeasure]: internal.order ?? 'desc' };
 
   const limit = input.limit ?? 500;
   query.limit = limit;
+
+  // `> 0` chứ không phải `!== undefined`: một `offset: 0` thừa trong thân request
+  // gửi tới Cube là một khác biệt không đổi kết quả nhưng đổi câu SQL hiện ra ở
+  // màn "xem câu lệnh" — và một câu lệnh khác đi mà không giải thích được thì
+  // người đọc phải đi tìm hiểu.
+  const offset = internal.offset ?? 0;
+  if (offset > 0) query.offset = offset;
 
   return { query, columns, keys, limit };
 }
@@ -310,15 +397,14 @@ export async function runExplorerQuery(
   userId: number,
   dataModelId: number,
   input: ExplorerQueryDto,
+  /** Đường nội bộ, không có trong hợp đồng HTTP — xem `InternalQueryOptions`. */
+  internal: InternalQueryOptions = {},
 ): Promise<ExplorerResultDto> {
   const index = await indexModel(tenantId, dataModelId);
-  const { query, columns, keys, limit } = buildQuery(index, input);
+  const { query, columns, keys, limit } = buildQuery(index, input, internal);
 
   const schemaVersion = await datamodelsRepo.schemaVersion(mysqlPool, tenantId);
-  const result = await loadFromCube(
-    { tenantId, userId, dataModelId, schemaVersion },
-    query,
-  );
+  const result = await loadFromCube({ tenantId, userId, dataModelId, schemaVersion }, query);
 
   const rows = result.data.map((row) => keys.map((key) => toCell(row[key])));
 
@@ -347,7 +433,10 @@ export async function explainExplorerQuery(
   const { query } = buildQuery(index, input);
 
   const schemaVersion = await datamodelsRepo.schemaVersion(mysqlPool, tenantId);
-  const { sql, params } = await sqlFromCube({ tenantId, userId, dataModelId, schemaVersion }, query);
+  const { sql, params } = await sqlFromCube(
+    { tenantId, userId, dataModelId, schemaVersion },
+    query,
+  );
 
   return { sql, params, cubeQuery: JSON.stringify(query, null, 2) };
 }

@@ -1969,4 +1969,146 @@ export const migrations: readonly Migration[] = [
          ('p', 'creator', '*', 'connection', 'delete')`,
     ],
   },
+  {
+    id: 29,
+    name: 'chart_types_for_builder',
+    statements: [
+      // ═══ Ba loại biểu đồ nữa cho trình dựng §10.9 ═════════════════════════
+      //
+      // Năm loại của §7.6 đủ cho một hộp thoại năm dòng, nhưng trình dựng có
+      // một chiều THỨ HAI để tách chuỗi — và chiều đó mở ra những câu hỏi mà
+      // năm loại cũ không trả lời được:
+      //
+      //   hbar     tên nhóm dài ("Office Supplies · Bookcases") bị xoay 35° ở
+      //            biểu đồ cột và cắt cụt ở 120px. Nằm ngang thì đọc được.
+      //   scatter  một điểm mỗi nhóm — nhìn ra nhóm lệch hẳn, thứ mà một hàng
+      //            cột cao gần bằng nhau che mất.
+      //   heatmap  chiều × chiều, giá trị là màu. Đây là loại DUY NHẤT bắt buộc
+      //            phải có chiều thứ hai, và cũng là loại chứng minh chiều đó
+      //            đáng tồn tại.
+      //
+      // ⚠️ NỐI VÀO CUỐI ENUM. MySQL lưu ENUM theo số thứ tự, nên chèn 'hbar'
+      // vào sau 'bar' sẽ viết lại nghĩa của mọi dòng đang có: báo cáo 'line'
+      // thành 'hbar', 'area' thành 'line'… Không lỗi nào báo, biểu đồ chỉ đổi
+      // loại. Nối vào cuối là thao tác chỉ đụng metadata.
+      //
+      // `shared/src/report.ts` giữ đúng thứ tự này trong `CHART_TYPES` — thứ tự
+      // hiển thị cho người dùng do trình dựng tự sắp, không lấy từ mảng đó.
+      `ALTER TABLE reports
+         MODIFY COLUMN chart_type
+         ENUM('bar','line','area','pie','table','hbar','scatter','heatmap') NULL`,
+    ],
+  },
+  {
+    id: 30,
+    name: 'reports_canvas',
+    statements: [
+      // ─── §10.10 Một báo cáo chứa NHIỀU biểu đồ ───────────────────────────
+      //
+      // Tới §10.9 một báo cáo là một biểu đồ, và `chart_type` + `config` mô tả
+      // trọn vẹn nó. Cột này thêm khả năng thứ hai: một KHUNG chứa nhiều ô, mỗi
+      // ô là một biểu đồ kèm chỗ đứng trên lưới 12 cột.
+      //
+      // ⚠️ NULL vs NOT NULL ở đây MANG NGHĨA, không phải chuyện tiện tay:
+      //
+      //     canvas IS NULL      báo cáo MỘT biểu đồ — mọi bản ghi có từ trước
+      //     canvas IS NOT NULL  báo cáo nhiều biểu đồ, và ĐÂY là bản gốc
+      //
+      // Nhờ vậy không phải migrate một dòng dữ liệu nào. Báo cáo cũ đọc ra đúng
+      // như cũ, và trang xem phân nhánh trên chính cột này.
+      //
+      // JSON chứ không phải bảng `report_visuals` riêng, cùng lập luận với
+      // `config` ở migration 1: các ô luôn được đọc và ghi CÙNG NHAU (mở báo cáo
+      // là lấy hết, lưu báo cáo là ghi đè hết), không có truy vấn nào hỏi riêng
+      // một ô, và không có ràng buộc khoá ngoại nào cần database ép. Một bảng
+      // riêng ở đây chỉ đổi một lần ghi thành một giao dịch xoá-rồi-chèn.
+      //
+      // Không đặt DEFAULT: MySQL không cho cột JSON có giá trị mặc định, và
+      // NULL đã đúng nghĩa "báo cáo một biểu đồ" rồi.
+      `ALTER TABLE reports ADD COLUMN canvas JSON NULL AFTER config`,
+    ],
+  },
+  {
+    id: 31,
+    name: 'datamodels_hidden',
+    statements: [
+      // ─── Mô hình dựng HỘ cho một lần "tạo báo cáo nhanh từ file" ─────────
+      //
+      // ⚠️ Đọc migration 19 và 20 trước khi sửa cột này. Hệ thống đã từng tự
+      // sinh mô hình dữ liệu, và migration 20 BỎ HẲN nó, với lý do vẫn còn
+      // nguyên giá trị:
+      //
+      //     "Máy chỉ đoán được [những bảng nào đáng hỏi cùng nhau] bằng chuyện
+      //      chúng đi chung một file hay chung một schema, mà đó là trùng hợp
+      //      về xuất xứ chứ không phải quan hệ về nghĩa."
+      //
+      // Cột này KHÔNG mang tính năng đó trở lại. Khác ở đúng một điểm, và điểm
+      // đó là điểm quyết định:
+      //
+      //     migration 19/20   máy tự dựng mô hình ở đuôi MỌI lần nạp, không ai
+      //                       yêu cầu, rồi để đó — 15 mô hình, 12 cái bị xoá
+      //     cột này           người dùng bấm "Tạo nhanh với file Excel/CSV",
+      //                       tức là họ đã tự trả lời câu "những bảng nào đáng
+      //                       hỏi cùng nhau": đúng những sheet họ vừa tích
+      //
+      // Nói cách khác, mô hình ở đây là một BƯỚC TRUNG GIAN của thao tác người
+      // dùng vừa yêu cầu, không phải một món quà máy tự tặng. Không có lần nạp
+      // nào tạo ra nó ngoài lần nạp đi qua nút đó.
+      //
+      // ─── Vì sao ẨN chứ không phải xoá khỏi danh sách ────────────────────
+      //
+      // `hidden = 1` chỉ ảnh hưởng DANH SÁCH mô hình (`where()` trong
+      // repositories/datamodels.ts). Mô hình vẫn tra được theo id, vẫn sửa
+      // được, vẫn xoá được. Đó là chủ ý:
+      //
+      //   - Danh sách Mô hình dữ liệu là chỗ người dùng quản lý thứ HỌ dựng.
+      //     Nhồi vào đó một mô hình một-bảng cho mỗi lần tải file là đúng cái
+      //     đống rác migration 19 đã đo được.
+      //   - Nhưng mô hình phải còn MỞ ĐƯỢC. Vai trò cột vẫn do backend đoán
+      //     (`classifyColumn.defaultRoleOf`), và hai sheet trong cùng một mô
+      //     hình chưa có quan hệ thì chưa hỏi chung được — cả hai đều chỉ sửa
+      //     được ở trang mô hình. Ẩn tới mức không vào được là dựng một ngõ
+      //     cụt: người dùng thấy lỗi mà không có đường nào tới chỗ sửa.
+      //
+      // Nên trình dựng chỉ ra đường vào cho ai có `datamodel:read`. Ẩn ở đây
+      // nghĩa là "không bày ra", không phải "không tồn tại".
+      //
+      // TINYINT(1) NOT NULL DEFAULT 0, không NULL: "không ẩn" là câu trả lời
+      // đúng cho mọi dòng đã có, và một cột ba trạng thái (0/1/NULL) cho một
+      // câu hỏi hai trạng thái là chỗ sẽ có người quên kiểm.
+      `ALTER TABLE datamodels ADD COLUMN hidden TINYINT(1) NOT NULL DEFAULT 0 AFTER description`,
+    ],
+  },
+  {
+    id: 32,
+    name: 'datamodels_hidden_drop',
+    statements: [
+      // ─── Migration 31 bị ĐẢO, theo yêu cầu của người dùng ────────────────
+      //
+      // 31 giấu mô hình dựng-hộ khỏi danh sách Mô hình dữ liệu, với lập luận
+      // rằng danh sách ấy là chỗ quản lý thứ NGƯỜI DÙNG dựng. Lập luận đó bỏ
+      // sót đúng một chuyện, và người dùng gặp ngay:
+      //
+      //     "tui vẫn thấy nút mở mô hình nhưng khi thoát ra thì lại không
+      //      thấy trong phần mô hình dữ liệu"
+      //
+      // Một mô hình mở được từ trình dựng nhưng không có mặt trong danh sách
+      // đọc ra như DỮ LIỆU BỊ MẤT, không phải như một chỗ được dọn gọn. Và nó
+      // thật sự là mô hình của họ: họ tích những sheet đó, họ đặt tên đó, và
+      // vai trò cột trong đó là thứ họ sẽ phải sửa. Giấu nó đi là bắt họ đi
+      // vòng qua một báo cáo mới tới được chỗ sửa dữ liệu của chính mình.
+      //
+      // Nỗi lo của 31 — "mỗi lần tải file lại thêm một mô hình một-bảng" —
+      // không mất đi, nhưng nó nhỏ hơn và có thuốc chữa sẵn: danh sách đã có
+      // tìm kiếm, sắp xếp và xoá. Rác thì dọn được; dữ liệu tưởng là mất thì
+      // không lấy lại được lòng tin.
+      //
+      // DROP chứ không phải UPDATE ... SET hidden = 0: sau thay đổi này không
+      // còn nơi nào GHI cột đó nữa, và một cột mà mọi dòng đều bằng 0 và không
+      // ai ghi vào là một cột người đọc sau phải mất công tìm hiểu rồi phát
+      // hiện nó không làm gì. Bỏ hẳn cũng chính là thứ kéo những mô hình đang
+      // bị giấu trở lại danh sách.
+      `ALTER TABLE datamodels DROP COLUMN hidden`,
+    ],
+  },
 ];

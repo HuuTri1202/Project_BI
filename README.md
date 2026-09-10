@@ -10,18 +10,20 @@ mà **không cần viết SQL**.
 
 ## Trạng thái hiện tại
 
-| Phần                                                                                      | Trạng thái                        |
-| ----------------------------------------------------------------------------------------- | --------------------------------- |
-| Hạ tầng dev — 8 container (MySQL, Redis, MinIO, ClickHouse, Cube.js, Kafka, Connect, dbt) | ✅ chạy được                      |
-| Backend (Express) + Frontend (React + Vite + Tailwind v4)                                 | ✅ chạy được                      |
-| **Xác thực** — đăng ký, đăng nhập, JWT, đổi mật khẩu                                      | ✅ xong — xem mục _Xác thực_      |
-| **Console vận hành hệ thống** (`/admin`) — nhìn xuyên mọi tổ chức                         | ✅ xong                           |
-| **Khu người dùng** — trang chủ, project, workspace, thành viên, hồ sơ                     | ✅ xong                           |
-| **Phân quyền Casbin** — 8 tài nguyên × 4 hành động, policy trong database                 | ✅ xong                           |
-| **Kết nối CSDL & Kho dữ liệu** (§8) — MySQL, ClickHouse (SSL/TLS, xem trước dữ liệu)      | ✅ xong                           |
-| **Nạp dữ liệu vào ClickHouse** (§9) — bảng `raw_*`, nạp nền, nạp lại nguyên tử            | ✅ xong                           |
-| **Mô hình dữ liệu** (§10) — Cube schema, quan hệ, thước đo, Explorer                      | ✅ xong — xem mục _Mô hình dữ liệu_ |
-| Phân tích tự phục vụ / trình dựng biểu đồ                                                 | ⏳ chưa làm                       |
+| Phần                                                                                      | Trạng thái                             |
+| ----------------------------------------------------------------------------------------- | -------------------------------------- |
+| Hạ tầng dev — 8 container (MySQL, Redis, MinIO, ClickHouse, Cube.js, Kafka, Connect, dbt) | ✅ chạy được                           |
+| Backend (Express) + Frontend (React + Vite + Tailwind v4)                                 | ✅ chạy được                           |
+| **Xác thực** — đăng ký, đăng nhập, JWT, đổi mật khẩu                                      | ✅ xong — xem mục _Xác thực_           |
+| **Console vận hành hệ thống** (`/admin`) — nhìn xuyên mọi tổ chức                         | ✅ xong                                |
+| **Khu người dùng** — trang chủ, project, workspace, thành viên, hồ sơ                     | ✅ xong                                |
+| **Phân quyền Casbin** — 8 tài nguyên × 4 hành động, policy trong database                 | ✅ xong                                |
+| **Kết nối CSDL & Kho dữ liệu** (§8) — MySQL, ClickHouse (SSL/TLS, xem trước dữ liệu)      | ✅ xong                                |
+| **Nạp dữ liệu vào ClickHouse** (§9) — bảng `raw_*`, nạp nền, nạp lại nguyên tử            | ✅ xong                                |
+| **Mô hình dữ liệu** (§10) — Cube schema, quan hệ, thước đo, Explorer                      | ✅ xong — xem mục _Mô hình dữ liệu_    |
+| **Trình dựng biểu đồ** (§10.9) — kéo thả chiều/thước đo, 8 loại biểu đồ Vega-Lite         | ✅ xong — xem mục _Trình dựng biểu đồ_ |
+| **Khu Báo cáo & khung nhiều biểu đồ** (§10.10) — mục sidebar riêng, tối đa 12 ô một khung | ✅ xong — xem mục _Khu Báo cáo_        |
+| Bộ lọc dùng chung cả khung, chia sẻ báo cáo ra ngoài                                      | ⏳ chưa làm                            |
 
 Xem lộ trình đầy đủ và phân công theo tính năng trong tài liệu kế hoạch của nhóm.
 
@@ -93,12 +95,12 @@ npm run dev
 8 container không nên cùng chạy suốt ngày. `npm run infra:up` chỉ khởi động
 service lõi; phần còn lại chia theo profile:
 
-| Lệnh                    | Thêm gì                | Bật khi bắt đầu làm                                             |
-| ----------------------- | ---------------------- | --------------------------------------------------------------- |
+| Lệnh                    | Thêm gì                         | Bật khi bắt đầu làm                                        |
+| ----------------------- | ------------------------------- | ---------------------------------------------------------- |
 | `npm run infra:up`      | MySQL, Redis, MinIO, ClickHouse | **luôn luôn** — đăng nhập, tải file, nạp vào kho phân tích |
-| `npm run infra:up:data` | (đã nằm trong lõi)     | không còn thêm gì so với `infra:up`                             |
-| `npm run infra:up:bi`   | Cube.js (+ ClickHouse) | **tầng ngữ nghĩa**: DataModel, Explore kéo-thả, chart           |
-| `npm run infra:up:all`  | + Kafka, Connect, dbt  | **dbt / CDC realtime**, hoặc demo toàn hệ thống                 |
+| `npm run infra:up:data` | (đã nằm trong lõi)              | không còn thêm gì so với `infra:up`                        |
+| `npm run infra:up:bi`   | Cube.js (+ ClickHouse)          | **tầng ngữ nghĩa**: DataModel, Explore kéo-thả, chart      |
+| `npm run infra:up:all`  | + Kafka, Connect, dbt           | **dbt / CDC realtime**, hoặc demo toàn hệ thống            |
 
 Tắt lại phần không dùng để trả RAM:
 
@@ -205,8 +207,8 @@ Chỉ dùng ở local.
 
 Tài khoản đăng nhập vào ứng dụng (tạo bằng `npm --prefix backend run seed:admin`):
 
-| Vai trò              | Email                     | Mật khẩu      |
-| -------------------- | ------------------------- | ------------- |
+| Vai trò               | Email                     | Mật khẩu      |
+| --------------------- | ------------------------- | ------------- |
 | Quản trị **hệ thống** | `admin@bi-platform.local` | `Admin@12345` |
 
 Đây là tài khoản DUY NHẤT được tạo tự động. Các tài khoản thử nghiệm còn lại —
@@ -491,21 +493,21 @@ dưới dạng hộp thoại Đồng bộ rỗng, kèm một câu không hề nh
 danh sách thì tên sai không còn là trạng thái biểu diễn được, và `default · 0
 bảng` nói thẳng điều người dùng cần biết ngay tại chỗ chọn.
 
-| Điểm | Cách làm |
-|---|---|
-| Để trống | **Hợp lệ** — nghĩa là "mọi database". `listTables` quét cả máy chủ trừ schema hệ thống |
-| Không cần migration | `database_name` là `VARCHAR(255) NOT NULL`; chuỗi rỗng vẫn hợp lệ. Cố ý **không** dùng `NULL`: hai cách viết cho cùng một ý nghĩa là một chỗ sẽ có người quên kiểm |
-| Nút, không tự nạp | Mỗi lần liệt kê là một kết nối THẬT tới máy khách hàng. Nạp theo phím gõ là hàng chục kết nối cho một lần điền form, và `connectionProbeLimit` sẽ chặn đúng lúc gõ xong |
-| Vẫn giữ "Nhập tay" | Tài khoản bị khoá chặt có thể `SELECT` được trên đúng một database mà không có quyền liệt kê. Bỏ hẳn là khoá đúng những khách hàng cẩn thận nhất ra ngoài |
-| Giá trị lạ vẫn hiện | Kết nối cũ trỏ tới database đã bị xoá thì nó xuất hiện kèm `(không còn thấy)`, không bị lặng lẽ đổi sang cái khác |
+| Điểm                | Cách làm                                                                                                                                                                |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Để trống            | **Hợp lệ** — nghĩa là "mọi database". `listTables` quét cả máy chủ trừ schema hệ thống                                                                                  |
+| Không cần migration | `database_name` là `VARCHAR(255) NOT NULL`; chuỗi rỗng vẫn hợp lệ. Cố ý **không** dùng `NULL`: hai cách viết cho cùng một ý nghĩa là một chỗ sẽ có người quên kiểm      |
+| Nút, không tự nạp   | Mỗi lần liệt kê là một kết nối THẬT tới máy khách hàng. Nạp theo phím gõ là hàng chục kết nối cho một lần điền form, và `connectionProbeLimit` sẽ chặn đúng lúc gõ xong |
+| Vẫn giữ "Nhập tay"  | Tài khoản bị khoá chặt có thể `SELECT` được trên đúng một database mà không có quyền liệt kê. Bỏ hẳn là khoá đúng những khách hàng cẩn thận nhất ra ngoài               |
+| Giá trị lạ vẫn hiện | Kết nối cũ trỏ tới database đã bị xoá thì nó xuất hiện kèm `(không còn thấy)`, không bị lặng lẽ đổi sang cái khác                                                       |
 
 Hai endpoint, cùng gác `connection:modify` + `connectionProbeLimit` như
 `/connections/test` — chúng mở kết nối ra ngoài, nên không được gác bằng quyền
 đọc, kẻo thành công cụ quét cổng cho bất kỳ ai xem được danh sách kết nối:
 
-| Endpoint | Dùng khi |
-|---|---|
-| `POST /v1/connections/databases` | Tạo mới — thông tin chưa lưu, có mật khẩu trong body |
+| Endpoint                            | Dùng khi                                                                     |
+| ----------------------------------- | ---------------------------------------------------------------------------- |
+| `POST /v1/connections/databases`    | Tạo mới — thông tin chưa lưu, có mật khẩu trong body                         |
 | `GET /v1/connections/:id/databases` | Sửa — ô mật khẩu để trống nghĩa là "giữ nguyên", nên phải dùng bí mật đã lưu |
 
 ⚠️ **Bẫy ClickHouse**: đếm bảng phải dùng `countIf(t.name != '')`, không phải
@@ -539,7 +541,7 @@ Nạp chạy **tự động**, không phải một nút người dùng phải nh
 - Nút **Nạp lại** ở tab "Kho phân tích" vẫn còn, giờ mang đúng nghĩa của nó.
 
 Việc xếp hàng tự động **không bao giờ làm hỏng** luồng gọi nó: ClickHouse tắt thì
-tải file vẫn báo thành công (vì nó *đã* thành công), còn lần nạp hiện `failed`
+tải file vẫn báo thành công (vì nó _đã_ thành công), còn lần nạp hiện `failed`
 kèm lý do ở đúng chỗ người dùng đi tìm.
 
 1. Người dùng tải file / đồng bộ bảng — hoặc bấm **Nạp lại**.
@@ -561,7 +563,7 @@ kèm lý do ở đúng chỗ người dùng đi tìm.
   được, và `datasets.name` thì sửa được ở §8.9 nên tên bảng suy từ nó sẽ thành
   mồ côi ngay lần đổi tên đầu tiên.
 - **Escape định danh ClickHouse bằng dấu chéo ngược**, không nhân đôi backtick
-  như MySQL: `` a`b `` → `` `a\`b` ``. Đã kiểm bằng `CREATE TABLE` thật rồi đọc
+  như MySQL: ``a`b`` → `` `a\`b` ``. Đã kiểm bằng `CREATE TABLE` thật rồi đọc
   lại `system.columns`; nhân đôi backtick cho ra lỗi cú pháp.
 - **Một ô hỏng không giết cả lần nạp.** Ô không ép được kiểu → ghi `NULL` + một
   dòng `dataset_load_errors`, rồi đi tiếp. Với dữ liệu thật thì luôn có ô rác;
@@ -617,11 +619,11 @@ Chrome đổi theo là chờ vô ích.
 Sau §9, mỗi tab trả lời một câu hỏi khác hẳn — và biết tab nào đọc ở đâu là cách
 duy nhất để đối chiếu khi số liệu lệch:
 
-| Tab | Đọc từ | Trả lời |
-|---|---|---|
-| Dữ liệu | **Nguồn** — `SELECT … LIMIT` sang CSDL khách hàng, hoặc mẫu 1.000 dòng của file | "dữ liệu gốc trông thế nào" |
-| Cấu trúc | **Kho** — `system.columns` của ClickHouse | "cột này nằm trong kho dưới dạng gì" |
-| Kho phân tích | **Kho** — bảng `raw_*` | "thứ đã nạp trông thế nào" |
+| Tab           | Đọc từ                                                                          | Trả lời                              |
+| ------------- | ------------------------------------------------------------------------------- | ------------------------------------ |
+| Dữ liệu       | **Nguồn** — `SELECT … LIMIT` sang CSDL khách hàng, hoặc mẫu 1.000 dòng của file | "dữ liệu gốc trông thế nào"          |
+| Cấu trúc      | **Kho** — `system.columns` của ClickHouse                                       | "cột này nằm trong kho dưới dạng gì" |
+| Kho phân tích | **Kho** — bảng `raw_*`                                                          | "thứ đã nạp trông thế nào"           |
 
 Tab **Cấu trúc** từng đọc `dataset_columns` (kiểu của nguồn). Nó đổi sang đọc kho
 vì mọi thứ từ đây trở đi dựng trên kho: báo cáo tổng hợp bằng SQL trên `raw_*`,
@@ -649,7 +651,7 @@ chất và khác biệt đó cố ý để lộ ra:
 - **Chỉ một job chạy một lúc** trên toàn hệ thống. Hai tổ chức cùng nạp thì xếp
   hàng.
 - **Luôn nạp lại toàn bộ**, không có nạp tăng dần, không có lịch tự động.
-- **`dataset_rows` vẫn giữ 1.000 dòng mẫu** cho tab Xem trước — nay là *mẫu*,
+- **`dataset_rows` vẫn giữ 1.000 dòng mẫu** cho tab Xem trước — nay là _mẫu_,
   không còn là bản sao đầy đủ. Xem mục _Gỡ nút thắt `dataset_rows`_ ngay dưới.
 - **Cách ly tổ chức trong ClickHouse chỉ ở tầng ứng dụng** — một `bi_user` thấy
   mọi bảng. Tới §10, `securityContext` của Cube **phải** mang `tenantId`; quên là
@@ -684,10 +686,10 @@ còn chặn cứng 512 MB mỗi giá trị chuỗi, tức tường ở khoảng 
 
 Đo trên máy dev với CSV 500.000 dòng (10,1 MB):
 
-| | Kết quả |
-|---|---|
-| `parseFile` | **1,1 giây**, giữ đúng 1.000 dòng |
-| Cache Redis | **~0 MB** (trước: ~290 MB ước tính cho 500k) |
+|                | Kết quả                                          |
+| -------------- | ------------------------------------------------ |
+| `parseFile`    | **1,1 giây**, giữ đúng 1.000 dòng                |
+| Cache Redis    | **~0 MB** (trước: ~290 MB ước tính cho 500k)     |
 | `readFileRows` | **388.000 dòng/giây**, heap đỉnh 245 MB và phẳng |
 
 Ba thay đổi đi CÙNG NHAU, không tách được:
@@ -709,10 +711,10 @@ chặn hai lớp: tên cột phải khớp `dataset_columns`, rồi `quoteIdent`
 
 Hai thay đổi hành vi, ghi ra chứ không giấu:
 
-| | |
-|---|---|
-| `rowCount` | giờ là số dòng **thật trong file**, không phải số dòng đã lưu. Đi cặp với `loadedRowCount` (số dòng truy vấn được) — trước đây hai số luôn bằng nhau nên một là đủ |
-| Báo cáo chưa nạp | trả **409 `DatasetNotLoaded`**, và trang Report hiện "Đang nạp…" rồi tự hỏi lại mỗi 3 giây thay vì một hộp đỏ |
+|                  |                                                                                                                                                                    |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `rowCount`       | giờ là số dòng **thật trong file**, không phải số dòng đã lưu. Đi cặp với `loadedRowCount` (số dòng truy vấn được) — trước đây hai số luôn bằng nhau nên một là đủ |
+| Báo cáo chưa nạp | trả **409 `DatasetNotLoaded`**, và trang Report hiện "Đang nạp…" rồi tự hỏi lại mỗi 3 giây thay vì một hộp đỏ                                                      |
 
 Ba hàm dùng CHUNG một bản, không chép: `normalizeCell` (ô → giá trị) và
 `cellText` (ô Excel → chuỗi). Hai đường đọc cùng một file mà lệch nhau một bản
@@ -720,6 +722,7 @@ sao là bảng xem trước và dữ liệu trong kho nói hai điều khác nha
 `convert()` của §9 từng đòi số dạng thuần trong khi `parseNumber` hiểu
 `1.234,56` kiểu Việt Nam — khác biệt đó bị che chừng nào §9 còn đọc
 `dataset_rows`.
+
 - **`decimal` không có `(p,s)`** (dataset đồng bộ trước nhánh này) rơi về
   `String` thay vì đoán bừa — đồng bộ lại một lần là có kiểu đúng.
 
@@ -729,10 +732,10 @@ Tab **Kho phân tích** có bảng **"Dữ liệu trong kho"** đọc thẳng t�
 (`GET /v1/datasets/:id/load/preview`). Nó khác tab **"Dữ liệu"** ở đúng chỗ quan
 trọng nhất:
 
-| Tab | Đọc từ | Trả lời câu hỏi |
-|---|---|---|
-| Dữ liệu | **nguồn** (CSDL khách hàng / `dataset_rows`) | dữ liệu gốc trông thế nào |
-| Kho phân tích → Dữ liệu trong kho | **đích** (bảng `raw_*`) | thứ *nằm trong kho* trông thế nào |
+| Tab                               | Đọc từ                                       | Trả lời câu hỏi                   |
+| --------------------------------- | -------------------------------------------- | --------------------------------- |
+| Dữ liệu                           | **nguồn** (CSDL khách hàng / `dataset_rows`) | dữ liệu gốc trông thế nào         |
+| Kho phân tích → Dữ liệu trong kho | **đích** (bảng `raw_*`)                      | thứ _nằm trong kho_ trông thế nào |
 
 Đặt hai bảng cạnh nhau là cách rẻ nhất bắt những lỗi im lặng: ngày lệch múi giờ,
 một cột toàn `NULL` vì ánh xạ kiểu sai, số bị làm tròn. Cột `_row_index` cố ý
@@ -766,14 +769,14 @@ vệ được gì, chỉ chiếm đĩa.
 
 Và nó chiếm nhiều hơn tưởng, vì hai nguồn hành xử khác hẳn nhau:
 
-| Nguồn | Tải/đồng bộ lại sau khi xoá | Hệ quả |
-|---|---|---|
-| `connection` | trúng `uq_datasets_source` → hồi sinh **đúng id cũ** | bảng cũ bị ghi đè, **tự lành** |
-| `file` | ba cột khoá đều `NULL`, mà MySQL không coi `NULL` là trùng → **id mới** | bảng cũ mồ côi **vĩnh viễn**, mỗi vòng thêm một bản sao |
+| Nguồn        | Tải/đồng bộ lại sau khi xoá                                             | Hệ quả                                                  |
+| ------------ | ----------------------------------------------------------------------- | ------------------------------------------------------- |
+| `connection` | trúng `uq_datasets_source` → hồi sinh **đúng id cũ**                    | bảng cũ bị ghi đè, **tự lành**                          |
+| `file`       | ba cột khoá đều `NULL`, mà MySQL không coi `NULL` là trùng → **id mới** | bảng cũ mồ côi **vĩnh viễn**, mỗi vòng thêm một bản sao |
 
 Hai lớp, và lớp thứ hai không phải thừa:
 
-1. **Xoá ngay** trong `deleteDataset` — đường nhanh. Cố ý *không* ném ra nếu
+1. **Xoá ngay** trong `deleteDataset` — đường nhanh. Cố ý _không_ ném ra nếu
    hỏng: dòng MySQL đã xoá xong, trả lỗi lúc này là báo thất bại cho một thao tác
    đã thành công, và buộc "xoá được một dòng" vào "ClickHouse phải đang sống".
 2. **Janitor** trong runner (`sweepOrphanTables`) — lúc khởi động rồi mỗi giờ. Nó
@@ -863,10 +866,15 @@ docker exec bi-clickhouse clickhouse-client --user bi_user \
 
 ## Mô hình dữ liệu (§10)
 
-Bốn tab, đều làm thật: **Schemas** (gắn nhãn cột), **Relationship** (sơ đồ nối
-bảng), **Measures** (thước đo), **Explorer** (hỏi thử). Năm tab _sắp có_ trước
-đây đã bỏ — chín tab tràn màn hình và đẩy bốn tab dùng được vào một thanh cuộn
-ngang, một cái giá quá đắt cho việc phác lộ trình.
+Ba tab, đều làm thật: **Schemas** (gắn nhãn cột), **Relationship** (sơ đồ nối
+bảng), **Explorer** (hỏi thử). Năm tab _sắp có_ trước đây đã bỏ — chín tab tràn
+màn hình và đẩy những tab dùng được vào một thanh cuộn ngang, một cái giá quá
+đắt cho việc phác lộ trình. Tab **Measures** bỏ sau đó theo yêu cầu: thước đo
+vẫn được §10.2 gieo tự động cho mỗi cột số và vẫn sửa được ở tab Schemas, chúng
+chỉ không còn màn quản lý riêng.
+
+Nút **Tạo báo cáo** ở góc phải mở [trình dựng biểu đồ](#trình-dựng-biểu-đồ-109)
+dựng ngay trên mô hình đang mở.
 
 ### Phạm vi: MỖI WORKSPACE MỘT KHO RIÊNG
 
@@ -894,10 +902,10 @@ workspace A hiện luôn trong workspace B.
 
 Migration 11 sửa cả hai mức:
 
-| | |
-|---|---|
-| Điền workspace cho dòng đang trống | workspace cũ nhất của tổ chức — cái tạo lúc đăng ký |
-| `workspace_id` → `NOT NULL` | ràng buộc nằm ở **database**, không phải ở một quy ước code phải nhớ |
+|                                          |                                                                        |
+| ---------------------------------------- | ---------------------------------------------------------------------- |
+| Điền workspace cho dòng đang trống       | workspace cũ nhất của tổ chức — cái tạo lúc đăng ký                    |
+| `workspace_id` → `NOT NULL`              | ràng buộc nằm ở **database**, không phải ở một quy ước code phải nhớ   |
 | `uq_datasets_source` thêm `workspace_id` | hai workspace cùng đồng bộ được một bảng nguồn, mỗi bên một dòng riêng |
 
 ⚠️ Câu `DROP INDEX` sẽ hỏng với `ER_DROP_INDEX_FK` nếu chạy trước:
@@ -930,8 +938,8 @@ Chuỗi khiến nó khó tìm:
 
 1. `checkAuth` trong `cube.js` **ném** lỗi → gateway của Cube trả **500**, không
    phải 401.
-2. `explain()` phía Express thấy 5xx → dịch thành *"Tầng ngữ nghĩa không trả lời
-   được truy vấn này"*.
+2. `explain()` phía Express thấy 5xx → dịch thành _"Tầng ngữ nghĩa không trả lời
+   được truy vấn này"_.
 3. Người dùng đọc câu đó rồi đi sửa tab **Quan hệ** — hoàn toàn sai hướng, vì
    truy vấn chỉ chạm **một** bảng cũng hỏng y hệt.
 
@@ -958,30 +966,1318 @@ chắn để hiện lời mời tạo mới chồng lên nội dung đang có.
 
 ---
 
+## Trình dựng biểu đồ (§10.9)
+
+Trang kéo-thả để dựng một báo cáo trên mô hình dữ liệu. Đường vào:
+
+| Từ đâu                                               | Đường dẫn                                                |
+| ---------------------------------------------------- | -------------------------------------------------------- |
+| Mục **Báo cáo** trên thanh bên → nút **Tạo báo cáo** | `/reports/new` — hỏi mô hình ngay trong trang            |
+| Nút **Tạo báo cáo** đứng trong một mô hình           | `/datamodels/:id/report/new` — lối tắt, điền sẵn mô hình |
+| Nút **Chỉnh sửa biểu đồ** ở trang xem báo cáo        | `/reports/:id/edit`                                      |
+
+Từ §10.10 trang này KHÔNG còn nằm trong tab Mô hình dữ liệu, và nó dựng được
+NHIỀU biểu đồ trên một khung — xem mục _Khu Báo cáo_ bên dưới.
+
+⚠️ Bản này có **migration 29** (nới `reports.chart_type` cho ba loại biểu đồ
+mới). Kéo code về xong phải chạy `npm --workspace backend run migrate`, và chạy
+thêm một lần nữa với `MYSQL_DATABASE=bi_platform_test` nếu bạn chạy test tích
+hợp. Bỏ qua bước này thì lưu một biểu đồ thanh ngang sẽ ra lỗi 500
+`Data truncated for column 'chart_type'`.
+
+### Ba cột, xếp theo đường đi của tay
+
+```
+khung vẽ  │  Biểu đồ (loại + ô thả + định dạng)  │  Mô hình dữ liệu
+```
+
+Bảng trường ở **ngoài cùng bên phải**, ngay cạnh các ô thả — kéo một trường chỉ
+phải đi qua vài chục pixel. Đặt bảng trường bên trái (như tab Explorer) thì mỗi
+cú kéo phải băng ngang cả khung vẽ.
+
+Kéo thả **không phải đường duy nhất**: mỗi trường cũng là một `<button>`, bấm
+vào là nó tự vào ô còn trống hợp lệ. Kéo thả bằng chuột không dùng được bằng bàn
+phím, và một trình dựng mà người dùng bàn phím không mở nổi là một trang bị
+khoá, không phải một trang thiếu tiện nghi.
+
+### Ba ô thả
+
+| Ô                                        | Nhận                      | Bắt buộc         |
+| ---------------------------------------- | ------------------------- | ---------------- |
+| **Trục** (biểu đồ tròn gọi là _Lát cắt_) | một chiều                 | có               |
+| **Giá trị**                              | một thước đo              | có               |
+| **Nhóm màu**                             | một chiều **khác** ô Trục | tuỳ loại biểu đồ |
+
+Ô Nhóm màu là thứ §10.9 thêm vào so với §10.8 — nó tách biểu đồ thành nhiều
+chuỗi (cột chồng, nhiều đường, bản đồ nhiệt). Ba trạng thái, khai một lần ở
+`CHART_SERIES_SUPPORT` bên `shared` và được cả frontend lẫn backend đọc:
+
+- `no` — biểu đồ tròn. Nó đã dùng màu để phân lát cắt rồi.
+- `optional` — sáu loại còn lại.
+- `required` — bản đồ nhiệt. Không có chiều thứ hai thì không có ô nào để tô.
+
+### Tám loại biểu đồ
+
+`bar` · `hbar` · `line` · `area` · `pie` · `scatter` · `heatmap` · `table`
+
+Ba loại cuối cùng thêm ở bản này. `hbar` tồn tại vì nhãn nhóm dài
+("Office Supplies · Bookcases") bị xoay 35° và cắt cụt ở biểu đồ cột; `heatmap`
+là loại duy nhất chứng minh chiều thứ hai đáng có.
+
+⚠️ `CHART_TYPES` trong `shared/src/report.ts` là bản sao của một **ENUM MySQL**,
+mà MySQL lưu ENUM theo số thứ tự. Thêm loại mới thì **nối vào cuối** cả hai nơi.
+Chèn vào giữa sẽ viết lại nghĩa của mọi dòng đã lưu — báo cáo `line` lặng lẽ
+thành `hbar`, không lỗi nào báo. Thứ tự hiển thị do `chartCatalog.tsx` tự sắp,
+nên thứ tự trong ENUM không cần đẹp.
+
+### Tuỳ chọn trình bày không đụng tới truy vấn
+
+`stacked`, `showLegend`, `showValues`, `sort`, `palette` nằm trong
+`ReportModelConfigDto.options`, cùng cột `config` với hai ID. Ranh giới rất
+cứng và đáng giữ: **mọi thứ trong `options` đổi hình mà không đổi số**.
+
+Hệ quả trực tiếp: khoá cache của truy vấn xem trước **không** chứa `options`,
+nên đổi bảng màu không tốn một lượt quét ClickHouse nào. Nó cũng không chứa
+`chartType` — trang tự quy chiều thứ hai về `null` cho loại không nhận nó, nên
+hai loại biểu đồ với cùng một `config` luôn nhận về cùng một câu trả lời.
+
+### Xem trước là chính nó, không phải một bản gần đúng
+
+Đây là điểm thiết kế đáng nhớ nhất của mục này. Hai đầu đi chung một đường:
+
+```
+POST /datamodels/:id/report-preview  ─┐
+                                      ├─► aggregateFromModel()  ─►  ReportDataDto
+GET  /reports/:id/data               ─┘                                   │
+                                                                          ▼
+                              trang xem  ─┬─►  <ReportChart> ─► buildChartSpec()
+                              trình dựng ─┘
+```
+
+Không có nhánh nào chỉ dành cho xem trước. Nhãn trục, dòng cảnh báo "đã cắt",
+cách một ô trống được đặt tên, thứ tự nhóm — tất cả giống nhau tuyệt đối, vì
+chúng đến từ cùng một hàm. Cùng lập luận với việc `modelReportData.ts` gọi
+`runExplorerQuery` thay vì tự dựng truy vấn Cube.
+
+### Chiều thứ hai tốn HAI truy vấn, và vì sao đáng
+
+Một truy vấn hai chiều với `limit = 20` trả về 20 **tổ hợp** lớn nhất, không
+phải 20 nhóm. Với dữ liệu thật thì cả 20 tổ hợp ấy thường rơi vào ba bốn nhóm
+đầu, nên biểu đồ hiện ra bốn cột thay vì hai mươi — và không có gì trên màn hình
+nói rằng mười sáu nhóm còn lại vẫn tồn tại.
+
+Nên `aggregateFromModel` hỏi hai lần: lần một xếp hạng nhóm (đúng câu mà biểu đồ
+một chuỗi đang hỏi), lần hai lấy phần chia nhỏ rồi lọc về đúng những nhóm đó.
+
+**Không có cột "Khác"** ở nhánh này. Phần bị cắt là một mặt phẳng nhóm × chuỗi,
+chia nó cho từng chuỗi thì phải bịa ra tỉ lệ — và một cột "Khác" chồng đủ màu sẽ
+trông như một nhóm thật mang cơ cấu do ta nghĩ ra. Cờ `grouped` nói ra là đã
+cắt; thà thiếu còn hơn bịa.
+
+### Endpoint
+
+|                                          |                                           |
+| ---------------------------------------- | ----------------------------------------- |
+| `POST /v1/datamodels/:id/report-preview` | số liệu xem trước — `datamodel:read`      |
+| `POST /v1/reports/from-datamodel`        | tạo, đã có sẵn từ §10.8 — `report:modify` |
+| `PATCH /v1/reports/:id/from-datamodel`   | **sửa**, mới ở bản này — `report:modify`  |
+
+Đường sửa là đường **riêng**, không nhồi vào `PATCH /reports/:id`. Hai `config`
+là hai hình dạng không giao nhau (ID so với tên cột), và ghi nhầm bên nào cũng
+làm bên đọc tương ứng phân giải ra `null` — báo cáo mất biểu đồ, không một dòng
+lỗi nào. Cả hai route đều từ chối tường minh báo cáo của phía kia, và
+`updateModelReport` còn chốt thêm `AND datamodel_id IS NOT NULL` trong câu SQL.
+
+Ba đường dùng chung `assertModelChartConfig`, nên không có cửa sau: cấu hình mà
+trình dựng cho xem trước cũng đúng là cấu hình nút Lưu chấp nhận.
+
+### Bài test đáng đọc
+
+`frontend/tests/chartSpec.test.ts` biên dịch **mọi** spec Vega-Lite mà trình
+dựng sinh ra, và bắt cả **cảnh báo** chứ không chỉ lỗi ném ra. Lý do: phần lớn
+spec đi qua một phép ép kiểu `as TopLevelSpec` nên trình biên dịch không kiểm gì
+cả, còn một spec sai thì `VegaChart` bắt lại và hiện một dòng chữ xám — console
+sạch sẽ, không ai biết cấu hình nào vừa hỏng.
+
+---
+
+## Khu Báo cáo & khung nhiều biểu đồ (§10.10)
+
+Tới §10.9, báo cáo **không có nhà**: tạo thì tạo từ trong tab Mô hình dữ liệu,
+xem thì xem qua khối "Báo cáo gần đây" trên trang chủ. Ba câu hỏi đơn giản không
+có chỗ nào trả lời — có tất cả bao nhiêu báo cáo, cái nào của ai, cái nào bỏ đi
+được — và người dùng phải biết TRƯỚC mình sẽ dùng mô hình nào rồi mới tìm được
+chỗ bắt đầu.
+
+Bản này thêm hai thứ, và chúng đi cùng nhau:
+
+1. **Khu Báo cáo** — mục riêng trên thanh bên, có trang danh sách của nó.
+2. **Khung nhiều biểu đồ** — một báo cáo chứa tới 12 ô trên một lưới 12 cột.
+
+⚠️ Bản này có **migration 30** (`reports.canvas`), **31** rồi **32** (thêm rồi bỏ
+lại `datamodels.hidden` — xem _Migration 32 đảo lại_). Kéo code về xong phải chạy
+`npm --workspace backend run migrate`, và chạy thêm một lần nữa với
+`MYSQL_DATABASE=bi_platform_test` nếu bạn chạy test tích hợp.
+
+### Mục Báo cáo đứng NGAY SAU Trang chủ, và không gác quyền
+
+Đây là mục nội dung **duy nhất** viewer vào được: bốn mục còn lại đều đòi một ô
+quyền mà migration 26 đã lấy đi của họ. Nên nó phải là đích đầu tiên trong danh
+sách, không phải một dòng nằm cuối sau ba dòng bị ẩn.
+
+| Đường dẫn                            | Ai vào được                           |
+| ------------------------------------ | ------------------------------------- |
+| `/reports` — danh sách               | mọi vai trò (`report:read`)           |
+| `/reports/:id` — **xem** một báo cáo | mọi vai trò                           |
+| `/reports/:id/edit` — trình dựng     | `report:modify` + `datamodel:read`    |
+| `/reports/new` — dựng mới            | `readDataModels` **và** `editContent` |
+
+Xem mục _Xem trước, sửa sau_ bên dưới.
+
+`/reports/new` gác **cả hai** ô, lồng nhau, chứ không chọn một: trình dựng vừa
+đọc danh sách chiều/thước đo (`datamodel:read`) vừa ghi một báo cáo
+(`report:modify`). Hôm nay chưa vai trò nào có ô này mà thiếu ô kia, nhưng route
+nên nói đúng thứ nó cần chứ đừng dựa vào một trùng hợp trong bảng phân quyền.
+
+### Trang báo cáo là một trang TOÀN MÀN HÌNH, không có sidebar
+
+Chỉ `/reports` — danh sách — nằm trong `UserLayout`. Mở một báo cáo ra là rời
+khỏi khung sidebar: đó là khối route duy nhất của khu người dùng đứng ngoài
+layout đó.
+
+Vì nó là một **mặt làm việc**, không phải một trang nội dung:
+
+|                             | có sidebar                     | toàn màn hình       |
+| --------------------------- | ------------------------------ | ------------------- |
+| bề ngang cho khung 12 cột   | mất 256px                      | dùng hết            |
+| bộ chuyển tổ chức/workspace | bấm nhầm là mất khung chưa lưu | không có            |
+| người dùng đang ở đâu       | "trong ứng dụng"               | "trong báo cáo này" |
+
+Đổi lại, trang phải tự mang ba thứ mà layout vẫn lo hộ:
+
+1. **Lối ra.** Mũi tên ← góc trái là đường về duy nhất, nên nó có mặt ở **mọi**
+   trạng thái — kể cả màn hình lỗi và lúc đang tải. Đó là việc của `Shell`
+   trong `ReportBuilderPage`.
+2. **Cảnh báo chưa lưu.** Cả nút Thoát lẫn mũi tên ← đều hỏi lại khi còn việc
+   chưa lưu; `beforeunload` lo nốt trường hợp đóng tab hay F5. Header hiện một
+   chấm "● Chưa lưu" để không ai phải tự nhớ mình đã sửa gì.
+3. **Chiều cao.** `h-screen overflow-hidden` bắt đầu lại chuỗi chiều cao mà
+   `UserLayout` vẫn giữ hộ; đứt ở đây thì ba cột dài theo nội dung và cả cửa sổ
+   cuộn, thay vì mỗi cột cuộn trong hộp của nó.
+
+`WorkspaceProvider` vẫn phải bọc route này: `useDataModels` và
+`useExplorerFields` hỏi workspace đang mở, và `useWorkspace` **ném lỗi** khi
+thiếu provider chứ không âm thầm trả rỗng.
+
+Nút bên phải header là **"Thoát"**, cố ý không phải "Huỷ": hộp thoại xác nhận
+ngay sau đó đã có sẵn một nút "Huỷ" mang nghĩa **ở lại**. Hai nút cùng chữ mà
+ngược nghĩa, cách nhau vài chục pixel, là cách chắc chắn để người ta bấm nhầm
+đúng cái nút phá huỷ công việc của mình.
+
+#### "Còn việc chưa lưu" tính thế nào
+
+`hasUnsavedWork(baseline, name, drafts)` trong `builder/visual.ts`, và nó phải
+đúng theo **cả hai** chiều:
+
+| Sai chiều nào          | Hậu quả                                                    |
+| ---------------------- | ---------------------------------------------------------- |
+| không hỏi khi đáng hỏi | người dùng mất việc, không một câu cảnh báo                |
+| hỏi khi chẳng có gì    | bấm Có theo phản xạ, tới lần cần hỏi thật cũng vô tác dụng |
+
+Nên nó gồm hai vế:
+
+- **ảnh chụp khác mốc** — `snapshotOf(name, readyVisuals(drafts))`. Mốc được đặt
+  lại ngay khi nạp xong một báo cáo cũ, nên mở ra rồi thoát ngay thì nó im.
+- **có ô dựng dở** — ô đã có một trường nhưng chưa đủ để lưu. Vế này **thiếu
+  trong bản đầu**, và lỗi lộ ra khi bấm thử trên trình duyệt chứ không phải khi
+  đọc lại code: chọn đúng một chiều rồi bấm Thoát, trang cho đi luôn.
+  `readyVisuals` không thấy ô dở dang nên ảnh chụp bằng đúng mốc.
+
+Mốc **không** so thẳng trên `VisualDraft` dù nghe gọn hơn: mỗi ô mang một `id`
+sinh ngẫu nhiên, nên ô rỗng của lần dựng mới không khớp với bất kỳ mốc dựng sẵn
+nào — trang vừa mở đã tự nhận là đã bị sửa.
+
+### Xem trước, sửa sau: hai trang cho một báo cáo (§10.13)
+
+Bấm tên một báo cáo mở **trang xem**: một thanh trên cùng, cái khung biểu đồ, và
+không gì khác. Ai sửa được thì có nút **Chỉnh sửa** ở góc phải thanh đó.
+
+```
+┌────────────────────────────────────────────────────────┐
+│ ←  Doanh thu quý IV                     [ Chỉnh sửa ]  │
+├────────────────────────────────────────────────────────┤
+│  (khung biểu đồ, chỉ đọc)                              │
+└────────────────────────────────────────────────────────┘
+```
+
+#### Đây là ĐẢO lại quyết định của §10.10
+
+§10.10 gộp xem và sửa vào một trang, với lý do "bấm tên báo cáo rồi phải bấm
+thêm một nút nữa mới sửa được là hai bước cho một việc". Lý do đó nhìn từ phía
+người **dựng** báo cáo. Người dùng nhìn từ phía người **đọc**:
+
+> khi bấm vào báo cáo sẽ hiển thị 1 trang xem tổng quan như này trước, nhưng với
+> những role có quyền thì sẽ có nút edit
+
+Và họ đúng. Phần lớn lượt mở một báo cáo là để đọc nó — kể cả bởi chính người đã
+dựng. Cái giá của việc mở thẳng vào trình dựng:
+
+|                      | mở vào trình dựng                                      | mở vào trang xem                   |
+| -------------------- | ------------------------------------------------------ | ---------------------------------- |
+| bề ngang cho biểu đồ | mất hơn ⅓ cho ba cột công cụ                           | trọn màn hình                      |
+| số request           | mỗi ô tự hỏi số liệu của mình — 12 lượt khứ hồi        | **một** `canvas-data` cho cả trang |
+| bấm nhầm vào một ô   | **sửa** báo cáo, rồi trang hỏi "chưa lưu, rời đi chứ?" | không có gì để sửa                 |
+
+| Đường dẫn                        | Nằm ở đâu         | Ai vào được                                   |
+| -------------------------------- | ----------------- | --------------------------------------------- |
+| `/reports` — danh sách           | trong sidebar     | mọi vai trò                                   |
+| `/reports/:id` — **xem**         | **toàn màn hình** | mọi vai trò                                   |
+| `/reports/:id/edit` — trình dựng | **toàn màn hình** | ai sửa được; còn lại bị đẩy về `/reports/:id` |
+| `/reports/new` — dựng mới        | toàn màn hình     | `readDataModels` + `editContent`              |
+
+Cả hai trang dùng chung `ReportShell` — cùng chiều cao thanh trên, cùng chỗ đặt
+mũi tên ←, cùng chỗ đặt tên báo cáo. Lệch một nhịp thôi thì cú bấm "Chỉnh sửa"
+đọc ra như một cú nhảy sang màn hình khác, và người dùng phải tìm lại mọi thứ.
+
+#### Cả hai route đều KHÔNG gác quyền — vì hai lý do ngược nhau
+
+**Trang xem** không gác vì `report:read` là quyền của mọi vai trò, và
+`ReportViewer` cố ý **không** gọi bất kỳ endpoint nào của mô hình dữ liệu. Đó là
+điều kiện để viewer dùng được: họ không có `datamodel:read` (migration 26). Số
+liệu tới từ `GET /reports/:id/canvas-data` và `GET /reports/:id/data` — hai
+endpoint cố ý chỉ gác `report:read`.
+
+**Trình dựng** không gác vì ai không sửa được thì bị **đẩy về trang xem**, không
+phải rơi vào `/403`. Link `/edit` đã được dán cho nhau suốt từ §10.10, và một
+cái link cũ nên dẫn tới thứ người ta định xem.
+
+Nút **Chỉnh sửa** mới là chỗ hỏi quyền, và nó hỏi **cả hai** ô:
+
+```
+report:modify && datamodel:read && source === 'datamodel'  ->  hiện nút
+```
+
+Hỏi một ô thôi là để lọt một vai trò vào trình dựng rồi mọi request bên trong ăn
+403 giữa chừng công việc. Chặn thật vẫn ở backend: mỗi lần ghi đi qua
+`authorize('report', 'modify')`.
+
+#### Báo cáo trên BỘ DỮ LIỆU: không có nút, và NÓI vì sao
+
+Trình dựng đọc cấu hình dạng ID trường, còn báo cáo §7.6 mang cấu hình dạng **tên
+cột** — admin cũng không sửa được nó. Chỗ đó mang nhãn _"Dựng trên bộ dữ liệu —
+chỉ xem"_ thay vì để nút vắng mặt không lời giải thích.
+
+Nhãn ấy **chỉ** hiện với người vốn sửa được. Nói "chỉ xem" với một viewer là nói
+về một khả năng họ chưa từng có.
+
+#### Lưu xong thì Ở LẠI
+
+Không còn trang xem để nhảy sang, nên lưu xong trang tự đặt lại mốc `baseline`
+và bật nhãn **"✓ Đã lưu"** trong 2,5 giây. Không làm vậy thì chấm _"● Chưa lưu"_
+vẫn sáng sau khi đã lưu xong, và bấm Lưu trông y hệt như không bấm.
+
+Luồng **tạo mới** thì khác: nó đổi URL sang `/reports/:id/edit` của báo cáo vừa
+tạo (`replace`, để nút Back không quay lại một trang dựng trống). Đường dẫn đổi
+nên component mount lại và tự đặt mốc từ bản đã lưu.
+
+Lối ra (mũi tên ← và nút Thoát) về **trang xem** của báo cáo đang sửa, hoặc về
+**danh sách** nếu đang dựng mới. Người ta vào trình dựng từ nút "Chỉnh sửa" của
+trang xem, nên ← trả họ về đúng chỗ đã đứng; dựng mới thì chưa có trang xem nào
+để về, và danh sách là nơi báo cáo vừa lưu sẽ hiện ra.
+
+#### Ô đang chọn được TÍNH RA, không lưu
+
+`const selected = drafts.find((d) => d.id === selectedId) ?? drafts[0] ?? null`
+
+Trước đây một `useEffect` chọn hộ ô đầu tiên khi `selectedId` còn `null`, và nó
+hỏng ngay khi trang thôi chờ báo cáo nạp xong mới render: hai effect chạy trong
+cùng một lượt — effect nạp báo cáo đặt `selectedId` theo ô vừa nạp, effect
+chọn-hộ đọc `selectedId` cũ (vẫn `null`) rồi ghi đè bằng id của ô **rỗng** khởi
+tạo. Ô đó không còn trong `drafts`, nên bảng cấu hình đứng im ở câu _"Bấm vào
+một ô trên khung"_ và bấm một trường không có tác dụng gì.
+
+Lỗi này chỉ lộ ra khi bấm thử trên trình duyệt — không test nào đỏ, không lỗi
+nào trong console, chỉ là một bảng cấu hình không phản ứng.
+
+### Hai đường tạo báo cáo, và mô hình dựng-hộ (migration 31, đảo ở 32)
+
+Nút **Tạo báo cáo** — ở Trang chủ và ở trang Báo cáo, cùng một component
+`CreateReportMenu` — cho hai đường:
+
+|                                   | Người dùng làm gì        | Hệ thống làm gì                                              |
+| --------------------------------- | ------------------------ | ------------------------------------------------------------ |
+| **Tạo nhanh với file Excel/CSV**  | tải file, tích sheet     | nạp dữ liệu → **dựng hộ một mô hình** → vào thẳng trình dựng |
+| **Tạo từ mô hình dữ liệu có sẵn** | chọn mô hình trong trang | vào trình dựng                                               |
+
+Trước bản này nhánh file chỉ mở wizard nạp dữ liệu rồi thả người dùng ở danh
+sách bộ dữ liệu — còn đúng hai bước nữa (dựng mô hình, mở trình dựng) mà không
+có gì nói ra. Nút hứa "tạo báo cáo" và giao lại một bộ dữ liệu.
+
+#### ⚠️ Đây KHÔNG phải là mang cơ chế tự sinh mô hình trở lại
+
+Đọc **migration 19 và 20** trước khi sửa phần này. Hệ thống đã từng tự dựng mô
+hình ở đuôi **mọi** lần nạp, và migration 20 bỏ hẳn nó, với lý do vẫn còn nguyên
+giá trị:
+
+> Máy chỉ đoán được [những bảng nào đáng hỏi cùng nhau] bằng chuyện chúng đi
+> chung một file hay chung một schema, mà đó là trùng hợp về xuất xứ chứ không
+> phải quan hệ về nghĩa.
+
+Đo trên dữ liệu thật khi đó: **15 mô hình tự sinh, không cái nào quá một bảng,
+12 cái bị xoá.**
+
+Khác ở đúng một điểm, và điểm đó là điểm quyết định:
+
+|                               | migration 19/20                     | bản này                                      |
+| ----------------------------- | ----------------------------------- | -------------------------------------------- |
+| ai yêu cầu                    | không ai — máy tự làm ở mọi lần nạp | người dùng bấm "Tạo nhanh với file"          |
+| "bảng nào đáng hỏi cùng nhau" | máy đoán từ xuất xứ                 | người dùng vừa tự tích                       |
+| mô hình là gì                 | một món quà máy tự tặng             | một bước trung gian của thao tác vừa yêu cầu |
+
+Không có lần nạp nào tạo ra mô hình ngoài lần nạp đi qua đúng nút đó —
+`UploadWizard` chỉ dựng mô hình khi `goal === 'report'`.
+
+#### Migration 32 đảo lại: mô hình dựng-hộ được LƯU như mọi mô hình khác
+
+Migration 31 đặt `datamodels.hidden = 1` cho mô hình dựng-hộ, để danh sách Mô
+hình dữ liệu chỉ còn thứ người dùng tự dựng. Người dùng gặp mặt trái của nó ngay
+lần dùng đầu:
+
+> tui vẫn thấy nút mở mô hình nhưng khi thoát ra thì lại không thấy trong phần
+> mô hình dữ liệu
+
+Một mô hình **mở được** từ trình dựng nhưng **không có mặt** trong danh sách đọc
+ra như dữ liệu bị mất, không phải như một chỗ được dọn gọn. Và nó thật sự là mô
+hình của họ: họ tích những sheet đó, họ đặt tên đó, và vai trò cột trong đó là
+thứ họ sẽ phải sửa.
+
+Nỗi lo của 31 — "mỗi lần tải file lại thêm một mô hình một-bảng" — không mất đi,
+nhưng nó nhỏ hơn và có thuốc chữa sẵn: danh sách đã có tìm kiếm, sắp xếp và xoá.
+Rác thì dọn được; dữ liệu tưởng là mất thì không lấy lại được lòng tin.
+
+**Migration 32 DROP hẳn cột**, không phải `UPDATE ... SET hidden = 0`. Sau thay
+đổi này không còn nơi nào ghi cột đó nữa, và một cột mà mọi dòng đều bằng 0 và
+không ai ghi vào là một cột người đọc sau phải mất công tìm hiểu rồi phát hiện
+nó không làm gì. Bỏ hẳn cũng chính là thứ kéo những mô hình đang bị giấu trở lại
+danh sách.
+
+Nút **Mở mô hình** trên thanh công cụ trình dựng vẫn còn, và giờ hiện cho **mọi**
+mô hình chứ không riêng mô hình dựng-hộ: vai trò cột và quan hệ giữa các sheet
+là hai thứ hay phải sửa ngay giữa lúc dựng biểu đồ, và bắt người dùng đi vòng
+qua danh sách là bắt họ bỏ cả khung đang dựng.
+
+#### Phải CHỜ dữ liệu vào kho phân tích
+
+`commitDatasets` trả về ngay khi dòng đã vào MySQL; việc nạp sang ClickHouse
+chạy **tiếp sau** đó. Dựng mô hình trước lúc ấy thì backend trả **409
+`DatasetNotLoaded`** — và đó chính là lỗi nhận được ở lần chạy thử đầu tiên của
+luồng này:
+
+```
+--> POST /api/v1/datamodels {"name":"ban-hang-nhanh","datasetIds":[205]}
+<-- 409 {"error":"DatasetNotLoaded","message":"Bộ dữ liệu \"ban-hang-nhanh\" chưa
+        được nạp vào kho phân tích nên chưa dựng mô hình lên được..."}
+```
+
+`waitLoaded` hỏi lại mỗi 1,5 giây, trần 90 giây. Hỏi lại thay vì một
+`setTimeout` đủ dài: thời gian nạp phụ thuộc số dòng, nên một con số cố định là
+chọn sai cho một trong hai phía — hoặc bắt file nhỏ chờ vô cớ, hoặc bỏ cuộc
+trước khi file lớn xong.
+
+#### Lỗi sau bước commit từng bị ẩn hoàn toàn
+
+Lỗi 409 ở trên **không hiện ra trên màn hình**. Bản đầu đánh dấu
+`progress = 'done'` ngay sau khi commit rồi mới dựng mô hình, mà `StepProgress`
+ở trạng thái `'done'` **return sớm** và không render `error`. Người dùng nhìn một
+dấu tích xanh "Đã tạo bộ dữ liệu thành công!" và không hiểu vì sao trang không
+chuyển.
+
+Hai chỗ sửa:
+
+- nhánh báo cáo **không** đánh dấu `'done'` — việc chưa xong, và trạng thái đó
+  là trạng thái duy nhất giấu lỗi;
+- `committedRef` giữ kết quả commit, nên nút **Thử lại** sau khi mô hình hỏng
+  không nạp lại file thành một bộ dữ liệu thứ hai. Người dùng bấm Thử lại để
+  chữa một lỗi, không phải để nhân đôi dữ liệu.
+
+#### Đã kiểm bằng gì
+
+6 ca tích hợp (`§10.13` trong `datamodel.integration.test.ts`) khoá chiều ngược
+lại của migration 32: mô hình vừa tạo **có** trong danh sách và **được tính** vào
+`total`, một client cũ còn gửi cờ `hidden` cũng không giấu được gì, DTO không còn
+mang trường đó, đường tạo vẫn y nguyên, và tổ chức khác vẫn 404.
+
+Và một lượt chạy thật trên trình duyệt với một file CSV 8 dòng: menu hai đường →
+tải file → nút "Nạp 1 sheet rồi dựng báo cáo" → mô hình ra đời → **thoát ra mục
+Mô hình dữ liệu thì thấy nó ở đó** → quay lại dựng biểu đồ → lưu được.
+
+### Bảng trường chia theo BẢNG, không theo vai trò đoán được
+
+Hai khối **"Chiều (Dimension)"** và **"Thước đo (Measure)"** đã bị bỏ. Cột "Mô
+hình dữ liệu" giờ liệt kê **mọi** trường, gom theo bảng:
+
+```
+MÔ HÌNH DỮ LIỆU
+5 bảng · 43 trường
+[ Tìm trường… ]
+
+Customers
+   #  Customer id        T  Name        T  Phone        📅 Created at
+   Σ  Số dòng
+Orders
+   #  Orders id          T  Status      📅 Orders date
+   Σ  Số dòng (2)        Σ  Total amount
+Orders_detail
+   ...
+```
+
+Vì phép đoán vai trò (`classifyColumn.defaultRoleOf`: kiểu cột + từ cuối của
+tên, đối chiếu một danh sách từ khoá) sai vừa đủ thường xuyên để gây hại:
+
+- Một cột số bị đoán thành thước đo thì **không** còn nằm trong nhóm "Chiều",
+  nên người dùng đi tìm nó để chia nhóm và không thấy ở đâu cả.
+- Hai khối tự tin phát biểu "đây là chiều, đây là thước đo" trong khi thứ tự sắp
+  xếp thật ra đến từ mười mấy chữ trong `IDENTIFIER_WORDS`.
+
+Bảng chia theo **bảng** — đơn vị người dùng thật sự nhớ, vì họ là người đã nạp
+từng bảng vào mô hình. Ai dựng báo cáo thì biết cột nào đo được, và họ chọn.
+
+Thứ tự: bảng theo **thứ tự xuất hiện** trong mô hình (không sắp chữ cái — bảng
+chính thường được thêm trước bảng tra cứu, đúng thứ tự người ta sẽ tìm); trong
+một bảng thì cột trước, trường đã gộp sẵn sau — không phải để chia lại theo vai
+trò mà vì trường gộp _dựng trên_ các cột ấy.
+
+⚠️ Đây là thay đổi **cách hiển thị**. Backend vẫn phân vai trò như cũ, nên một
+cột bị đoán thành thước đo vẫn chưa kéo được vào ô Trục. Hai thứ nói ra điều đó:
+ký hiệu đầu dòng (`Σ` = trường đã gộp sẵn, `#`/`T`/`📅` = cột) và việc mỗi ô
+thả tự in ra loại trường nó nhận rồi sáng lên đúng lúc kéo (`Shelf`). Bỏ hẳn phép
+đoán ở backend là việc khác, lớn hơn nhiều: nó đụng bộ sinh schema Cube (`buildCubeSchema`
+chỉ phát dimension cho cột `role = 'dimension'`), DTO cấu hình báo cáo, và cả
+việc sinh lại schema cho mọi mô hình đã có.
+
+Dòng đếm cũng đổi theo: **"5 bảng · 43 trường"** thay cho "30 chiều · 13 thước
+đo". Đếm theo vai trò ngay trên một danh sách đã thôi chia theo vai trò là dựng
+lại đúng cái ranh giới vừa bỏ.
+
+### Mỗi ô thả NÓI RA nó nhận loại trường nào
+
+```
+Ô THẢ
+┌──────────────────────────────┐
+│ Trục (Dimension)         Bỏ  │
+│   Product Name               │
+│   Orders                     │
+└──────────────────────────────┘
+┌──────────────────────────────┐
+│ Giá trị (Measure)        Bỏ  │
+│   Quantity                   │
+│   Tổng của Quantity          │
+└──────────────────────────────┘
+┌──────────────────────────────┐
+│ Nhóm màu (Dimension)     Bỏ  │
+│   Category                   │
+│   Orders                     │
+└──────────────────────────────┘
+```
+
+Tên ba ô — "Trục", "Giá trị", "Nhóm màu" — nói ô đó **vẽ ra cái gì**, không nói
+**bỏ cái gì vào**. Câu gợi ý bên dưới có nói ("Chiều để chia nhóm"), nhưng nó
+chỉ hiện khi ô còn **trống**: thả xong một trường là chính trường vừa thả chiếm
+chỗ dòng chữ đó, và từ lúc ấy màn hình không còn chỗ nào nói ô Trục nhận chiều
+còn ô Giá trị nhận thước đo. Người dùng mất thông tin đúng lúc cần nhất — lúc
+muốn **đổi** trường đang nằm trong ô.
+
+Chữ trong ngoặc đọc từ `COLUMN_ROLE_TERMS` (`shared/src/datamodel.ts`), và
+`COLUMN_ROLE_LABELS` — "Chiều (Dimension)" ở Explorer và ở ô chọn vai trò của
+tab Schemas — **dựng trên** map đó. Nên ba chỗ không lệch nhau được: sửa
+"Dimension" một lần là sửa cả ba.
+
+Trong `Shelf` nó lấy theo `accepts`, **chính** biến quyết định ô có nhận cú thả
+hay không (`nhanDuoc`). Một prop `kindLabel` truyền từ ngoài vào thì lệch được:
+đổi `accepts` mà quên đổi nhãn là ô mời người dùng thả đúng thứ nó từ chối.
+
+Ô **bị khoá** vẫn in loại trường của mình — ô Nhóm màu của biểu đồ tròn chẳng
+hạn. Người dùng cần biết cái ô xám đó là chỗ của một chiều, không phải chỗ của
+một thước đo thứ hai.
+
+⚠️ Không mâu thuẫn với việc bảng trường thôi chia theo vai trò. Ở đó vai trò là
+thứ backend **đoán** cho từng cột; ở đây nó là ràng buộc **cứng** của chính ô
+đó: ô Trục nhận chiều, hết, không có gì để đoán.
+
+### Trần nhóm nói ra LUẬT của nó, và cho chọn đầu hay cuối bảng
+
+```
+Số nhóm tối đa      [ 20 nhóm        ]
+Giữ lại nhóm nào    [ Nhóm lớn nhất  ]
+                    Xếp hạng theo Doanh thu; phần còn lại gộp thành "Khác"
+                    — chỉ khi phép tính cộng được.
+```
+
+Trước bản này màn hình chỉ nói **"Số nhóm tối đa: 20"** và không một chữ nào về
+việc 20 nhóm đó được chọn ra sao. Người dùng đọc nó thành "hai mươi nhóm ngẫu
+nhiên nào đó" — và đó là phản hồi thật, không phải giả định.
+
+Nó chưa bao giờ ngẫu nhiên: `buildQuery` sắp giảm dần theo thước đo đầu tiên
+rồi cắt. Nhưng một luật không nói ra thì cũng như không có.
+
+#### Chọn nhóm nào là việc của TRUY VẤN
+
+`pick` nằm trong `ReportModelConfigDto`, **không** trong
+`ReportChartOptionsDto`, và ranh giới đó là ranh giới thật: `options` chỉ đổi
+hình, `config` đổi số. Đặt nhầm chỗ thì nó không vào khoá cache — đổi từ "lớn
+nhất" sang "nhỏ nhất" sẽ là một lần **trúng** cache: biểu đồ đứng yên, không
+request, không lỗi, một ô chọn không làm gì cả.
+
+`'bottom'` hỏi Cube bằng `ORDER BY … ASC`, chứ không đảo ngược tập đã cắt. Đo
+trên tám khu vực với trần 5 nhóm:
+
+|               | nhóm hiện trên trục                                      |
+| ------------- | -------------------------------------------------------- |
+| Nhóm lớn nhất | An Giang, Binh Duong, Can Tho, Da Nang, Ea Kar, **Khác** |
+| Nhóm nhỏ nhất | Da Nang, Ea Kar, Gia Lai, Ha Noi, Hue, **Khác**          |
+
+Hai tập KHÁC nhau — nếu "nhỏ nhất" chỉ là đảo thứ tự thì dòng dưới sẽ là dòng
+trên viết ngược.
+
+#### Backend luôn trả về GIẢM DẦN, kể cả khi lấy cuối bảng
+
+`aggregateFromModel` đảo lại kết quả của truy vấn `asc`. Không đảo thì
+`options.sort = 'value'` — nhãn của nó là "lớn → nhỏ" — sẽ vẽ ra một biểu đồ
+tăng dần, và ô sắp xếp nói dối mà không ai sửa được. **`pick` chọn nhóm nào,
+`sort` chọn thứ tự**; hai việc tách hẳn nhau.
+
+Phép đảo nằm TRƯỚC bước cắt dòng thừa: `limit + 1` dòng đang xếp tăng dần thì
+dòng thừa nằm ở cuối, nên đảo sau khi cắt sẽ bỏ mất nhóm nhỏ nhất và giữ lại
+đúng cái dòng chỉ dùng để đếm.
+
+Ở biểu đồ nhiều chuỗi, `pick` chỉ đụng truy vấn xếp hạng **nhóm**. Trần chuỗi
+vẫn luôn giữ những chuỗi lớn nhất: "năm khu vực nhỏ nhất" là một câu hỏi, còn
+"năm khu vực nhỏ nhất, tách theo ba dòng sản phẩm ít bán nhất" thì không ai hỏi.
+
+#### Câu cảnh báo của "nhỏ → lớn" nay có đường ra
+
+Trước đó nó chỉ nói rằng sắp tăng dần không cho ra các nhóm nhỏ nhất. Giờ nó
+chỉ luôn chỗ sửa, và **tự tắt** khi người dùng đã thật sự lấy nhóm nhỏ nhất.
+
+### Sắp xếp trục: bốn cách, và một câu cảnh báo
+
+```
+Sắp xếp trục
+  Theo giá trị (lớn → nhỏ)      ← mặc định
+  Theo giá trị (nhỏ → lớn)
+  Theo tên (A → Z)
+  Theo tên (Z → A)
+```
+
+Danh sách và nhãn đọc từ `CHART_SORTS` / `CHART_SORT_LABELS` ở
+`shared/src/report.ts`; `reportChartOptionsSchema` phía backend cũng dùng chính
+`CHART_SORTS` cho `z.enum`. Thêm một cách sắp là sửa đúng một chỗ — ô chọn và
+bộ kiểm không lệch nhau được.
+
+#### "Nhỏ → lớn" KHÔNG phải "các nhóm nhỏ nhất"
+
+Backend sắp giảm dần rồi mới cắt top-N. Nên sắp tăng dần trên tập đã cắt cho ra
+**N nhóm lớn nhất, xếp ngược** — một biểu đồ trông hoàn toàn hợp lý và đọc ra
+một điều sai. Muốn nhóm nhỏ nhất thì phải đổi **truy vấn**, không phải đổi cách
+sắp.
+
+Đó là lý do lựa chọn này từng bị bỏ ra ngoài. Nay nó có mặt vì mọi công cụ BI
+đều làm thế và người dùng cần nó thật — nhưng kèm một câu ngay dưới ô chọn, chỉ
+hiện ở đúng lựa chọn đó:
+
+> Chỉ sắp lại những nhóm đang hiện. "Số nhóm tối đa" vẫn cắt theo giá trị lớn
+> nhất, nên đây là các nhóm lớn nhất xếp ngược — không phải các nhóm nhỏ nhất.
+
+#### Mặc định phải là `null`, không phải một phép sắp tương đương
+
+`sortOf` trả `null` cho `'value'` — **giữ nguyên** thứ tự backend trả về, chứ
+không khai một phép sắp giảm dần trông có vẻ giống hệt. Hai thứ đó khác nhau ở
+dòng **"Khác"**: nó là _phần còn lại_, không phải một nhóm, nên ở thứ tự mặc
+định nó phải nằm cuối thay vì trôi theo giá trị của mình.
+
+Ba lựa chọn kia thì sắp lại cả "Khác" theo đúng luật của chúng. Không phải bỏ
+sót: `'label'` đã làm vậy từ §10.9, và mọi công cụ BI cũng thế — khi người dùng
+**ra lệnh** sắp, một cái cột đứng yên một chỗ mới là thứ khó hiểu.
+
+`'value-asc'` sắp bằng `{ field: 'value', op: 'sum', order: 'ascending' }` chứ
+không đảo ngược mảng: biểu đồ nhiều chuỗi có nhiều dòng cùng một nhãn, nên thứ
+tự phải tính trên **tổng** của nhãn đó — đảo mảng sẽ xếp theo dòng đầu tiên bắt
+gặp, đúng với một chuỗi và sai với nhiều chuỗi.
+
+#### Biểu đồ tròn nay cũng nghe ô này
+
+Trước bản này nó bỏ qua hoàn toàn — kể cả `'label'` vốn đã có từ §10.9. Ô chọn
+hiện ra cho mọi loại biểu đồ mà bấm mãi không thấy gì đổi, đúng chỗ người dùng
+kết luận trang bị hỏng. Vòng tròn không sắp bằng `sort` trên một trục mà bằng
+kênh `order`, nên `pieOrder` trỏ kênh đó vào `label` hay `value` tuỳ lựa chọn.
+Mặc định `'value'` giữ nguyên hành vi cũ, nên không báo cáo tròn nào đã lưu bị
+đổi hình.
+
+### Bảng màu: NHÌN THẤY được, và đã qua máy kiểm
+
+```
+Bảng màu
+  ████████   Tươi sáng             ← đang chọn
+             Màu mạnh, nổi trên màn hình.
+  ████████   Trầm dịu
+             Cùng tám hướng màu nhưng dịu hơn, đỡ chói khi nhìn lâu.
+```
+
+Bản trước là một ô chọn với bốn dòng chữ: "Phân loại 10 màu", "Phân loại 20
+màu", "Pastel dịu", "Đậm tương phản". Người dùng chọn **màu** bằng cách đọc
+**tên**, rồi bấm, rồi nhìn biểu đồ, rồi quay lại đổi. Nay mỗi bảng là một dãy ô
+vuông tô đúng màu Vega sẽ dùng, theo đúng thứ tự gán cho chuỗi thứ 1, 2, 3.
+
+Đổi được điều đó là nhờ `CHART_PALETTE_COLORS`: bảng màu giờ là một **danh sách
+hex** chứ không phải một cái tên scheme mà chỉ Vega hiểu — cùng một danh sách
+vừa đi vào `scale.range`, vừa được bộ chọn tô ra.
+
+#### Ba cái tên phải đi, và không một pixel nào được đổi theo (§10.12)
+
+Bộ chọn từng có ba dòng, và cả ba đều nói sai một điều:
+
+| dòng cũ                           | vấn đề                                                                       |
+| --------------------------------- | ---------------------------------------------------------------------------- |
+| **Một màu thương hiệu** (`brand`) | trông y hệt dòng dưới nó — cả hai bắt đầu bằng một ô xanh dương              |
+| **Power BI** (`powerbi`)          | mượn tên một sản phẩm khác ngay trong ứng dụng của người dùng                |
+| **Xanh ngọc** (`teal`)            | đặt tên cho đúng MỘT ô trong tám, nên hàng chữ nằm cạnh cam, đỏ, tím và vàng |
+
+`brand` giống dòng dưới vì nó **thật sự không làm gì cả**: biểu đồ một chuỗi tô
+bằng màu thương hiệu bất kể bảng nào đang chọn (`mark.color` trong
+`chartSpec`), còn biểu đồ nhiều chuỗi thì `brand` rơi về đúng bảng mặc định.
+Một lựa chọn không đổi được một pixel nào là một lựa chọn nên **biến mất**,
+không phải một lựa chọn nên giải thích thêm.
+
+Cả ba xuống `CHART_PALETTES_LEGACY` — vẫn nhận được, vẫn vẽ y hệt, chỉ không
+được mời nữa. Hai trong ba còn được `normalizePalette` **quy về tên mới ngay
+lúc nạp**, và điều đó chỉ an toàn vì chúng vẽ ra không khác một mã màu nào:
+
+| lưu trong `config` | bộ chọn tô sáng                 | dãy màu                                    |
+| ------------------ | ------------------------------- | ------------------------------------------ |
+| `brand`            | Tươi sáng                       | bảng mặc định (đúng thứ nó vẫn vẽ)         |
+| `powerbi`          | Tươi sáng                       | **cùng một mảng**, không phải bản chép tay |
+| `teal`             | _Xanh ngọc (cũ)_, thêm một dòng | dãy cũ, giữ nguyên                         |
+
+`teal` **không** được quy đổi: "Trầm dịu" là một dãy màu khác hẳn, không phải
+`teal` đổi tên. Gộp nó vào là lặng lẽ vẽ lại mọi báo cáo đang dùng nó.
+
+#### "Chuẩn Power BI" và bộ kiểm không hoàn toàn đồng ý với nhau
+
+Bảng mặc định của Power BI, chạy qua bộ kiểm màu (dải sáng, sàn sắc độ, ΔE giữa
+các cặp liền kề với cả ba kiểu loạn sắc, tương phản với nền):
+
+```
+[FAIL] Lightness band    #12239E 0.354 · #6B007B 0.382 · #D9B300 0.778
+[WARN] Contrast          #D9B300 chỉ 1,97:1 với nền
+```
+
+Xanh đậm và tím đậm nằm **dưới** dải sáng an toàn — trên nền trắng chúng đọc ra
+gần như cùng một vệt tối. Vàng gốc thì không đạt 3:1 với nền.
+
+Nên bảng **Tươi sáng** (`bright`) là bảng của Power BI với **ba màu được kéo vào
+dải** và thứ tự xếp lại cho hai màu cạnh nhau cách nhau xa nhất:
+
+| gốc       | thành     | vì sao            |
+| --------- | --------- | ----------------- |
+| `#12239E` | `#2F4BBF` | dưới dải sáng     |
+| `#6B007B` | `#8E2A9E` | dưới dải sáng     |
+| `#D9B300` | `#B08A00` | tương phản 1,97:1 |
+
+**Trầm dịu** (`muted`) thì dựng từ đầu trong OKLCH với sắc độ 0,11–0,13 — thấp
+hơn hẳn `bright`, và đó là thứ làm nó "dịu". Chỗ khó nằm ở chỗ khác: sắc độ
+thấp kéo mọi cặp lại gần nhau dưới mắt loạn sắc. Bản đầu tiên trượt ngay ở cặp
+hồng ↔ lục (ΔE 3,9 deutan).
+
+Cách chữa là **xen kẽ độ sáng**: L 0,52 / 0,66 luân phiên, nên hai màu cạnh nhau
+luôn lệch nhau một bậc sáng. Độ sáng là chiều duy nhất mắt loạn sắc vẫn đọc
+được. Thêm một lần đảo thứ tự để đỏ và lục không nằm cạnh nhau, và:
+
+```
+[PASS] Dải sáng      cả 8 trong L 0.43–0.77
+[PASS] Sàn sắc độ    cả 8 >= 0.1
+[PASS] Khoảng cách loạn sắc   cặp tệ nhất ΔE 9.2 (deutan) · tritan 14.8
+[PASS] Mắt thường    cặp tệ nhất ΔE 18.9
+[PASS] Tương phản    cả 8 >= 3:1
+```
+
+Cả hai bảng PASS cả năm phép, **không một cảnh báo**.
+
+⚠️ **Thứ tự trong mảng không phải để cho đẹp** — hai màu cạnh nhau là hai màu dễ
+bị đem so nhất. Đổi thứ tự cũng là đổi bảng màu. Đổi một mã màu trong
+`CHART_PALETTE_COLORS` thì **chạy lại bộ kiểm**, đừng ước lượng bằng mắt.
+
+#### Không có bảng "pastel" nữa, và đó là kết quả đo được
+
+Pastel thật thì trượt cả tương phản lẫn khoảng cách loạn sắc — thử vài biến thể
+đều `FAIL`. Một bảng màu dịu mà người loạn sắc không phân biệt nổi hai chuỗi
+cạnh nhau không phải một lựa chọn, nó là một cái bẫy.
+
+#### Bảng màu CŨ không biến mất, chỉ thôi được mời
+
+`CHART_PALETTES` là danh sách bộ chọn **mời**; `CHART_PALETTES_ALL` thêm bảy
+bảng cũ và đó mới là thứ `z.enum` dùng. Hai lý do, cả hai đều cứng:
+
+- Báo cáo đã lưu mang `palette: 'pastel'` trong `config`, và mở ra rồi bấm Lưu
+  là gửi lại chính nó. Hẹp `z.enum` lại thì mọi báo cáo cũ vẫn mở được, vẫn cho
+  bấm Lưu, và Lưu luôn trả **400**.
+- Chúng vẫn vẽ bằng **tên scheme của Vega**, không phải hex chép tay. Chép lại
+  dãy màu của `tableau10` vào mã nguồn thì chỉ cần sai một mã là mọi báo cáo
+  đang dùng nó đổi màu — lặng lẽ, không ai đối chiếu được với cái gì.
+
+Bộ chọn vẫn **hiện** bảng màu cũ mà báo cáo đang dùng, thêm một dòng. Lọc nó đi
+thì mở một báo cáo cũ sẽ thấy bộ chọn tô sáng một bảng màu không phải bảng đang
+vẽ, và người dùng bấm Lưu là lặng lẽ đổi màu biểu đồ của mình.
+
+#### Nói ra khi bảng màu KHÔNG đổi được gì
+
+Biểu đồ một chuỗi tô đúng một màu; bản đồ nhiệt tô theo độ đậm của con số. Ở hai
+trường hợp đó, chọn bảng nào cũng ra hình y hệt — nên ô chọn nói thẳng, thay vì
+để người dùng bấm thử ba dòng rồi kết luận nó hỏng.
+
+### Chia trang thay cho cột "Khác": hai cái nút ‹ › (§10.12)
+
+```
+Số nhóm mỗi trang      [ 5 nhóm                          ]
+Khi còn nhóm chưa hiện [ Chia trang — bấm ‹ › để xem hết ]
+Trang đầu bắt đầu từ   [ Nhóm lớn nhất                   ]
+```
+
+Trần nhóm luôn phải có — một chiều ba nghìn giá trị mà vẽ hết thì không đọc được
+gì. Nhưng tới §10.10 cái trần đó là một **bức tường**: phần vượt quá gộp thành
+một cột "Khác" và không có đường nào nhìn vào bên trong nó.
+
+Nay đó là một lựa chọn, và hai vế loại trừ nhau:
+
+|                              |                                                                              |
+| ---------------------------- | ---------------------------------------------------------------------------- |
+| **Gộp thành một cột "Khác"** | mặc định, và là hành vi từ §10.8 — mọi báo cáo đã lưu giữ nguyên từng con số |
+| **Chia trang**               | mỗi trang `limit` nhóm, biểu đồ mọc hai nút ‹ › ở góc dưới phải              |
+
+#### Vì sao không giữ được cả hai
+
+Một cột "Khác" ở trang 2 sẽ có nghĩa là "phần còn lại **bên dưới** trang này" —
+không tính những nhóm ở trang 1. Nó trông y hệt cột "Khác" của trang 1 mà mang
+một con số khác hẳn. Nên chọn chia trang là bỏ hẳn cột "Khác", **ở mọi trang kể
+cả trang đầu**, và `grouped` cũng tắt theo: câu "chỉ hiện các nhóm lớn nhất" nằm
+dưới một biểu đồ có nút xem tiếp là nói sai ở đúng chỗ dễ tin nhất.
+
+#### Trang là một phép của TRUY VẤN, không phải của cách vẽ
+
+Mỗi lần bấm là một truy vấn Cube với `offset` khác, không phải một lát cắt của
+tập đã tải về. Đo trên tám khu vực, trần 5 nhóm:
+
+|         | nhóm trên trục                                 |
+| ------- | ---------------------------------------------- |
+| Trang 1 | An Giang, Binh Duong, Can Tho, Da Nang, Ea Kar |
+| Trang 2 | Gia Lai, Ha Noi, Hue                           |
+
+Không có cột "Khác" ở đâu cả, và trang 2 **không** lặp lại trang 1.
+
+#### Không có "Trang N/M", và đó là một phép đo chứ không phải sự lười
+
+Biết M đòi đếm toàn bộ giá trị phân biệt của chiều — thêm một lượt quét
+ClickHouse cho **mỗi lần vẽ**, để in ra một con số. `hasMore` thì đến miễn phí
+từ mẹo hỏi thừa một dòng đã có sẵn, và nó trả lời đúng câu hỏi mà hai cái nút
+cần: còn nữa hay hết rồi. Nút `›` tự khoá khi hết.
+
+#### Trang đang xem KHÔNG được lưu
+
+`overflow` nằm trong `config` (nó đổi số liệu, cùng lập luận với `pick`); còn
+**số trang đang xem thì không nằm ở đâu trong DTO cả** — nó đi như một tham số
+riêng của một lần đọc. Lưu nó nghĩa là bấm ‹ › một cái rồi bấm Lưu sẽ ghi lại
+"báo cáo này mở ra ở trang 4".
+
+Đổi cấu hình cũng **về trang đầu**: trang 6 của câu hỏi cũ gần như chắc chắn
+không tồn tại trong câu hỏi mới, và người dùng sẽ nhận một ô trống ngay sau một
+cú thả trường.
+
+#### Viewer cũng phải bấm được
+
+Trình dựng hỏi `POST /datamodels/:id/report-preview`, nhưng endpoint đó gác
+`datamodel:read` — thứ viewer không có (migration 26). Nên có đường riêng:
+`GET /reports/:id/visuals/:visualId/data?page=`, gác `report:read`, và **không
+nhận cấu hình nào từ client** — nó đọc cấu hình từ chính báo cáo đã lưu.
+
+Hai cái nút hỏng ở đúng người cần chúng nhất thì thà đừng có.
+
+#### Hai cái nút không bao giờ bị biểu đồ nuốt
+
+Ô trên khung cao theo lưới và `overflow-hidden`. Phần thò ra luôn bị cắt, và thứ
+bị cắt luôn là phần **dưới cùng** — trước đây là nhãn trục, từ §10.12 sẽ là hai
+cái nút.
+
+Nên `ReportChart` là một cột dọc: phần vẽ ở trên, hai cái nút và dòng cảnh báo
+neo ở đáy ô. Chúng không bao giờ nằm trong vùng có thể bị cắt.
+
+### Nhiều TRANG trên một báo cáo, như sheet của Excel (§10.12)
+
+```
+┌──────────────────────────────────────────────┐
+│  (khung biểu đồ của trang đang mở)           │
+├──────────────────────────────────────────────┤
+│ [ Tổng quan ] [ Chi tiết ✕ ] [ + ]           │
+└──────────────────────────────────────────────┘
+```
+
+§10.10 cho một báo cáo nhiều biểu đồ trên **một** khung, và điều đó đủ cho tới
+lúc câu chuyện dài hơn một màn hình. "Tổng quan" và "Chi tiết theo khu vực" là
+hai thứ đọc **nối tiếp** nhau, không phải cạnh nhau.
+
+Thẻ ở dưới cùng, bấm để đổi trang, bấm đúp để đổi tên, dấu + để thêm. Cố ý
+không bịa ra cách khác: người dùng báo cáo đã biết cái thanh đó làm gì trước khi
+mở ứng dụng lần đầu.
+
+#### Không có migration nào
+
+`reports.canvas` là cột JSON. Hình dạng cũ là `{ visuals: [...] }`, hình dạng mới
+là `{ pages: [{ id, name, visuals }] }`, và **cả đường đọc lẫn đường ghi nhận cả
+hai**:
+
+- `parseCanvas` quy hình dạng cũ về một trang tên "Trang 1", mã `p1`. Mã là
+  **hằng**, không sinh ngẫu nhiên — nó đi vào khoá cache của trang xem, và một
+  mã đổi sau mỗi lần đọc là một lần trượt cache sau mỗi lần đọc.
+- `reportCanvasSchema` có một bước `preprocess` làm đúng việc đó ở đường ghi.
+  Không phải để chiều một client tưởng tượng: một tab đang mở từ trước lúc triển
+  khai vẫn gửi hình dạng cũ, và câu trả lời cho nó phải là "đã lưu".
+
+Một câu `UPDATE` chạy trên mọi báo cáo của mọi tổ chức để đổi đúng một tầng lồng
+nhau là rủi ro đổi lấy con số không.
+
+#### Mỗi lần chỉ tính MỘT trang
+
+`GET /reports/:id/canvas-data?pageId=` tính số liệu cho đúng một trang. Đó là lý
+do trần 12 ô là trần **mỗi trang** mà lập luận chi phí của §10.10 vẫn đứng: mở
+một báo cáo mười trang vẫn tốn đúng một trang truy vấn.
+
+`pageId` lạ **rơi về trang đầu**, không 404. Nó xảy ra thật khi hai người mở
+cùng một báo cáo và một người xoá một trang — rơi về trang đầu thì người kia
+hiểu ngay, một màn hình lỗi thì không.
+
+#### Ba luật của cả khung, và vì sao chúng ở tầng đó
+
+| luật          | phạm vi        | vì sao không hẹp hơn                                                                                                                                            |
+| ------------- | -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| mã ô duy nhất | **cả báo cáo** | chuyển ô sang trang khác là thao tác bình thường và nó mang mã cũ đi theo; trùng mã thì `canvas-data` trả hai bản ghi cùng khoá và trình vẽ ghép nhầm số liệu   |
+| ít nhất một ô | **cả báo cáo** | trang rỗng là hợp lệ — người ta thêm trang trước rồi mới dựng biểu đồ, và bắt trang phải có sẵn một ô nghĩa là bấm Lưu giữa chừng sẽ làm biến mất trang vừa tạo |
+| tối đa 12 ô   | **mỗi trang**  | trần chi phí, mà chi phí tính theo trang đang mở                                                                                                                |
+
+`mirrorOfFirst` soi ô đầu tiên của **trang đầu tiên có ô**, không phải
+`pages[0].visuals[0]`: một trang đầu để trống là chuyện bình thường từ §10.12,
+và soi cứng sẽ ghi `NULL` vào `chart_type` — báo cáo vừa lưu xong hiện ra là
+"Chưa có biểu đồ" ở trang danh sách.
+
+#### Chấm "Chưa lưu" phải thấy được cả trang
+
+`snapshotOf` mang cả **tên** lẫn **thứ tự** trang. Đổi tên một trang hay kéo nó
+lên trước cũng là việc phải lưu, và nếu ảnh chụp không thấy thì người dùng thoát
+ra mất luôn mà không một câu hỏi.
+
+Mốc khởi tạo dựng từ **chính** trang khởi tạo (`initialPages`), không phải từ
+`snapshotOf('', [])`: gọi `emptyPage()` hai lần sinh hai mã trang khác nhau, và
+một trình dựng vừa mở ra đã tự nhận là "Chưa lưu". Hỏi thừa vài lần là người
+dùng học được cách bấm "Rời đi" mà không đọc.
+
+### Biểu đồ co theo Ô, không co theo dữ liệu (§10.13)
+
+> điều chỉnh khung biểu đồ co giãn theo khung hiện tại, chứ ko phải là biểu đồ
+> 100% nhưng khung 70% thì lại bị thiếu dữ liệu như hiện tại
+
+Tới §10.12, chiều cao biểu đồ và chiều cao ô là **hai con số không liên quan gì
+nhau**:
+
+|              | chiều cao lấy từ đâu                                               |
+| ------------ | ------------------------------------------------------------------ |
+| ô trên khung | lưới — `h` hàng × 44px, do người dùng kéo                          |
+| spec Vega    | dữ liệu — 340px cho mọi loại, và thanh ngang thì 24px **một nhóm** |
+
+Nên một biểu đồ 20 nhóm cao 480px nằm trong một ô 300px, và 7 nhóm cuối biến mất
+sau mép ô mà không có gì báo là chúng đã biến mất. Đúng cái ảnh người dùng gửi.
+
+Giờ `ReportChart` **đo** vùng vẽ của mình rồi truyền số đo đó vào spec, và Vega
+chia lại chỗ: thanh mảnh đi, không nhóm nào rời khỏi biểu đồ.
+
+```
+ô 492px → header 29 + đệm 16 → vùng vẽ 445px → svg 445px, thò 0px
+bóp ô xuống nhỏ nhất        → vùng vẽ 109px → svg 109px, thò 0px
+```
+
+#### Ba chỗ dễ sai
+
+**1. `height` KHÔNG phải chiều cao SVG** — chỗ này đã sai thật một lần. Truyền
+đúng số đo vào vẫn ra một SVG
+cao hơn ô — đo được **487px trong một vùng vẽ 445px**, thò đúng 42px của trục
+dưới. Vì `width: 'container'` chỉ bật `autosize` cho chiều **ngang**; chiều dọc
+giữ nghĩa mặc định, ở đó `height` là hình chữ nhật **dữ liệu** và trục được cộng
+thêm bên ngoài. Phải khai thẳng `autosize: { type: 'fit', contains: 'padding' }`.
+
+**2. Đo ở đâu cũng được thì phép đo chạy vòng.** Trang xem một biểu đồ có khung
+chứa cao **theo nội dung**: đo nó là đo chính thứ mình sắp quyết định. Nên chế độ
+vừa-khung là một **cờ do nơi gọi bật** (`fit`), không phải một phép đoán tại chỗ
+— chỉ nơi gọi mới biết hộp của mình cao theo lưới hay cao theo nội dung.
+
+**3. Thanh cuộn tự nuôi chính nó.** Vùng vẽ phải `overflow-hidden` ở chế độ này:
+một thanh cuộn hiện ra sẽ đổi chiều cao vùng đo → đổi chiều cao biểu đồ →
+hiện/mất thanh cuộn. Vòng đó nhấp nháy vĩnh viễn.
+
+#### Nhãn trục tự nhường nhau chỗ
+
+Trục nhóm là thang band, mà mặc định của Vega-Lite ở đó là `labelOverlap: false`
+— **mọi** nhãn đều được vẽ, kể cả khi chúng đè lên nhau thành một vệt xám. Trước
+§10.13 điều đó vô hại vì trục dài ra theo số nhóm; giờ trục bị nhốt trong ô nên
+20 nhãn có thể phải chen vào 200px. `greedy` chỉ bỏ đúng những nhãn **đang** đè
+lên nhau, nên nơi còn chỗ thì không mất gì.
+
+Chỉ bật ở chế độ vừa-khung. Bật sẵn ở chế độ cũ là đổi hình mọi biểu đồ đã lưu
+để chữa một chuyện chưa xảy ra ở đó.
+
+#### Chế độ cũ vẫn còn, và vẫn đúng
+
+`fit` vắng mặt thì mọi thứ y như trước: 340px, thanh ngang dài theo số nhóm,
+vùng vẽ cuộn được. Trang xem một biểu đồ nằm ở nhánh đó — nó cuộn cả trang, nên
+một biểu đồ dài không mất gì.
+
+### Báo cáo đã lưu vẽ NGAY, rồi mới làm mới ngầm
+
+Báo cáo lưu **cấu hình**, không lưu con số. Nên mỗi lần mở là một lượt tính lại
+từ đầu — và người dùng ngồi nhìn "Đang tính…" để cuối cùng nhận về đúng cái
+biểu đồ lần trước, không khác một nét.
+
+Đo trên máy phát triển, cùng một truy vấn qua Cube xuống ClickHouse:
+
+|                                                                                     | thời gian    |
+| ----------------------------------------------------------------------------------- | ------------ |
+| lần đầu sau khi Cube khởi động, **hoặc sau khi bất kỳ mô hình nào của tổ chức đổi** | **4.638 ms** |
+| những lần sau                                                                       | 49–175 ms    |
+
+Vài giây đó là Cube **biên dịch schema của cả tổ chức**. `schemaVersion` mà
+Express ký vào token là `MAX(updated_at)` của mọi mô hình còn sống (xem
+`repositories/datamodels.ts`), nên sửa một mô hình là hạ nhiệt cache của **tất
+cả** mô hình trong tổ chức đó. Cố ý — "sai theo hướng biên dịch thừa thì chỉ
+chậm, sai theo hướng dùng lại schema cũ thì trả số sai" — và không rút ngắn
+được ở tầng ứng dụng.
+
+Nên thay vì làm nó nhanh hơn, ta thôi bắt người dùng **nhìn** nó:
+`services/querySnapshots.ts` giữ câu trả lời cuối của mỗi ô trên đĩa trình
+duyệt và nạp lại qua `initialData` + `initialDataUpdatedAt` của react-query.
+
+Đo lại bằng trình duyệt thật, bấm vào tên báo cáo trong danh sách, Cube vừa bị
+làm nguội:
+
+|                               | biểu đồ hiện sau | thấy "Đang tính…" |
+| ----------------------------- | ---------------- | ----------------- |
+| chưa có ảnh chụp (hành vi cũ) | 2.137 ms         | có                |
+| đã có ảnh chụp                | **284 ms**       | **không**         |
+
+#### Ba luật của ảnh chụp
+
+1. **Luôn hỏi lại.** `initialDataUpdatedAt` mang đúng lúc con số được tính, nên
+   `staleTime` xử nó như một câu trả lời cũ: vẽ liền, rồi làm mới ngầm. Ảnh
+   chụp để **vẽ ngay**, không phải để khỏi hỏi.
+2. **Khoá là `hashKey` của chính query key** — cùng hàm react-query dùng cho
+   cache trong bộ nhớ, đã sắp thứ tự khoá object. Đổi chiều, thước đo, trần
+   nhóm hay mô hình là **trượt**, chứ không phải vẽ số cũ cho cấu hình mới.
+   `previewConfigOfDraft` và `previewConfigOfDto` (trong `builder/visual.ts`)
+   quy ô-đang-soạn và ô-đã-lưu về cùng một hình dạng, nên trình dựng và trang
+   xem dùng lại được số liệu của nhau.
+3. **Hỏng thì im lặng bỏ qua.** Chế độ riêng tư và cài đặt chặn cookie làm
+   `localStorage` _ném lỗi_ chứ không trả null. Một cái cache làm chết cả trang
+   là một cái cache tệ hơn không có.
+
+#### Vì sao là đĩa của TRÌNH DUYỆT, không phải một bảng cache ở server
+
+Token gửi xuống Cube mang cả `userId`, và `queryRewrite` trong
+`infrastructure/cube/cube.js` đang để dành sẵn cho Row-level Security. Một bảng
+cache dùng chung, khoá theo (báo cáo, cấu hình), sẽ trả số của người này cho
+người kia đúng ngày RLS được bật — một lỗi rò dữ liệu sinh ra từ một tính năng
+tăng tốc. `localStorage` thì per-trình-duyệt, per-người, theo cấu tạo. Nó cũng
+được xoá cùng `queryClient.clear()` ở `AuthProvider` khi đăng xuất hoặc đổi tổ
+chức — cần hơn cả cache trong bộ nhớ, vì nó sống qua lần đóng trình duyệt.
+
+#### Nó KHÔNG làm gì
+
+- **Không che lỗi.** `isError` vẫn thắng ở cả hai màn hình: Cube chết là hiện
+  câu lỗi, không phải một biểu đồ cũ trông như còn sống.
+- **Không giấu việc mình là số cũ.** Ô trong trình dựng ghi "đang cập nhật…" và
+  làm mờ biểu đồ; trang xem ghi "Số liệu lần trước — đang cập nhật…" trên đầu
+  khung. Vẽ ngay mà không nói gì thì thành nói dối.
+- **Không đụng báo cáo một-biểu-đồ dựng trên BỘ DỮ LIỆU.** Đường đó
+  (`useReportData`) khoá theo id báo cáo chứ không theo cấu hình, nên một ảnh
+  chụp ở đó sẽ sống sót qua cả lần sửa biểu đồ. Nó cũng không đi qua Cube nên
+  không có chi phí biên dịch để mà tránh.
+- **Không hỏi lại trong 30 giây đầu.** Đó là `staleTime` mặc định của cả ứng
+  dụng, không phải luật riêng của chỗ này.
+
+⚠️ `qs1` trong tiền tố khoá là **phiên bản hình dạng**. Đổi hình dạng
+`ReportDataDto` thì tăng lên `qs2`: ảnh chụp cũ nằm trong máy người dùng sẽ
+được đọc bởi code mới, và một trường mới bắt buộc sẽ làm trình vẽ ném lỗi trên
+một dữ liệu mà không request nào tạo ra được nữa.
+
+### Lưới 12 cột, lưu bằng ĐƠN VỊ LƯỚI chứ không phải pixel
+
+Người dựng báo cáo trên màn 27 inch, người xem mở trên laptop 13 inch. Lưu pixel
+nghĩa là mọi ô lệch chỗ ở mọi màn hình khác màn hình đã dựng. Lưới co giãn theo
+bề rộng thật nên bố cục giữ nguyên **tỉ lệ** ở mọi khổ.
+
+12 vì nó chia hết cho 2, 3, 4 và 6 — bốn cách chia mà người ta thật sự dùng.
+
+Hằng số dùng chung ở `shared/src/report.ts`, nên trình dựng và trang xem không
+thể lệch nhau: `CANVAS_COLUMNS`, `CANVAS_ROW_HEIGHT`, `CANVAS_MIN_W/H`,
+`CANVAS_MAX_VISUALS`.
+
+**Các ô ĐƯỢC PHÉP đè lên nhau.** Không có bước tự đẩy nhau ra như
+`react-grid-layout`: đẩy tự động nghĩa là kéo một ô làm ba ô khác nhảy chỗ, và
+người dùng mất luôn bố cục vừa sắp.
+
+### Kéo ô bằng Pointer Events, kéo TRƯỜNG bằng HTML5 drag-and-drop
+
+Hai cơ chế khác nhau trong cùng một trang, và đó là cố ý:
+
+| Việc                                         | Cơ chế                | Vì sao                                                                                     |
+| -------------------------------------------- | --------------------- | ------------------------------------------------------------------------------------------ |
+| Kéo một **trường** từ bảng mô hình vào ô thả | `draggable` của HTML5 | cú kéo mang một **mẩu dữ liệu** từ chỗ này sang chỗ khác — đúng việc API đó sinh ra để làm |
+| Di chuyển / co giãn một **ô** trên khung     | Pointer Events        | thao tác hình học **liên tục**, cần toạ độ ở từng khung hình                               |
+
+`dragover` chỉ bắn khi con trỏ đi qua một vùng thả, **không cho đọc dữ liệu đã
+set**, và trên phần lớn trình duyệt còn kéo theo một ảnh ma nửa trong suốt không
+tắt được. `setPointerCapture` thì giữ được sự kiện cả khi con trỏ chạy ra ngoài
+cửa sổ — thứ mà thả tay ngoài mép màn hình cần tới.
+
+**Bàn phím là đường đi đầy đủ, không phải lối phụ:** mũi tên di chuyển ô,
+Shift+mũi tên co giãn, Delete xoá.
+
+### Số liệu: trình dựng hỏi theo TỪNG ô, trang xem hỏi MỘT lần
+
+Hai nhịp khác nhau nên hai cách hỏi khác nhau:
+
+|             | Cách hỏi                                        | Vì sao                                                                                                                                                          |
+| ----------- | ----------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Trình dựng  | mỗi ô một `POST /datamodels/:id/report-preview` | kéo một trường vào ô số 3 không có lý do gì bắt ba ô kia quét lại ClickHouse. react-query gộp theo khoá `config`, nên hai ô cấu hình y hệt vẫn chỉ tốn một lượt |
+| Bản chỉ đọc | một `GET /reports/:id/canvas-data`              | mọi ô nạp cùng lúc đúng một lần; tách ra thành n request là hai lượt khứ hồi trước khi thấy biểu đồ đầu tiên                                                    |
+
+**Một ô hỏng KHÔNG làm hỏng cả khung.** Backend dùng `Promise.allSettled`, và mỗi
+ô mang `error` của riêng nó. `Promise.all` sẽ biến một ô trỏ vào thước đo vừa bị
+xoá thành một request 500 — bảy ô còn lại hoàn toàn đọc được cũng biến mất theo.
+Đã kiểm bằng tay trên dữ liệu thật: một ô báo _"Có trường không còn trong mô
+hình"_, ô cạnh nó vẫn vẽ đủ 6 dòng.
+
+⚠️ Ghép số liệu vào ô bằng `visualId`, **không** bằng thứ tự mảng. Backend trả
+đúng thứ tự đã nhận, nhưng dựa vào điều đó là dựa vào một chi tiết cài đặt —
+đổi sang gộp trùng hay bỏ bớt ô hỏng là số liệu của ô này lặng lẽ hiện trong ô
+kia: biểu đồ đúng hình, sai số, không ai nhìn ra bằng mắt.
+
+### Cột `canvas` và bản sao của ô đầu tiên
+
+`reports.canvas` là JSON, `NULL` mang nghĩa thật:
+
+```
+canvas IS NULL      báo cáo MỘT biểu đồ — mọi bản ghi có từ trước §10.10
+canvas IS NOT NULL  khung nhiều biểu đồ, và ĐÂY là bản gốc
+```
+
+Nhờ vậy **không phải migrate một dòng dữ liệu nào**.
+
+Khi ghi một khung, backend còn chép ô đầu tiên sang `chart_type` + `config`. Bản
+sao đó tồn tại vì đúng một lý do: mọi thứ viết trước §10.10 vẫn đang đọc hai cột
+ấy — `GET /reports/:id/data`, huy hiệu loại biểu đồ, và bất kỳ client cũ nào. Để
+chúng `NULL` nghĩa là một khung vừa lưu xong hiện ra là _"Chưa có biểu đồ"_.
+
+Bản sao đi **một chiều**. Sửa `chart_type`/`config` mà không sửa `canvas` là tạo
+ra hai sự thật, nên mọi đường ghi của khung phải đi qua `createCanvasReport` /
+`updateCanvasReport`.
+
+**Chuyển đổi một chiều:** gọi `PATCH /reports/:id/canvas` trên một báo cáo
+một-biểu-đồ sẽ biến nó thành khung. Cố ý — đó là cách một báo cáo dựng ở §10.9
+thêm được ô thứ hai mà không phải tạo lại. Không mất gì, vì ô đầu tiên giữ nguyên
+cấu hình cũ và bản sao vẫn được cập nhật.
+
+### Endpoint
+
+|                                                    |                                                     |
+| -------------------------------------------------- | --------------------------------------------------- |
+| `POST /v1/reports/canvas`                          | tạo khung — `report:modify`                         |
+| `PATCH /v1/reports/:id/canvas`                     | lưu khung, và là đường chuyển đổi — `report:modify` |
+| `GET /v1/reports/:id/canvas-data?pageId=`          | số liệu mọi ô của MỘT trang — `report:read`         |
+| `GET /v1/reports/:id/visuals/:visualId/data?page=` | số liệu một ô ở một trang nhóm — `report:read`      |
+| `GET /v1/reports/:id/data?page=`                   | báo cáo một biểu đồ, có trang nhóm — `report:read`  |
+
+⚠️ `canvas-data` **không** gắn `datamodel:read`, cùng lý do đã ghi ở
+`GET /reports/:id/data`: viewer không có ô đó nhưng vẫn phải xem được báo cáo
+người khác dựng cho họ. Gắn nhầm vào là làm trắng mọi khung của viewer — và
+không ca test nào khác bắt được, vì viewer vẫn 200 ở mọi đường còn lại. Có một
+ca riêng gác đúng chuyện này.
+
+Cả 12 ô được kiểm bằng **một** bảng trường (`assertChartConfigAgainst`): chúng
+cùng thuộc một mô hình, nên dựng chỉ mục 12 lần là trả giá cho thứ đã có sẵn.
+
+**Một ô sai làm hỏng cả lần lưu.** Lưu ô hợp lệ rồi lặng lẽ bỏ ô sai sẽ cho người
+dùng một khung khác thứ họ vừa dựng, mà không nói gì.
+
+### Bài test đáng đọc
+
+| File                                                 | Khoá lại điều gì                                                                                                                                                                                                                                                                  |
+| ---------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `backend/tests/datamodel.integration.test.ts` §10.13 | 6 ca khoá chiều ngược của migration 32: mô hình dựng-hộ **có** trong danh sách, được tính vào `total`, và một client cũ còn gửi cờ `hidden` cũng không giấu được gì                                                                                                               |
+| `frontend/tests/fieldSheets.test.ts`                 | gom trường theo bảng và lọc theo từ khoá. Sau khi bỏ hai khối "Chiều"/"Thước đo", thứ tự và cách gom là thứ duy nhất còn giúp người dùng tìm được một trường                                                                                                                      |
+| `frontend/tests/chartSpec.test.ts`                   | mọi spec Vega **biên dịch được** (bắt cả `warn`, không chỉ lỗi ném ra), bốn cách sắp trục cho ra **bốn** spec khác nhau, và chế độ vừa-khung (§10.13) khai đúng `autosize: fit` — thiếu nó thì trục vẫn thò ra 42px và không có gì đỏ ở đâu cả                                    |
+| `frontend/tests/querySnapshots.test.ts`              | ảnh chụp số liệu trên đĩa. Phần lớn ca kiểm chuyện **trượt** — đổi cấu hình, đổi mô hình, mục hỏng, `localStorage` bị chặn — vì một cache sai không hỏng ra mặt, nó vẽ một biểu đồ trông bình thường bằng số của câu hỏi khác                                                     |
+| `frontend/tests/savedReportInstant.test.tsx`         | mở báo cáo đã lưu thì có biểu đồ ở **khung hình đầu tiên**, và màn hình **nói ra** đó là số cũ đang cập nhật. Request cố ý không bao giờ trả lời — đây là bài kiểm về đúng khoảnh khắc chờ                                                                                        |
+| `frontend/tests/shelfKind.test.tsx`                  | ô thả có in ra loại trường nó nhận không, và có in ĐÚNG cái `accepts` của nó không. Kiểm ở trạng thái ĐÃ ĐIỀN — trạng thái trống chưa bao giờ là chỗ thiếu thông tin — và trên cả `VisualPanel` thật, nên bắt được cả tên ô đổi theo loại biểu đồ ("Lát cắt") lẫn ô bị khoá       |
+| `frontend/tests/canvasVisual.test.ts`                | phép tính bố cục và luật của một ô — `findSlot`, `clampBox`, `assignField`, `toDto`, và `hasUnsavedWork`. Sai ở đây không hiện ra như lỗi: một ô lệch cột trông y hệt một ô người dùng tự đặt lệch, còn `hasUnsavedWork` sai là mất việc của người dùng mà không một câu cảnh báo |
+| `frontend/tests/CanvasView.test.tsx`                 | render thật trong DOM: ghép số liệu theo `visualId` (ca này **đảo thứ tự** mảng trả về), và một ô hỏng không kéo theo ô khác                                                                                                                                                      |
+| `backend/tests/datamodel.integration.test.ts` §10.10 | 20 ca ở tầng cấu hình — trùng mã ô, khung rỗng, tràn lưới, quá trần, trường lạ, chuyển đổi, ranh giới với báo cáo trên bộ dữ liệu, và **hình dạng cũ `{visuals}` vẫn ghi được rồi đọc ra một trang**                                                                              |
+| `backend/tests/datamodel.integration.test.ts` §10.12 | `overflow` đi trọn vòng lưu/đọc, vắng mặt rơi về `'other'`, giá trị lạ bị chặn ở cửa, `?page=` có trần, và `canvas-data?pageId=` tính đúng trang được hỏi (mã lạ rơi về trang đầu, không 404)                                                                                     |
+| `frontend/tests/groupPaging.test.tsx`                | hai cái nút ‹ › và thanh thẻ trang. Phần lớn ca kiểm chuyện **không** bày ra nút: cấu hình không chia trang, dữ liệu vừa một trang, không có `onPage`. Một cặp nút chết chỉ nói với người dùng rằng có gì đó hỏng                                                                 |
+| `frontend/tests/reportViewPage.test.tsx`             | trang xem mở được cho **mọi** vai trò, và nút "Chỉnh sửa" chỉ có mặt khi nó thật sự dẫn tới một trình dựng dùng được — không phải bảo mật, mà là đừng bày ra một cái nút dẫn tới 403                                                                                              |
+
+Không ca nào cần ClickHouse trả số thật. Việc đó đã được chứng minh bằng tay
+trên dữ liệu thật; buộc nó vào CI sẽ biến một bộ test cấu hình thành một bộ test
+hạ tầng.
+
+---
+
 ## Sự cố thường gặp
 
-| Triệu chứng                                                      | Nguyên nhân & cách xử lý                                                                                                                                                               |
-| ---------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `$'\r': command not found` khi chạy `.sh`                        | File bị CRLF. `git rm --cached -r . && git reset --hard`                                                                                                                               |
-| Backend thoát ngay, in `[env] Cấu hình môi trường không hợp lệ`  | `.env` thiếu biến mà một nhánh vừa merge thêm vào. Chạy `npm run setup` — nó bổ sung biến mới và **không** đụng giá trị đang có                                                         |
-| Đăng nhập/đăng ký báo "Có lỗi không xác định. Vui lòng thử lại." | Backend không chạy nên request không tới đâu cả. Xem log terminal `[api]`; hay gặp nhất là dòng `[env] Cấu hình môi trường không hợp lệ` ở trên                                        |
-| Tải file lên thất bại, nhưng log `[api]` chỉ thấy `POST /datasets/uploads 201` | MinIO không chạy. Backend chỉ **ký URL** — trình duyệt mới là bên PUT file, nên lỗi không lọt vào log backend. `npm run infra:up`, hoặc kiểm bằng `docker ps \| grep bi-minio` |
-| `/health/ready` trả 503                                          | Container chưa chạy hoặc sai password. `docker compose ps`                                                                                                                             |
-| Bấm "Nạp vào kho phân tích" báo *Chưa kết nối được tới kho phân tích* | ClickHouse không chạy. `npm run infra:up`, kiểm bằng `docker ps \| grep bi-clickhouse`. Thông báo cố ý nói thẳng lệnh cần chạy thay vì "lỗi không xác định"                        |
-| Trạng thái nạp kẹt ở **Đang nạp** mãi không đổi                  | Backend đã restart giữa chừng (hay gặp: `tsx watch` khi bạn lưu file). Lần boot sau tự đánh `failed` kèm lý do — bấm **Nạp lại**                                                       |
-| ClickHouse báo `Directory for table data already exists`         | Thiếu `SYNC` sau `DROP TABLE`. Database engine `Atomic` hoãn xoá thật 480 giây, nên nạp lại trong vòng 8 phút sẽ đâm vào thư mục cũ. Mọi câu `DROP` trong `loadDataset.ts` đều có `SYNC` |
-| Cube báo `ECONNREFUSED` tới ClickHouse                           | Mount cả thư mục `config.d` dạng `:ro` chặn image ghi `docker_related_config.xml`, ClickHouse chỉ nghe `127.0.0.1`. Compose đã mount từng file — đừng đổi lại                          |
-| Explorer báo *Đồng hồ … lệch nhau quá 60 giây* — **mọi** truy vấn hỏng, kể cả trong một bảng | Đồng hồ máy thật lệch đồng hồ container. Token Express ký cho Cube sống 60s nên nó "hết hạn" ngay khi tới nơi. So bằng `date -u` và `docker exec bi-cube date -u`; Windows hay chậm giờ (`w32tm /query /status` báo `Local CMOS Clock`) — mở PowerShell **quyền quản trị** rồi `w32tm /resync` |
-| Kafka client trên host timeout                                   | Phải dùng `localhost:29092` (listener `PLAINTEXT_HOST`), không phải 9092                                                                                                               |
-| `port is already allocated` khi `docker compose up`              | Máy đã có service giữ cổng đó (hay gặp: Redis/Memurai giữ 6379). Xem [docs/ports.md](docs/ports.md)                                                                                    |
-| `EADDRINUSE :::4000`                                             | Còn tiến trình backend cũ chưa chết hẳn. `npm run ports:free` — xem mục _Cổng bị chiếm_ bên dưới                                                                                       |
-| `docker: daemon is not running`                                  | Mở Docker Desktop rồi chạy lại                                                                                                                                                         |
-| Đăng nhập trên web trả 404                                       | `VITE_API_BASE_URL` trong `frontend/.env` phải là `/api`, không phải `/api/v1` — router xác thực mount ở `/api/auth`. Sửa xong phải khởi động lại Vite, biến `VITE_*` chỉ đọc lúc boot |
-| Mở `localhost:5173/health` ra JSON chứ không ra giao diện        | Đúng như thiết kế: Vite proxy `/health` sang Express. Trang kiểm tra kết nối nằm ở `/system-health`                                                                                    |
-| Nhập sai mật khẩu mà bị đá về `/login`, không thấy thông báo lỗi | Interceptor 401 đang xử lý cả `/auth/login`. Endpoint đó phải nằm trong `SESSION_ENDPOINTS` của `apiClient.ts`                                                                         |
-| Mỗi lần F5 thấy trang login nháy lên rồi biến mất                | Thiếu trạng thái `loading` — `ProtectedRoute` phải chờ `GET /me` trả lời rồi mới kết luận                                                                                              |
-| Tab Network hiện **hai** request `GET /me`                       | `StrictMode` cố tình chạy effect hai lần ở dev. Vô hại, bản build không có                                                                                                             |
-| Đăng nhập sai 10 lần rồi bị 429                                  | Bộ đếm chống dò mật khẩu. Xoá bằng `docker exec bi-redis redis-cli -a redispassword --scan --pattern 'login:fail:*'` rồi `DEL`, hoặc chờ 15 phút                                       |
+| Triệu chứng                                                                                  | Nguyên nhân & cách xử lý                                                                                                                                                                                                                                                                       |
+| -------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `$'\r': command not found` khi chạy `.sh`                                                    | File bị CRLF. `git rm --cached -r . && git reset --hard`                                                                                                                                                                                                                                       |
+| Backend thoát ngay, in `[env] Cấu hình môi trường không hợp lệ`                              | `.env` thiếu biến mà một nhánh vừa merge thêm vào. Chạy `npm run setup` — nó bổ sung biến mới và **không** đụng giá trị đang có                                                                                                                                                                |
+| Màn hình báo _Không nối được tới backend ở http://localhost:4000_                            | Backend không chạy, hoặc đang khởi động lại. Xem log terminal `[api]`; hay gặp nhất là dòng `[env] Cấu hình môi trường không hợp lệ` ở trên. Câu này do proxy của Vite trả về — xem mục _Câu "Có lỗi không xác định" đã bị xoá sổ_                                                             |
+| Câu "Có lỗi không xác định. Vui lòng thử lại." xuất hiện lại                                 | Nó **không được phép** tồn tại nữa. Nếu thấy, đó là một nhánh lỗi chưa được phân loại — mở `getApiError` trong `apiClient.ts` và thêm nhánh, đừng thêm một câu chung thứ hai                                                                                                                   |
+| Tải file lên thất bại, nhưng log `[api]` chỉ thấy `POST /datasets/uploads 201`               | MinIO không chạy. Backend chỉ **ký URL** — trình duyệt mới là bên PUT file, nên lỗi không lọt vào log backend. `npm run infra:up`, hoặc kiểm bằng `docker ps \| grep bi-minio`                                                                                                                 |
+| `/health/ready` trả 503                                                                      | Container chưa chạy hoặc sai password. `docker compose ps`                                                                                                                                                                                                                                     |
+| Bấm "Nạp vào kho phân tích" báo _Chưa kết nối được tới kho phân tích_                        | ClickHouse không chạy. `npm run infra:up`, kiểm bằng `docker ps \| grep bi-clickhouse`. Thông báo cố ý nói thẳng lệnh cần chạy thay vì "lỗi không xác định"                                                                                                                                    |
+| Trạng thái nạp kẹt ở **Đang nạp** mãi không đổi                                              | Backend đã restart giữa chừng (hay gặp: `tsx watch` khi bạn lưu file). Lần boot sau tự đánh `failed` kèm lý do — bấm **Nạp lại**                                                                                                                                                               |
+| ClickHouse báo `Directory for table data already exists`                                     | Thiếu `SYNC` sau `DROP TABLE`. Database engine `Atomic` hoãn xoá thật 480 giây, nên nạp lại trong vòng 8 phút sẽ đâm vào thư mục cũ. Mọi câu `DROP` trong `loadDataset.ts` đều có `SYNC`                                                                                                       |
+| Cube báo `ECONNREFUSED` tới ClickHouse                                                       | Mount cả thư mục `config.d` dạng `:ro` chặn image ghi `docker_related_config.xml`, ClickHouse chỉ nghe `127.0.0.1`. Compose đã mount từng file — đừng đổi lại                                                                                                                                  |
+| Explorer báo _Đồng hồ … lệch nhau quá 60 giây_ — **mọi** truy vấn hỏng, kể cả trong một bảng | Đồng hồ máy thật lệch đồng hồ container. Token Express ký cho Cube sống 60s nên nó "hết hạn" ngay khi tới nơi. So bằng `date -u` và `docker exec bi-cube date -u`; Windows hay chậm giờ (`w32tm /query /status` báo `Local CMOS Clock`) — mở PowerShell **quyền quản trị** rồi `w32tm /resync` |
+| Kafka client trên host timeout                                                               | Phải dùng `localhost:29092` (listener `PLAINTEXT_HOST`), không phải 9092                                                                                                                                                                                                                       |
+| `port is already allocated` khi `docker compose up`                                          | Máy đã có service giữ cổng đó (hay gặp: Redis/Memurai giữ 6379). Xem [docs/ports.md](docs/ports.md)                                                                                                                                                                                            |
+| `Duplicate column name …` / `Table … already exists` lúc backend khởi động                   | Migration bị hai tiến trình chạy chồng, hoặc bị giết giữa chừng. Runner nay tự chặn và tự nói ra cách gỡ — xem mục _Migration nửa vời_ bên dưới                                                                                                                                                |
+| `EADDRINUSE :::4000`                                                                         | Còn tiến trình backend cũ chưa chết hẳn. `npm run ports:free` — xem mục _Cổng bị chiếm_ bên dưới                                                                                                                                                                                               |
+| `docker: daemon is not running`                                                              | Mở Docker Desktop rồi chạy lại                                                                                                                                                                                                                                                                 |
+| Đăng nhập trên web trả 404                                                                   | `VITE_API_BASE_URL` trong `frontend/.env` phải là `/api`, không phải `/api/v1` — router xác thực mount ở `/api/auth`. Sửa xong phải khởi động lại Vite, biến `VITE_*` chỉ đọc lúc boot                                                                                                         |
+| Mở `localhost:5173/health` ra JSON chứ không ra giao diện                                    | Đúng như thiết kế: Vite proxy `/health` sang Express. Trang kiểm tra kết nối nằm ở `/system-health`                                                                                                                                                                                            |
+| Nhập sai mật khẩu mà bị đá về `/login`, không thấy thông báo lỗi                             | Interceptor 401 đang xử lý cả `/auth/login`. Endpoint đó phải nằm trong `SESSION_ENDPOINTS` của `apiClient.ts`                                                                                                                                                                                 |
+| Mỗi lần F5 thấy trang login nháy lên rồi biến mất                                            | Thiếu trạng thái `loading` — `ProtectedRoute` phải chờ `GET /me` trả lời rồi mới kết luận                                                                                                                                                                                                      |
+| Tab Network hiện **hai** request `GET /me`                                                   | `StrictMode` cố tình chạy effect hai lần ở dev. Vô hại, bản build không có                                                                                                                                                                                                                     |
+| Đăng nhập sai 10 lần rồi bị 429                                                              | Bộ đếm chống dò mật khẩu. Xoá bằng `docker exec bi-redis redis-cli -a redispassword --scan --pattern 'login:fail:*'` rồi `DEL`, hoặc chờ 15 phút                                                                                                                                               |
+
+### Câu "Có lỗi không xác định" đã bị xoá sổ
+
+Câu **"Có lỗi không xác định. Vui lòng thử lại."** từng xuất hiện _thỉnh thoảng_
+ở bất kỳ màn hình nào, và không ai lần ra nguồn vì bản thân câu chữ không nhắc
+tới mạng, máy chủ hay quyền — nó không dẫn tới bất kỳ hướng nào để đi tìm.
+
+**Nguyên nhân thật**, đo được chứ không phải suy đoán: khi backend chưa chạy
+hoặc **đang khởi động lại** — việc `tsx watch` làm sau MỖI lần lưu file —
+http-proxy của Vite không nối được và tự trả lời thay:
+
+```
+HTTP/1.1 500 Internal Server Error
+Content-Type: text/plain
+(thân RỖNG)
+```
+
+Với axios đó là một phản hồi hợp lệ. Nên `getApiError` đi vào nhánh "có
+response", tìm `message` không thấy, rồi rơi vào câu chung. Nó _thỉnh thoảng_
+vì nó chỉ trúng những request bay đúng vào khe một hai giây ấy — đo trên máy:
+khoảng 0,75 giây và 5 request mỗi lần restart.
+
+Sửa ở **hai tầng**, và cần cả hai:
+
+| Tầng      | File                                 | Làm gì                                                                                                                       |
+| --------- | ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------- |
+| Proxy dev | `frontend/vite.config.ts`            | Bắt sự kiện `error` của http-proxy, trả **503 + JSON đúng khuôn** kèm câu hướng dẫn chạy `npm run dev`                       |
+| Đọc lỗi   | `frontend/src/services/apiClient.ts` | `getApiError` **phân loại hết**: huỷ · không phải lỗi mạng · quá hạn chờ · mất mạng · thân đúng khuôn · suy từ mã trạng thái |
+
+⚠️ Tầng thứ hai mới là tầng bắt buộc. Production **không có** proxy của Vite —
+ở đó nginx trả HTML, gateway trả khuôn của riêng nó, và chỉ có mã trạng thái là
+còn đáng tin. Sửa mỗi `vite.config.ts` là sửa một chỗ dev nhìn thấy và để
+nguyên chỗ người dùng thật nhìn thấy.
+
+Hai điểm trong `getApiError` đáng nhớ:
+
+- **`isCancel` phải đứng trước `isAxiosError`.** `CanceledError` cũng là một
+  `AxiosError`, nên đảo thứ tự là một thao tác người dùng tự huỷ sẽ hiện ra
+  "không kết nối được máy chủ".
+- **Lỗi không phải AxiosError được `console.error`.** Đó là bug của chính
+  frontend (một `TypeError` trong `queryFn`). Bản trước nuốt nó vào câu chung,
+  nên loại bug này biến mất không dấu vết.
+
+Mọi câu suy từ mã trạng thái đều **kèm con số**. Đó là khác biệt thật so với
+câu chung cũ: `502` chỉ về tầng trung gian, `500` chỉ vào backend, `403` chỉ về
+quyền — ba hướng sửa khác nhau mà một câu không có số thì trông y hệt nhau.
+
+`frontend/tests/getApiError.test.ts` khoá lại cả chín nhánh, trong đó có một ca
+tái hiện đúng phản hồi `500 text/plain` rỗng. Ca cuối cùng quét mọi hình dạng
+lỗi và khẳng định **không nhánh nào** còn trả về chữ "không xác định".
+
+**Còn lại có chủ đích:** mutation vẫn `retry: false`. Một request bị ngắt giữa
+chừng _có thể_ đã kịp ghi vào database trước khi tiến trình chết, nên tự chạy
+lại một lệnh tạo là chấp nhận rủi ro tạo hai bản ghi. Query thì có `retry` sẵn
+và thường tự vượt qua khe restart mà không hiện lỗi nào.
+
+---
+
+### Migration nửa vời (`Duplicate column name …`)
+
+Triệu chứng: backend không lên, và lỗi duy nhất trên màn hình là một câu của
+MySQL kiểu `Duplicate column name 'canvas'` — cột **đã có** trong schema nhưng
+`schema_migrations` thì trống chỗ đó, nên mọi lần chạy sau đều đâm vào đúng nó.
+
+Hai đường dẫn tới trạng thái đó, và bản đầu của runner không chặn đường nào:
+
+1. **Hai tiến trình cùng migrate.** `tsx watch` khởi động lại backend trong lúc
+   bản cũ đang chạy migration, hoặc `npm run migrate` gõ tay song song với dev
+   server. Cả hai đọc bảng ghi nhận, cả hai thấy migration 30 chưa có, cả hai
+   chạy `ALTER TABLE`. Người thua nhận lỗi trùng — và vì lỗi nổ **trước** câu
+   `INSERT`, không ai ghi nhận gì cả.
+2. **Bị giết giữa chừng** một migration nhiều câu lệnh.
+
+Đã bịt, mỗi đường một chốt:
+
+| Chốt                                                       | Chặn đường nào                                |
+| ---------------------------------------------------------- | --------------------------------------------- |
+| `GET_LOCK('bi_platform:migrate:<database>', 60)`           | (1) — mỗi lúc chỉ một tiến trình migrate được |
+| dòng ghi nhận INSERT **trước**, đóng `finished_at` **sau** | (2) — lần chạy kế biết ngay là dở dang        |
+
+Khoá dùng `GET_LOCK` chứ không phải một dòng trong bảng: khoá bằng dòng nghe
+đơn giản hơn cho tới lúc tiến trình giữ khoá bị giết — dòng đó nằm lại vĩnh
+viễn và không ai migrate được nữa, trừ khi tự viết thêm phần dò khoá chết bằng
+timestamp (tức là tự chọn một ngưỡng hết hạn, tức là chọn sai). `GET_LOCK` gắn
+với **phiên kết nối**: tiến trình chết là MySQL tự nhả. Đúng cái tình huống đã
+gây ra lỗi.
+
+Tên khoá kèm `DATABASE()` vì phạm vi của `GET_LOCK` là **toàn máy chủ** — một
+tên cố định sẽ bắt `bi_platform` và `bi_platform_test` chờ nhau, mà dev server
+và bộ test tích hợp chạy cùng lúc là chuyện thường.
+
+Runner **không tự chữa** một migration dở dang: nó không biết câu lệnh dang dở
+đã kịp làm gì, và đoán sai thì hỏng theo cách khó gỡ hơn hẳn. Nhưng nó biết đã
+xong mấy câu và còn câu nào, nên nó nói ra đủ để xử trong một phút:
+
+```
+[migrate] migration 30 (reports_canvas) đang DỞ DANG — lần chạy trước dừng giữa chừng.
+Đã chạy xong 0/1 câu lệnh, nên schema đang ở trạng thái nửa vời và
+runner không chạy tiếp (chạy tiếp trên schema sai còn khó gỡ hơn).
+
+Câu lệnh CÓ THỂ còn thiếu:
+  [1] ALTER TABLE reports ADD COLUMN canvas JSON NULL AFTER config
+
+Kiểm tra schema thật rồi chọn một trong hai:
+  a) đã đủ / chạy tay nốt phần thiếu  ->  UPDATE schema_migrations SET finished_at = NOW(3), done_statements = 1 WHERE id = 30;
+  b) hoàn tác phần đã chạy            ->  DELETE FROM schema_migrations WHERE id = 30;
+```
+
+Một ngoại lệ có chủ ý: nếu **câu đầu tiên** hỏng thì dòng chờ bị xoá luôn và
+lần sau thử lại sạch sẽ. MySQL 8 có atomic DDL — một câu lệnh hoặc xong hẳn
+hoặc quay lui hẳn — nên câu đầu hỏng nghĩa là schema chưa bị đụng gì, và một lỗi
+nhất thời không đáng biến thành "phải vào sửa tay database".
+
+Bảng `schema_migrations` được nâng cấp **tại chỗ** (thêm `finished_at` và
+`done_statements`, backfill mọi dòng cũ thành "đã xong"). Nó không thể là một
+migration bình thường: chính nó là thứ quyết định migration nào đã chạy, nên nó
+phải đúng hình dạng trước khi đọc được dòng đầu tiên.
 
 ### Cổng bị chiếm (`EADDRINUSE`)
 
@@ -999,17 +2295,47 @@ dùng thực chất là `TerminateProcess`: nó chỉ hạ đúng tiến trình 
 cháu không nhận được gì. Đóng terminal hay bấm Stop của IDE sẽ giết ba tầng trên
 và để tầng dưới cùng sống sót, vẫn ôm cổng 4000.
 
+**Vì sao "giết theo cổng" là chưa đủ.** `tsx watch` KHÔNG nghe cổng nào — nó là
+tầng **giám sát**, con nó chết thì nó đẻ con mới. Nên một bản trước của script
+chỉ dọn theo cổng đã tạo ra vòng lặp này:
+
+1. Giết `node src/index.ts` (kẻ đang giữ cổng 4000) — script in "đã giải phóng".
+2. Khoảng 200ms sau, `tsx watch` đẻ lại. Cổng 4000 bị chiếm lần nữa.
+3. Backend mới đâm vào `EADDRINUSE` rồi chết.
+4. `concurrently -k` hạ luôn tiến trình web → **Vite tắt theo**.
+
+Triệu chứng nhìn thấy lại chẳng liên quan gì tới backend: mở `localhost:5173`
+ra `ERR_CONNECTION_REFUSED`, trong khi cổng 4000 vẫn trả lời bình thường. Vì
+vậy script chạy **hai bước, đúng thứ tự này**: hạ tầng giám sát trước, tầng
+nghe cổng sau.
+
 Ba lớp xử lý, mỗi lớp lo một tình huống khác nhau:
 
-| Lớp | Ở đâu | Cứu được gì |
-| --- | --- | --- |
-| Bắt `SIGINT`/`SIGTERM`/`SIGHUP`/`SIGBREAK` | `backend/src/index.ts` | Tiến trình **nhận được** tín hiệu thì trả cổng tử tế |
-| `predev` gọi `scripts/free-ports.mjs` | `package.json` | Tiến trình **mồ côi** từ lần chạy trước — không sửa được từ bên trong một tiến trình đã mất liên lạc |
-| Bắt `EADDRINUSE` khi `listen` | `backend/src/index.ts` | Cổng bị thứ khác chiếm: in một câu chỉ rõ việc cần làm thay vì 25 dòng stack trace |
+| Lớp                                                | Ở đâu                  | Cứu được gì                                                                                                                               |
+| -------------------------------------------------- | ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| Bắt `SIGINT`/`SIGTERM`/`SIGHUP`/`SIGBREAK`         | `backend/src/index.ts` | Tiến trình **nhận được** tín hiệu thì trả cổng tử tế                                                                                      |
+| `predev` gọi `scripts/free-ports.mjs --reap-stale` | `package.json` (gốc)   | Tiến trình **mồ côi** từ lần chạy trước, kể cả tầng giám sát không nghe cổng — không sửa được từ bên trong một tiến trình đã mất liên lạc |
+| Bắt `EADDRINUSE` khi `listen`                      | `backend/src/index.ts` | Cổng bị thứ khác chiếm: in một câu chỉ rõ việc cần làm thay vì 25 dòng stack trace                                                        |
 
-Script chỉ giết tiến trình **đang nghe đúng cổng được truyền vào** và **có tên
-nằm trong danh sách cho phép** (`node`, `npm`, `tsx`, `bun`). Cổng bị một ứng
-dụng khác chiếm thì nó cảnh báo rồi dừng — dọn hộ quá tay còn tệ hơn lỗi ban đầu:
+Script giết đúng hai nhóm, không nhóm nào khác:
+
+| Nhóm           | Điều kiện                                                                    | Bật khi nào                  |
+| -------------- | ---------------------------------------------------------------------------- | ---------------------------- |
+| Tầng giám sát  | Dòng lệnh trỏ vào `node_modules` của **chính repo này**                      | Chỉ khi có cờ `--reap-stale` |
+| Tầng nghe cổng | Đang nghe đúng cổng truyền vào **và** tên nằm trong `node`/`npm`/`tsx`/`bun` | Luôn luôn                    |
+
+⚠️ Cờ `--reap-stale` **chỉ** được truyền ở `predev` của **gốc**, nơi npm bảo
+đảm chạy xong trước khi `dev` bắt đầu — tức là trước khi tồn tại tiến trình anh
+em nào. `backend/package.json` có `predev` riêng chạy giữa lúc Vite đã lên; quét
+toàn repo ở đó sẽ giết chính những tiến trình vừa khởi động, và `concurrently -k`
+hạ nốt phần còn lại. Đó không phải giả thuyết — nó đã xảy ra, và sập trong hai
+giây. Đừng thêm cờ này vào `predev` của workspace.
+
+Hệ quả cần biết: gõ tay `npm run ports:free` trong lúc `npm run dev` đang chạy
+sẽ **tắt** nó. Đó đúng là ý định của người gõ lệnh đó.
+
+Cổng bị một ứng dụng khác chiếm thì script cảnh báo rồi dừng — dọn hộ quá tay
+còn tệ hơn lỗi ban đầu:
 
 ```
 [ports] cổng 3310 đang bị "com.docker.backend.exe" (PID 21912) chiếm
