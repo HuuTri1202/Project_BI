@@ -1093,7 +1093,7 @@ trình dựng cho xem trước cũng đúng là cấu hình nút Lưu chấp nh�
 
 ### Bài test đáng đọc
 
-`frontend/tests/chartSpec.test.ts` biên dịch **mọi** spec Vega-Lite mà trình
+| `frontend/tests/chartSpec.test.ts` | mọi spec Vega **biên dịch được** (bắt cả `warn`, không chỉ lỗi ném ra), bốn cách sắp trục cho ra **bốn** spec khác nhau, bảng màu đụng tới mọi loại biểu đồ (§10.15), và ô vừa-khung khai **cả hai chiều** bằng số rồi rút tên trục khi hết chỗ (§10.16) — thiếu một trong hai chiều thì biểu đồ thò ra ngoài ô và không có gì đỏ ở đâu cả |
 dựng sinh ra, và bắt cả **cảnh báo** chứ không chỉ lỗi ném ra. Lý do: phần lớn
 spec đi qua một phép ép kiểu `as TopLevelSpec` nên trình biên dịch không kiểm gì
 cả, còn một spec sai thì `VegaChart` bắt lại và hiện một dòng chữ xám — console
@@ -1890,6 +1890,9 @@ dùng học được cách bấm "Rời đi" mà không đọc.
 
 ### Biểu đồ co theo Ô, không co theo dữ liệu (§10.13)
 
+> ⚠️ Khối này chữa CHIỀU CAO và để sót chiều ngang — xem §10.16 bên dưới. Lập
+> luận thì vẫn nguyên: nó chỉ được áp cho cả hai chiều thay vì một.
+
 > điều chỉnh khung biểu đồ co giãn theo khung hiện tại, chứ ko phải là biểu đồ
 > 100% nhưng khung 70% thì lại bị thiếu dữ liệu như hiện tại
 
@@ -2189,6 +2192,65 @@ Ba chi tiết trong `SidePanel` không được bỏ:
 ⚠️ Chiều rộng đi vào bằng **lớp Tailwind** (`"w-72"`) chứ không bằng số pixel:
 Tailwind quét mã nguồn để sinh CSS, nên một lớp dựng lúc chạy sẽ không có CSS
 nào và cột rơi về rộng-theo-nội-dung.
+
+### Kéo ô hẹp lại thì biểu đồ hẹp theo — nốt nửa còn lại của §10.13 (§10.16)
+
+> đang bị lỗi kéo nhỏ biểu đồ thì lại bị cắt mất dữ liệu, tui đang muốn khi kéo
+> nhỏ khung biểu đồ thì biểu đồ cũng thu nhỏ theo
+
+§10.13 đo chiều cao của ô rồi truyền vào spec, và giao chiều ngang cho
+`width: 'container'`. Đó là chỗ hở, vì hai chiều KHÔNG được lo bởi cùng một cơ
+chế: `'container'` bảo vega-embed tự đo thẻ bọc, mà nó chỉ đo lại khi `window`
+phát sự kiện `resize`. Kéo một cái ô hẹp lại thì cửa sổ không đổi một pixel nào.
+
+Đo trên trình duyệt thật, kéo tay nắm co giãn của một ô:
+
+```
+kéo THẤP xuống:  vùng vẽ 870×221  ->  svg 870×221   thò 0px    ✔
+kéo HẸP lại:     vùng vẽ 195×109  ->  svg 870×109   thò 675px  ✘
+```
+
+675px biểu đồ nằm ngoài ô, và `overflow-hidden` cắt đúng phần đó đi. Cùng một
+lỗi còn xảy ra ở một chỗ nữa mà không ai nghĩ tới: **gấp một cột bên (§10.15)**
+làm cả hàng ô rộng thêm 480px, cũng không qua `window.resize`.
+
+#### Phép chữa: một ResizeObserver, hai con số
+
+`ReportChart` vốn đã quan sát đúng thẻ div ấy để lấy chiều cao. Giờ nó đọc cả
+`contentRect.width` và truyền vào spec bằng một SỐ. `'container'` vẫn là đường lui
+khi nơi gọi không đo được — trang xem một biểu đồ, nơi bề ngang chỉ đổi khi cửa
+sổ đổi.
+
+⚠️ State là MỘT object `{w, h}` và chỉ đổi khi một trong hai chiều thật sự đổi.
+Trả về object mới cho mỗi lần quan sát là dựng lại toàn bộ view Vega cho một
+kích thước y hệt — mà một cú kéo ngang bắn ra hàng chục lần quan sát.
+
+#### Ô nhỏ thì tên trục nhường chỗ cho dữ liệu
+
+Vừa khung rồi vẫn còn một câu hỏi: trong 109px chiều cao ấy, bao nhiêu phần
+trăm là **dữ liệu**? Đo ở ô nhỏ nhất lưới cho phép (vẽ 195×109):
+
+|              | vùng vẽ dữ liệu                |
+| ------------ | ------------------------------ |
+| còn tên trục | 122×28 — một phần tư chiều cao |
+| bỏ tên trục  | **136×43** — cao thêm 54%      |
+
+Nên từ §10.16, tên trục tự rút khi ô nhỏ: dưới **200px cao** thì mất tên trục
+nằm ngang, dưới **320px ngang** thì mất tên trục nằm dọc. Hai ngưỡng riêng vì
+tên trục ăn chỗ theo phương **vuông góc** với trục nó đặt tên — và biểu đồ
+thanh ngang đảo cả hai, vì ở đó hai trục đổi chỗ cho nhau.
+
+Mất mát gần bằng không: tiêu đề ô ngay bên trên đã nói "Quantity theo Category".
+Ô lớn thì giữ nguyên, vì ở đó người dùng có thể đã đổi tên ô thành một câu không
+nhắc tới trường nào.
+
+#### Cái KHÔNG tự bỏ: chú giải
+
+Ô hẹp hết cỡ mà có chiều thứ hai thì chú giải ăn quá nửa bề ngang (đo được: vẽ
+195×221, phần dữ liệu còn 90×184). Vẫn không tự tắt nó, vì với biểu đồ nhiều
+chuỗi thì chú giải là thứ DUY NHẤT nói màu nào là chuỗi nào — tắt đi là còn
+một mớ đường màu không đọc được. Công tắc "Hiện chú giải" nằm sẵn trong bảng
+cấu hình cho ai muốn.
 
 ### Báo cáo đã lưu vẽ NGAY, rồi mới làm mới ngầm
 

@@ -51,20 +51,24 @@ export function ReportChart({
   fit?: boolean;
 }): React.ReactElement {
   /**
-   * Chiều cao thật của vùng vẽ, đo ở trình duyệt.
+   * Kích thước thật của vùng vẽ, đo ở trình duyệt — CẢ HAI chiều.
    *
    * `useLayoutEffect` chứ không `useEffect`: đo sau khi trình duyệt đã vẽ
-   * nghĩa là khung hình đầu tiên dùng chiều cao mặc định rồi khung sau nhảy
-   * sang chiều cao thật — một cú giật thấy được, và một lần dựng lại view Vega
+   * nghĩa là khung hình đầu tiên dùng kích thước mặc định rồi khung sau nhảy
+   * sang kích thước thật — một cú giật thấy được, và một lần dựng lại view Vega
    * bỏ đi.
    *
-   * `ResizeObserver` lo phần còn lại: kéo tay nắm co giãn, thu cửa sổ, mở thêm
-   * cột. Vùng được đo `overflow-hidden` ở chế độ này (xem `khung`), nên chiều
-   * cao của nó KHÔNG phụ thuộc biểu đồ bên trong và phép đo không tự nuôi chính
-   * nó.
+   * `ResizeObserver` lo phần còn lại: kéo tay nắm co giãn, gấp một cột bên
+   * (§10.15), thu cửa sổ. Vùng được đo `overflow-hidden` ở chế độ này (xem
+   * `khung`), nên kích thước của nó KHÔNG phụ thuộc biểu đồ bên trong và phép đo
+   * không tự nuôi chính nó.
+   *
+   * ⚠️ Chiều NGANG cũng phải đo, dù `width: 'container'` nghe như đã lo việc đó
+   * — §10.16. vega-embed chỉ đo lại thẻ bọc khi `window` phát `resize`, mà kéo
+   * một cái ô hẹp lại thì cửa sổ không đổi gì cả. Xem `width` trong `chartSpec`.
    */
   const boxRef = useRef<HTMLDivElement>(null);
-  const [boxHeight, setBoxHeight] = useState(0);
+  const [box, setBox] = useState({ w: 0, h: 0 });
 
   useLayoutEffect(() => {
     const el = boxRef.current;
@@ -73,12 +77,17 @@ export function ReportChart({
     // Làm tròn: `clientHeight` là số nguyên nhưng `contentRect` của
     // ResizeObserver là số thực, và một ô 349,33px sẽ bắn ra vài giá trị lệch
     // nhau phần thập phân — mỗi cái là một lần dựng lại toàn bộ view Vega.
-    const measure = (h: number): void => setBoxHeight((prev) => (prev === h ? prev : h));
-    measure(el.clientHeight);
+    //
+    // So sánh CẢ HAI chiều rồi mới đặt state: một cú kéo ngang không đổi chiều
+    // cao, và trả về một object mới cho mỗi lần quan sát là dựng lại view Vega
+    // cho một kích thước y hệt.
+    const measure = (w: number, h: number): void =>
+      setBox((prev) => (prev.w === w && prev.h === h ? prev : { w, h }));
+    measure(el.clientWidth, el.clientHeight);
 
     const observer = new ResizeObserver((entries) => {
       const rect = entries[0]?.contentRect;
-      if (rect !== undefined) measure(Math.round(rect.height));
+      if (rect !== undefined) measure(Math.round(rect.width), Math.round(rect.height));
     });
     observer.observe(el);
     return () => observer.disconnect();
@@ -92,8 +101,15 @@ export function ReportChart({
    * nháy liên tục và mỗi lần dựng lại rò một view chưa được `finalize`.
    */
   const spec = useMemo(
-    () => buildChartSpec({ chartType, data, options, height: fit ? boxHeight : undefined }),
-    [chartType, data, options, fit, boxHeight],
+    () =>
+      buildChartSpec({
+        chartType,
+        data,
+        options,
+        height: fit ? box.h : undefined,
+        width: fit ? box.w : undefined,
+      }),
+    [chartType, data, options, fit, box],
   );
 
   /*

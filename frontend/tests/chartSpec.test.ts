@@ -335,6 +335,86 @@ describe('buildChartSpec', () => {
       expect(CHART_PALETTE_COLORS[palette]).toHaveLength(8);
     }
   });
+  /* ─── Kéo ô NHỎ lại thì biểu đồ nhỏ theo, không bị cắt — §10.16 ──────────
+   *
+   * §10.13 đo chiều cao và giao chiều ngang cho `width: 'container'`. Đó là chỗ
+   * hở: vega-embed chỉ đo lại thẻ bọc khi `window` phát `resize`, mà kéo một cái
+   * ô hẹp lại thì cửa sổ không đổi gì. Đo được trên trình duyệt thật, vùng vẽ
+   * 195×109 mà SVG vẫn 870×109 — 675px nằm ngoài ô và bị cắt.
+   *
+   * Ba ca dưới đây khoá cả hai nửa của phép chữa: bề ngang đi vào spec bằng
+   * SỐ, và ô nhỏ thì tên trục nhường chỗ cho dữ liệu.
+   */
+  const rong = (spec: unknown): unknown => (spec as { width: unknown }).width;
+
+  it('đo được bề ngang thì spec mang SỐ, không mang lời hứa "container"', () => {
+    const spec = buildChartSpec({
+      chartType: 'bar',
+      data: fakeData(),
+      height: 300,
+      width: 420,
+    });
+
+    expect(rong(spec)).toBe(420);
+  });
+
+  it('không đo được thì vẫn là "container" — trang xem một biểu đồ không đổi', () => {
+    // Ở đó bề ngang chỉ đổi khi cửa sổ đổi, và vega-embed lo đúng việc ấy.
+    expect(rong(buildChartSpec({ chartType: 'bar', data: fakeData() }))).toBe('container');
+    expect(rong(buildChartSpec({ chartType: 'bar', data: fakeData(), height: 300 }))).toBe(
+      'container',
+    );
+  });
+
+  it('ô nhỏ thì TÊN TRỤC nhường chỗ, ô lớn thì giữ nguyên', () => {
+    /*
+     * Tên trục ăn chỗ theo phương VUÔNG GÓC với trục nó đặt tên, nên hai chiều
+     * quyết định độc lập nhau. Ca này khoá cả bốn tổ hợp trên biểu đồ cột:
+     * tên chiều nằm dưới (ăn chiều cao), tên thước đo nằm bên trái (ăn bề
+     * ngang).
+     */
+    const truc = (h: number, w: number): [unknown, unknown] => {
+      const spec = buildChartSpec({ chartType: 'bar', data: fakeData(), height: h, width: w }) as {
+        encoding: { x: { title: unknown }; y: { title: unknown } };
+      };
+      return [spec.encoding.x.title, spec.encoding.y.title];
+    };
+
+    expect(truc(400, 600)).toEqual(['Khu vực', 'Doanh thu']);
+    // Thấp: mất tên trục ngang, giữ tên trục dọc.
+    expect(truc(120, 600)).toEqual([null, 'Doanh thu']);
+    // Hẹp: ngược lại.
+    expect(truc(400, 200)).toEqual(['Khu vực', null]);
+    // Bé cả hai chiều — đúng ô nhỏ nhất mà lưới cho phép.
+    expect(truc(109, 195)).toEqual([null, null]);
+  });
+
+  it('biểu đồ NGANG đảo hai tên, vì hai trục đảo chỗ cho nhau', () => {
+    // Trục nhóm của biểu đồ ngang là trục DỌC, nên tên nó ăn bề ngang chứ
+    // không ăn chiều cao. Lấy nhầm cờ ở đây thì ô thấp lại mất tên trục dọc —
+    // cái tên không hề chiếm một pixel chiều cao nào.
+    const spec = buildChartSpec({
+      chartType: 'hbar',
+      data: fakeData(),
+      height: 120,
+      width: 600,
+    }) as { encoding: { x: { title: unknown }; y: { title: unknown } } };
+
+    expect(spec.encoding.y.title).toBe('Khu vực');
+    expect(spec.encoding.x.title).toBeNull();
+  });
+
+  it('chế độ CŨ không đụng tới tên trục, dù có thấp cỡ nào', () => {
+    // Không truyền `height` nghĩa là khung chứa cao theo nội dung: ở đó không ai
+    // phải nhường chỗ cho ai, và bỏ tên trục chỉ là mất thông tin.
+    const spec = buildChartSpec({ chartType: 'bar', data: fakeData() }) as {
+      encoding: { x: { title: unknown }; y: { title: unknown } };
+    };
+
+    expect(spec.encoding.x.title).toBe('Khu vực');
+    expect(spec.encoding.y.title).toBe('Doanh thu');
+  });
+
   /* ─── Bảng màu đụng tới MỌI loại biểu đồ — §10.15 ────────────────────────
    *
    * Tới §10.14, biểu đồ một chuỗi tô bằng `--color-brand-600` và bản đồ nhiệt tô

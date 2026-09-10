@@ -91,6 +91,28 @@ const HEIGHT = 340;
 const MIN_FIT = 60;
 
 /**
+ * Dưới ngưỡng này thì bỏ TIÊU ĐỀ TRỤC — §10.16.
+ *
+ * Hai con số, hai chiều, vì tiêu đề trục ăn chỗ theo phương VUÔNG GÓC với trục
+ * nó đặt tên: tên trục ngang nằm bên dưới nên nó ăn chiều CAO; tên trục dọc
+ * quay nghiêng bên trái nên nó ăn chiều NGANG.
+ *
+ * Đo trên trình duyệt thật (mọi số đều rộng×cao), một ô vẽ 195×109 — nhỏ nhất
+ * mà lưới cho phép. Phần VẼ DỮ LIỆU ở đó chỉ còn 122×28px: một phần tư chiều
+ * cao, phần còn lại là trục, nhãn, và hai cái tên nhắc lại đúng những chữ đã
+ * có sẵn trên tiêu đề ô ("Quantity theo Category").
+ *
+ * Bỏ hai cái tên ấy đi thì vùng vẽ thành 136×43 — CAO THÊM 54%. Một ô 870×277
+ * nằm trên cả hai ngưỡng nên không đổi một pixel nào.
+ *
+ * Ngưỡng đặt ở chỗ tỉ lệ đó bắt đầu vô lý, không phải ở chỗ chữ khó đọc: ô lớn
+ * thì tên trục vẫn đáng có, vì ô có thể bị đổi tên thành một câu không nhắc tới
+ * trường nào.
+ */
+const TEN_TRUC_CAO = 200;
+const TEN_TRUC_NGANG = 320;
+
+/**
  * Bề dày một thanh của biểu đồ ngang. Trục dọc dài ra theo SỐ NHÓM.
  *
  * ⚠️ `height: {step}` đi cùng `width: 'container'` sinh ra một cảnh báo của
@@ -131,6 +153,27 @@ export interface ChartSpecInput {
    * dung). Ở đó `HEIGHT` và bước 24px vẫn đúng như trước.
    */
   height?: number | undefined;
+  /**
+   * Bề ngang thật của chỗ sẽ vẽ, tính bằng pixel — §10.16.
+   *
+   * ═══ Vì sao `width: 'container'` KHÔNG đủ ═══════════════════════════════════
+   *
+   * `'container'` bảo vega-embed tự đo thẻ bọc. Nó đo đúng — MỘT LẦN, lúc dựng
+   * view — rồi từ đó chỉ đo lại khi `window` phát sự kiện `resize`. Cái ô trên
+   * khung thì hẹp lại mà cửa sổ không đổi một pixel nào:
+   *
+   *   kéo tay nắm co giãn        ô 870px -> 195px
+   *   gấp một cột bên (§10.15)   cả hàng ô rộng thêm 480px
+   *
+   * Đo được trên trình duyệt thật: vùng vẽ còn 109x195 mà SVG vẫn 109x870 —
+   * 675px biểu đồ nằm ngoài ô và bị `overflow-hidden` cắt đi. Đúng thứ §10.13
+   * chữa cho chiều cao, còn sót lại nguyên vẹn ở chiều ngang.
+   *
+   * Nên nơi nào ĐO ĐƯỢC thì truyền cả hai chiều vào đây, và Vega nhận một con
+   * số thay vì một lời hứa. `undefined` giữ nguyên `'container'` — đúng cho
+   * trang xem một biểu đồ, nơi bề ngang chỉ đổi khi cửa sổ đổi.
+   */
+  width?: number | undefined;
 }
 
 /** `null` = loại này không vẽ bằng Vega (bảng số liệu). */
@@ -139,6 +182,7 @@ export function buildChartSpec({
   data,
   options,
   height,
+  width,
 }: ChartSpecInput): TopLevelSpec | null {
   if (chartType === 'table') return null;
 
@@ -147,6 +191,18 @@ export function buildChartSpec({
   /** Ô có tự khai chiều cao không — xem `height` ở trên. */
   const fit = typeof height === 'number' && height > 0;
   const boxHeight = fit ? Math.max(Math.round(height), MIN_FIT) : HEIGHT;
+
+  /*
+   * Bề ngang đo được thì dùng SỐ, không dùng `'container'` — xem `width` ở trên.
+   *
+   * Hai chiều tách nhau vì chúng hỏng theo hai kiểu khác nhau, và một nơi gọi
+   * có thể đo được chiều này mà không đo được chiều kia. Khung hình ĐẦU TIÊN
+   * cũng rơi vào đây: `useLayoutEffect` đo trước khi trình duyệt vẽ, nhưng nếu
+   * vì lý do nào đó chưa có số thì `'container'` vẫn là đường lui đúng.
+   */
+  const boxWidth =
+    typeof width === 'number' && width > 0 ? Math.max(Math.round(width), MIN_FIT) : null;
+  const vungNgang = { width: boxWidth ?? ('container' as const) };
 
   /**
    * `height` là chiều cao TỔNG của SVG, không phải của vùng vẽ.
@@ -178,6 +234,18 @@ export function buildChartSpec({
    * không mất gì. Không bật ở chế độ cũ: ở đó không có nhãn nào phải chen.
    */
   const denseLabels = fit ? { labelOverlap: 'greedy' as const } : {};
+
+  /*
+   * Ô nhỏ thì dữ liệu được ưu tiên hơn tên trục — xem `TEN_TRUC_CAO`.
+   *
+   * Chỉ ở chế độ vừa-khung: ngoài đó biểu đồ tự khai chiều cao của mình nên
+   * không có ai phải nhường chỗ cho ai.
+   */
+  const tenDuoi = (label: string): string | null =>
+    fit && boxHeight < TEN_TRUC_CAO ? null : label;
+  const tenTrai = (label: string): string | null =>
+    fit && boxWidth !== null && boxWidth < TEN_TRUC_NGANG ? null : label;
+
   const multi = hasSeries(data);
 
   /*
@@ -192,7 +260,7 @@ export function buildChartSpec({
 
   const base = {
     $schema: 'https://vega.github.io/schema/vega-lite/v6.json',
-    width: 'container',
+    ...vungNgang,
     data: { values: [] },
     config: {
       axis: CHART_AXIS_CONFIG,
@@ -256,14 +324,14 @@ export function buildChartSpec({
         x: {
           field: 'label',
           type: 'nominal',
-          title: data.dimensionLabel,
+          title: tenDuoi(data.dimensionLabel),
           sort: sortOf(opts),
           axis: { labelAngle: -35, labelLimit: 120, ...denseLabels },
         },
         y: {
           field: 'series',
           type: 'nominal',
-          title: data.seriesLabel ?? '',
+          title: tenTrai(data.seriesLabel ?? ''),
           sort: 'ascending',
           axis: denseLabels,
         },
@@ -279,7 +347,9 @@ export function buildChartSpec({
   const groupAxis = {
     field: 'label',
     type: 'nominal' as const,
-    title: data.dimensionLabel,
+    // Trục nhóm của biểu đồ NGANG là trục dọc, nên tên nó ăn bề ngang; của bốn
+    // loại kia là trục ngang, nên tên nó ăn chiều cao.
+    title: horizontal ? tenTrai(data.dimensionLabel) : tenDuoi(data.dimensionLabel),
     sort: sortOf(opts),
     // Nằm ngang thì nhãn có cả chiều rộng để trải ra, nên không xoay và cho
     // gấp đôi chỗ. Đó chính là lý do loại này tồn tại bên cạnh biểu đồ cột.
@@ -302,7 +372,8 @@ export function buildChartSpec({
   const valueAxisSpec = {
     field: 'value',
     type: 'quantitative' as const,
-    title: data.measureLabel,
+    // Ngược lại với `groupAxis` — hai trục luôn vuông góc nhau.
+    title: horizontal ? tenDuoi(data.measureLabel) : tenTrai(data.measureLabel),
     axis: valueAxis,
     ...(multi && stackable && !stacked ? { stack: null } : {}),
   };
