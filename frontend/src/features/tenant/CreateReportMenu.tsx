@@ -37,10 +37,10 @@ import { UploadWizard } from '../datasets/wizard/UploadWizard';
  * dùng ở danh sách bộ dữ liệu — còn đúng hai bước nữa (dựng mô hình, mở trình
  * dựng) mà không có gì nói ra. Nút hứa "tạo báo cáo" và giao lại một bộ dữ liệu.
  *
- * Nay wizard dựng hộ một mô hình ẨN trên đúng các sheet vừa tích rồi vào thẳng
- * trình dựng. Xem `UploadWizard` và migration 31 để biết vì sao mô hình đó ẩn,
- * và vì sao việc này KHÔNG phải là mang cơ chế tự sinh mô hình (migration 19/20)
- * trở lại.
+ * Nay wizard dựng hộ một mô hình trên đúng các sheet vừa tích rồi vào thẳng
+ * trình dựng. Mô hình đó được LƯU và bày ra như mọi mô hình khác (§10.13) — xem
+ * `UploadWizard` để biết vì sao việc này KHÔNG phải là mang cơ chế tự sinh mô
+ * hình (migration 19/20) trở lại.
  *
  * ═══ Không còn hộp thoại hỏi cấu hình ══════════════════════════════════════
  *

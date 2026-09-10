@@ -1,6 +1,11 @@
 export * from './admin';
 export * from './auth';
 /**
+ * `billing` (§11) là lớp thương mại: gói dịch vụ, đơn hàng, hoá đơn. Nó gắn vào
+ * `tenant` chứ không vào `workspace` — người ta mua gói cho cả tổ chức.
+ */
+export * from './billing';
+/**
  * `data` gom CẢ HAI nguồn dữ liệu vào một khái niệm `Dataset`: bảng đồng bộ từ
  * CSDL khách hàng (§8) và sheet trong file Excel/CSV tải lên (§7). Phân biệt
  * bằng trường `source`.

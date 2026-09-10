@@ -230,8 +230,8 @@ export function UploadWizard({ open, onClose, goal = 'dataset' }: Props): React.
    * "Tạo nhanh với file Excel/CSV" rồi tích đúng những sheet họ muốn báo cáo
    * trên đó. Mô hình ở đây là bước trung gian của một thao tác vừa được yêu
    * cầu — nhưng nó vẫn là mô hình CỦA HỌ, nên nó được lưu và bày ra như mọi mô
-   * hình khác. Migration 31 từng giấu nó; migration 32 đảo lại, và ở đó có lý
-   * do đầy đủ.
+   * hình khác. §10.11 từng giấu nó sau một cột `datamodels.hidden`; §10.13 đảo
+   * lại, và README có lý do đầy đủ.
    */
   async function runStep3(): Promise<void> {
     if (upload.state.status !== 'done') return;

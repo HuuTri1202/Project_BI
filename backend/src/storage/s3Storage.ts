@@ -51,6 +51,17 @@ export const s3Storage: ObjectStorage = {
     };
   },
 
+  async putObject(key, body, contentType) {
+    await client.send(
+      new PutObjectCommand({
+        Bucket: env.S3_BUCKET,
+        Key: key,
+        Body: body,
+        ContentType: contentType,
+      }),
+    );
+  },
+
   async getObject(key) {
     const res = await client.send(
       new GetObjectCommand({ Bucket: env.S3_BUCKET, Key: key }),

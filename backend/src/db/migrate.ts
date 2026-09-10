@@ -18,7 +18,7 @@ import { migrations, type Migration } from './migrations';
  *
  *   1. HAI TIẾN TRÌNH CÙNG CHẠY. `tsx watch` khởi động lại backend trong lúc
  *      bản cũ đang migrate, hoặc `npm run migrate` chạy tay song song với dev
- *      server. Cả hai đọc `schema_migrations` thấy 30 chưa có, cả hai chạy
+ *      server. Cả hai đọc `schema_migrations` thấy 34 chưa có, cả hai chạy
  *      `ALTER TABLE reports ADD COLUMN canvas` — người thua nhận
  *      `Duplicate column name 'canvas'`, và vì lỗi nổ TRƯỚC câu INSERT nên
  *      không ai ghi nhận gì cả. Kết quả: cột ĐÃ CÓ trong schema mà bảng ghi

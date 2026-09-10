@@ -9,6 +9,7 @@ import { closeRedis } from '../src/config/redis';
 import { resetDatabase } from './helpers/db';
 import {
   bearer,
+  capGoiKhongGioiHan,
   makeMembership,
   makeTenant,
   makeUser,
@@ -115,7 +116,6 @@ beforeEach(async () => {
 
   const tenantA = await makeTenant('Công ty Alpha', 'cong-ty-alpha');
   const tenantB = await makeTenant('Công ty Beta', 'cong-ty-beta');
-
   const adminA = await makeUser('admin.a@test.local', 'Quản trị A');
   const creatorA = await makeUser('creator.a@test.local', 'Người tạo A');
   const viewerA = await makeUser('viewer.a@test.local', 'Người xem A');
@@ -125,6 +125,12 @@ beforeEach(async () => {
   await makeMembership(creatorA, tenantA, 'creator');
   await makeMembership(viewerA, tenantA, 'viewer');
   await makeMembership(adminB, tenantB, 'admin');
+
+  // Gói không giới hạn — §11.2. Bộ này không kiểm thanh toán, nhưng nó dựng
+  // nhiều workspace/thành viên hơn hạn mức gói mặc định. Đặt SAU khi user đã có:
+  // `ck_subscriptions_override_has_reason` đòi `granted_by` khác NULL.
+  await capGoiKhongGioiHan(tenantA, adminA);
+  await capGoiKhongGioiHan(tenantB, adminB);
 
   const workspaceA = await makeWorkspace(tenantA, 'Kinh doanh', 'kinh-doanh');
   const workspaceB = await makeWorkspace(tenantB, 'Kế toán', 'ke-toan');
@@ -1395,20 +1401,21 @@ describe('§10.12 chia trang nhóm', () => {
   });
 });
 
-describe('§10.13 mô hình dựng-hộ được LƯU như mọi mô hình khác (migration 32)', () => {
+describe('§10.13 mô hình dựng-hộ được LƯU như mọi mô hình khác', () => {
   /*
    * ═══ Khối này ĐẢO khối §10.11 cũ ══════════════════════════════════════════
    *
-   * Migration 31 giấu mô hình dựng-hộ khỏi danh sách, và khối cũ ở đây khoá
-   * đúng ranh giới "ẩn nghĩa là không bày, không phải không tồn tại". Người
-   * dùng gặp mặt trái của nó ngay lần dùng đầu:
+   * §10.11 giấu mô hình dựng-hộ khỏi danh sách bằng một cột `datamodels.hidden`,
+   * và khối cũ ở đây khoá ranh giới "ẩn nghĩa là không bày, không phải không
+   * tồn tại". Người dùng gặp mặt trái của nó ngay lần dùng đầu:
    *
    *     "tui vẫn thấy nút mở mô hình nhưng khi thoát ra thì lại không thấy
    *      trong phần mô hình dữ liệu"
    *
    * Một mô hình mở được nhưng không có mặt trong danh sách đọc ra như dữ liệu
-   * BỊ MẤT. Migration 32 bỏ hẳn cột, và những ca dưới đây khoá chiều ngược lại:
-   * không đường tạo nào giấu được một mô hình nữa.
+   * BỊ MẤT. Cột đó chưa bao giờ rời khỏi máy dựng nên nó được bỏ hẳn — không
+   * còn migration nào cho nó — và những ca dưới đây khoá chiều ngược lại: không
+   * đường tạo nào giấu được một mô hình nữa.
    */
 
   async function create(name: string, extra: Record<string, unknown> = {}): Promise<number> {

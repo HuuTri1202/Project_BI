@@ -24,6 +24,11 @@ export const memoryStorage: ObjectStorage & {
     });
   },
 
+  putObject(key, body, _contentType) {
+    objects.set(key, body);
+    return Promise.resolve();
+  },
+
   getObject(key) {
     const body = objects.get(key);
     // Ném lỗi thay vì trả Buffer rỗng: một dataset "parse ra 0 cột" là triệu

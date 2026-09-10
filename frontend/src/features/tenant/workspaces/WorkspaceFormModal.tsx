@@ -6,6 +6,7 @@ import { z } from 'zod';
 import { Button } from '../../../components/ui/Button';
 import { Field } from '../../../components/ui/Field';
 import { Modal } from '../../../components/ui/Modal';
+import { LimitAlert } from '../../billing/LimitAlert';
 import { getApiError } from '../../../services/apiClient';
 import { useCreateWorkspace, useUpdateWorkspace } from '../hooks';
 
@@ -31,6 +32,9 @@ export function WorkspaceFormModal({
   onClose,
 }: WorkspaceFormModalProps): React.ReactElement {
   const [formError, setFormError] = useState<string | null>(null);
+  // Giữ cả MÃ lỗi chứ không chỉ câu chữ: `LimitAlert` cần nó để biết có gắn link
+  // "Xem các gói" hay không. So khớp bằng câu chữ thì hỏng ngay lần đổi từ ngữ.
+  const [formErrorCode, setFormErrorCode] = useState<string | null>(null);
   const createMutation = useCreateWorkspace();
   const updateMutation = useUpdateWorkspace();
 
@@ -48,10 +52,12 @@ export function WorkspaceFormModal({
     if (!open) return;
     reset({ name: editing?.name ?? '', description: editing?.description ?? '' });
     setFormError(null);
+    setFormErrorCode(null);
   }, [open, editing, reset]);
 
   const onSubmit = handleSubmit(async (values) => {
     setFormError(null);
+    setFormErrorCode(null);
     // `api.ts` tự bỏ mô tả rỗng khỏi payload — xem `withOptionalDescription`.
     const payload = { name: values.name, description: values.description ?? '' };
     try {
@@ -70,6 +76,7 @@ export function WorkspaceFormModal({
         return;
       }
       setFormError(apiError.message);
+      setFormErrorCode(apiError.error);
     }
   });
 
@@ -98,11 +105,7 @@ export function WorkspaceFormModal({
         </>
       }
     >
-      {formError && (
-        <p role="alert" className="mb-4 rounded-lg bg-red-50 px-3.5 py-3 text-sm text-red-700">
-          {formError}
-        </p>
-      )}
+      <LimitAlert message={formError} code={formErrorCode} />
 
       <form id="workspace-form" onSubmit={onSubmit} noValidate className="space-y-4">
         <Field

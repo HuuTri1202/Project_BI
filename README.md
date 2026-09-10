@@ -979,7 +979,7 @@ Trang kéo-thả để dựng một báo cáo trên mô hình dữ liệu. Đư�
 Từ §10.10 trang này KHÔNG còn nằm trong tab Mô hình dữ liệu, và nó dựng được
 NHIỀU biểu đồ trên một khung — xem mục _Khu Báo cáo_ bên dưới.
 
-⚠️ Bản này có **migration 29** (nới `reports.chart_type` cho ba loại biểu đồ
+⚠️ Bản này có **migration 33** (nới `reports.chart_type` cho ba loại biểu đồ
 mới). Kéo code về xong phải chạy `npm --workspace backend run migrate`, và chạy
 thêm một lần nữa với `MYSQL_DATABASE=bi_platform_test` nếu bạn chạy test tích
 hợp. Bỏ qua bước này thì lưu một biểu đồ thanh ngang sẽ ra lỗi 500
@@ -1114,8 +1114,7 @@ Bản này thêm hai thứ, và chúng đi cùng nhau:
 1. **Khu Báo cáo** — mục riêng trên thanh bên, có trang danh sách của nó.
 2. **Khung nhiều biểu đồ** — một báo cáo chứa tới 12 ô trên một lưới 12 cột.
 
-⚠️ Bản này có **migration 30** (`reports.canvas`), **31** rồi **32** (thêm rồi bỏ
-lại `datamodels.hidden` — xem _Migration 32 đảo lại_). Kéo code về xong phải chạy
+⚠️ Bản này có **migration 34** (`reports.canvas`). Kéo code về xong phải chạy
 `npm --workspace backend run migrate`, và chạy thêm một lần nữa với
 `MYSQL_DATABASE=bi_platform_test` nếu bạn chạy test tích hợp.
 
@@ -1299,7 +1298,7 @@ một ô trên khung"_ và bấm một trường không có tác dụng gì.
 Lỗi này chỉ lộ ra khi bấm thử trên trình duyệt — không test nào đỏ, không lỗi
 nào trong console, chỉ là một bảng cấu hình không phản ứng.
 
-### Hai đường tạo báo cáo, và mô hình dựng-hộ (migration 31, đảo ở 32)
+### Hai đường tạo báo cáo, và mô hình dựng-hộ
 
 Nút **Tạo báo cáo** — ở Trang chủ và ở trang Báo cáo, cùng một component
 `CreateReportMenu` — cho hai đường:
@@ -1337,11 +1336,11 @@ Khác ở đúng một điểm, và điểm đó là điểm quyết định:
 Không có lần nạp nào tạo ra mô hình ngoài lần nạp đi qua đúng nút đó —
 `UploadWizard` chỉ dựng mô hình khi `goal === 'report'`.
 
-#### Migration 32 đảo lại: mô hình dựng-hộ được LƯU như mọi mô hình khác
+#### §10.13 đảo lại: mô hình dựng-hộ được LƯU như mọi mô hình khác
 
-Migration 31 đặt `datamodels.hidden = 1` cho mô hình dựng-hộ, để danh sách Mô
-hình dữ liệu chỉ còn thứ người dùng tự dựng. Người dùng gặp mặt trái của nó ngay
-lần dùng đầu:
+§10.11 thêm một cột `datamodels.hidden` và đặt `= 1` cho mô hình dựng-hộ, để
+danh sách Mô hình dữ liệu chỉ còn thứ người dùng tự dựng. Người dùng gặp mặt
+trái của nó ngay lần dùng đầu:
 
 > tui vẫn thấy nút mở mô hình nhưng khi thoát ra thì lại không thấy trong phần
 > mô hình dữ liệu
@@ -1351,15 +1350,16 @@ ra như dữ liệu bị mất, không phải như một chỗ được dọn g�
 hình của họ: họ tích những sheet đó, họ đặt tên đó, và vai trò cột trong đó là
 thứ họ sẽ phải sửa.
 
-Nỗi lo của 31 — "mỗi lần tải file lại thêm một mô hình một-bảng" — không mất đi,
+Nỗi lo cũ — "mỗi lần tải file lại thêm một mô hình một-bảng" — không mất đi,
 nhưng nó nhỏ hơn và có thuốc chữa sẵn: danh sách đã có tìm kiếm, sắp xếp và xoá.
 Rác thì dọn được; dữ liệu tưởng là mất thì không lấy lại được lòng tin.
 
-**Migration 32 DROP hẳn cột**, không phải `UPDATE ... SET hidden = 0`. Sau thay
-đổi này không còn nơi nào ghi cột đó nữa, và một cột mà mọi dòng đều bằng 0 và
-không ai ghi vào là một cột người đọc sau phải mất công tìm hiểu rồi phát hiện
-nó không làm gì. Bỏ hẳn cũng chính là thứ kéo những mô hình đang bị giấu trở lại
-danh sách.
+**Cột `hidden` không còn tồn tại**, và cũng không để lại migration nào. Nó chưa
+bao giờ rời khỏi máy dựng: lúc nhánh này gộp với `main`, hai migration "thêm cột"
+và "bỏ cột" của nó bị bỏ hẳn thay vì dời số. Giữ lại chỉ là bắt mọi người trong
+nhóm thêm một cột rồi xoá đúng cột đó — và một cột mà mọi dòng đều bằng 0, không
+ai ghi vào, là một cột người đọc sau phải mất công tìm hiểu rồi phát hiện nó
+không làm gì.
 
 Nút **Mở mô hình** trên thanh công cụ trình dựng vẫn còn, và giờ hiện cho **mọi**
 mô hình chứ không riêng mô hình dựng-hộ: vai trò cột và quan hệ giữa các sheet
@@ -1403,7 +1403,7 @@ Hai chỗ sửa:
 #### Đã kiểm bằng gì
 
 6 ca tích hợp (`§10.13` trong `datamodel.integration.test.ts`) khoá chiều ngược
-lại của migration 32: mô hình vừa tạo **có** trong danh sách và **được tính** vào
+lại: mô hình vừa tạo **có** trong danh sách và **được tính** vào
 `total`, một client cũ còn gửi cờ `hidden` cũng không giấu được gì, DTO không còn
 mang trường đó, đường tạo vẫn y nguyên, và tổ chức khác vẫn 404.
 
@@ -2116,7 +2116,7 @@ dùng một khung khác thứ họ vừa dựng, mà không nói gì.
 
 | File                                                 | Khoá lại điều gì                                                                                                                                                                                                                                                                  |
 | ---------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `backend/tests/datamodel.integration.test.ts` §10.13 | 6 ca khoá chiều ngược của migration 32: mô hình dựng-hộ **có** trong danh sách, được tính vào `total`, và một client cũ còn gửi cờ `hidden` cũng không giấu được gì                                                                                                               |
+| `backend/tests/datamodel.integration.test.ts` §10.13 | 6 ca khoá chiều ngược của §10.11: mô hình dựng-hộ **có** trong danh sách, được tính vào `total`, và một client cũ còn gửi cờ `hidden` cũng không giấu được gì                                                                                                                     |
 | `frontend/tests/fieldSheets.test.ts`                 | gom trường theo bảng và lọc theo từ khoá. Sau khi bỏ hai khối "Chiều"/"Thước đo", thứ tự và cách gom là thứ duy nhất còn giúp người dùng tìm được một trường                                                                                                                      |
 | `frontend/tests/chartSpec.test.ts`                   | mọi spec Vega **biên dịch được** (bắt cả `warn`, không chỉ lỗi ném ra), bốn cách sắp trục cho ra **bốn** spec khác nhau, và chế độ vừa-khung (§10.13) khai đúng `autosize: fit` — thiếu nó thì trục vẫn thò ra 42px và không có gì đỏ ở đâu cả                                    |
 | `frontend/tests/querySnapshots.test.ts`              | ảnh chụp số liệu trên đĩa. Phần lớn ca kiểm chuyện **trượt** — đổi cấu hình, đổi mô hình, mục hỏng, `localStorage` bị chặn — vì một cache sai không hỏng ra mặt, nó vẽ một biểu đồ trông bình thường bằng số của câu hỏi khác                                                     |
@@ -2229,7 +2229,7 @@ Hai đường dẫn tới trạng thái đó, và bản đầu của runner khô
 
 1. **Hai tiến trình cùng migrate.** `tsx watch` khởi động lại backend trong lúc
    bản cũ đang chạy migration, hoặc `npm run migrate` gõ tay song song với dev
-   server. Cả hai đọc bảng ghi nhận, cả hai thấy migration 30 chưa có, cả hai
+   server. Cả hai đọc bảng ghi nhận, cả hai thấy migration 34 chưa có, cả hai
    chạy `ALTER TABLE`. Người thua nhận lỗi trùng — và vì lỗi nổ **trước** câu
    `INSERT`, không ai ghi nhận gì cả.
 2. **Bị giết giữa chừng** một migration nhiều câu lệnh.
@@ -2257,7 +2257,7 @@ Runner **không tự chữa** một migration dở dang: nó không biết câu 
 xong mấy câu và còn câu nào, nên nó nói ra đủ để xử trong một phút:
 
 ```
-[migrate] migration 30 (reports_canvas) đang DỞ DANG — lần chạy trước dừng giữa chừng.
+[migrate] migration 34 (reports_canvas) đang DỞ DANG — lần chạy trước dừng giữa chừng.
 Đã chạy xong 0/1 câu lệnh, nên schema đang ở trạng thái nửa vời và
 runner không chạy tiếp (chạy tiếp trên schema sai còn khó gỡ hơn).
 

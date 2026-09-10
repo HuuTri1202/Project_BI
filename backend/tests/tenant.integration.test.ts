@@ -8,6 +8,7 @@ import { closeRedis } from '../src/config/redis';
 import { resetDatabase } from './helpers/db';
 import {
   bearer,
+  capGoiKhongGioiHan,
   makeMembership,
   makeReport,
   makeTenant,
@@ -84,6 +85,25 @@ beforeEach(async () => {
   await makeMembership(carol, tenantB, 'admin');
   // Superadmin nhưng chỉ là `viewer` trong tổ chức này.
   await makeMembership(root, tenantA, 'viewer');
+
+  /*
+   * Cấp gói không giới hạn cho cả hai — §11.2.
+   *
+   * Bộ này kiểm §4 (tổ chức, workspace, thành viên) và không nói gì về thanh
+   * toán, nhưng nó dựng BỐN thành viên cho `tenantA` và tạo nhiều workspace,
+   * trong khi gói mặc định cho 3 thành viên và 1 workspace. Không có hai dòng
+   * này thì mười bảy ca ở đây đỏ vì hạn mức — một lý do chẳng liên quan gì tới
+   * thứ chúng đang kiểm.
+   *
+   * Cấp gói thay vì nới hạn mức gói Free: nới thì KHÔNG bài test nào còn đi qua
+   * lớp chặn nữa, và nó sẽ hỏng trong im lặng. Lớp chặn có bộ riêng —
+   * `billingLimits.integration.test.ts`.
+   *
+   * ⚠️ Phải đứng SAU khối tạo user: `ck_subscriptions_override_has_reason` đòi
+   * `granted_by` khác NULL, nên gọi trước là nổ ngay tại INSERT.
+   */
+  await capGoiKhongGioiHan(tenantA, alice);
+  await capGoiKhongGioiHan(tenantB, carol);
 
   f = {
     tenantA,
@@ -671,6 +691,24 @@ describe('thành viên (§4.7)', () => {
 
       expect(switched.status).toBe(200);
       expect(switched.body.role).toBe('admin');
+
+      /*
+       * Cấp gói cho không gian riêng — §11.2, và lý do đáng ghi lại.
+       *
+       * Ca này kiểm VAI TRÒ, và nó dùng "tạo được workspace" làm phép thử. Từ
+       * ngày hạn mức chặn thật, phép thử đó đâm vào một thứ khác hẳn: gói Free
+       * cho 1 workspace, mà `provisionTenant` đã cấp sẵn đúng 1 cái cho mọi tổ
+       * chức mới — nên tổ chức cá nhân của Eve ĐÃ đầy ngay lúc sinh ra.
+       *
+       * Không có dòng này thì ca đỏ với 409 và người đọc sẽ tưởng phân quyền
+       * hỏng, trong khi phân quyền vẫn đúng.
+       *
+       * ⚠️ Nó cũng phơi ra một điều về SẢN PHẨM, không phải về test: với hạn mức
+       * Free đang gieo, người dùng Free không bao giờ tạo thêm được workspace
+       * nào. Đó là con số trong bảng giá, sửa ở /admin/billing/plans — không
+       * phải thứ bài test này được phép che đi.
+       */
+      await capGoiKhongGioiHan(personal?.id ?? 0, f.alice);
 
       // Vai trò phải được THỰC THI chứ không chỉ hiển thị: Eve là `viewer` ở
       // công ty A, nên nếu token mới mang nhầm vai trò cũ thì câu này ra 403.

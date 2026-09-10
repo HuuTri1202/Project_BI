@@ -705,7 +705,7 @@ function Builder({
                 )}
                 {/* Đường sang trang mô hình.
 
-                    Trước migration 32 nút này chỉ hiện cho mô hình dựng-hộ, vì
+                    Tới §10.12 nút này chỉ hiện cho mô hình dựng-hộ, vì
                     chỉ nó mới bị giấu khỏi danh sách. Giờ không mô hình nào bị
                     giấu nữa, nhưng nút vẫn đáng có cho MỌI mô hình: hai thứ chỉ
                     sửa được ở trang mô hình — vai trò cột và quan hệ giữa các

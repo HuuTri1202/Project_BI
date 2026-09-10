@@ -1,4 +1,4 @@
-import type { RowDataPacket } from 'mysql2';
+﻿import type { RowDataPacket } from 'mysql2';
 import request from 'supertest';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 
@@ -10,6 +10,7 @@ import { open } from '../src/services/connections/secretBox';
 import { resetDatabase } from './helpers/db';
 import {
   bearer,
+  capGoiKhongGioiHan,
   makeMembership,
   makeTenant,
   makeUser,
@@ -80,7 +81,6 @@ beforeEach(async () => {
 
   const tenantA = await makeTenant('Công ty Alpha', 'cong-ty-alpha');
   const tenantB = await makeTenant('Công ty Beta', 'cong-ty-beta');
-
   const alice = await makeUser('alice@alpha.test', 'Nguyễn Thị An');
   const bob = await makeUser('bob@alpha.test', 'Trần Văn Bình');
   const dave = await makeUser('dave@alpha.test', 'Phạm Văn Dũng');
@@ -90,6 +90,12 @@ beforeEach(async () => {
   await makeMembership(bob, tenantA, 'creator');
   await makeMembership(dave, tenantA, 'viewer');
   await makeMembership(carol, tenantB, 'admin');
+
+  // Gói không giới hạn — §11.2. Bộ này không kiểm thanh toán, nhưng nó dựng
+  // nhiều workspace/thành viên hơn hạn mức gói mặc định. Đặt SAU khi user đã có:
+  // `ck_subscriptions_override_has_reason` đòi `granted_by` khác NULL.
+  await capGoiKhongGioiHan(tenantA, alice);
+  await capGoiKhongGioiHan(tenantB, carol);
 
   f = {
     tenantA,

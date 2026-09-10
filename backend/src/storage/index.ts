@@ -43,6 +43,18 @@ export interface ObjectStorage {
    * mang theo file.
    */
   presignPut(key: string, contentType: string, maxBytes: number): Promise<PresignedUpload>;
+  /**
+   * Ghi thẳng từ Express, KHÔNG qua presigned URL.
+   *
+   * Có mặt cho ảnh QR tĩnh của §11 — vài chục KB, tải một lần rồi thôi. Đi
+   * đường presigned cho một file cỡ đó là ba vòng mạng để đổi lấy việc không
+   * cho 30KB đi qua Node, tức là đổi chác sai chiều.
+   *
+   * ⚠️ ĐỪNG dùng cho file người dùng tải lên. Lý do presigned tồn tại vẫn
+   * nguyên vẹn: một bảng tính 50MB đi qua đây sẽ chiếm bộ nhớ và giữ một
+   * worker của Node suốt thời gian truyền.
+   */
+  putObject(key: string, body: Buffer, contentType: string): Promise<void>;
   getObject(key: string): Promise<Buffer>;
   deleteObject(key: string): Promise<void>;
   /** Có thật sự tồn tại không, và nặng bao nhiêu. Dùng để xác nhận upload xong. */

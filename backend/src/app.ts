@@ -8,6 +8,7 @@ import { adminRouter } from './api/admin';
 import { authRouter } from './api/auth';
 import { healthRouter } from './api/health';
 import { v1Router } from './api/v1';
+import { webhookRouter } from './api/webhooks';
 import { env, isProduction, isTest } from './config/env';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler';
 import { originGuard } from './middleware/originGuard';
@@ -31,7 +32,28 @@ export function createApp(): Express {
   // không bị trang lạ gọi bằng token mà người dùng vô tình để lộ.
   app.use(cors({ origin: env.CORS_ORIGIN, credentials: true }));
   app.use(compression());
-  app.use(express.json({ limit: '1mb' }));
+  /*
+   * `verify` giữ lại THÂN REQUEST THÔ cho webhook thanh toán (§11).
+   *
+   * Chữ ký HMAC của cổng thanh toán tính trên đúng chuỗi byte họ gửi. Dựng lại
+   * chuỗi đó bằng `JSON.stringify(req.body)` là sai theo cách rất khó tìm:
+   * thứ tự khoá, khoảng trắng và cách viết số thực đều có thể khác bản gốc, nên
+   * chữ ký không khớp trong khi mọi thứ trông đúng — và ta sẽ đi tìm lỗi ở khoá
+   * bí mật thay vì ở chỗ này.
+   *
+   * Chỉ giữ cho route webhook: mọi request khác không cần và giữ lại là nhân đôi
+   * bộ nhớ cho mỗi body.
+   */
+  app.use(
+    express.json({
+      limit: '1mb',
+      verify: (req, _res, buf) => {
+        if (req.url?.startsWith('/api/webhooks/')) {
+          (req as { rawBody?: Buffer }).rawBody = buf;
+        }
+      },
+    }),
+  );
   // CỐ Ý KHÔNG dùng `express.urlencoded`.
   //
   // Một form HTML cross-origin chỉ gửi được urlencoded/multipart/text-plain —
@@ -52,6 +74,10 @@ export function createApp(): Express {
 
   app.use('/health', healthRouter);
   app.use('/api/auth', authRouter);
+  // §11 — webhook của cổng thanh toán. NGOÀI `/api/v1` một cách có chủ ý: người
+  // gọi là máy chủ của cổng, không có token và không thuộc tổ chức nào. Thứ
+  // thay cho phiên đăng nhập là chữ ký HMAC trên thân request.
+  app.use('/api/webhooks', webhookRouter);
   // Khu quản trị tổ chức — tự gắn đủ ba lớp guard bên trong router của nó.
   app.use('/api/admin', adminRouter);
   app.use('/api/v1', v1Router);
