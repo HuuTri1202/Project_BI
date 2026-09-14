@@ -440,6 +440,59 @@ Mọi lỗi có cùng hình dạng `{ error, message, fields? }`.
 4. còn lại             → /
 ```
 
+### Đóng app là hết phiên
+
+> có vẻ đang có lỗi gì khiến cho app hiện tại đang lưu token đăng nhập trên
+> trình duyệt, khi vừa mở lên vào app thì vào thẳng trang home
+
+Quyết định số 3 ở trên để token trong `localStorage`, mà `localStorage` sống qua
+cả lần đóng trình duyệt; token lại có hạn 7 ngày. Nên đóng trình duyệt tối nay,
+sáng mai mở lên vẫn vào thẳng trang chủ. Trên máy dùng chung, người sau vào
+thẳng tài khoản của người trước.
+
+Chỗ lưu **không đổi** — quyết định số 3 vẫn nguyên. Thứ thêm vào là một luật
+về thời gian sống, chạy một lần trước lần render đầu tiên
+(`frontend/src/auth/appSession.ts`). Token trên đĩa được giữ khi và chỉ khi:
+
+| Tình huống                                                  | Vì sao biết                                         | Kết quả                                 |
+| ----------------------------------------------------------- | --------------------------------------------------- | --------------------------------------- |
+| F5, bấm Back từ trang ngoài về                              | dấu trong `sessionStorage` của CHÍNH tab đó         | giữ phiên                               |
+| Ctrl+bấm một báo cáo sang tab mới                           | một tab khác đang giữ khoá Web Locks `bi.app.alive` | giữ phiên                               |
+| Đóng hết tab của app, hoặc đóng hẳn trình duyệt, rồi mở lại | không có cả hai                                     | xoá token + ảnh chụp số liệu → `/login` |
+
+Không dùng BroadcastChannel để hỏi nhau "còn tab nào mở không": hỏi thì phải
+đợi trả lời, đợi thì phải chọn một con số, và không có con số nào đúng — tab nền
+bị đóng băng trả lời không kịp, còn đợi lâu thì lần mở app nào cũng chậm chừng
+ấy. Khoá thì trình duyệt tự nhả khi tab đóng, kể cả tab chết đột ngột, và
+`query()` trả lời ngay.
+
+⚠️ F5 không dựa được vào khoá — trang cũ nhả khoá trước khi trang mới kịp hỏi.
+Đó là lý do phải có dấu trong `sessionStorage`. Và phải **hỏi** khoá trước
+rồi mới **giữ** nó, không thì tab thấy chính mình.
+
+Đo trên Chromium thật với một hồ sơ trình duyệt ghi xuống đĩa:
+
+```
+                                              trước      sau
+đóng hẳn trình duyệt rồi mở lại               /admin     /login
+đóng hết tab app, trình duyệt vẫn chạy        /admin     /login
+F5                                            giữ        giữ
+Ctrl+bấm liên kết sang tab mới                giữ        giữ   (không chép sessionStorage — vào nhờ khoá)
+đăng xuất ở tab này, tab kia F5               /login     /login
+mở thẳng /profile, đăng nhập xong             —          quay về /profile
+request GET /me bằng token cũ lúc mở lại      —          0
+```
+
+Giới hạn, ghi ra chứ không giấu:
+
+- Trình duyệt bật **"Tiếp tục từ nơi bạn đã dừng"** khôi phục cả tab lẫn
+  `sessionStorage` của nó — với luật trên, lần mở lại đó là một lần F5.
+- Web Locks chỉ có trong ngữ cảnh bảo mật (HTTPS, localhost). Chạy qua HTTP
+  trên một địa chỉ IP thì tab mới phải đăng nhập lại — chặt hơn, không lỏng hơn.
+- Token cũ vẫn nằm trên đĩa từ lúc đóng tới lần mở kế tiếp. Thứ này sửa việc app
+  **tự** vào tài khoản, không phải việc token bị trộm từ ổ cứng; cái đó cần thu
+  hồi token phía server (mục dưới).
+
 ### Những gì CHƯA có
 
 - **Chưa có form/API đăng ký.** Tài khoản đầu tiên từ `seed:admin`; các tài
@@ -2494,22 +2547,23 @@ dùng một khung khác thứ họ vừa dựng, mà không nói gì.
 
 ### Bài test đáng đọc
 
-| File                                                 | Khoá lại điều gì                                                                                                                                                                                                                                                                  |
-| ---------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `backend/tests/datamodel.integration.test.ts` §10.13 | 6 ca khoá chiều ngược của §10.11: mô hình dựng-hộ **có** trong danh sách, được tính vào `total`, và một client cũ còn gửi cờ `hidden` cũng không giấu được gì                                                                                                                     |
-| `frontend/tests/fieldSheets.test.ts`                 | gom trường theo bảng và lọc theo từ khoá. Sau khi bỏ hai khối "Chiều"/"Thước đo", thứ tự và cách gom là thứ duy nhất còn giúp người dùng tìm được một trường                                                                                                                      |
-| `frontend/tests/chartSpec.test.ts`                   | mọi spec Vega **biên dịch được** (bắt cả `warn`, không chỉ lỗi ném ra), bốn cách sắp trục cho ra **bốn** spec khác nhau, và chế độ vừa-khung (§10.13) khai đúng `autosize: fit` — thiếu nó thì trục vẫn thò ra 42px và không có gì đỏ ở đâu cả                                    |
-| `frontend/tests/querySnapshots.test.ts`              | ảnh chụp số liệu trên đĩa. Phần lớn ca kiểm chuyện **trượt** — đổi cấu hình, đổi mô hình, mục hỏng, `localStorage` bị chặn — vì một cache sai không hỏng ra mặt, nó vẽ một biểu đồ trông bình thường bằng số của câu hỏi khác                                                     |
-| `frontend/tests/savedReportInstant.test.tsx`         | mở báo cáo đã lưu thì có biểu đồ ở **khung hình đầu tiên**, và màn hình **nói ra** đó là số cũ đang cập nhật. Request cố ý không bao giờ trả lời — đây là bài kiểm về đúng khoảnh khắc chờ                                                                                        |
-| `frontend/tests/shelfKind.test.tsx`                  | ô thả có in ra loại trường nó nhận không, và có in ĐÚNG cái `accepts` của nó không. Kiểm ở trạng thái ĐÃ ĐIỀN — trạng thái trống chưa bao giờ là chỗ thiếu thông tin — và trên cả `VisualPanel` thật, nên bắt được cả tên ô đổi theo loại biểu đồ ("Lát cắt") lẫn ô bị khoá       |
-| `frontend/tests/canvasVisual.test.ts`                | phép tính bố cục và luật của một ô — `findSlot`, `clampBox`, `assignField`, `toDto`, và `hasUnsavedWork`. Sai ở đây không hiện ra như lỗi: một ô lệch cột trông y hệt một ô người dùng tự đặt lệch, còn `hasUnsavedWork` sai là mất việc của người dùng mà không một câu cảnh báo |
-| `frontend/tests/CanvasView.test.tsx`                 | render thật trong DOM: ghép số liệu theo `visualId` (ca này **đảo thứ tự** mảng trả về), và một ô hỏng không kéo theo ô khác                                                                                                                                                      |
-| `backend/tests/datamodel.integration.test.ts` §10.10 | 20 ca ở tầng cấu hình — trùng mã ô, khung rỗng, tràn lưới, quá trần, trường lạ, chuyển đổi, ranh giới với báo cáo trên bộ dữ liệu, và **hình dạng cũ `{visuals}` vẫn ghi được rồi đọc ra một trang**                                                                              |
-| `backend/tests/datamodel.integration.test.ts` §10.12 | `?page=` có trần, `canvas-data?pageId=` tính đúng trang được hỏi (mã lạ rơi về trang đầu, không 404), và `overflow` của một client CHƯA cập nhật được nhận rồi bỏ qua thay vì 400 — lỗi kiểu đó chỉ hiện ra sau khi deploy, và chỉ với người chưa tải lại trang                   |
-| `frontend/tests/groupPaging.test.tsx`                | hai cái nút ‹ › và thanh thẻ trang. Phần lớn ca kiểm chuyện **không** bày ra nút: cấu hình không chia trang, dữ liệu vừa một trang, không có `onPage`. Một cặp nút chết chỉ nói với người dùng rằng có gì đó hỏng                                                                 |
-| `frontend/tests/sidePanel.test.tsx`                  | hai cột bên gấp lại được (§10.15). Phần lớn ca kiểm hai thứ hỏng LẶNG LẼ quanh cái nút: hai cột dùng chung một khoá thì gấp cột này gấp luôn cột kia, và `localStorage` bị chặn thì ĐỌC cũng ném lỗi — một lỗi lúc render là cả trình dựng trắng màn                              |
-| `frontend/tests/vegaSpecKey.test.ts`                 | thứ quyết định "vẽ lại từ đầu" hay "cập nhật tại chỗ" (§10.17). Hỏng theo hai hướng ngược nhau và không hướng nào đỏ ở đâu cả: quá nhạy thì mỗi nhịp kéo là một lần chớp trắng, quá trơ thì đổi bảng màu mà biểu đồ đứng yên                                                      |
-| `frontend/tests/reportViewPage.test.tsx`             | trang xem mở được cho **mọi** vai trò, và nút "Chỉnh sửa" chỉ có mặt khi nó thật sự dẫn tới một trình dựng dùng được — không phải bảo mật, mà là đừng bày ra một cái nút dẫn tới 403                                                                                              |
+| File                                                 | Khoá lại điều gì                                                                                                                                                                                                                                                                                                       |
+| ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `backend/tests/datamodel.integration.test.ts` §10.13 | 6 ca khoá chiều ngược của §10.11: mô hình dựng-hộ **có** trong danh sách, được tính vào `total`, và một client cũ còn gửi cờ `hidden` cũng không giấu được gì                                                                                                                                                          |
+| `frontend/tests/fieldSheets.test.ts`                 | gom trường theo bảng và lọc theo từ khoá. Sau khi bỏ hai khối "Chiều"/"Thước đo", thứ tự và cách gom là thứ duy nhất còn giúp người dùng tìm được một trường                                                                                                                                                           |
+| `frontend/tests/chartSpec.test.ts`                   | mọi spec Vega **biên dịch được** (bắt cả `warn`, không chỉ lỗi ném ra), bốn cách sắp trục cho ra **bốn** spec khác nhau, và chế độ vừa-khung (§10.13) khai đúng `autosize: fit` — thiếu nó thì trục vẫn thò ra 42px và không có gì đỏ ở đâu cả                                                                         |
+| `frontend/tests/querySnapshots.test.ts`              | ảnh chụp số liệu trên đĩa. Phần lớn ca kiểm chuyện **trượt** — đổi cấu hình, đổi mô hình, mục hỏng, `localStorage` bị chặn — vì một cache sai không hỏng ra mặt, nó vẽ một biểu đồ trông bình thường bằng số của câu hỏi khác                                                                                          |
+| `frontend/tests/savedReportInstant.test.tsx`         | mở báo cáo đã lưu thì có biểu đồ ở **khung hình đầu tiên**, và màn hình **nói ra** đó là số cũ đang cập nhật. Request cố ý không bao giờ trả lời — đây là bài kiểm về đúng khoảnh khắc chờ                                                                                                                             |
+| `frontend/tests/shelfKind.test.tsx`                  | ô thả có in ra loại trường nó nhận không, và có in ĐÚNG cái `accepts` của nó không. Kiểm ở trạng thái ĐÃ ĐIỀN — trạng thái trống chưa bao giờ là chỗ thiếu thông tin — và trên cả `VisualPanel` thật, nên bắt được cả tên ô đổi theo loại biểu đồ ("Lát cắt") lẫn ô bị khoá                                            |
+| `frontend/tests/canvasVisual.test.ts`                | phép tính bố cục và luật của một ô — `findSlot`, `clampBox`, `assignField`, `toDto`, và `hasUnsavedWork`. Sai ở đây không hiện ra như lỗi: một ô lệch cột trông y hệt một ô người dùng tự đặt lệch, còn `hasUnsavedWork` sai là mất việc của người dùng mà không một câu cảnh báo                                      |
+| `frontend/tests/CanvasView.test.tsx`                 | render thật trong DOM: ghép số liệu theo `visualId` (ca này **đảo thứ tự** mảng trả về), và một ô hỏng không kéo theo ô khác                                                                                                                                                                                           |
+| `backend/tests/datamodel.integration.test.ts` §10.10 | 20 ca ở tầng cấu hình — trùng mã ô, khung rỗng, tràn lưới, quá trần, trường lạ, chuyển đổi, ranh giới với báo cáo trên bộ dữ liệu, và **hình dạng cũ `{visuals}` vẫn ghi được rồi đọc ra một trang**                                                                                                                   |
+| `backend/tests/datamodel.integration.test.ts` §10.12 | `?page=` có trần, `canvas-data?pageId=` tính đúng trang được hỏi (mã lạ rơi về trang đầu, không 404), và `overflow` của một client CHƯA cập nhật được nhận rồi bỏ qua thay vì 400 — lỗi kiểu đó chỉ hiện ra sau khi deploy, và chỉ với người chưa tải lại trang                                                        |
+| `frontend/tests/groupPaging.test.tsx`                | hai cái nút ‹ › và thanh thẻ trang. Phần lớn ca kiểm chuyện **không** bày ra nút: cấu hình không chia trang, dữ liệu vừa một trang, không có `onPage`. Một cặp nút chết chỉ nói với người dùng rằng có gì đó hỏng                                                                                                      |
+| `frontend/tests/sidePanel.test.tsx`                  | hai cột bên gấp lại được (§10.15). Phần lớn ca kiểm hai thứ hỏng LẶNG LẼ quanh cái nút: hai cột dùng chung một khoá thì gấp cột này gấp luôn cột kia, và `localStorage` bị chặn thì ĐỌC cũng ném lỗi — một lỗi lúc render là cả trình dựng trắng màn                                                                   |
+| `frontend/tests/vegaSpecKey.test.ts`                 | thứ quyết định "vẽ lại từ đầu" hay "cập nhật tại chỗ" (§10.17). Hỏng theo hai hướng ngược nhau và không hướng nào đỏ ở đâu cả: quá nhạy thì mỗi nhịp kéo là một lần chớp trắng, quá trơ thì đổi bảng màu mà biểu đồ đứng yên                                                                                           |
+| `frontend/tests/appSession.test.ts`                  | đóng app là hết phiên. Hỏng theo hai hướng và cả hai đều trông như app chạy bình thường: lỏng thì mở lại vẫn vào thẳng tài khoản của người trước, chặt thì mỗi lần F5 hay Ctrl+bấm sang tab mới lại bắt gõ mật khẩu. Có một ca riêng cho thứ tự **hỏi khoá rồi mới giữ khoá** — đảo lại thì không bao giờ đăng xuất ai |
+| `frontend/tests/reportViewPage.test.tsx`             | trang xem mở được cho **mọi** vai trò, và nút "Chỉnh sửa" chỉ có mặt khi nó thật sự dẫn tới một trình dựng dùng được — không phải bảo mật, mà là đừng bày ra một cái nút dẫn tới 403                                                                                                                                   |
 
 Không ca nào cần ClickHouse trả số thật. Việc đó đã được chứng minh bằng tay
 trên dữ liệu thật; buộc nó vào CI sẽ biến một bộ test cấu hình thành một bộ test
