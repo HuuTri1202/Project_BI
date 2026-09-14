@@ -2,6 +2,7 @@ import {
   AGGREGATES,
   BILLING_CYCLES,
   CANVAS_COLUMNS,
+  CANVAS_MAX_ANNOTATIONS,
   CANVAS_MAX_PAGES,
   CANVAS_MAX_VISUALS,
   CANVAS_MIN_H,
@@ -25,6 +26,7 @@ import {
   RELATIONSHIP_KINDS,
   PAGE_NAME_MAX,
   REPORT_NAME_MAX,
+  reportAnnotationSchema,
   TIME_GRANULARITIES,
   VISUAL_TITLE_MAX,
   companyNameRule,
@@ -406,6 +408,19 @@ export const reportPageSchema = z
     visuals: z
       .array(reportVisualSchema)
       .max(CANVAS_MAX_VISUALS, `Một trang tối đa ${CANVAS_MAX_VISUALS} biểu đồ`),
+    /**
+     * Văn bản, đường kẻ, hình — §10.18. Luật của từng cái nằm ở `@bi/shared`.
+     *
+     * `.default([])`: một tab mở từ trước lúc triển khai gửi trang KHÔNG có
+     * trường này, và câu trả lời cho nó phải là "đã lưu", không phải 400.
+     *
+     * Trần riêng, không cộng vào `CANVAS_MAX_VISUALS`: trần kia là chi phí
+     * truy vấn, còn chú thích không tốn một truy vấn nào.
+     */
+    annotations: z
+      .array(reportAnnotationSchema)
+      .max(CANVAS_MAX_ANNOTATIONS, `Một trang tối đa ${CANVAS_MAX_ANNOTATIONS} chú thích`)
+      .default([]),
   })
   .strict();
 
@@ -444,7 +459,14 @@ export const reportCanvasSchema = z.preprocess(
         'Hai trang trong cùng một báo cáo không được trùng mã',
       )
       .refine((list) => {
-        const ids = list.flatMap((p) => p.visuals.map((v) => v.id));
+        // Chú thích và biểu đồ dùng CHUNG một không gian mã: cả hai làm khoá
+        // React trên cùng một lưới, và trình dựng chọn phần tử theo mã mà không
+        // hỏi nó là loại gì. Trùng nhau thì bấm vào hộp văn bản lại mở bảng cấu
+        // hình của một biểu đồ.
+        const ids = list.flatMap((p) => [
+          ...p.visuals.map((v) => v.id),
+          ...p.annotations.map((a) => a.id),
+        ]);
         return new Set(ids).size === ids.length;
       }, 'Hai ô trong cùng một báo cáo không được trùng mã'),
   }),

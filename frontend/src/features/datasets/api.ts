@@ -40,6 +40,32 @@ function clean(
   return out;
 }
 
+/**
+ * Mọi `ReportDto` đi vào ứng dụng đều qua đây — §10.18.
+ *
+ * Từ §10.18 mỗi trang của khung có thêm `annotations`, và khung soạn thảo lẫn
+ * trang xem đọc thẳng trường đó. Backend mới luôn gửi nó; nhưng một frontend
+ * được triển khai TRƯỚC backend sẽ nhận trang không có trường này, và một
+ * `page.annotations.filter` trên `undefined` là cả trang báo cáo trắng xoá — cho
+ * một tính năng mà báo cáo đó thậm chí chưa dùng tới.
+ *
+ * Điền ở CỬA VÀO, một lần, thay vì rải `?? []` ở từng nơi đọc: nơi đọc thứ năm
+ * thêm vào sau này sẽ không phải nhớ gì cả.
+ */
+function normalizeReport(report: ReportDto): ReportDto {
+  if (report.canvas === null) return report;
+  return {
+    ...report,
+    canvas: {
+      ...report.canvas,
+      pages: report.canvas.pages.map((page) => ({
+        ...page,
+        annotations: Array.isArray(page.annotations) ? page.annotations : [],
+      })),
+    },
+  };
+}
+
 // ─── Bộ dữ liệu ──────────────────────────────────────────────────────────────
 //
 // Chỉ luồng TẢI FILE nằm ở đây. Danh sách, chi tiết và xoá bộ dữ liệu dùng chung
@@ -88,12 +114,12 @@ export async function fetchReports(query: ReportListQuery): Promise<PageResult<R
   const { data } = await apiClient.get<PageResult<ReportDto>>('/v1/reports', {
     params: clean({ ...query }),
   });
-  return data;
+  return { ...data, items: data.items.map(normalizeReport) };
 }
 
 export async function fetchReport(id: number): Promise<ReportDto> {
   const { data } = await apiClient.get<ReportDto>(`/v1/reports/${id}`);
-  return data;
+  return normalizeReport(data);
 }
 
 export async function fetchReportData(id: number, page = 0): Promise<ReportDataDto> {
@@ -132,7 +158,7 @@ export async function fetchReportVisualData(
  */
 export async function createReport(input: CreateReportInput): Promise<ReportDto> {
   const { data } = await apiClient.post<ReportDto>('/v1/reports', input);
-  return data;
+  return normalizeReport(data);
 }
 
 /**
@@ -143,7 +169,7 @@ export async function createReport(input: CreateReportInput): Promise<ReportDto>
  */
 export async function createModelReport(input: CreateModelReportInput): Promise<ReportDto> {
   const { data } = await apiClient.post<ReportDto>('/v1/reports/from-datamodel', input);
-  return data;
+  return normalizeReport(data);
 }
 
 export async function updateReport(
@@ -151,7 +177,7 @@ export async function updateReport(
   input: { name: string; chartType: ChartType; config: ReportConfigDto },
 ): Promise<ReportDto> {
   const { data } = await apiClient.patch<ReportDto>(`/v1/reports/${id}`, input);
-  return data;
+  return normalizeReport(data);
 }
 
 /**
@@ -166,7 +192,7 @@ export async function updateModelReport(
   input: UpdateModelReportInput,
 ): Promise<ReportDto> {
   const { data } = await apiClient.patch<ReportDto>(`/v1/reports/${id}/from-datamodel`, input);
-  return data;
+  return normalizeReport(data);
 }
 
 /**
@@ -189,7 +215,7 @@ export async function fetchReportCanvasData(
 /** Tạo báo cáo NHIỀU biểu đồ — §10.10. */
 export async function createCanvasReport(input: CreateCanvasReportInput): Promise<ReportDto> {
   const { data } = await apiClient.post<ReportDto>('/v1/reports/canvas', input);
-  return data;
+  return normalizeReport(data);
 }
 
 /**
@@ -203,7 +229,7 @@ export async function updateCanvasReport(
   input: UpdateCanvasReportInput,
 ): Promise<ReportDto> {
   const { data } = await apiClient.patch<ReportDto>(`/v1/reports/${id}/canvas`, input);
-  return data;
+  return normalizeReport(data);
 }
 
 export async function deleteReport(id: number): Promise<void> {

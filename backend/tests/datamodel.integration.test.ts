@@ -1288,6 +1288,179 @@ describe('§10.10 khung nhiều biểu đồ', () => {
     expect(la.status).toBe(200);
     expect(la.body.visuals.map((v: { visualId: string }) => v.visualId)).toEqual(['a']);
   });
+
+  /* ─── §10.18 chú thích: văn bản, đường kẻ, hình ────────────────────────────
+   *
+   * Luật của từng chú thích đã có test đơn vị ở `annotationSchema.test.ts`.
+   * Khối này khoá phần chỉ database mới trả lời được: chúng đi TRỌN vòng qua
+   * cột JSON, bản ghi cũ đọc ra mảng rỗng, và đường tính số liệu KHÔNG thấy
+   * chúng.
+   */
+  const chu = (id: string, extra: Record<string, unknown> = {}): Record<string, unknown> => ({
+    id,
+    kind: 'text',
+    x: 0,
+    y: 0,
+    w: 6,
+    h: 1,
+    layer: 'front',
+    text: 'Doanh thu quý 3\n— giảm do đóng kho',
+    fontSize: 20,
+    bold: true,
+    italic: false,
+    align: 'left',
+    valign: 'middle',
+    color: '#0F172A',
+    fill: null,
+    ...extra,
+  });
+
+  it('chú thích đi TRỌN vòng, và canvas-data không tính số cho chúng', async () => {
+    const { dims, measureId } = await fields();
+    const created = await taoTrang([
+      {
+        id: 'p1',
+        name: 'Một',
+        visuals: [o('a', dims[0], measureId, { y: 1 })],
+        annotations: [
+          chu('t1'),
+          {
+            id: 'l1',
+            kind: 'line',
+            x: 0,
+            y: 8,
+            w: 12,
+            h: 1,
+            layer: 'front',
+            direction: 'horizontal',
+            style: 'dashed',
+            width: 2,
+            color: '#D64550',
+            arrow: 'end',
+          },
+          {
+            id: 's1',
+            kind: 'shape',
+            x: 0,
+            y: 0,
+            w: 6,
+            h: 8,
+            layer: 'back',
+            shape: 'rounded',
+            fill: '#F1F5F9',
+            opacity: 100,
+            stroke: null,
+            strokeWidth: 1,
+            strokeStyle: 'solid',
+          },
+        ],
+      },
+    ]);
+    expect(created.status).toBe(201);
+
+    const doc = await request(app)
+      .get(`/api/v1/reports/${created.body.id}`)
+      .set(bearer(f.tokenAdminA));
+    const annotations = doc.body.canvas.pages[0].annotations;
+    expect(annotations.map((a: { id: string }) => a.id)).toEqual(['t1', 'l1', 's1']);
+    // Xuống dòng là thứ người viết cố ý gõ — không được mất trên đường qua JSON.
+    expect(annotations[0].text).toBe('Doanh thu quý 3\n— giảm do đóng kho');
+    expect(annotations[2]).toMatchObject({ layer: 'back', fill: '#F1F5F9', stroke: null });
+
+    // Ba chú thích, MỘT ô biểu đồ — và đúng một ô được đem đi tính.
+    const data = await request(app)
+      .get(`/api/v1/reports/${created.body.id}/canvas-data`)
+      .set(bearer(f.tokenAdminA));
+    expect(data.status).toBe(200);
+    expect(data.body.visuals.map((v: { visualId: string }) => v.visualId)).toEqual(['a']);
+  });
+
+  it('client CŨ không gửi `annotations` vẫn lưu được, và đọc ra mảng rỗng', async () => {
+    // Một tab mở từ trước lúc triển khai. Trả 400 cho nó là mất cả khung người ta
+    // vừa dựng, vì một trường mà client đó chưa từng biết tới.
+    const { dims, measureId } = await fields();
+    const res = await taoTrang([{ id: 'p1', name: 'Một', visuals: [o('a', dims[0], measureId)] }]);
+
+    expect(res.status).toBe(201);
+    expect(res.body.canvas.pages[0].annotations).toEqual([]);
+  });
+
+  it('PATCH giữ chú thích, và gỡ hết chú thích cũng là một lần lưu hợp lệ', async () => {
+    const { dims, measureId } = await fields();
+    const created = await taoTrang([
+      { id: 'p1', name: 'Một', visuals: [o('a', dims[0], measureId)], annotations: [chu('t1')] },
+    ]);
+
+    const sua = await request(app)
+      .patch(`/api/v1/reports/${created.body.id}/canvas`)
+      .set(bearer(f.tokenAdminA))
+      .send({
+        name: 'Đã sửa',
+        canvas: {
+          pages: [
+            {
+              id: 'p1',
+              name: 'Một',
+              visuals: [o('a', dims[0], measureId)],
+              annotations: [chu('t1', { text: 'Đã sửa', fill: '#FEF3C7' }), chu('t2', { y: 9 })],
+            },
+          ],
+        },
+      });
+    expect(sua.status).toBe(200);
+    expect(sua.body.canvas.pages[0].annotations).toHaveLength(2);
+    expect(sua.body.canvas.pages[0].annotations[0]).toMatchObject({
+      text: 'Đã sửa',
+      fill: '#FEF3C7',
+    });
+
+    const go = await request(app)
+      .patch(`/api/v1/reports/${created.body.id}/canvas`)
+      .set(bearer(f.tokenAdminA))
+      .send({
+        name: 'Đã sửa',
+        canvas: {
+          pages: [
+            { id: 'p1', name: 'Một', visuals: [o('a', dims[0], measureId)], annotations: [] },
+          ],
+        },
+      });
+    expect(go.status).toBe(200);
+    expect(go.body.canvas.pages[0].annotations).toEqual([]);
+  });
+
+  it('chú thích TRÙNG mã với một biểu đồ -> 400', async () => {
+    // Cùng một lưới, cùng một không gian mã: trình dựng chọn phần tử theo mã, và
+    // trùng nhau thì bấm vào hộp văn bản lại mở cấu hình của biểu đồ.
+    const { dims, measureId } = await fields();
+    const res = await taoTrang([
+      {
+        id: 'p1',
+        name: 'Một',
+        visuals: [o('same', dims[0], measureId)],
+        annotations: [chu('same')],
+      },
+    ]);
+    expect(res.status).toBe(400);
+  });
+
+  it('CHỈ có chú thích, không có biểu đồ nào -> 400', async () => {
+    const res = await taoTrang([{ id: 'p1', name: 'Một', visuals: [], annotations: [chu('t1')] }]);
+    expect(res.status).toBe(400);
+  });
+
+  it('một chú thích sai làm hỏng cả lần lưu — màu chèn CSS lạ bị chặn ở cửa', async () => {
+    const { dims, measureId } = await fields();
+    const res = await taoTrang([
+      {
+        id: 'p1',
+        name: 'Một',
+        visuals: [o('a', dims[0], measureId)],
+        annotations: [chu('t1'), chu('t2', { color: 'red; background-image: url(x)' })],
+      },
+    ]);
+    expect(res.status).toBe(400);
+  });
 });
 
 /* ═══ §10.12 chia trang nhóm, §10.15 bỏ ô chọn ════════════════════════════

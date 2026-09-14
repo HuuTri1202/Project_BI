@@ -326,6 +326,7 @@ describe('hasUnsavedWork', () => {
     id,
     name,
     visuals,
+    annotations: [],
   });
 
   const moi = trang([emptyVisual({ x: 0, y: 0 })]);
@@ -413,8 +414,8 @@ describe('readyPages / hasAnyVisual', () => {
     // mới dựng biểu đồ cho nó, nhưng một ô mới kéo được nửa chừng thì chưa vẽ
     // được và backend sẽ từ chối cả lần lưu vì nó.
     const out = readyPages([
-      { id: 'p1', name: 'Một', visuals: [draft(), draft({ measureId: null })] },
-      { id: 'p2', name: 'Hai', visuals: [] },
+      { id: 'p1', name: 'Một', visuals: [draft(), draft({ measureId: null })], annotations: [] },
+      { id: 'p2', name: 'Hai', visuals: [], annotations: [] },
     ]);
 
     expect(out).toHaveLength(2);
@@ -425,16 +426,22 @@ describe('readyPages / hasAnyVisual', () => {
   it('tên trang rỗng rơi về "Trang <n>" thay vì làm hỏng cả lần lưu', () => {
     // zod đòi tên không rỗng. Người dùng hay xoá trắng ô tên rồi bấm ra ngoài,
     // và mất cả lần lưu vì chuyện đó là một cái giá quá đắt.
-    expect(readyPages([{ id: 'p1', name: '   ', visuals: [] }])[0]?.name).toBe('Trang 1');
+    expect(readyPages([{ id: 'p1', name: '   ', visuals: [], annotations: [] }])[0]?.name).toBe(
+      'Trang 1',
+    );
   });
 
   it('không ô nào lưu được thì nút Lưu phải tắt', () => {
     // Backend từ chối một khung không có ô nào; chặn ở đây để người dùng không
     // bấm Lưu rồi mới đọc được câu đó.
-    expect(hasAnyVisual([{ id: 'p1', name: 'Một', visuals: [draft({ measureId: null })] }])).toBe(
-      false,
+    expect(
+      hasAnyVisual([
+        { id: 'p1', name: 'Một', visuals: [draft({ measureId: null })], annotations: [] },
+      ]),
+    ).toBe(false);
+    expect(hasAnyVisual([{ id: 'p1', name: 'Một', visuals: [draft()], annotations: [] }])).toBe(
+      true,
     );
-    expect(hasAnyVisual([{ id: 'p1', name: 'Một', visuals: [draft()] }])).toBe(true);
   });
 
   it('tên trang mới không trùng tên đang có', () => {
@@ -442,8 +449,8 @@ describe('readyPages / hasAnyVisual', () => {
     // "Trang 2" lần nữa nếu chỉ đếm, và hai thẻ trùng tên thì không phân biệt
     // được cái nào là cái nào.
     const pages: PageDraft[] = [
-      { id: 'p1', name: 'Trang 1', visuals: [] },
-      { id: 'p3', name: 'Trang 3', visuals: [] },
+      { id: 'p1', name: 'Trang 1', visuals: [], annotations: [] },
+      { id: 'p3', name: 'Trang 3', visuals: [], annotations: [] },
     ];
     expect(nextPageName(pages)).toBe('Trang 4');
   });

@@ -1,4 +1,9 @@
 export * from './admin';
+/**
+ * `annotation` là văn bản, đường kẻ và hình trên khung báo cáo (§10.18) — thứ
+ * không có số liệu nào, chỉ để người dựng báo cáo ghi chú cho người đọc.
+ */
+export * from './annotation';
 export * from './auth';
 /**
  * `billing` (§11) là lớp thương mại: gói dịch vụ, đơn hàng, hoá đơn. Nó gắn vào

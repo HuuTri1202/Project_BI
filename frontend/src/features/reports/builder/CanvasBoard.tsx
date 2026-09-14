@@ -1,11 +1,20 @@
-import { CANVAS_COLUMNS, CANVAS_MIN_H, CANVAS_MIN_W, CANVAS_ROW_HEIGHT } from '@bi/shared';
+import {
+  CANVAS_COLUMNS,
+  CANVAS_MIN_H,
+  CANVAS_MIN_W,
+  CANVAS_ROW_HEIGHT,
+  type ReportAnnotationDto,
+} from '@bi/shared';
 import { useEffect, useRef, useState } from 'react';
 
 import { useModelReportPreview } from '../../datamodels/hooks';
 import { getApiError } from '../../../services/apiClient';
+import { CANVAS_LAYER_Z } from '../annotations/annotationStyle';
 import { CanvasGrid } from '../CanvasGrid';
 import { cellStyle, rowsNeeded } from '../canvasLayout';
 import { ReportChart } from '../ReportChart';
+import { ANNOTATION_MIN, type AnnotationPatch } from './annotation';
+import { AnnotationBox } from './AnnotationBox';
 import { blockerOf, clampBox, previewConfigOfDraft, type VisualDraft } from './visual';
 
 /**
@@ -38,40 +47,87 @@ import { blockerOf, clampBox, previewConfigOfDraft, type VisualDraft } from './v
 /** Phải khớp `gap` của `CanvasGrid` — hai số lệch nhau thì ô trôi dần khi kéo. */
 const GAP = 12;
 
+type Box = { x: number; y: number; w: number; h: number };
+
+/**
+ * Thứ đang được kéo — một ô biểu đồ HOẶC một chú thích (§10.18).
+ *
+ * Không mang `id` mà mang sẵn `apply` và cỡ tối thiểu: phép tính kéo và co
+ * giãn là MỘT, chỉ khác chỗ ghi kết quả vào và cỡ nhỏ nhất được phép. Hai bản
+ * `begin`/`move` cho hai loại là hai chỗ để quên sửa khi đổi bước lưới.
+ */
 interface DragState {
   mode: 'move' | 'resize';
-  id: string;
   pointerX: number;
   pointerY: number;
-  box: { x: number; y: number; w: number; h: number };
+  box: Box;
+  min: { w: number; h: number };
+  apply: (patch: Partial<Box>) => void;
   pitchX: number;
   pitchY: number;
 }
 
+/** Một phần tử kéo được trên khung, nhìn từ phía phép tính kéo thả. */
+interface Grabbable {
+  box: Box;
+  min: { w: number; h: number };
+  apply: (patch: Partial<Box>) => void;
+  select: () => void;
+  remove: () => void;
+}
+
 export function CanvasBoard({
   drafts,
+  annotations,
   selectedId,
+  editingId,
   modelId,
   labelOf,
   onSelect,
   onChange,
   onRemove,
+  onChangeAnnotation,
+  onRemoveAnnotation,
+  onEditText,
 }: {
   drafts: VisualDraft[];
+  /** Văn bản, đường kẻ, hình của trang này — §10.18. */
+  annotations: ReportAnnotationDto[];
   selectedId: string | null;
+  /** Hộp văn bản đang ở chế độ gõ chữ, nếu có. */
+  editingId: string | null;
   modelId: number;
   /** Tiêu đề để hiện trên đầu ô — trang tự dựng từ nhãn chiều và thước đo. */
   labelOf: (draft: VisualDraft) => string;
   onSelect: (id: string) => void;
   onChange: (id: string, patch: Partial<VisualDraft>) => void;
   onRemove: (id: string) => void;
+  onChangeAnnotation: (id: string, patch: AnnotationPatch) => void;
+  onRemoveAnnotation: (id: string) => void;
+  onEditText: (id: string | null) => void;
 }): React.ReactElement {
   const boardRef = useRef<HTMLDivElement>(null);
   const drag = useRef<DragState | null>(null);
 
+  const visualTarget = (draft: VisualDraft): Grabbable => ({
+    box: draft,
+    min: { w: CANVAS_MIN_W, h: CANVAS_MIN_H },
+    apply: (patch) => onChange(draft.id, patch),
+    select: () => onSelect(draft.id),
+    remove: () => onRemove(draft.id),
+  });
+
+  const annotationTarget = (a: ReportAnnotationDto): Grabbable => ({
+    box: a,
+    min: ANNOTATION_MIN,
+    apply: (patch) => onChangeAnnotation(a.id, patch),
+    select: () => onSelect(a.id),
+    remove: () => onRemoveAnnotation(a.id),
+  });
+
   function begin(
     mode: 'move' | 'resize',
-    draft: VisualDraft,
+    target: Grabbable,
     event: React.PointerEvent<HTMLElement>,
   ): void {
     const board = boardRef.current;
@@ -79,13 +135,15 @@ export function CanvasBoard({
 
     const rect = board.getBoundingClientRect();
     const colWidth = (rect.width - GAP * (CANVAS_COLUMNS - 1)) / CANVAS_COLUMNS;
+    const { x, y, w, h } = target.box;
 
     drag.current = {
       mode,
-      id: draft.id,
       pointerX: event.clientX,
       pointerY: event.clientY,
-      box: { x: draft.x, y: draft.y, w: draft.w, h: draft.h },
+      box: { x, y, w, h },
+      min: target.min,
+      apply: target.apply,
       // BƯỚC lưới, không phải bề rộng ô: hai ô cạnh nhau cách nhau một bề rộng
       // CỘNG một khoảng hở. Bỏ quên khoảng hở thì kéo ngang qua 12 cột lệch mất
       // hơn một cột.
@@ -97,7 +155,7 @@ export function CanvasBoard({
     // Chặn hành vi mặc định: kéo trên một tiêu đề sẽ bôi đen chữ, và trên màn
     // cảm ứng sẽ cuộn trang thay vì di chuyển ô.
     event.preventDefault();
-    onSelect(draft.id);
+    target.select();
   }
 
   function move(event: React.PointerEvent<HTMLElement>): void {
@@ -109,15 +167,15 @@ export function CanvasBoard({
     if (dx === 0 && dy === 0) return;
 
     if (state.mode === 'move') {
-      onChange(state.id, clampBox({ ...state.box, x: state.box.x + dx, y: state.box.y + dy }));
+      state.apply(clampBox({ ...state.box, x: state.box.x + dx, y: state.box.y + dy }, state.min));
       return;
     }
 
     // Co giãn giữ nguyên góc trên-trái, nên bề rộng bị chặn bởi mép phải của
     // khung chứ không được phép đẩy ô sang trái như `clampBox` sẽ làm.
-    onChange(state.id, {
-      w: Math.min(Math.max(state.box.w + dx, CANVAS_MIN_W), CANVAS_COLUMNS - state.box.x),
-      h: Math.max(state.box.h + dy, CANVAS_MIN_H),
+    state.apply({
+      w: Math.min(Math.max(state.box.w + dx, state.min.w), CANVAS_COLUMNS - state.box.x),
+      h: Math.max(state.box.h + dy, state.min.h),
     });
   }
 
@@ -129,7 +187,7 @@ export function CanvasBoard({
     }
   }
 
-  function onKey(event: React.KeyboardEvent<HTMLElement>, draft: VisualDraft): void {
+  function onKey(event: React.KeyboardEvent<HTMLElement>, target: Grabbable): void {
     const step: Record<string, [number, number]> = {
       ArrowLeft: [-1, 0],
       ArrowRight: [1, 0],
@@ -139,7 +197,7 @@ export function CanvasBoard({
 
     if (event.key === 'Delete' || event.key === 'Backspace') {
       event.preventDefault();
-      onRemove(draft.id);
+      target.remove();
       return;
     }
 
@@ -148,35 +206,71 @@ export function CanvasBoard({
     event.preventDefault();
 
     const [dx, dy] = delta;
+    const { box, min } = target;
     if (event.shiftKey) {
-      onChange(draft.id, {
-        w: Math.min(Math.max(draft.w + dx, CANVAS_MIN_W), CANVAS_COLUMNS - draft.x),
-        h: Math.max(draft.h + dy, CANVAS_MIN_H),
+      target.apply({
+        w: Math.min(Math.max(box.w + dx, min.w), CANVAS_COLUMNS - box.x),
+        h: Math.max(box.h + dy, min.h),
       });
       return;
     }
-    onChange(draft.id, clampBox({ ...draft, x: draft.x + dx, y: draft.y + dy }));
+    target.apply(clampBox({ ...box, x: box.x + dx, y: box.y + dy }, min));
   }
 
+  const annotationBox = (a: ReportAnnotationDto): React.ReactElement => {
+    const target = annotationTarget(a);
+    return (
+      <AnnotationBox
+        key={a.id}
+        annotation={a}
+        selected={a.id === selectedId}
+        editing={a.id === editingId}
+        onSelect={target.select}
+        onGrabMove={(e) => begin('move', target, e)}
+        onGrabResize={(e) => begin('resize', target, e)}
+        onPointerMove={move}
+        onPointerUp={end}
+        onKeyDown={(e) => onKey(e, target)}
+        onRemove={target.remove}
+        onEdit={(on) => onEditText(on ? a.id : null)}
+        onText={(text) => onChangeAnnotation(a.id, { text })}
+      />
+    );
+  };
+
+  /*
+   * Ba tầng vẽ (khung nền → biểu đồ → chú thích nổi) do `z-index` quyết định,
+   * KHÔNG do thứ tự trong DOM — xem `CANVAS_LAYER_Z`. Nên chú thích nằm trong
+   * MỘT danh sách, đúng thứ tự của mảng, dù tầng nào.
+   *
+   * ⚠️ Đừng tách thành hai danh sách "dưới" và "trên" cho dễ đọc. React đối
+   * chiếu con theo từng danh sách, nên đổi tầng một hộp là GỠ nó khỏi danh sách
+   * này rồi GẮN MỚI vào danh sách kia: hộp mất tiêu điểm, và một hộp văn bản
+   * đang gõ dở thì mất luôn ô gõ. Bản đầu tiên của §10.18 đã làm đúng như vậy.
+   */
   return (
     <div ref={boardRef}>
-      <CanvasGrid minRows={rowsNeeded(drafts)}>
-        {drafts.map((draft) => (
-          <Card
-            key={draft.id}
-            draft={draft}
-            title={labelOf(draft)}
-            selected={draft.id === selectedId}
-            modelId={modelId}
-            onSelect={() => onSelect(draft.id)}
-            onRemove={() => onRemove(draft.id)}
-            onGrabMove={(e) => begin('move', draft, e)}
-            onGrabResize={(e) => begin('resize', draft, e)}
-            onPointerMove={move}
-            onPointerUp={end}
-            onKeyDown={(e) => onKey(e, draft)}
-          />
-        ))}
+      <CanvasGrid minRows={rowsNeeded([...drafts, ...annotations])}>
+        {drafts.map((draft) => {
+          const target = visualTarget(draft);
+          return (
+            <Card
+              key={draft.id}
+              draft={draft}
+              title={labelOf(draft)}
+              selected={draft.id === selectedId}
+              modelId={modelId}
+              onSelect={target.select}
+              onRemove={target.remove}
+              onGrabMove={(e) => begin('move', target, e)}
+              onGrabResize={(e) => begin('resize', target, e)}
+              onPointerMove={move}
+              onPointerUp={end}
+              onKeyDown={(e) => onKey(e, target)}
+            />
+          );
+        })}
+        {annotations.map(annotationBox)}
       </CanvasGrid>
     </div>
   );
@@ -272,7 +366,7 @@ function Card({
 
   return (
     <section
-      style={cellStyle(draft)}
+      style={{ ...cellStyle(draft), zIndex: CANVAS_LAYER_Z.visual }}
       tabIndex={0}
       aria-label={`Ô biểu đồ: ${title}`}
       onFocus={onSelect}

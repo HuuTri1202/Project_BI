@@ -35,6 +35,7 @@ vi.mock('../src/features/datasets/api', () => ({
 const page: ReportPageDto = {
   id: 'p1',
   name: 'Trang 1',
+  annotations: [],
   visuals: [
     {
       id: 'a',

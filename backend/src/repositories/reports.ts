@@ -5,6 +5,7 @@ import {
   type ChartType,
   type DatasetSource,
   PAGE_NAME_MAX,
+  parseAnnotations,
   type ReportCanvasDto,
   type ReportConfigDto,
   type ReportDto,
@@ -179,7 +180,7 @@ function parseCanvas(raw: unknown): ReportCanvasDto | null {
       // ngẫu nhiên: nó đi vào khoá cache của trang xem, và một mã đổi sau mỗi
       // lần đọc là một lần trượt cache sau mỗi lần đọc.
       Array.isArray(obj.visuals)
-      ? [{ id: 'p1', name: 'Trang 1', visuals: parseVisuals(obj.visuals) }]
+      ? [{ id: 'p1', name: 'Trang 1', visuals: parseVisuals(obj.visuals), annotations: [] }]
       : [];
 
   // Trang RỖNG được giữ lại — người dùng tạo nó ra và chưa kịp dựng gì. Nhưng
@@ -201,6 +202,9 @@ function parsePage(raw: unknown, index: number): ReportPageDto | null {
     // là một cái thẻ người dùng không biết mình đang bấm vào đâu.
     name: name === '' ? `Trang ${index + 1}` : name,
     visuals: Array.isArray(obj.visuals) ? parseVisuals(obj.visuals) : [],
+    // Bản ghi trước §10.18 không có trường này; chú thích hỏng bị bỏ qua từng
+    // cái một, cùng lập luận với `parseVisuals` ngay dưới.
+    annotations: parseAnnotations(obj.annotations),
   };
 }
 

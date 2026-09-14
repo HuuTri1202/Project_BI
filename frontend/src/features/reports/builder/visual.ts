@@ -10,6 +10,7 @@ import {
   normalizePalette,
   PAGE_NAME_MAX,
   type ChartType,
+  type ReportAnnotationDto,
   type GroupPick,
   type ReportCanvasDto,
   type ReportChartOptionsDto,
@@ -18,6 +19,7 @@ import {
   type ReportVisualDto,
 } from '@bi/shared';
 
+import { readyAnnotations } from './annotation';
 import type { DragField } from './dnd';
 
 /**
@@ -297,6 +299,11 @@ export interface PageDraft {
   id: string;
   name: string;
   visuals: VisualDraft[];
+  /**
+   * Văn bản, đường kẻ, hình — §10.18. Không có kiểu "đang soạn" riêng: xem
+   * `builder/annotation.ts`.
+   */
+  annotations: ReportAnnotationDto[];
 }
 
 /**
@@ -307,7 +314,7 @@ export interface PageDraft {
  * đồ chứ không muốn ngắm một khoảng trống. Cùng lập luận với `removeVisual`.
  */
 export function emptyPage(name: string): PageDraft {
-  return { id: newPageId(), name, visuals: [emptyVisual({ x: 0, y: 0 })] };
+  return { id: newPageId(), name, visuals: [emptyVisual({ x: 0, y: 0 })], annotations: [] };
 }
 
 /** Tên gợi ý cho trang thứ `count + 1` — không đụng tới tên người dùng đã đặt. */
@@ -328,6 +335,7 @@ export function pagesFromDto(canvas: ReportCanvasDto): PageDraft[] {
     id: page.id,
     name: page.name,
     visuals: page.visuals.map(fromDto),
+    annotations: page.annotations,
   }));
 }
 
@@ -348,6 +356,7 @@ export function readyPages(pages: readonly PageDraft[]): ReportPageDto[] {
       id: page.id,
       name: name === '' ? `Trang ${i + 1}` : name,
       visuals: readyVisuals(page.visuals),
+      annotations: readyAnnotations(page.annotations),
     };
   });
 }
@@ -412,7 +421,10 @@ export function hasUnsavedWork(
  * đè lên ô khác vẫn tốt hơn một ô không xuất hiện.
  */
 export function findSlot(
-  taken: readonly VisualDraft[],
+  // Mọi thứ đang chiếm chỗ trên khung — biểu đồ lẫn chú thích (§10.18). Một hộp
+  // văn bản mới thả đè lên một biểu đồ là một hộp văn bản người dùng phải đi
+  // tìm rồi kéo ra.
+  taken: readonly { x: number; y: number; w: number; h: number }[],
   w: number = CANVAS_DEFAULT_W,
   h: number = CANVAS_DEFAULT_H,
 ): { x: number; y: number } {
@@ -427,15 +439,24 @@ export function findSlot(
   return { x: 0, y: 0 };
 }
 
-/** Kẹp một ô vào trong khung. Dùng ở mọi đường kéo và co giãn. */
-export function clampBox(box: { x: number; y: number; w: number; h: number }): {
+/**
+ * Kẹp một ô vào trong khung. Dùng ở mọi đường kéo và co giãn.
+ *
+ * `min` mặc định là cỡ nhỏ nhất của BIỂU ĐỒ. Chú thích truyền cỡ của nó
+ * (`ANNOTATION_MIN`, một ô lưới): một đường kẻ ngang cao ba hàng là một đường kẻ
+ * lơ lửng giữa một khoảng trống 150 pixel.
+ */
+export function clampBox(
+  box: { x: number; y: number; w: number; h: number },
+  min: { w: number; h: number } = { w: CANVAS_MIN_W, h: CANVAS_MIN_H },
+): {
   x: number;
   y: number;
   w: number;
   h: number;
 } {
-  const w = Math.min(Math.max(box.w, CANVAS_MIN_W), CANVAS_COLUMNS);
-  const h = Math.max(box.h, CANVAS_MIN_H);
+  const w = Math.min(Math.max(box.w, min.w), CANVAS_COLUMNS);
+  const h = Math.max(box.h, min.h);
   return {
     w,
     h,

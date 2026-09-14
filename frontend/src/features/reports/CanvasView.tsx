@@ -1,4 +1,5 @@
 import type {
+  ReportAnnotationDto,
   ReportCanvasDataDto,
   ReportDataDto,
   ReportPageDto,
@@ -8,6 +9,8 @@ import { useState } from 'react';
 
 import { useReportVisualData } from '../datasets/hooks';
 import { getApiError } from '../../services/apiClient';
+import { AnnotationView } from './annotations/AnnotationView';
+import { CANVAS_LAYER_Z } from './annotations/annotationStyle';
 import { CanvasGrid } from './CanvasGrid';
 import { cellStyle, rowsNeeded } from './canvasLayout';
 import { ReportChart } from './ReportChart';
@@ -63,7 +66,7 @@ export function CanvasView({
       {refreshing && (
         <p className="mb-2 text-xs text-slate-400">Số liệu lần trước — đang cập nhật…</p>
       )}
-      <CanvasGrid minRows={rowsNeeded(page.visuals)}>
+      <CanvasGrid minRows={rowsNeeded([...page.visuals, ...page.annotations])}>
         {page.visuals.map((visual) => {
           const cell = byId.get(visual.id);
           return (
@@ -84,8 +87,32 @@ export function CanvasView({
             />
           );
         })}
+        {/* Chú thích sau biểu đồ, trong MỘT danh sách: tầng vẽ do `z-index`
+            quyết định (`CANVAS_LAYER_Z`), cùng cách với trình dựng. */}
+        {page.annotations.map((a) => (
+          <AnnotationCell key={`${page.id}:${a.id}`} annotation={a} />
+        ))}
       </CanvasGrid>
     </>
+  );
+}
+
+/**
+ * Một chú thích ở chế độ XEM — §10.18.
+ *
+ * Đường kẻ và hình KHÔNG nhận chuột (`pointer-events: none`): một vòng khoanh đỏ
+ * đặt đè lên biểu đồ là để CHỈ vào con số, không phải để chặn tooltip của chính
+ * con số đó. Hộp văn bản thì nhận — người đọc phải bôi đen chép được một câu
+ * ghi chú, và một hộp chữ đè lên biểu đồ là lựa chọn người dựng đã nhìn thấy.
+ */
+function AnnotationCell({ annotation }: { annotation: ReportAnnotationDto }): React.ReactElement {
+  return (
+    <div
+      style={{ ...cellStyle(annotation), zIndex: CANVAS_LAYER_Z[annotation.layer] }}
+      className={annotation.kind === 'text' ? undefined : 'pointer-events-none'}
+    >
+      <AnnotationView annotation={annotation} />
+    </div>
   );
 }
 
@@ -134,7 +161,7 @@ function ViewCard({
 
   return (
     <section
-      style={cellStyle(visual)}
+      style={{ ...cellStyle(visual), zIndex: CANVAS_LAYER_Z.visual }}
       className="flex flex-col overflow-hidden rounded-xl border border-slate-200 bg-white"
     >
       {/* Header luôn có mặt kể cả khi trống — mất nó thì ô nhảy cao lên một

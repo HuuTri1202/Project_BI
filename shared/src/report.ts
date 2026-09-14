@@ -1,3 +1,4 @@
+import type { ReportAnnotationDto } from './annotation';
 import type { DatasetSource } from './data';
 import type { MeasureFormat } from './datamodel';
 
@@ -603,6 +604,21 @@ export interface ReportPageDto {
   id: string;
   name: string;
   visuals: ReportVisualDto[];
+  /**
+   * Văn bản, đường kẻ, hình — §10.18. Xem `annotation.ts`.
+   *
+   * Mảng RIÊNG, không trộn vào `visuals`: đường tính số liệu (trần 12 ô,
+   * `canvas-data`, bản sao ô đầu tiên) chỉ đọc `visuals`, nên một hộp văn bản
+   * không bao giờ bị đem đi hỏi Cube.
+   *
+   * Bắt buộc có mặt ở hình dạng ĐỌC — repository điền `[]` cho bản ghi trước
+   * §10.18. Ở đường GHI thì vắng mặt vẫn được nhận (`.default([])`): một tab mở
+   * từ trước lúc triển khai vẫn phải lưu được.
+   *
+   * ⚠️ Không đếm vào luật "khung phải có ít nhất một biểu đồ". Một báo cáo chỉ có
+   * chữ không phải một báo cáo trên mô hình dữ liệu.
+   */
+  annotations: ReportAnnotationDto[];
 }
 
 /**

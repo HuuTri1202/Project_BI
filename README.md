@@ -2369,6 +2369,113 @@ Và ba việc ấy đều là người dùng CHỦ ĐỘNG bấm, đợi một c
 của mình là chuyện khác hẳn với việc màn hình tự giật trong lúc mình chỉ ngồi
 nhìn.
 
+### Chú thích trên khung: văn bản, đường kẻ, hình (§10.18)
+
+> tui muốn trang vẽ biểu đồ có thêm mục chứa tính năng như thêm text box, đường
+> kẻ ,... (bạn giúp tui thêm các tính năng cần thiết nhất và BI sẽ hay cần dùng
+> nhất để ghi chú cho báo cáo biểu đồ của họ)
+
+Trình dựng có thêm thanh **Chèn** ngay trên khung, gồm tám mẫu chia làm ba nhóm
+theo VIỆC người dựng báo cáo muốn làm:
+
+| Nhóm | Mẫu                         | Dùng để                                                                                      |
+| ---- | --------------------------- | -------------------------------------------------------------------------------------------- |
+| Viết | Tiêu đề · Văn bản · Ghi chú | tên một khu của báo cáo, đoạn giải thích số liệu, tờ ghi chú vàng "tháng 7 giảm vì đóng kho" |
+| Chỉ  | Kẻ ngang · Kẻ dọc · Mũi tên | chia báo cáo thành khu, chỉ vào đúng cái cột cần nhìn                                        |
+| Gom  | Khung nền · Khoanh vùng     | nền xám gom vài biểu đồ thành một khu, vòng đỏ khoanh quanh một điểm bất thường              |
+
+Đó là đúng những thứ Power BI để ở mục Insert và Looker Studio để trên thanh
+công cụ. Về hình học chỉ có ba loại (`text`, `line`, `shape`); tám mẫu là tám
+điểm xuất phát chỉnh sẵn, còn mọi thứ vẫn đổi được trong cột bên phải: cỡ chữ,
+đậm/nghiêng, căn ngang/dọc, màu chữ, màu nền, hướng đường, mũi tên ở đầu nào,
+nét liền/gạch/chấm, độ dày, hình chữ nhật/bo góc/tròn, độ đậm nền, viền, tầng,
+nhân bản, xoá.
+
+**Ảnh (logo) cố ý chưa có.** Nó cần một chỗ lưu file và một vòng đời dọn file
+khi ô bị xoá; nhét base64 vào cột JSON thì mỗi lần mở báo cáo là tải lại cả cái
+ảnh.
+
+#### Mảng riêng, không trộn vào `visuals`
+
+```
+ReportPageDto { id, name, visuals: [...], annotations: [...] }
+```
+
+Một ô biểu đồ là một câu hỏi gửi xuống Cube, và mọi thứ quanh `visuals` dựng
+trên giả định đó: trần 12 ô vì mỗi ô tốn một lượt quét ClickHouse, `canvas-data`
+lặp qua từng ô để tính số, ô đầu tiên được chép sang `chart_type`/`config`. Một
+hộp văn bản lọt vào đó thì hoặc phải thêm một nhánh "không phải biểu đồ" ở từng
+chỗ, hoặc bị đem đi hỏi Cube. Mảng riêng thì đường tính số liệu **không đổi một
+dòng**. Test tích hợp khoá đúng điều đó: ba chú thích với một biểu đồ thì
+`canvas-data` trả đúng một ô.
+
+Không cần migration: cột `reports.canvas` là JSON. Bản ghi cũ đọc ra
+`annotations: []`, và một tab mở từ trước lúc triển khai gửi trang không có
+trường này thì vẫn lưu được (`.default([])`).
+
+#### Luật ở `@bi/shared`, không ở `schemas.ts`
+
+`shared/src/annotation.ts` giữ schema zod, và kiểu TypeScript **suy ra từ chính
+schema**. Ba bên cùng dùng một luật: backend kiểm lúc ghi, repository đọc khoan
+dung lúc đọc (chú thích hỏng bị bỏ từng cái thay vì làm hỏng cả trang), và test
+frontend kiểm rằng mọi mẫu trên thanh Chèn đều lọt qua schema đó.
+
+⚠️ Màu **chỉ** nhận `#RRGGBB`. Giá trị này đi thẳng vào `style` và `stroke`;
+nhận một chuỗi CSS tuỳ ý là mở cửa cho người dựng báo cáo cài thứ khác vào trang
+của người xem.
+
+#### Hai tầng, và vì sao là `z-index`
+
+Mỗi chú thích nằm **trên** hoặc **dưới** biểu đồ. Khung nền mặc định nằm dưới,
+mũi tên và vòng khoanh nằm trên.
+
+⚠️ Thứ tự trong DOM không dùng được. Ô biểu đồ ở trình dựng là `relative`, và
+vega-embed bên trong ô ở trang xem cũng vậy, mà phần tử có định vị luôn được vẽ
+đè lên phần tử không định vị, bất kể thứ tự. Nên mỗi ô lưới mang `z-index`
+(`CANVAS_LAYER_Z`: nền 1, biểu đồ 2, nổi 3). Grid item có `z-index` thì tự thành
+một stacking context.
+
+⚠️ Chú thích được vẽ trong **một** danh sách, dù tầng nào. Bản đầu vẽ hai danh
+sách "dưới" và "trên" cho dễ đọc, và kiểm trên trình duyệt thật lộ ra lỗi: React
+đối chiếu con theo từng danh sách, nên đổi tầng là gỡ phần tử ra rồi gắn mới vào.
+Hộp mất tiêu điểm, và hộp chữ đang gõ dở mất luôn ô gõ. `annotationView.test.tsx`
+có một ca cho đúng lỗi này, và ca đó đã được chạy trên cách vẽ cũ để thấy nó đỏ.
+
+#### Gõ chữ tại chỗ
+
+Bấm đúp (hoặc Enter) mở một `<textarea>` ngay trong hộp, cùng cỡ chữ, màu, căn
+lề (`textStyle` dùng chung giữa lúc gõ và lúc xem), tự cao theo nội dung để căn
+giữa vẫn giữ nguyên. Bấm nút Tiêu đề/Văn bản/Ghi chú thì ô gõ mở sẵn luôn.
+
+⚠️ Phím bấm trong ô gõ **dừng ở ô gõ**. Hộp chỉ nhận phím khi chính nó là
+`event.target`, nên Backspace xoá một chữ chứ không xoá cả hộp, còn mũi tên dời
+con trỏ chứ không dời hộp.
+
+Hộp chữ còn trống thì không được lưu, cùng luật với ô biểu đồ chưa đủ trường,
+và cột bên phải nói ra điều đó thay vì để người dùng mở lại báo cáo rồi tưởng
+mất hộp.
+
+#### Đo trên Chromium thật
+
+Báo cáo hai biểu đồ trên file `docs/kiem-thu/du-lieu-thu/kiem-thu-ban-hang.csv`,
+40 phép kiểm, tất cả xanh. Những phép đáng kể:
+
+```
+bấm "Tiêu đề"                   → con trỏ nằm sẵn trong ô gõ, tiêu đề vào hàng trống trên cùng, 12 cột
+Backspace / mũi tên trong ô gõ   → chỉ sửa chữ, hộp vẫn còn
+mũi tên kéo đè lên biểu đồ       → elementFromPoint tại giao điểm là mũi tên
+khung nền dưới biểu đồ           → elementFromPoint giữa biểu đồ là biểu đồ
+chèn đường kẻ rồi bấm Delete     → xoá được (bản đầu: KHÔNG — tiêu điểm còn ở nút Chèn)
+đổi tầng bằng cột bên phải       → cùng một phần tử DOM, không gắn lại
+ô biểu đồ kéo và co giãn         → vẫn chạy sau khi phép kéo được viết lại cho cả hai loại
+lưu → F5                         → mọi chú thích còn, hộp trống không có, KHÔNG tự nhận "Chưa lưu"
+trang xem                        → đường và hình pointer-events: none, hộp chữ bôi đen chép được
+```
+
+Hai lỗi chỉ lộ ra trên trình duyệt thật và đã sửa trước khi commit: tiêu điểm
+không chuyển vào hộp vừa chèn (hộp nào xuất hiện ở trạng thái đang chọn thì nhận
+tiêu điểm), và đổi tầng làm gắn lại phần tử (xem trên).
+
 ### Báo cáo đã lưu vẽ NGAY, rồi mới làm mới ngầm
 
 Báo cáo lưu **cấu hình**, không lưu con số. Nên mỗi lần mở là một lượt tính lại
@@ -2563,6 +2670,9 @@ dùng một khung khác thứ họ vừa dựng, mà không nói gì.
 | `frontend/tests/sidePanel.test.tsx`                  | hai cột bên gấp lại được (§10.15). Phần lớn ca kiểm hai thứ hỏng LẶNG LẼ quanh cái nút: hai cột dùng chung một khoá thì gấp cột này gấp luôn cột kia, và `localStorage` bị chặn thì ĐỌC cũng ném lỗi — một lỗi lúc render là cả trình dựng trắng màn                                                                   |
 | `frontend/tests/vegaSpecKey.test.ts`                 | thứ quyết định "vẽ lại từ đầu" hay "cập nhật tại chỗ" (§10.17). Hỏng theo hai hướng ngược nhau và không hướng nào đỏ ở đâu cả: quá nhạy thì mỗi nhịp kéo là một lần chớp trắng, quá trơ thì đổi bảng màu mà biểu đồ đứng yên                                                                                           |
 | `frontend/tests/appSession.test.ts`                  | đóng app là hết phiên. Hỏng theo hai hướng và cả hai đều trông như app chạy bình thường: lỏng thì mở lại vẫn vào thẳng tài khoản của người trước, chặt thì mỗi lần F5 hay Ctrl+bấm sang tab mới lại bắt gõ mật khẩu. Có một ca riêng cho thứ tự **hỏi khoá rồi mới giữ khoá** — đảo lại thì không bao giờ đăng xuất ai |
+| `frontend/tests/annotations.test.ts`                 | chú thích trong trình dựng (§10.18). Ca đầu tiên đáng giá nhất: MỌI mẫu trên thanh Chèn đi qua đúng schema zod mà backend dùng — lệch một trường là nút Lưu trả 400 cho thứ người dùng không hề gõ sai. Kèm luật bỏ hộp chữ trống, chấm "Chưa lưu", và cửa vào API điền `annotations` cho backend cũ                   |
+| `frontend/tests/annotationView.test.tsx`             | vẽ chú thích và phím bấm trong hộp (§10.18). Hai ca khoá hai lỗi có thật: Backspace trong ô gõ chữ KHÔNG được xoá cả hộp, và đổi tầng KHÔNG được gỡ rồi gắn lại phần tử — ca này đã được chạy trên cách vẽ hai danh sách cũ và đỏ đúng như mong đợi                                                                    |
+| `backend/tests/annotationSchema.test.ts`             | luật ghi của chú thích, không cần container. Phần lớn ca kiểm TỪ CHỐI: mã màu chở CSS, hộp chữ chỉ có khoảng trắng, trường lạ, loại chưa tồn tại — thứ sai ở đây không hỏng lúc lưu mà hỏng ở trang xem của người khác                                                                                                 |
 | `frontend/tests/reportViewPage.test.tsx`             | trang xem mở được cho **mọi** vai trò, và nút "Chỉnh sửa" chỉ có mặt khi nó thật sự dẫn tới một trình dựng dùng được — không phải bảo mật, mà là đừng bày ra một cái nút dẫn tới 403                                                                                                                                   |
 
 Không ca nào cần ClickHouse trả số thật. Việc đó đã được chứng minh bằng tay

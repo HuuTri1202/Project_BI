@@ -60,6 +60,7 @@ const REPORT = {
       {
         id: 'p1',
         name: 'Trang 1',
+        annotations: [],
         visuals: [
           {
             id: 'o1',

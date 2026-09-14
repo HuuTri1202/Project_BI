@@ -1,6 +1,8 @@
 import {
+  ANNOTATION_KIND_LABELS,
   CANVAS_COLUMNS,
   CANVAS_DEFAULT_H,
+  CANVAS_MAX_ANNOTATIONS,
   CANVAS_MAX_PAGES,
   CANVAS_MAX_VISUALS,
   REPORT_NAME_MAX,
@@ -30,6 +32,16 @@ import { CanvasBoard } from '../../features/reports/builder/CanvasBoard';
 import { PageTabs } from '../../features/reports/PageTabs';
 import { ReportShell } from '../../features/reports/ReportShell';
 import { SidePanel } from '../../features/reports/builder/SidePanel';
+import {
+  applyPatch,
+  duplicateOf,
+  moveInLayer,
+  presetOf,
+  type AnnotationPatch,
+  type AnnotationPresetKey,
+} from '../../features/reports/builder/annotation';
+import { AnnotationPanel } from '../../features/reports/builder/AnnotationPanel';
+import { InsertBar } from '../../features/reports/builder/InsertBar';
 import type { DragField } from '../../features/reports/builder/dnd';
 import { FieldsPanel } from '../../features/reports/builder/FieldsPanel';
 import { groupBySheet } from '../../features/reports/builder/sheets';
@@ -245,6 +257,14 @@ function Builder({
   const [pages, setPages] = useState<PageDraft[]>(initialPages);
   const [activePageId, setActivePageId] = useState<string | null>(() => null);
   const [selectedId, setSelectedId] = useState<string | null>(() => null);
+  /**
+   * Hộp văn bản đang ở chế độ GÕ CHỮ (§10.18).
+   *
+   * Ở trang chứ không ở `CanvasBoard`: bấm "Văn bản" trên thanh Chèn phải thả
+   * hộp xuống VÀ mở ngay ô gõ chữ — người vừa bấm nút đó muốn viết, không muốn
+   * bấm đúp thêm một lần nữa.
+   */
+  const [typingId, setTypingId] = useState<string | null>(null);
   const [dragging, setDragging] = useState<DragField | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   /**
@@ -339,8 +359,20 @@ function Builder({
    */
   const activePage = pages.find((p) => p.id === activePageId) ?? pages[0] ?? null;
   const drafts = activePage?.visuals ?? [];
+  const annotations = activePage?.annotations ?? [];
 
-  const selected = drafts.find((d) => d.id === selectedId) ?? drafts[0] ?? null;
+  /*
+   * Chú thích đang chọn — hỏi TRƯỚC ô biểu đồ.
+   *
+   * `selected` có đường lui về ô đầu tiên khi không có gì được chọn. Hỏi nó
+   * trước thì bấm vào một hộp văn bản vẫn mở bảng cấu hình của biểu đồ số 1 —
+   * mã của hộp không có trong `drafts`, và đường lui thắng.
+   */
+  const selectedAnnotation = annotations.find((a) => a.id === selectedId) ?? null;
+  const selected =
+    selectedAnnotation !== null
+      ? null
+      : (drafts.find((d) => d.id === selectedId) ?? drafts[0] ?? null);
 
   // Số BẢNG có trường — cùng phép gom mà bảng trường dùng, nên hai con số không
   // lệch nhau được.
@@ -381,6 +413,51 @@ function Builder({
     setSelectedId(fresh.id);
   }
 
+  // ─── Chú thích — §10.18 ────────────────────────────────────────────────────
+
+  /** Cùng vai trò với `editPage`, cho mảng chú thích của trang đang mở. */
+  function editAnnotations(
+    change: (list: PageDraft['annotations']) => PageDraft['annotations'],
+  ): void {
+    const pageId = activePage?.id;
+    if (pageId === undefined) return;
+    setPages((list) =>
+      list.map((p) => (p.id === pageId ? { ...p, annotations: change(p.annotations) } : p)),
+    );
+  }
+
+  function addAnnotation(key: AnnotationPresetKey): void {
+    if (annotations.length >= CANVAS_MAX_ANNOTATIONS) return;
+    const preset = presetOf(key);
+    // Tìm chỗ trống giữa CẢ biểu đồ lẫn chú thích: một hộp chữ thả đè lên biểu
+    // đồ là một hộp chữ người dùng phải đi tìm rồi kéo ra.
+    const fresh = preset.make(
+      newVisualId(),
+      findSlot([...drafts, ...annotations], preset.w, preset.h),
+    );
+    editAnnotations((list) => [...list, fresh]);
+    setSelectedId(fresh.id);
+    setTypingId(fresh.kind === 'text' ? fresh.id : null);
+  }
+
+  function patchAnnotation(id: string, changes: AnnotationPatch): void {
+    editAnnotations((list) => list.map((a) => (a.id === id ? applyPatch(a, changes) : a)));
+  }
+
+  function removeAnnotation(id: string): void {
+    editAnnotations((list) => list.filter((a) => a.id !== id));
+    if (selectedId === id) setSelectedId(null);
+    if (typingId === id) setTypingId(null);
+  }
+
+  function duplicateAnnotation(id: string): void {
+    const source = annotations.find((a) => a.id === id);
+    if (source === undefined || annotations.length >= CANVAS_MAX_ANNOTATIONS) return;
+    const copy = duplicateOf(source, newVisualId());
+    editAnnotations((list) => [...list, copy]);
+    setSelectedId(copy.id);
+  }
+
   function removeVisual(id: string): void {
     editPage((list) => {
       const next = list.filter((d) => d.id !== id);
@@ -401,6 +478,7 @@ function Builder({
     // Chọn luôn ô trống của trang mới: người vừa thêm trang muốn dựng biểu đồ
     // ngay, và bảng cấu hình bên phải phải có thứ để hiện.
     setSelectedId(fresh.visuals[0]?.id ?? null);
+    setTypingId(null);
   }
 
   function renamePage(id: string, name: string): void {
@@ -415,6 +493,7 @@ function Builder({
     // Không cần chọn hộ trang khác: `activePage` tự rơi về trang đầu.
     if (activePageId === id) setActivePageId(null);
     setSelectedId(null);
+    setTypingId(null);
   }
 
   /** Bấm một trường trong bảng: đổ vào ô ĐANG CHỌN. */
@@ -427,8 +506,12 @@ function Builder({
   // ─── Đổi mô hình ───────────────────────────────────────────────────────────
 
   /** Có gì để mất khi đổi mô hình không — ID trường chỉ có nghĩa trong một mô hình. */
-  const hasWork = pages.some((p) =>
-    p.visuals.some((d) => d.dimensionId !== null || d.measureId !== null),
+  const hasWork = pages.some(
+    (p) =>
+      p.visuals.some((d) => d.dimensionId !== null || d.measureId !== null) ||
+      // Chú thích không phụ thuộc mô hình, nhưng đổi mô hình dọn cả khung — nên
+      // một tiêu đề vừa gõ cũng là thứ sẽ mất, và cũng đáng một câu hỏi lại.
+      p.annotations.length > 0,
   );
 
   function switchModel(to: number | null): void {
@@ -448,6 +531,7 @@ function Builder({
     setPages([fresh]);
     setActivePageId(fresh.id);
     setSelectedId(fresh.visuals[0]?.id ?? null);
+    setTypingId(null);
   }
 
   // ─── Lưu ───────────────────────────────────────────────────────────────────
@@ -750,6 +834,19 @@ function Builder({
               </Button>
             </div>
 
+            {/* Thanh Chèn nằm NGOÀI vùng cuộn, cùng lý do với nút "Thêm biểu
+                đồ": nó phải còn đó khi khung dài hơn một màn hình. */}
+            <InsertBar
+              onInsert={addAnnotation}
+              disabledReason={
+                cubeDown
+                  ? 'Khung đang ẩn trong lúc Cube chưa chạy.'
+                  : annotations.length >= CANVAS_MAX_ANNOTATIONS
+                    ? `Một trang tối đa ${CANVAS_MAX_ANNOTATIONS} chú thích.`
+                    : undefined
+              }
+            />
+
             <div className="min-h-0 flex-1 overflow-y-auto pr-1">
               {cubeDown ? (
                 <CubeOfflineNotice
@@ -766,12 +863,17 @@ function Builder({
                      `groupPage` của từng ô không đi theo sang trang mới. */
                   key={activePage?.id ?? 'none'}
                   drafts={drafts}
-                  selectedId={selected?.id ?? null}
+                  annotations={annotations}
+                  selectedId={selectedAnnotation?.id ?? selected?.id ?? null}
+                  editingId={typingId}
                   modelId={modelId}
                   labelOf={labelOf}
                   onSelect={setSelectedId}
                   onChange={patch}
                   onRemove={removeVisual}
+                  onChangeAnnotation={patchAnnotation}
+                  onRemoveAnnotation={removeAnnotation}
+                  onEditText={setTypingId}
                 />
               )}
             </div>
@@ -789,6 +891,7 @@ function Builder({
                   // Bỏ lựa chọn ô: id của ô trang cũ không có trong trang mới,
                   // và `selected` sẽ tự rơi về ô đầu của trang vừa mở.
                   setSelectedId(null);
+                  setTypingId(null);
                 }}
                 edit={{ onAdd: addPage, onRename: renamePage, onRemove: removePage }}
               />
@@ -800,8 +903,30 @@ function Builder({
               theo VIỆC của cột ("visual", "fields") chứ không theo chiều rộng
               hay thứ tự, để đổi bố cục sau này không làm mất lựa chọn đã lưu
               của người dùng. */}
-          <SidePanel title="Chỉnh biểu đồ" storageKey="visual" width="w-72">
-            {selected === null ? (
+          {/* Tên cột đổi theo thứ đang chọn — "Chỉnh biểu đồ" trên đầu một bảng
+              toàn nút căn lề với màu chữ là một cái tên nói sai. Khoá nhớ thì
+              KHÔNG đổi: gấp cột lại khi đang chọn hộp văn bản thì chọn sang biểu
+              đồ nó vẫn phải gấp. */}
+          <SidePanel
+            title={
+              selectedAnnotation === null
+                ? 'Chỉnh biểu đồ'
+                : `Chỉnh ${ANNOTATION_KIND_LABELS[selectedAnnotation.kind].toLowerCase()}`
+            }
+            storageKey="visual"
+            width="w-72"
+          >
+            {selectedAnnotation !== null ? (
+              <AnnotationPanel
+                annotation={selectedAnnotation}
+                onChange={(changes) => patchAnnotation(selectedAnnotation.id, changes)}
+                onRemove={() => removeAnnotation(selectedAnnotation.id)}
+                onDuplicate={() => duplicateAnnotation(selectedAnnotation.id)}
+                onMove={(to) =>
+                  editAnnotations((list) => moveInLayer(list, selectedAnnotation.id, to))
+                }
+              />
+            ) : selected === null ? (
               <p className="text-xs leading-snug text-slate-400">
                 Bấm vào một ô trên khung để sửa biểu đồ của nó.
               </p>
