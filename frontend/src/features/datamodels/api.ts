@@ -1,4 +1,5 @@
 import type {
+  ChartType,
   CreateDataModelInput,
   CreateFormulaMeasureInput,
   CreateRowExprMeasureInput,
@@ -14,6 +15,8 @@ import type {
   PageResult,
   PrimaryKeyWarningDto,
   RelationshipWarningDto,
+  ReportDataDto,
+  ReportModelConfigDto,
   SaveLayoutInput,
   SaveSchemaInput,
 } from '@bi/shared';
@@ -32,7 +35,9 @@ import { apiClient } from '../../services/apiClient';
  * Xem `services/datamodel/explorer.ts` phía backend.
  */
 
-function clean(input: Record<string, string | number | undefined>): Record<string, string | number> {
+function clean(
+  input: Record<string, string | number | undefined>,
+): Record<string, string | number> {
   const out: Record<string, string | number> = {};
   for (const [key, value] of Object.entries(input)) {
     if (value !== undefined && value !== '') out[key] = value;
@@ -134,10 +139,7 @@ export async function updateModelDataset(
   return data;
 }
 
-export async function saveSchema(
-  id: number,
-  input: SaveSchemaInput,
-): Promise<DataModelDetailDto> {
+export async function saveSchema(id: number, input: SaveSchemaInput): Promise<DataModelDetailDto> {
   const { data } = await apiClient.patch<DataModelDetailDto>(`/v1/datamodels/${id}/schema`, input);
   return data;
 }
@@ -225,9 +227,7 @@ export interface ExplorerStatusDto {
 }
 
 export async function fetchExplorerStatus(id: number): Promise<ExplorerStatusDto> {
-  const { data } = await apiClient.get<ExplorerStatusDto>(
-    `/v1/datamodels/${id}/explorer-status`,
-  );
+  const { data } = await apiClient.get<ExplorerStatusDto>(`/v1/datamodels/${id}/explorer-status`);
   return data;
 }
 
@@ -236,10 +236,7 @@ export async function fetchExplorerFields(id: number): Promise<ExplorerFieldsDto
   return data;
 }
 
-export async function runQuery(
-  id: number,
-  input: ExplorerQueryDto,
-): Promise<ExplorerResultDto> {
+export async function runQuery(id: number, input: ExplorerQueryDto): Promise<ExplorerResultDto> {
   const { data } = await apiClient.post<ExplorerResultDto>(`/v1/datamodels/${id}/query`, input);
   return data;
 }
@@ -247,5 +244,42 @@ export async function runQuery(
 /** Câu lệnh Cube sẽ chạy cho lựa chọn này — không chạy nó. */
 export async function querySql(id: number, input: ExplorerQueryDto): Promise<ExplorerSqlDto> {
   const { data } = await apiClient.post<ExplorerSqlDto>(`/v1/datamodels/${id}/query/sql`, input);
+  return data;
+}
+
+// ─── Trình dựng biểu đồ (§10.9) ──────────────────────────────────────────────
+
+/**
+ * Số liệu XEM TRƯỚC cho trình dựng.
+ *
+ * Trả về `ReportDataDto` — cùng hình dạng với `GET /reports/:id/data`, vì
+ * backend gọi chung một hàm tổng hợp. Nhờ vậy `buildChartSpec` chỉ có một bản
+ * và biểu đồ xem trước không thể khác biểu đồ đã lưu.
+ *
+ * `config` gửi lên CỐ Ý không mang `options`: bảng màu và các công tắc trình
+ * bày không đụng tới truy vấn, nên để chúng trong thân request là mời react-
+ * query nạp lại số liệu mỗi lần người dùng đổi màu.
+ */
+export interface ModelReportPreviewInput {
+  chartType: ChartType;
+  config: Omit<ReportModelConfigDto, 'options'>;
+  /**
+   * Trang nhóm đang xem — §10.12.
+   *
+   * Ngoài `config` vì nó KHÔNG được lưu vào báo cáo: nó là chỗ người đọc đang
+   * đứng, không phải một thuộc tính của biểu đồ. Backend tự bỏ qua nó khi cấu
+   * hình không chọn chia trang.
+   */
+  page?: number;
+}
+
+export async function previewModelReport(
+  id: number,
+  input: ModelReportPreviewInput,
+): Promise<ReportDataDto> {
+  const { data } = await apiClient.post<ReportDataDto>(
+    `/v1/datamodels/${id}/report-preview`,
+    input,
+  );
   return data;
 }

@@ -68,10 +68,10 @@ export function useReport(id: number | null) {
   });
 }
 
-export function useReportData(id: number | null) {
+export function useReportData(id: number | null, page = 0) {
   return useQuery({
-    queryKey: datasetKeys.reportData(id ?? 0),
-    queryFn: () => api.fetchReportData(id as number),
+    queryKey: datasetKeys.reportData(id ?? 0, page),
+    queryFn: () => api.fetchReportData(id as number, page),
     enabled: id !== null,
     /**
      * Hỏi lại khi bộ dữ liệu ĐANG được nạp vào kho phân tích.
@@ -83,10 +83,62 @@ export function useReportData(id: number | null) {
      *
      * Dạng hàm để TỰ DỪNG: chỉ lặp đúng mã lỗi này, mọi lỗi khác dừng ngay —
      * hỏi lại mãi một lỗi thật là giấu nó đi sau một vòng quay vô tận.
+     *
+     * ⚠️ Phải hỏi `error !== null` TRƯỚC. react-query gọi hàm này ở mọi lần
+     * query đổi trạng thái — kể cả khi thành công, kể cả khi query đang tắt —
+     * và lúc đó `state.error` là `null`. `getApiError(null)` rơi vào nhánh
+     * "không phải AxiosError" và in ra console câu "nhiều khả năng là bug ở
+     * frontend". Không có bug nào cả, nhưng mỗi lần mở một báo cáo là console
+     * lại đỏ vài dòng — và một cảnh báo kêu oan vài lần thì lần nó kêu đúng
+     * cũng không ai đọc nữa.
      */
     refetchInterval: (query) =>
-      getApiError(query.state.error).error === REPORT_ERROR_CODES.DATASET_NOT_LOADED ? 3_000 : false,
+      query.state.error !== null &&
+      getApiError(query.state.error).error === REPORT_ERROR_CODES.DATASET_NOT_LOADED
+        ? 3_000
+        : false,
     retry: false,
+  });
+}
+
+/**
+ * Số liệu của mọi ô trên một khung — §10.10.
+ *
+ * KHÔNG có `refetchInterval` như `useReportData`. Vòng hỏi lại ở đó tồn tại cho
+ * `DatasetNotLoaded`, một trạng thái chỉ nhánh BỘ DỮ LIỆU đi qua; khung thì luôn
+ * dựng trên mô hình, nơi số liệu sẵn sàng ngay khi Cube trả lời.
+ *
+ * `retry: false` vì lỗi ở đây gần như luôn là lỗi cấu hình (một ô trỏ vào thước
+ * đo đã xoá), và hỏi lại ba lần chỉ làm người dùng chờ lâu hơn để đọc cùng một
+ * câu. Ô hỏng lẻ tẻ thì đã được backend trả về kèm `error` riêng, không ném lỗi
+ * cho cả request.
+ */
+export function useReportCanvasData(id: number | null, pageId: string | null = null) {
+  return useQuery({
+    queryKey: datasetKeys.reportCanvasData(id ?? 0, pageId),
+    queryFn: () => api.fetchReportCanvasData(id as number, pageId),
+    enabled: id !== null,
+    retry: false,
+  });
+}
+
+/**
+ * Số liệu của MỘT ô ở một trang nhóm — §10.12.
+ *
+ * `page = 0` KHÔNG đi qua đây: trang đầu của mọi ô đã về cùng `canvas-data`
+ * trong một request. Gọi thêm ở đây là hỏi lại đúng thứ vừa nhận.
+ *
+ * `placeholderData` giữ biểu đồ trang trước trên màn hình trong lúc trang sau
+ * đang tính. Không có nó thì mỗi cú bấm ‹ › làm ô trắng một nhịp, và bấm nhanh
+ * vài lần thì cả khung nhấp nháy.
+ */
+export function useReportVisualData(id: number | null, visualId: string, page: number) {
+  return useQuery({
+    queryKey: datasetKeys.reportVisualData(id ?? 0, visualId, page),
+    queryFn: () => api.fetchReportVisualData(id as number, visualId, page),
+    enabled: id !== null && page > 0,
+    retry: false,
+    placeholderData: keepPreviousData,
   });
 }
 
@@ -124,6 +176,70 @@ export function useCreateModelReport(): UseMutationResult<
   return useMutation({
     mutationFn: api.createModelReport,
     onSuccess: invalidate,
+  });
+}
+
+/**
+ * Sửa báo cáo trên mô hình — §10.9.
+ *
+ * Dọn thêm `reportData` của chính báo cáo đó, khác hai hook trên. Lý do: tạo
+ * mới thì chưa ai từng đọc số liệu của nó, còn sửa thì cache đang giữ số liệu
+ * tính bằng CẤU HÌNH CŨ. Không dọn thì bấm Lưu xong quay về trang Report sẽ
+ * thấy đúng biểu đồ vừa bỏ đi, và F5 mới ra biểu đồ mới — người dùng kết luận
+ * là nút Lưu không ăn.
+ */
+export function useUpdateModelReport(): UseMutationResult<
+  ReportDto,
+  unknown,
+  { id: number; input: Parameters<typeof api.updateModelReport>[1] }
+> {
+  const invalidate = useInvalidateReports();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, input }) => api.updateModelReport(id, input),
+    onSuccess: async (report) => {
+      await queryClient.invalidateQueries({ queryKey: datasetKeys.reportData(report.id) });
+      await invalidate();
+    },
+  });
+}
+
+export function useCreateCanvasReport(): UseMutationResult<
+  ReportDto,
+  unknown,
+  Parameters<typeof api.createCanvasReport>[0]
+> {
+  const invalidate = useInvalidateReports();
+  return useMutation({
+    mutationFn: api.createCanvasReport,
+    onSuccess: invalidate,
+  });
+}
+
+/**
+ * Dọn thêm `reportCanvasData` VÀ `reportData` của chính báo cáo đó.
+ *
+ * Cả hai, không phải một. `reportCanvasData` thì hiển nhiên. Còn `reportData`
+ * là vì `updateCanvasReport` cũng ghi lại `chart_type`/`config` theo ô đầu tiên
+ * — không dọn thì một báo cáo vừa chuyển từ một-biểu-đồ sang khung vẫn còn số
+ * liệu cũ nằm trong cache dưới khoá kia.
+ */
+export function useUpdateCanvasReport(): UseMutationResult<
+  ReportDto,
+  unknown,
+  { id: number; input: Parameters<typeof api.updateCanvasReport>[1] }
+> {
+  const invalidate = useInvalidateReports();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, input }) => api.updateCanvasReport(id, input),
+    onSuccess: async (report) => {
+      await queryClient.invalidateQueries({
+        queryKey: datasetKeys.reportCanvasDataAll(report.id),
+      });
+      await queryClient.invalidateQueries({ queryKey: datasetKeys.reportDataAll(report.id) });
+      await invalidate();
+    },
   });
 }
 

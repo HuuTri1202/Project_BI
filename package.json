@@ -8,7 +8,7 @@
     "setup": "node scripts/init-env.mjs && npm run install:all",
     "install:all": "npm install && npm run build:shared",
 
-    "ports:free": "node scripts/free-ports.mjs 4000 5173",
+    "ports:free": "node scripts/free-ports.mjs --reap-stale 4000 5173",
     "predev": "npm run ports:free",
     "dev": "concurrently -k -n shared,api,web -c blue,green,magenta \"npm:dev:shared\" \"npm:dev:api\" \"npm:dev:web\"",
     "dev:shared": "npm --workspace shared run dev",
@@ -43,7 +43,8 @@
     "infra:stats": "docker stats --no-stream --format \"table {{.Name}}\\t{{.MemUsage}}\\t{{.MemPerc}}\\t{{.CPUPerc}}\""
   },
   "devDependencies": {
-    "concurrently": "^9.1.2"
+    "concurrently": "^9.1.2",
+    "prettier-plugin-tailwindcss": "0.8.1"
   },
   "engines": {
     "node": ">=20"

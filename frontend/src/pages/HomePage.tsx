@@ -68,64 +68,62 @@ export default function HomePage(): React.ReactElement {
       />
 
       <PageBody>
-
-      {/* Đường vào console vận hành hệ thống.
+        {/* Đường vào console vận hành hệ thống.
           Hỏi `platformRole` (`users.role`), KHÔNG phải `role` (`memberships.role`):
           luồng đăng ký cấp `admin` trong tổ chức cho mọi người tự lập công ty, nên
           hỏi nhầm trục là ai đăng ký cũng thấy nút này. `AdminRoute` chặn ở route
           và ba lớp guard chặn ở backend, nhưng một nút dẫn tới trang 403 thì vẫn
           là một cái bẫy không có lý do gì để tồn tại. */}
-      {permissions.adminConsole && <AdminConsoleCard />}
+        {permissions.adminConsole && <AdminConsoleCard />}
 
-      {isError && (
-        <div className="mt-6">
-          <ErrorState message={getApiError(error).message} />
-        </div>
-      )}
-      {/* Thẻ số. Trong lúc chờ để dấu gạch ngang chứ không phải số 0 — hiện 0
+        {isError && (
+          <div className="mt-6">
+            <ErrorState message={getApiError(error).message} />
+          </div>
+        )}
+        {/* Thẻ số. Trong lúc chờ để dấu gạch ngang chứ không phải số 0 — hiện 0
           rồi nhảy sang 12 khiến người ta tin vào con số 0 đó trong khoảnh khắc. */}
-      <div className="mt-4 grid gap-4 sm:grid-cols-2">
-        <StatCard label="Báo cáo trong workspace" value={data?.stats.reports} />
-        <StatCard label="Thành viên trong tổ chức" value={data?.stats.members} />
-      </div>
-
-      <section className="mt-6">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <h2 className="text-sm font-semibold text-slate-900">Báo cáo</h2>
-          <ViewToggle value={view} onChange={changeView} />
+        <div className="mt-4 grid gap-4 sm:grid-cols-2">
+          <StatCard label="Báo cáo trong workspace" value={data?.stats.reports} />
+          <StatCard label="Thành viên trong tổ chức" value={data?.stats.members} />
         </div>
 
-        <div className="mt-4">
-          {(isPending || wsLoading) && <TableSkeleton rows={3} />}
+        <section className="mt-6">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h2 className="text-sm font-semibold text-slate-900">Báo cáo</h2>
+            <ViewToggle value={view} onChange={changeView} />
+          </div>
 
-          {!isPending && !wsLoading && reports.length === 0 && (
-            <EmptyState
-              title="Chưa có báo cáo nào"
-              hint={
-                canEdit
-                  ? 'Dùng nút "Tạo báo cáo" để dựng cái đầu tiên — từ một file Excel/CSV, hoặc từ một mô hình dữ liệu đã khai.'
-                  : 'Quản trị viên hoặc người tạo báo cáo của tổ chức sẽ dựng báo cáo.'
-              }
-            />
-          )}
+          <div className="mt-4">
+            {(isPending || wsLoading) && <TableSkeleton rows={3} />}
 
-          {reports.length > 0 &&
-            (view === 'grid' ? (
-              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                {reports.map((r) => (
-                  <ReportCard key={r.id} report={r} />
-                ))}
-              </div>
-            ) : (
-              <ul className="divide-y divide-slate-100 rounded-xl border border-slate-200 bg-white">
-                {reports.map((r) => (
-                  <ReportRow key={r.id} report={r} />
-                ))}
-              </ul>
-            ))}
-        </div>
-      </section>
+            {!isPending && !wsLoading && reports.length === 0 && (
+              <EmptyState
+                title="Chưa có báo cáo nào"
+                hint={
+                  canEdit
+                    ? 'Dùng nút "Tạo báo cáo" để dựng cái đầu tiên — từ một file Excel/CSV, hoặc từ một mô hình dữ liệu đã khai.'
+                    : 'Quản trị viên hoặc người tạo báo cáo của tổ chức sẽ dựng báo cáo.'
+                }
+              />
+            )}
 
+            {reports.length > 0 &&
+              (view === 'grid' ? (
+                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                  {reports.map((r) => (
+                    <ReportCard key={r.id} report={r} />
+                  ))}
+                </div>
+              ) : (
+                <ul className="divide-y divide-slate-100 rounded-xl border border-slate-200 bg-white">
+                  {reports.map((r) => (
+                    <ReportRow key={r.id} report={r} />
+                  ))}
+                </ul>
+              ))}
+          </div>
+        </section>
       </PageBody>
     </Page>
   );
@@ -163,8 +161,8 @@ function AdminConsoleCard(): React.ReactElement {
       <div className="min-w-0 flex-1">
         <p className="text-sm font-semibold text-white">Quản trị hệ thống</p>
         <p className="mt-0.5 text-sm text-slate-400">
-          Tài khoản của bạn quản lý được toàn bộ nền tảng: tổ chức, người dùng và workspace của
-          mọi công ty.
+          Tài khoản của bạn quản lý được toàn bộ nền tảng: tổ chức, người dùng và workspace của mọi
+          công ty.
         </p>
       </div>
 
@@ -201,7 +199,11 @@ function ViewToggle({
   onChange: (v: ViewMode) => void;
 }): React.ReactElement {
   const options: { mode: ViewMode; label: string; icon: string }[] = [
-    { mode: 'grid', label: 'Dạng lưới', icon: 'M4 4h7v7H4V4Zm9 0h7v7h-7V4ZM4 13h7v7H4v-7Zm9 0h7v7h-7v-7Z' },
+    {
+      mode: 'grid',
+      label: 'Dạng lưới',
+      icon: 'M4 4h7v7H4V4Zm9 0h7v7h-7V4ZM4 13h7v7H4v-7Zm9 0h7v7h-7v-7Z',
+    },
     { mode: 'list', label: 'Dạng danh sách', icon: 'M4 6h16M4 12h16M4 18h16' },
   ];
 
@@ -244,14 +246,15 @@ interface ItemProps {
  * Cả thẻ là MỘT liên kết, khác thẻ project trước đây.
  *
  * Thẻ project phải để hai nút Sửa/Xoá bên trong nên chỉ tiêu đề mới bấm được.
- * Báo cáo không có nút nào ở đây — sửa và xoá đều nằm trên trang báo cáo — nên
- * cả khối trở thành vùng bấm, và đó là thứ người dùng vốn đã cố bấm vào.
+ * Báo cáo không có nút nào ở đây — mở ra là vào thẳng trang báo cáo, và xoá thì
+ * nằm ở menu dòng của mục Báo cáo — nên cả khối trở thành vùng bấm, và đó là thứ
+ * người dùng vốn đã cố bấm vào.
  */
 function ReportCard({ report }: ItemProps): React.ReactElement {
   return (
     <Link
       to={`/reports/${report.id}`}
-      className="flex flex-col rounded-xl border border-slate-200 bg-white p-5 transition-colors hover:border-brand-300 hover:bg-slate-50"
+      className="hover:border-brand-300 flex flex-col rounded-xl border border-slate-200 bg-white p-5 transition-colors hover:bg-slate-50"
     >
       <h3 className="font-semibold text-slate-900">{report.name}</h3>
       <p className="mt-2 flex flex-wrap items-center gap-2">
@@ -300,4 +303,3 @@ function ReportRow({ report }: ItemProps): React.ReactElement {
 function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString('vi-VN');
 }
-

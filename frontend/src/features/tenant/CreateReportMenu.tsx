@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { ModelReportModal } from '../datamodels/ModelReportModal';
+import { useNavigate } from 'react-router-dom';
 import { UploadWizard } from '../datasets/wizard/UploadWizard';
 
 /**
@@ -19,21 +19,47 @@ import { UploadWizard } from '../datasets/wizard/UploadWizard';
  *
  * ═══ Trong một mô hình thì không hỏi nữa ═══════════════════════════════════
  *
- * Khi `datamodelId` có mặt (trang Mô hình dữ liệu), nút bỏ hẳn dropdown và mở
- * thẳng hộp thoại cho chính mô hình đang mở. Hỏi "dùng Excel hay dùng mô hình"
- * ngay bên trong một mô hình là hỏi một câu người dùng đã trả lời bằng việc mở
- * trang đó ra.
+ * Khi `datamodelId` có mặt (trang Mô hình dữ liệu), nút bỏ hẳn dropdown và đi
+ * THẲNG tới trình dựng biểu đồ của chính mô hình đang mở. Hỏi "dùng Excel hay
+ * dùng mô hình" ngay bên trong một mô hình là hỏi một câu người dùng đã trả lời
+ * bằng việc mở trang đó ra.
+ *
+ * ═══ §10.10: nhánh "mô hình" đi thẳng tới khu Báo cáo ══════════════════════
+ *
+ * Trước bản này nó mở `PickDataModelModal` để hỏi "mô hình nào" rồi mới sang
+ * trình dựng. Từ khi trình dựng có màn chọn mô hình NGAY TRONG trang, hộp thoại
+ * đó là câu hỏi thứ hai cho cùng một thứ — và hai chỗ hỏi là hai bộ luật sẽ
+ * lệch nhau ngay lần đầu thêm một lựa chọn. Hộp thoại đã bị xoá.
+ *
+ * ═══ Nhánh FILE giờ đi tới trình dựng, không dừng ở Kho dữ liệu ════════════
+ *
+ * Trước bản này, "dùng file Excel/CSV" chỉ mở wizard nạp dữ liệu rồi thả người
+ * dùng ở danh sách bộ dữ liệu — còn đúng hai bước nữa (dựng mô hình, mở trình
+ * dựng) mà không có gì nói ra. Nút hứa "tạo báo cáo" và giao lại một bộ dữ liệu.
+ *
+ * Nay wizard dựng hộ một mô hình trên đúng các sheet vừa tích rồi vào thẳng
+ * trình dựng. Mô hình đó được LƯU và bày ra như mọi mô hình khác (§10.13) — xem
+ * `UploadWizard` để biết vì sao việc này KHÔNG phải là mang cơ chế tự sinh mô
+ * hình (migration 19/20) trở lại.
+ *
+ * ═══ Không còn hộp thoại hỏi cấu hình ══════════════════════════════════════
+ *
+ * Tới §10.8, nút này mở một hộp thoại hỏi chiều, thước đo, loại biểu đồ và tên,
+ * rồi tạo báo cáo. §10.9 chuyển cả bốn câu đó sang trình dựng — nơi có khung
+ * xem trước để trả lời chúng bằng mắt thay vì bằng phỏng đoán. Giữ lại hộp
+ * thoại cũ nghĩa là hai đường tạo cùng một thứ, và người dùng đi đường nào thì
+ * cũng chỉ biết một nửa những gì làm được.
  */
 const ITEMS = [
   {
     key: 'file' as const,
-    label: 'Dùng file Excel/CSV',
-    hint: 'Tải file lên để tạo bộ dữ liệu, rồi dựng mô hình trên nó',
+    label: 'Tạo nhanh với file Excel/CSV',
+    hint: 'Tải file lên rồi vào thẳng trình dựng — không phải cấu hình mô hình',
     icon: 'M13 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9l-6-6Zm0 0v6h6',
   },
   {
     key: 'model' as const,
-    label: 'Dùng mô hình dữ liệu',
+    label: 'Tạo từ mô hình dữ liệu có sẵn',
     hint: 'Chọn chiều và thước đo đã khai trong mô hình',
     icon: 'M4 7h6V4H4v3Zm10 13h6v-3h-6v3Zm0-6.5h6v-3h-6v3ZM7 7v10.5h7M7 11h7',
   },
@@ -47,8 +73,8 @@ export function CreateReportMenu({
 } = {}): React.ReactElement {
   const [open, setOpen] = useState(false);
   const [wizardOpen, setWizardOpen] = useState(false);
-  const [modelOpen, setModelOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
+  const navigate = useNavigate();
 
   useEffect(() => {
     if (!open) return;
@@ -66,23 +92,17 @@ export function CreateReportMenu({
     };
   }, [open]);
 
-  // Trong một mô hình: một nút thường, không dropdown. Xem ghi chú đầu file.
+  // Trong một mô hình: một nút thường, không dropdown, không hộp thoại. Xem
+  // ghi chú đầu file.
   if (datamodelId !== undefined) {
     return (
-      <>
-        <button
-          type="button"
-          onClick={() => setModelOpen(true)}
-          className="flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
-        >
-          Tạo báo cáo
-        </button>
-        <ModelReportModal
-          open={modelOpen}
-          onClose={() => setModelOpen(false)}
-          datamodelId={datamodelId}
-        />
-      </>
+      <button
+        type="button"
+        onClick={() => navigate(`/datamodels/${datamodelId}/report/new`)}
+        className="flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
+      >
+        Tạo báo cáo
+      </button>
     );
   }
 
@@ -123,7 +143,7 @@ export function CreateReportMenu({
               onClick={() => {
                 setOpen(false);
                 if (item.key === 'file') setWizardOpen(true);
-                else setModelOpen(true);
+                else void navigate('/reports/new');
               }}
               className="flex w-full items-start gap-3 rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-slate-50"
             >
@@ -148,8 +168,10 @@ export function CreateReportMenu({
         </div>
       )}
 
-      <UploadWizard open={wizardOpen} onClose={() => setWizardOpen(false)} />
-      <ModelReportModal open={modelOpen} onClose={() => setModelOpen(false)} />
+      {/* `goal="report"` là toàn bộ điểm khác của nhánh này: wizard nạp file
+          như thường, rồi dựng hộ một mô hình ẩn trên đúng các sheet vừa tích và
+          đi thẳng vào trình dựng. Xem `UploadWizard`. */}
+      <UploadWizard open={wizardOpen} onClose={() => setWizardOpen(false)} goal="report" />
     </div>
   );
 }

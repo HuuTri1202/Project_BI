@@ -310,14 +310,7 @@ export async function updateDataset(
     `UPDATE datamodel_datasets
         SET display_name = ?, description = ?, primary_column_id = ?
       WHERE tenant_id = ? AND id = ? AND datamodel_id = ?`,
-    [
-      input.displayName,
-      input.description,
-      input.primaryColumnId,
-      tenantId,
-      refId,
-      dataModelId,
-    ],
+    [input.displayName, input.description, input.primaryColumnId, tenantId, refId, dataModelId],
   );
   return result.affectedRows;
 }

@@ -2770,4 +2770,81 @@ export const migrations: readonly Migration[] = [
         WHERE s.limits_captured_at IS NULL`,
     ],
   },
+  {
+    /*
+     * ⚠️ Id 33, KHÔNG phải 29 — cùng cái bẫy mà migration 30 ở trên đã ghi.
+     *
+     * Nhánh này dựng xong khi `main` còn dừng ở 28, nên bốn migration của nó
+     * mang id 29–32. Trong lúc đó `feat/f10-column-description` chiếm 29, còn
+     * §11 chiếm 30–32. Ba id trùng nhau, ba nội dung khác hẳn nhau.
+     *
+     * `migrate.ts` nhận diện THEO ID (`if (applied.has(migration.id)) continue`),
+     * nên giữ nguyên số cũ nghĩa là máy nào đã chạy §11 sẽ BỎ QUA hai migration
+     * dưới đây trong im lặng, rồi chết ở request đầu tiên — còn máy cài mới thì
+     * chạy tốt. Đúng kiểu lỗi chỉ xuất hiện trên máy người khác.
+     *
+     * Hai migration `datamodels_hidden` (thêm cột) và `datamodels_hidden_drop`
+     * (bỏ lại) của nhánh này đã được BỎ HẲN thay vì dời số. Chúng triệt tiêu
+     * nhau, và chưa máy nào ngoài máy dựng từng chạy chúng — nên giữ lại chỉ là
+     * bắt mọi người thêm một cột rồi xoá đúng cột đó. Lý do vì sao mô hình
+     * dựng-hộ KHÔNG bị giấu vẫn còn nguyên trong README.
+     */
+    id: 33,
+    name: 'chart_types_for_builder',
+    statements: [
+      // ═══ Ba loại biểu đồ nữa cho trình dựng §10.9 ═════════════════════════
+      //
+      // Năm loại của §7.6 đủ cho một hộp thoại năm dòng, nhưng trình dựng có
+      // một chiều THỨ HAI để tách chuỗi — và chiều đó mở ra những câu hỏi mà
+      // năm loại cũ không trả lời được:
+      //
+      //   hbar     tên nhóm dài ("Office Supplies · Bookcases") bị xoay 35° ở
+      //            biểu đồ cột và cắt cụt ở 120px. Nằm ngang thì đọc được.
+      //   scatter  một điểm mỗi nhóm — nhìn ra nhóm lệch hẳn, thứ mà một hàng
+      //            cột cao gần bằng nhau che mất.
+      //   heatmap  chiều × chiều, giá trị là màu. Đây là loại DUY NHẤT bắt buộc
+      //            phải có chiều thứ hai, và cũng là loại chứng minh chiều đó
+      //            đáng tồn tại.
+      //
+      // ⚠️ NỐI VÀO CUỐI ENUM. MySQL lưu ENUM theo số thứ tự, nên chèn 'hbar'
+      // vào sau 'bar' sẽ viết lại nghĩa của mọi dòng đang có: báo cáo 'line'
+      // thành 'hbar', 'area' thành 'line'… Không lỗi nào báo, biểu đồ chỉ đổi
+      // loại. Nối vào cuối là thao tác chỉ đụng metadata.
+      //
+      // `shared/src/report.ts` giữ đúng thứ tự này trong `CHART_TYPES` — thứ tự
+      // hiển thị cho người dùng do trình dựng tự sắp, không lấy từ mảng đó.
+      `ALTER TABLE reports
+         MODIFY COLUMN chart_type
+         ENUM('bar','line','area','pie','table','hbar','scatter','heatmap') NULL`,
+    ],
+  },
+  {
+    id: 34,
+    name: 'reports_canvas',
+    statements: [
+      // ─── §10.10 Một báo cáo chứa NHIỀU biểu đồ ───────────────────────────
+      //
+      // Tới §10.9 một báo cáo là một biểu đồ, và `chart_type` + `config` mô tả
+      // trọn vẹn nó. Cột này thêm khả năng thứ hai: một KHUNG chứa nhiều ô, mỗi
+      // ô là một biểu đồ kèm chỗ đứng trên lưới 12 cột.
+      //
+      // ⚠️ NULL vs NOT NULL ở đây MANG NGHĨA, không phải chuyện tiện tay:
+      //
+      //     canvas IS NULL      báo cáo MỘT biểu đồ — mọi bản ghi có từ trước
+      //     canvas IS NOT NULL  báo cáo nhiều biểu đồ, và ĐÂY là bản gốc
+      //
+      // Nhờ vậy không phải migrate một dòng dữ liệu nào. Báo cáo cũ đọc ra đúng
+      // như cũ, và trang xem phân nhánh trên chính cột này.
+      //
+      // JSON chứ không phải bảng `report_visuals` riêng, cùng lập luận với
+      // `config` ở migration 1: các ô luôn được đọc và ghi CÙNG NHAU (mở báo cáo
+      // là lấy hết, lưu báo cáo là ghi đè hết), không có truy vấn nào hỏi riêng
+      // một ô, và không có ràng buộc khoá ngoại nào cần database ép. Một bảng
+      // riêng ở đây chỉ đổi một lần ghi thành một giao dịch xoá-rồi-chèn.
+      //
+      // Không đặt DEFAULT: MySQL không cho cột JSON có giá trị mặc định, và
+      // NULL đã đúng nghĩa "báo cáo một biểu đồ" rồi.
+      `ALTER TABLE reports ADD COLUMN canvas JSON NULL AFTER config`,
+    ],
+  },
 ];

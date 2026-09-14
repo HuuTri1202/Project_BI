@@ -1,4 +1,4 @@
-import { Navigate, Route, Routes } from 'react-router-dom';
+import { Navigate, Outlet, Route, Routes } from 'react-router-dom';
 import { useAuth } from './auth/useAuth';
 import { RegisterPage } from './features/auth/RegisterPage';
 import { AdminLayout } from './layouts/AdminLayout';
@@ -10,7 +10,9 @@ import HomePage from './pages/HomePage';
 import LoginPage from './pages/LoginPage';
 import NotFoundPage from './pages/NotFoundPage';
 import ProfilePage from './pages/ProfilePage';
-import ReportPage from './pages/ReportPage';
+import ReportBuilderPage from './pages/tenant/ReportBuilderPage';
+import ReportsPage from './pages/tenant/ReportsPage';
+import ReportViewPage from './pages/tenant/ReportViewPage';
 import AdminBillingMethodsPage from './pages/admin/BillingMethodsPage';
 import AdminBillingOrdersPage from './pages/admin/BillingOrdersPage';
 import AdminBillingPlansPage from './pages/admin/BillingPlansPage';
@@ -100,6 +102,74 @@ export default function App(): React.ReactElement {
       <Route element={<ProtectedRoute />}>
         <Route path="/system-health" element={<HealthPage />} />
 
+        {/* ─── Trang báo cáo: TOÀN MÀN HÌNH, ngoài `UserLayout` ───────────
+            Đây là khối route DUY NHẤT trong khu người dùng đứng ngoài khung
+            sidebar, nên nói rõ vì sao:
+
+            Mở một báo cáo là một MẶT LÀM VIỆC, không phải một trang nội dung.
+            Nó có ba cột (khung, cấu hình ô, bảng trường) và người dùng kéo thả
+            qua lại giữa chúng suốt buổi. Sidebar 256px ăn mất đúng phần bề
+            ngang mà khung 12 cột cần, và hai bộ chuyển tổ chức/workspace ở đó
+            thì vừa vô dụng — đổi workspace giữa chừng chỉ làm mọi ID trường
+            đang dùng trở nên vô nghĩa — vừa nguy hiểm: bấm nhầm là mất cả
+            khung chưa lưu.
+
+            Đổi lại, trang phải tự mang lối ra và tự cảnh báo việc chưa lưu, vì
+            không còn thanh bên nào làm hộ. Xem `ReportBuilderPage`.
+
+            HAI route, một khung (§10.13): `/reports/:reportId` để XEM và
+            `/reports/:reportId/edit` để SỬA. §10.10 từng gộp chúng làm một; lý do
+            tách lại nằm ở đầu `ReportViewPage`. Cả hai dùng chung `ReportShell`
+            nên cú bấm "Chỉnh sửa" không đọc ra như một cú nhảy sang màn khác.
+
+            `WorkspaceProvider` vẫn phải bọc: `useDataModels`/`useExplorerFields`
+            hỏi workspace đang mở, và `useWorkspace` NÉM LỖI khi thiếu provider
+            chứ không âm thầm trả rỗng. Bọc riêng ở đây, không nâng lên bọc cả
+            app — trang đăng nhập mà nằm trong nó thì sẽ bắn `GET /workspaces`
+            rồi ăn 401.
+
+            Tham số tên KHÁC nhau (`:datamodelId` với `:reportId`) dù cùng một
+            component: trang đọc cả hai và tự biết mình đang dựng mới hay đang
+            sửa. Đặt cả hai là `:id` thì nó phải đoán bằng cách so khớp đường
+            dẫn — thứ vỡ ngay lần đầu ai đó đổi URL.
+
+            `/reports/new` KHÔNG bị `/reports/:id` nuốt mất: react-router v6
+            xếp hạng theo độ cụ thể của cả cây route chứ không theo thứ tự khai
+            báo, và đoạn tĩnh luôn thắng đoạn động. */}
+        <Route
+          element={
+            <WorkspaceProvider>
+              <Outlet />
+            </WorkspaceProvider>
+          }
+        >
+          {/* XEM: cố ý KHÔNG gác quyền. `report:read` là quyền của MỌI vai trò,
+              và `ReportViewer` cố ý không gọi endpoint nào của mô hình dữ liệu —
+              nên viewer, người chỉ có mục Báo cáo, mở được mọi báo cáo ở đây. */}
+          <Route path="/reports/:reportId" element={<ReportViewPage />} />
+
+          {/* SỬA: cũng KHÔNG gác quyền, nhưng vì lý do ngược lại — ai không sửa
+              được thì trang tự ĐẨY về `/reports/:id` thay vì cho họ ăn /403.
+              Link `/edit` đã được dán cho nhau suốt từ §10.10, và một cái link cũ
+              nên dẫn tới thứ người ta định xem. Xem đầu `ReportBuilderPage`.
+
+              Chặn thật vẫn ở backend — mỗi lần ghi đi qua
+              `authorize('report', 'modify')`. */}
+          <Route path="/reports/:reportId/edit" element={<ReportBuilderPage />} />
+
+          {/* Dựng MỚI thì khác: chưa có gì để xem, nên không có bản chỉ đọc
+              nào để rơi về. Hai ô quyền gác lồng nhau vì trang cần cả hai —
+              `readDataModels` để đọc chiều/thước đo, `editContent` để ghi. */}
+          <Route element={<TenantAdminRoute needs="readDataModels" />}>
+            <Route element={<TenantAdminRoute needs="editContent" />}>
+              <Route path="/reports/new" element={<ReportBuilderPage />} />
+              {/* Lối tắt từ trong một mô hình — điền sẵn mô hình, không còn là
+                  lối duy nhất. Xem đầu `ReportBuilderPage`. */}
+              <Route path="/datamodels/:datamodelId/report/new" element={<ReportBuilderPage />} />
+            </Route>
+          </Route>
+        </Route>
+
         {/* ─── Khu người dùng (Section 04) ─────────────────────────────── */}
         <Route
           element={
@@ -163,9 +233,21 @@ export default function App(): React.ReactElement {
             </Route>
           </Route>
 
-          {/* Báo cáo KHÔNG có cổng: `report:read` là thứ mọi vai trò đều có, và
-              nó là đường duy nhất viewer được mời vào để đi. */}
-          <Route path="/reports/:id" element={<ReportPage />} />
+          {/* ─── §10.10 Khu Báo cáo ────────────────────────────────────────
+              Tới §10.9, báo cáo không có nhà: tạo thì tạo từ trong tab Mô hình
+              dữ liệu, xem thì xem qua một khối bị cắt cụt trên trang chủ. Giờ
+              nó là một khu riêng, có mục sidebar riêng.
+
+              HAI mức quyền trong cùng một khu, và ranh giới giữa chúng chính là
+              ranh giới của viewer:
+
+                đọc   `report:read`   — mọi vai trò. Không gác gì.
+                dựng  hai ô bên dưới — creator và admin.
+
+              Chỉ DANH SÁCH nằm ở đây. Mở một báo cáo ra là rời khỏi khung
+              sidebar — trang báo cáo chiếm trọn màn hình, xem khối route
+              phía trên. */}
+          <Route path="/reports" element={<ReportsPage />} />
 
           {/* ─── §8 Kết nối CSDL: HAI đường, một trang ──────────────────────
               Cùng `ConnectionsPage` và `ConnectionFormPage`, khác chỗ đứng —

@@ -7,6 +7,10 @@
  * Đã biết và chấp nhận: token trong localStorage đọc được bởi XSS. Đánh đổi có
  * ý thức theo quyết định §2.5 — bù lại bằng hạn dùng ngắn và payload token
  * không chứa dữ liệu nhạy cảm (chỉ userId, role, tenantId).
+ *
+ * ⚠️ `localStorage` sống qua cả lần đóng trình duyệt, còn phiên thì KHÔNG được
+ * sống lâu hơn app. Luật "đóng app là hết phiên" nằm ở `appSession.ts`, chạy
+ * một lần trước lần render đầu tiên — không phải ở đây.
  */
 
 const TOKEN_KEY = 'bi_platform_token';

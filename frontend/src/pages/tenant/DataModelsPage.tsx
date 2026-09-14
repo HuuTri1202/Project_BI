@@ -1,6 +1,6 @@
 import type { DataModelDto } from '@bi/shared';
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 
 import { usePermissions } from '../../auth/usePermissions';
 import { Badge } from '../../components/ui/Badge';
@@ -14,7 +14,6 @@ import { SortableTh, TBody, Td, Th, THead, TableWrap, Tr } from '../../component
 import { EmptyState, ErrorState, TableSkeleton } from '../../components/ui/states';
 import { CreateDataModelModal } from '../../features/datamodels/CreateDataModelModal';
 import { EditDataModelModal } from '../../features/datamodels/EditDataModelModal';
-import { ModelReportModal } from '../../features/datamodels/ModelReportModal';
 import {
   useDataModels,
   useDataModelsElsewhere,
@@ -87,9 +86,9 @@ export default function DataModelsPage(): React.ReactElement {
 
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<DataModelDto | null>(null);
-  const [reporting, setReporting] = useState<DataModelDto | null>(null);
   const [deleting, setDeleting] = useState<DataModelDto | null>(null);
   const remove = useDeleteDataModel();
+  const navigate = useNavigate();
 
   const hasFilter = query.q !== '';
   const isEmpty = data !== undefined && data.items.length === 0;
@@ -289,7 +288,10 @@ export default function DataModelsPage(): React.ReactElement {
                               icon={ROW_MENU_ICONS.open}
                               onClick={() => {
                                 close();
-                                setReporting(model);
+                                // Thẳng tới trình dựng (§10.9). Không còn hộp
+                                // thoại hỏi cấu hình: mô hình đã biết, phần còn
+                                // lại trả lời bằng mắt ở khung xem trước.
+                                navigate(`/datamodels/${model.id}/report/new`);
                               }}
                             >
                               Tạo báo cáo
@@ -341,15 +343,6 @@ export default function DataModelsPage(): React.ReactElement {
 
       <CreateDataModelModal open={creating} onClose={() => setCreating(false)} />
       <EditDataModelModal model={editing} onClose={() => setEditing(null)} />
-      {/* Gắn vào cây CHỈ khi mở, khác hai hộp thoại trên.
-          `ModelReportModal` gọi `useDataModels` ngay lúc mount để dựng ô chọn mô
-          hình, mà ở đây ô đó không bao giờ hiện — ta đã biết mô hình nào. Để nó
-          thường trú là mỗi lần vào trang tốn thêm một request cho một danh sách
-          không ai nhìn. */}
-      {reporting !== null && (
-        <ModelReportModal open onClose={() => setReporting(null)} datamodelId={reporting.id} />
-      )}
-
       <ConfirmDialog
         open={deleting !== null}
         onClose={() => setDeleting(null)}

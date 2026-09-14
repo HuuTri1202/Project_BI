@@ -32,6 +32,23 @@ export const COLUMN_ROLES = ['dimension', 'measure', 'hidden'] as const;
 export type ColumnRole = (typeof COLUMN_ROLES)[number];
 
 /**
+ * Từ tiếng Anh của mỗi vai trò, ĐỨNG MỘT MÌNH.
+ *
+ * Tách khỏi `COLUMN_ROLE_LABELS` vì có chỗ ô đã có tên riêng và chỉ cần nói
+ * THÊM nó nhận loại trường nào: ô thả của trình dựng báo cáo tên là "Trục",
+ * "Giá trị", "Nhóm màu", nên dán cả nhãn đầy đủ vào sẽ ra "Trục Chiều
+ * (Dimension)" — ba từ cho một ý, trong một cột rộng 16rem.
+ *
+ * `COLUMN_ROLE_LABELS` dựng TRÊN map này, nên hai chỗ không lệch nhau được:
+ * sửa "Dimension" ở đây là sửa cả hai.
+ */
+export const COLUMN_ROLE_TERMS: Record<ColumnRole, string> = {
+  dimension: 'Dimension',
+  measure: 'Measure',
+  hidden: 'Hidden',
+};
+
+/**
  * Tên hiện ra cho người dùng, KÈM từ tiếng Anh trong ngoặc.
  *
  * ─── Vì sao mang theo từ tiếng Anh ─────────────────────────────────────────
@@ -49,9 +66,9 @@ export type ColumnRole = (typeof COLUMN_ROLES)[number];
  * chèn ngoặc vào giữa một câu thì câu đó không đọc được nữa.
  */
 export const COLUMN_ROLE_LABELS: Record<ColumnRole, string> = {
-  dimension: 'Chiều (Dimension)',
-  measure: 'Thước đo (Measure)',
-  hidden: 'Ẩn (Hidden)',
+  dimension: `Chiều (${COLUMN_ROLE_TERMS.dimension})`,
+  measure: `Thước đo (${COLUMN_ROLE_TERMS.measure})`,
+  hidden: `Ẩn (${COLUMN_ROLE_TERMS.hidden})`,
 };
 
 /**
@@ -795,5 +812,4 @@ export const DATAMODEL_ERROR_CODES = {
   MEASURE_CROSS_DATASET: 'MeasureCrossDataset',
 } as const;
 
-export type DataModelErrorCode =
-  (typeof DATAMODEL_ERROR_CODES)[keyof typeof DATAMODEL_ERROR_CODES];
+export type DataModelErrorCode = (typeof DATAMODEL_ERROR_CODES)[keyof typeof DATAMODEL_ERROR_CODES];

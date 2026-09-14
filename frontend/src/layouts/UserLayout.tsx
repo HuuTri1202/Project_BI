@@ -49,6 +49,24 @@ const NAV_ITEMS: NavItem[] = [
     icon: 'M3 11.5 12 4l9 7.5M5.5 10V20h13V10',
   },
   /*
+   * §10.10 — khu Báo cáo, đứng ngay sau Trang chủ.
+   *
+   * Cố ý KHÔNG có `needs`. Mọi vai trò đều có `report:read`, và với viewer thì
+   * đây là mục nội dung DUY NHẤT họ vào được — bốn mục còn lại đều đòi một ô
+   * quyền mà migration 26 đã lấy đi của họ. Nên nó phải là đích đầu tiên trong
+   * danh sách, không phải một dòng nằm cuối sau ba dòng bị ẩn.
+   *
+   * Đứng TRÊN các mục dữ liệu vì nó là thứ người ta tới để đọc; kho dữ liệu và
+   * mô hình là thứ người ta tới để dựng. Trước §10.10 báo cáo không có mục nào
+   * cả — tạo thì tạo từ trong tab Mô hình dữ liệu, xem thì xem qua một khối bị
+   * cắt cụt trên trang chủ.
+   */
+  {
+    label: 'Báo cáo',
+    to: '/reports',
+    icon: 'M4 19V5m0 14h16M8 15V9m4 6v-4m4 4v-7',
+  },
+  /*
    * §7.8 + §8.5 — MỘT mục cho cả hai nguồn dữ liệu.
    *
    * Trước khi gộp có hai dòng cùng trỏ về `/datasets`: "Bộ dữ liệu" (file tải

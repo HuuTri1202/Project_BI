@@ -1,9 +1,17 @@
-import type {
-  ChartType,
-  DatasetSource,
-  ReportConfigDto,
-  ReportDto,
-  ReportModelConfigDto,
+import {
+  CANVAS_DEFAULT_H,
+  CANVAS_DEFAULT_W,
+  CHART_TYPES,
+  type ChartType,
+  type DatasetSource,
+  PAGE_NAME_MAX,
+  parseAnnotations,
+  type ReportCanvasDto,
+  type ReportConfigDto,
+  type ReportDto,
+  type ReportModelConfigDto,
+  type ReportPageDto,
+  type ReportVisualDto,
 } from '@bi/shared';
 import type { ResultSetHeader, RowDataPacket } from 'mysql2';
 import { escapeLikeTerm } from '../utils/sql';
@@ -31,6 +39,7 @@ interface ReportRow extends RowDataPacket {
   name: string;
   chart_type: ChartType | null;
   config: unknown;
+  canvas: unknown;
   creator_name: string | null;
   created_at: Date;
   updated_at: Date;
@@ -49,7 +58,7 @@ interface ReportRow extends RowDataPacket {
 const SELECT_COLUMNS = `r.id, r.workspace_id,
             r.dataset_id, d.name AS dataset_name, d.source AS dataset_source,
             r.datamodel_id, dm.name AS datamodel_name,
-            r.name, r.chart_type, r.config, u.full_name AS creator_name,
+            r.name, r.chart_type, r.config, r.canvas, u.full_name AS creator_name,
             r.created_at, r.updated_at
        FROM reports r
        LEFT JOIN datasets d ON d.id = r.dataset_id
@@ -103,11 +112,141 @@ function parseModelConfig(raw: unknown): ReportModelConfigDto | null {
   const obj = value as Partial<ReportModelConfigDto>;
   if (!Number.isInteger(obj.dimensionId) || !Number.isInteger(obj.measureId)) return null;
 
+  /*
+   * Hai trường của §10.9 đọc theo kiểu KHOAN DUNG, ngược với hai ID ở trên.
+   *
+   * Thiếu `dimensionId` là báo cáo không vẽ được, nên nó làm cả bản ghi hỏng.
+   * Còn thiếu `seriesDimensionId` hay `options` thì chỉ là một báo cáo §10.8
+   * bình thường — mọi dòng lưu trước bản này đều như vậy. Từ chối chúng ở đây
+   * sẽ biến cả kho báo cáo cũ thành "chưa có biểu đồ" chỉ vì ta thêm hai công
+   * tắc mới.
+   */
+  const series = obj.seriesDimensionId;
+  const options = obj.options;
+  // Cùng luật khoan dung cho `pick`: vắng mặt = `'top'`, tức đúng hành vi của
+  // mọi báo cáo lưu trước bản này. Giá trị lạ cũng rơi về `'top'` chứ không
+  // làm hỏng bản ghi — nó chỉ là một lựa chọn, không phải một ID.
+  const pick = obj.pick === 'bottom' ? 'bottom' : 'top';
+  // `overflow` của §10.12–§10.14 cố ý KHÔNG được đọc: từ §10.15 mọi biểu đồ
+  // dựng trên mô hình đều chia trang. Bản ghi cũ còn mang trường đó trong cột
+  // `config` thì nó nằm im ở đó — dọn nó đòi một migration ghi lại toàn bộ JSON
+  // của mọi báo cáo, để đổi lấy đúng một trường không ai đọc nữa.
+
   return {
     dimensionId: Number(obj.dimensionId),
     measureId: Number(obj.measureId),
     limit: typeof obj.limit === 'number' ? obj.limit : 20,
+    pick,
+    seriesDimensionId: Number.isInteger(series) ? Number(series) : null,
+    // `exactOptionalPropertyTypes` phân biệt "vắng mặt" với "có mà undefined",
+    // nên không gán thẳng `options` được — phải chọn một trong hai hình dạng.
+    ...(options !== null && typeof options === 'object' ? { options } : {}),
   };
+}
+
+/**
+ * Đọc cột `canvas` — báo cáo nhiều biểu đồ (§10.10), nhiều TRANG từ §10.12.
+ *
+ * `null` cho ba trường hợp cùng dẫn tới một kết quả: cột NULL (báo cáo một biểu
+ * đồ, tức mọi bản ghi cũ), JSON hỏng, hoặc không còn ô nào đọc được.
+ *
+ * ⚠️ Ô hỏng bị BỎ QUA chứ không làm hỏng cả khung. Một khung bảy ô mà một ô trỏ
+ * vào thước đo đã xoá vẫn phải mở ra được — từ chối cả khung nghĩa là người
+ * dùng mất luôn đường vào để sửa đúng cái ô đó. Cùng lập luận với `parseConfig`,
+ * chỉ khác là ở đây nó áp cho từng phần tử.
+ *
+ * ═══ HAI hình dạng trên đĩa, một hình dạng ra ngoài ═════════════════════════
+ *
+ * Bản ghi lưu ở §10.10 là `{ visuals: [...] }`; bản ghi từ §10.12 là
+ * `{ pages: [{ id, name, visuals }] }`. Hàm này nhận cả hai và LUÔN trả về hình
+ * dạng nhiều trang, nên không nơi nào khác trong hệ thống phải biết là có hai.
+ *
+ * Không migrate cột: `reports.canvas` là JSON, một bản ghi cũ vẫn là một bản
+ * ghi đúng, và một câu `UPDATE` chạy trên mọi báo cáo của mọi tổ chức để đổi
+ * đúng một tầng lồng nhau là rủi ro đổi lấy con số không.
+ */
+function parseCanvas(raw: unknown): ReportCanvasDto | null {
+  const value = readJson(raw);
+  if (value === null) return null;
+
+  const obj = value as { pages?: unknown; visuals?: unknown };
+
+  const pages: ReportPageDto[] = Array.isArray(obj.pages)
+    ? obj.pages.flatMap((item, i) => {
+        const page = parsePage(item, i);
+        return page === null ? [] : [page];
+      })
+    : // Hình dạng §10.10 — một trang duy nhất. Mã trang là hằng chứ không sinh
+      // ngẫu nhiên: nó đi vào khoá cache của trang xem, và một mã đổi sau mỗi
+      // lần đọc là một lần trượt cache sau mỗi lần đọc.
+      Array.isArray(obj.visuals)
+      ? [{ id: 'p1', name: 'Trang 1', visuals: parseVisuals(obj.visuals), annotations: [] }]
+      : [];
+
+  // Trang RỖNG được giữ lại — người dùng tạo nó ra và chưa kịp dựng gì. Nhưng
+  // một khung không còn ô nào ở bất kỳ trang nào thì không phải một khung.
+  return pages.length === 0 || pages.every((p) => p.visuals.length === 0) ? null : { pages };
+}
+
+function parsePage(raw: unknown, index: number): ReportPageDto | null {
+  if (raw === null || typeof raw !== 'object') return null;
+
+  const obj = raw as Partial<ReportPageDto>;
+  if (typeof obj.id !== 'string' || obj.id === '') return null;
+
+  const name = typeof obj.name === 'string' ? obj.name.trim().slice(0, PAGE_NAME_MAX) : '';
+
+  return {
+    id: obj.id,
+    // Tên rỗng vẫn phải hiện ra được: một cái thẻ không chữ ở mép dưới màn hình
+    // là một cái thẻ người dùng không biết mình đang bấm vào đâu.
+    name: name === '' ? `Trang ${index + 1}` : name,
+    visuals: Array.isArray(obj.visuals) ? parseVisuals(obj.visuals) : [],
+    // Bản ghi trước §10.18 không có trường này; chú thích hỏng bị bỏ qua từng
+    // cái một, cùng lập luận với `parseVisuals` ngay dưới.
+    annotations: parseAnnotations(obj.annotations),
+  };
+}
+
+function parseVisuals(list: readonly unknown[]): ReportVisualDto[] {
+  return list.flatMap((item) => {
+    const visual = parseVisual(item);
+    return visual === null ? [] : [visual];
+  });
+}
+
+function parseVisual(raw: unknown): ReportVisualDto | null {
+  if (raw === null || typeof raw !== 'object') return null;
+
+  const obj = raw as Partial<ReportVisualDto>;
+  if (typeof obj.id !== 'string' || obj.id === '') return null;
+  if (!CHART_TYPES.includes(obj.chartType as ChartType)) return null;
+
+  const config = parseModelConfig(obj.config);
+  if (config === null) return null;
+
+  return {
+    id: obj.id,
+    chartType: obj.chartType as ChartType,
+    config,
+    // `exactOptionalPropertyTypes`: "vắng mặt" khác "có mà undefined".
+    ...(typeof obj.title === 'string' && obj.title !== '' ? { title: obj.title } : {}),
+    x: gridUnit(obj.x, 0),
+    y: gridUnit(obj.y, 0),
+    w: gridUnit(obj.w, CANVAS_DEFAULT_W),
+    h: gridUnit(obj.h, CANVAS_DEFAULT_H),
+  };
+}
+
+/**
+ * Một con số toạ độ lưới, hoặc giá trị thay thế.
+ *
+ * Không kẹp vào biên ở đây: zod đã làm việc đó ở đường ghi, còn đường đọc chỉ
+ * cần bảo đảm không trả về `NaN` — một `NaN` lọt vào CSS `grid-column` làm cả ô
+ * biến mất mà không có lỗi nào.
+ */
+function gridUnit(value: unknown, fallback: number): number {
+  return Number.isFinite(value) ? Math.trunc(value as number) : fallback;
 }
 
 /** `config` ra khỏi database dưới dạng object hoặc chuỗi, tuỳ driver. */
@@ -143,6 +282,7 @@ function toDto(row: ReportRow): ReportDto {
     chartType: row.chart_type,
     config: onModel ? null : parseConfig(row.config),
     modelConfig: onModel ? parseModelConfig(row.config) : null,
+    canvas: onModel ? parseCanvas(row.canvas) : null,
     creatorName: row.creator_name,
     createdAt: row.created_at.toISOString(),
     updatedAt: row.updated_at.toISOString(),
@@ -156,7 +296,10 @@ export interface ListReportsFilter {
   pageSize: number;
 }
 
-function buildWhere(tenantId: number, filter: ListReportsFilter): {
+function buildWhere(
+  tenantId: number,
+  filter: ListReportsFilter,
+): {
   sql: string;
   params: (string | number)[];
 } {
@@ -320,6 +463,110 @@ export async function updateReport(
     `UPDATE reports SET name = ?, chart_type = ?, config = ?
       WHERE tenant_id = ? AND id = ? AND deleted_at IS NULL`,
     [input.name, input.chartType, JSON.stringify(input.config), tenantId, id],
+  );
+  return result.affectedRows;
+}
+
+/**
+ * Cùng ba cột, cấu hình khác hình dạng — báo cáo trên mô hình (§10.9).
+ *
+ * Hàm riêng chứ không thêm một tham số kiểu union vào `updateReport`: hai bên
+ * gọi ở hai nhánh router khác nhau, và một chữ ký nhận cả hai hình dạng sẽ cho
+ * phép ghi `ReportConfigDto` vào một báo cáo trên mô hình. Kết quả của lần ghi
+ * đó là `parseModelConfig` đọc ra `null` — báo cáo trở lại trạng thái "chưa có
+ * biểu đồ" và mất luôn cấu hình cũ.
+ *
+ * `AND datamodel_id IS NOT NULL` là chốt cuối cùng cho đúng chuyện đó, đứng
+ * độc lập với lần kiểm ở router. Rẻ, và nó biến một lỗi mất dữ liệu thành một
+ * lần ghi trượt trả về 0 dòng.
+ */
+export async function updateModelReport(
+  db: Db,
+  tenantId: number,
+  id: number,
+  input: { name: string; chartType: ChartType; config: ReportModelConfigDto },
+): Promise<number> {
+  const [result] = await db.query<ResultSetHeader>(
+    `UPDATE reports SET name = ?, chart_type = ?, config = ?
+      WHERE tenant_id = ? AND id = ? AND deleted_at IS NULL AND datamodel_id IS NOT NULL`,
+    [input.name, input.chartType, JSON.stringify(input.config), tenantId, id],
+  );
+  return result.affectedRows;
+}
+
+export interface CanvasReportRow {
+  workspaceId: number;
+  datamodelId: number;
+  name: string;
+  canvas: ReportCanvasDto;
+  createdBy: number;
+}
+
+/**
+ * Ba cột đi CÙNG NHAU cho một báo cáo nhiều biểu đồ — §10.10.
+ *
+ * `canvas` là bản gốc. `chart_type` và `config` là BẢN SAO của ô đầu tiên, và
+ * chúng tồn tại vì đúng một lý do: mọi thứ viết trước §10.10 vẫn đang đọc hai
+ * cột đó — `GET /reports/:id/data`, huy hiệu loại biểu đồ trong danh sách, và
+ * bất kỳ client cũ nào chưa biết tới `canvas`. Để chúng NULL nghĩa là một báo
+ * cáo vừa lưu xong hiện ra là "Chưa có biểu đồ" ở trang danh sách.
+ *
+ * ⚠️ Một chiều, không bao giờ ngược lại. Sửa `chart_type`/`config` mà không sửa
+ * `canvas` là tạo ra hai sự thật; mọi đường ghi của báo cáo nhiều biểu đồ vì vậy
+ * phải đi qua đúng hai hàm dưới đây.
+ */
+function mirrorOfFirst(canvas: ReportCanvasDto): {
+  chartType: ChartType | null;
+  config: string | null;
+} {
+  // Ô đầu tiên của TRANG đầu tiên có ô. Một trang đầu để trống là chuyện bình
+  // thường từ §10.12, và soi đúng `pages[0].visuals[0]` khi đó sẽ ghi `NULL` vào
+  // `chart_type` — báo cáo vừa lưu xong hiện ra "Chưa có biểu đồ" ở danh sách.
+  const first = canvas.pages.flatMap((p) => p.visuals)[0];
+  if (first === undefined) return { chartType: null, config: null };
+  return { chartType: first.chartType, config: JSON.stringify(first.config) };
+}
+
+export async function createCanvasReport(
+  db: Db,
+  tenantId: number,
+  input: CanvasReportRow,
+): Promise<number> {
+  const mirror = mirrorOfFirst(input.canvas);
+  const [result] = await db.query<ResultSetHeader>(
+    `INSERT INTO reports
+       (tenant_id, workspace_id, datamodel_id, name, chart_type, config, canvas, created_by)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      tenantId,
+      input.workspaceId,
+      input.datamodelId,
+      input.name,
+      mirror.chartType,
+      mirror.config,
+      JSON.stringify(input.canvas),
+      input.createdBy,
+    ],
+  );
+  return result.insertId;
+}
+
+/**
+ * `AND datamodel_id IS NOT NULL` cùng lý do với `updateModelReport`: chốt cuối
+ * để một lần gọi nhầm thành lần ghi trượt trả về 0 dòng, chứ không thành một báo
+ * cáo trên bộ dữ liệu mang cấu hình dạng ID mà không ai đọc được.
+ */
+export async function updateCanvasReport(
+  db: Db,
+  tenantId: number,
+  id: number,
+  input: { name: string; canvas: ReportCanvasDto },
+): Promise<number> {
+  const mirror = mirrorOfFirst(input.canvas);
+  const [result] = await db.query<ResultSetHeader>(
+    `UPDATE reports SET name = ?, chart_type = ?, config = ?, canvas = ?
+      WHERE tenant_id = ? AND id = ? AND deleted_at IS NULL AND datamodel_id IS NOT NULL`,
+    [input.name, mirror.chartType, mirror.config, JSON.stringify(input.canvas), tenantId, id],
   );
   return result.affectedRows;
 }

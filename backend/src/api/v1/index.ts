@@ -1,10 +1,16 @@
 import {
   ADMIN_ERROR_CODES,
+  allVisuals,
   BILLING_ERROR_CODES,
+  CHART_SERIES_SUPPORT,
+  CHART_TYPE_LABELS,
+  DATAMODEL_ERROR_CODES,
   DATASET_ERROR_CODES,
   ORDER_STATUS_LABELS,
   REPORT_ERROR_CODES,
   WORKSPACE_ERROR_CODES,
+  type ChartType,
+  type ReportModelConfigDto,
   type ConnectionPrerequisitesDto,
   type CreateUploadResultDto,
   type DataModelColumnDto,
@@ -17,7 +23,10 @@ import {
   type HomeDataDto,
   type PermissionMatrixDto,
   type ReportConfigDto,
+  type ReportCanvasDataDto,
   type ReportDataDto,
+  type ReportPageDto,
+  type ReportVisualDataDto,
   type TenantRole,
   type WorkspaceOptionDto,
 } from '@bi/shared';
@@ -90,6 +99,7 @@ import {
   deleteMeasure,
 } from '../../services/datamodel/measures';
 import { aggregateFromModel } from '../../services/datamodel/modelReportData';
+import { loadModelContext } from '../../services/datamodel/explorer';
 import { aggregateInWarehouse } from '../../services/dataset/aggregateWarehouse';
 import { analyzeDataset, clearAnalyzeCache } from '../../services/dataset/analyze';
 import { commitDatasets } from '../../services/dataset/commit';
@@ -110,6 +120,8 @@ import {
   createDataModelBodySchema,
   createMeasureBodySchema,
   createMemberBodySchema,
+  canvasDataQuerySchema,
+  createCanvasReportBodySchema,
   createModelReportBodySchema,
   createOrderBodySchema,
   createRelationshipBodySchema,
@@ -137,7 +149,12 @@ import {
   updateConnectionBodySchema,
   updateDataModelBodySchema,
   updateMeasureBodySchema,
+  modelReportPreviewBodySchema,
   updateModelDatasetBodySchema,
+  reportPageQuerySchema,
+  updateCanvasReportBodySchema,
+  visualIdParamSchema,
+  updateModelReportBodySchema,
   updateReportBodySchema,
   updateRoleBodySchema,
   updateTenantBodySchema,
@@ -402,11 +419,7 @@ v1Router.post(
       createdBy: auth.userId,
     });
 
-    const presigned = await storage.presignPut(
-      s3Key,
-      contentTypeOf(ext),
-      env.UPLOAD_MAX_BYTES,
-    );
+    const presigned = await storage.presignPut(s3Key, contentTypeOf(ext), env.UPLOAD_MAX_BYTES);
 
     const result: CreateUploadResultDto = {
       datasetId,
@@ -666,6 +679,90 @@ v1Router.post(
  * bản ghi hỏng vĩnh viễn — chưa có màn sửa cấu hình để chọn lại. Explorer thì
  * ngược lại, ở đó người dùng chỉ việc chọn lại rồi bấm Chạy.
  */
+/**
+ * Kiểm một cấu hình biểu đồ trên mô hình — dùng chung cho TẠO, SỬA và XEM TRƯỚC.
+ *
+ * Một chỗ duy nhất, vì ba đường này phải nhận và từ chối đúng những thứ giống
+ * nhau. Lệch một luật thôi là trình dựng cho xem trước một biểu đồ rồi từ chối
+ * lưu nó — người dùng thấy thứ mình vừa dựng bị chối mà không hiểu vì sao.
+ *
+ * Kiểm bằng chính `explorerFields`, tức cùng `indexModel` mà `runExplorerQuery`
+ * sẽ dùng lúc vẽ. Không có đường nào kiểm bằng một bảng khác.
+ */
+async function assertModelChartConfig(
+  tenantId: number,
+  dataModelId: number,
+  chartType: ChartType,
+  config: ReportModelConfigDto,
+): Promise<void> {
+  assertChartConfigAgainst(await explorerFields(tenantId, dataModelId), chartType, config);
+}
+
+/**
+ * Một ô dùng trường mà mô hình không còn — mô hình đã được sửa sau khi trình
+ * dựng đọc bảng trường.
+ *
+ * Mã `FIELD_UNKNOWN`, không phải `BadRequest` chung: trình dựng dựa vào mã
+ * này để tự đọc lại bảng trường (§10.19), nên câu "chọn trường khác" bên dưới
+ * đúng cả khi người sửa mô hình là một đồng nghiệp trên máy khác.
+ *
+ * ⚠️ KHÔNG khuyên "tải lại trang" như trước. Mọi đường tới đây — xem trước và
+ * lưu — đều đi ra từ trình dựng, nơi tải lại trang là bỏ cả khung chưa lưu. Từ
+ * khi nút "Sửa mô hình" mở trang mô hình ở tab bên cạnh, sửa mô hình giữa lúc
+ * dựng là đường đi CHÍNH chứ không còn là chuyện hiếm.
+ */
+function fieldGone(what: string): HttpError {
+  return new HttpError(
+    400,
+    DATAMODEL_ERROR_CODES.FIELD_UNKNOWN,
+    `${what} không còn trong mô hình — mô hình vừa được sửa. Hãy chọn trường khác ở cột Mô hình dữ liệu.`,
+  );
+}
+
+/**
+ * Cùng bộ luật, nhưng nhận SẴN bảng trường thay vì tự đi lấy.
+ *
+ * Tách ra vì một khung §10.10 có tới 12 ô, và mỗi lần gọi `explorerFields` là
+ * một lần dựng lại chỉ mục của cả mô hình. Mười hai lần dựng cho một lần bấm
+ * Lưu là chi phí không đổi lấy điều gì — cả 12 ô đều thuộc CÙNG một mô hình.
+ */
+function assertChartConfigAgainst(
+  fields: Awaited<ReturnType<typeof explorerFields>>,
+  chartType: ChartType,
+  config: ReportModelConfigDto,
+): void {
+  if (!fields.dimensions.some((f) => f.id === config.dimensionId)) {
+    throw fieldGone('Chiều đã chọn');
+  }
+  if (!fields.measures.some((f) => f.id === config.measureId)) {
+    throw fieldGone('Thước đo đã chọn');
+  }
+
+  const series = config.seriesDimensionId ?? null;
+  const support = CHART_SERIES_SUPPORT[chartType];
+
+  if (series !== null) {
+    if (support === 'no') {
+      throw badRequest(
+        `${CHART_TYPE_LABELS[chartType]} không tách được theo chiều thứ hai — nó đã dùng màu để phân từng phần.`,
+      );
+    }
+    if (series === config.dimensionId) {
+      // Cùng một chiều ở hai ô cho ra một chuỗi trên mỗi nhóm, tức là một biểu
+      // đồ trông y hệt biểu đồ một chuỗi nhưng tốn gấp đôi truy vấn — và một
+      // chú giải liệt kê lại đúng các nhãn đã có trên trục ngang.
+      throw badRequest('Chiều nhóm màu phải khác chiều trên trục. Hãy chọn một chiều khác.');
+    }
+    if (!fields.dimensions.some((f) => f.id === series)) {
+      throw fieldGone('Chiều nhóm màu');
+    }
+  } else if (support === 'required') {
+    throw badRequest(
+      `${CHART_TYPE_LABELS[chartType]} cần hai chiều: một cho trục và một cho nhóm màu.`,
+    );
+  }
+}
+
 v1Router.post(
   '/reports/from-datamodel',
   authorize('report', 'modify'),
@@ -678,13 +775,7 @@ v1Router.post(
     const model = await datamodelsRepo.findOne(mysqlPool, auth.tenantId, body.datamodelId);
     if (!model) throw notFound('Không tìm thấy mô hình dữ liệu này.');
 
-    const fields = await explorerFields(auth.tenantId, model.id);
-    if (!fields.dimensions.some((f) => f.id === body.config.dimensionId)) {
-      throw badRequest('Chiều đã chọn không còn trong mô hình. Hãy tải lại trang rồi chọn lại.');
-    }
-    if (!fields.measures.some((f) => f.id === body.config.measureId)) {
-      throw badRequest('Thước đo đã chọn không còn trong mô hình. Hãy tải lại trang rồi chọn lại.');
-    }
+    await assertModelChartConfig(auth.tenantId, model.id, body.chartType, body.config);
 
     // Hạn mức gói — §11.2. Đặt SAU hai câu kiểm chiều/thước đo: lỗi cụ thể hơn
     // thì nói trước, và người chọn nhầm trường không nên nhận thông báo "hết hạn
@@ -700,6 +791,44 @@ v1Router.post(
       name: body.name,
       chartType: body.chartType,
       config: body.config,
+      createdBy: auth.userId,
+    });
+
+    res.status(201).json(await reportsRepo.findById(mysqlPool, auth.tenantId, id));
+  }),
+);
+
+/**
+ * Tạo báo cáo NHIỀU biểu đồ — §10.10.
+ *
+ * Đường thứ ba tạo báo cáo, và lý do nó không gộp vào hai đường kia giống hệt
+ * lý do `from-datamodel` không gộp vào `POST /reports`: thân request khác hình
+ * dạng. Ở đây không có `chartType` lẫn `config` ở cấp ngoài — chúng nằm trong
+ * từng ô, vì mỗi ô là một biểu đồ độc lập.
+ *
+ * Cả 12 ô kiểm bằng MỘT bảng trường: chúng cùng thuộc một mô hình, nên dựng chỉ
+ * mục 12 lần là trả giá cho đúng một thứ đã có sẵn.
+ */
+v1Router.post(
+  '/reports/canvas',
+  authorize('report', 'modify'),
+  asyncHandler(async (req, res) => {
+    const auth = requireAuth(req);
+    const body = createCanvasReportBodySchema.parse(req.body);
+
+    const model = await datamodelsRepo.findOne(mysqlPool, auth.tenantId, body.datamodelId);
+    if (!model) throw notFound('Không tìm thấy mô hình dữ liệu này.');
+
+    const fields = await explorerFields(auth.tenantId, model.id);
+    for (const visual of allVisuals(body.canvas)) {
+      assertChartConfigAgainst(fields, visual.chartType, visual.config);
+    }
+
+    const id = await reportsRepo.createCanvasReport(mysqlPool, auth.tenantId, {
+      workspaceId: model.workspaceId,
+      datamodelId: model.id,
+      name: body.name,
+      canvas: body.canvas,
       createdBy: auth.userId,
     });
 
@@ -797,6 +926,7 @@ v1Router.get(
           requireAuth(req).userId,
           report.datamodelId,
           report.modelConfig,
+          reportPageQuerySchema.parse(req.query).page ?? 0,
         ),
       );
       return;
@@ -826,6 +956,154 @@ v1Router.get(
   }),
 );
 
+/**
+ * Số liệu cho MỌI ô của một khung — §10.10.
+ *
+ * ─── Vì sao một request chứ không phải mỗi ô một request ───────────────────
+ *
+ * Trình duyệt không biết trước khung có mấy ô, nên "mỗi ô một request" nghĩa là
+ * một vòng đọc báo cáo rồi mới bắn tiếp n request — hai lượt khứ hồi trước khi
+ * thấy biểu đồ đầu tiên. Gộp lại còn một, và backend chạy song song.
+ *
+ * ─── Ô hỏng KHÔNG làm hỏng cả khung ────────────────────────────────────────
+ *
+ * `Promise.allSettled` chứ không `Promise.all`: một ô trỏ vào thước đo vừa bị
+ * xoá sẽ ném lỗi, và `Promise.all` biến lỗi đó thành một request 500 — bảy ô
+ * còn lại hoàn toàn đọc được cũng biến mất theo. Ở đây ô hỏng tự mang câu lỗi
+ * của nó, và trình vẽ hiện câu đó bên trong đúng ô ấy.
+ *
+ * ─── Đúng MỘT trang mỗi lần, không phải cả báo cáo ─────────────────────────
+ *
+ * `?pageId=` chọn trang; vắng mặt hoặc trỏ vào một trang đã bị xoá thì lấy
+ * trang đầu. Tính cả mười trang trong một lượt sẽ là mười hai mươi truy vấn
+ * Cube cho một màn hình hiện được một trang — cùng lập luận đã đặt ra
+ * `CANVAS_MAX_VISUALS`, chỉ ở một tầng cao hơn.
+ *
+ * Không 404 khi `pageId` lạ: nó xảy ra thật khi hai người mở cùng một báo cáo
+ * và một người xoá một trang. Rơi về trang đầu là thứ người kia hiểu được ngay;
+ * một màn hình lỗi thì không.
+ *
+ * ⚠️ Gọi THẲNG service, không thêm `authorize('datamodel', 'read')` — cùng lý do
+ * đã ghi ở `GET /reports/:id/data`: viewer không có ô quyền đó nhưng vẫn phải
+ * xem được báo cáo người khác dựng cho họ.
+ */
+v1Router.get(
+  '/reports/:id/canvas-data',
+  authorize('report', 'read'),
+  asyncHandler(async (req, res) => {
+    const auth = requireAuth(req);
+    const { id } = idParamSchema.parse(req.params);
+    const query = canvasDataQuerySchema.parse(req.query);
+
+    const report = await reportsRepo.findById(mysqlPool, auth.tenantId, id);
+    if (!report) throw notFound('Không tìm thấy báo cáo này.');
+
+    if (report.canvas === null || report.datamodelId === null) {
+      throw new HttpError(
+        409,
+        REPORT_ERROR_CODES.REPORT_NOT_CONFIGURED,
+        'Báo cáo này không phải khung nhiều biểu đồ.',
+      );
+    }
+
+    const datamodelId = report.datamodelId;
+    const page: ReportPageDto | undefined =
+      report.canvas.pages.find((p) => p.id === query.pageId) ?? report.canvas.pages[0];
+    const cells = page?.visuals ?? [];
+
+    /*
+     * Chỉ mục mô hình nạp MỘT lần cho cả trang — §10.14.
+     *
+     * Trước bản này mỗi ô tự nạp: `findOne` + ba truy vấn danh sách + một truy
+     * vấn `schemaVersion`. Mười hai ô là 60 vòng MySQL cho một thứ không đổi
+     * giữa chúng, và pool 10 kết nối biến chúng thành một hàng đợi.
+     *
+     * Nạp TRƯỚC `Promise.allSettled` chứ không để ô đầu tiên nạp hộ: các ô chạy
+     * song song, nên cả mười hai đều xuất phát trước khi ô nào kịp nạp xong.
+     */
+    const ctx = await loadModelContext(auth.tenantId, datamodelId);
+
+    const settled = await Promise.allSettled(
+      cells.map((visual) =>
+        aggregateFromModel(auth.tenantId, auth.userId, datamodelId, visual.config, 0, ctx),
+      ),
+    );
+
+    const visuals: ReportVisualDataDto[] = cells.map((visual, index) => {
+      const outcome = settled[index];
+      if (outcome !== undefined && outcome.status === 'fulfilled') {
+        return { visualId: visual.id, data: outcome.value };
+      }
+      const reason = outcome?.status === 'rejected' ? outcome.reason : undefined;
+      return {
+        visualId: visual.id,
+        data: null,
+        // Câu chữ của lỗi nghiệp vụ (`HttpError` mang câu tiếng Việt) đi thẳng
+        // ra. Lỗi không lường trước thì KHÔNG: thông điệp của nó là chi tiết nội
+        // bộ, và một ô biểu đồ không phải chỗ để rò rỉ chúng.
+        error:
+          reason instanceof HttpError
+            ? reason.message
+            : 'Không đọc được số liệu cho ô này. Thử mở lại báo cáo.',
+      };
+    });
+
+    const body: ReportCanvasDataDto = { visuals };
+    res.json(body);
+  }),
+);
+
+/**
+ * Số liệu của MỘT ô, ở một TRANG NHÓM cụ thể — §10.12.
+ *
+ * ─── Vì sao nó không dùng lại `/report-preview` ────────────────────────────
+ *
+ * Endpoint kia gác `datamodel:read`, và viewer không có ô quyền đó (migration
+ * 26). Cho hai cái nút ‹ › gọi nó nghĩa là chúng chỉ chạy cho người sửa được
+ * báo cáo — tức là hỏng ở đúng chỗ chúng có ích nhất, một người CHỈ ĐỌC đang
+ * cần xem hết dữ liệu.
+ *
+ * Nó cũng nhận ÍT hơn hẳn: chỉ một mã ô, không nhận cấu hình nào từ client.
+ * Cấu hình đọc từ chính báo cáo đã lưu, nên bấm sang trang 3 không phải là một
+ * đường lén gửi lên một cấu hình khác.
+ *
+ * ─── Vì sao không gộp vào `canvas-data` ────────────────────────────────────
+ *
+ * Vì lật trang một ô không có lý do gì bắt mười một ô kia quét lại ClickHouse.
+ */
+v1Router.get(
+  '/reports/:id/visuals/:visualId/data',
+  authorize('report', 'read'),
+  asyncHandler(async (req, res) => {
+    const auth = requireAuth(req);
+    const { id, visualId } = visualIdParamSchema.parse(req.params);
+    const { page } = reportPageQuerySchema.parse(req.query);
+
+    const report = await reportsRepo.findById(mysqlPool, auth.tenantId, id);
+    if (!report) throw notFound('Không tìm thấy báo cáo này.');
+
+    if (report.canvas === null || report.datamodelId === null) {
+      throw new HttpError(
+        409,
+        REPORT_ERROR_CODES.REPORT_NOT_CONFIGURED,
+        'Báo cáo này không phải khung nhiều biểu đồ.',
+      );
+    }
+
+    const visual = allVisuals(report.canvas).find((v) => v.id === visualId);
+    if (visual === undefined) throw notFound('Ô này không còn trong báo cáo.');
+
+    const body: ReportDataDto = await aggregateFromModel(
+      auth.tenantId,
+      auth.userId,
+      report.datamodelId,
+      visual.config,
+      page ?? 0,
+    );
+    res.json(body);
+  }),
+);
+
 v1Router.patch(
   '/reports/:id',
   authorize('report', 'modify'),
@@ -843,7 +1121,7 @@ v1Router.patch(
     // trở lại trạng thái "chưa có biểu đồ" và không có đường nào dựng lại.
     if (existing.source === 'datamodel' || existing.datasetId === null) {
       throw badRequest(
-        'Báo cáo dựng trên mô hình dữ liệu chưa sửa được ở đây. Hãy tạo báo cáo mới từ mô hình.',
+        'Báo cáo dựng trên mô hình dữ liệu sửa ở đường riêng: PATCH /reports/:id/from-datamodel.',
       );
     }
 
@@ -854,6 +1132,92 @@ v1Router.patch(
       name: body.name,
       chartType: body.chartType,
       config: body.config,
+    });
+
+    res.json(await reportsRepo.findById(mysqlPool, tenantId, id));
+  }),
+);
+
+/**
+ * Sửa một báo cáo dựng trên MÔ HÌNH — §10.9.
+ *
+ * Cho tới trước bản này, báo cáo trên mô hình là thứ chỉ tạo được chứ không sửa
+ * được: `PATCH /reports/:id` từ chối thẳng nó, với lời khuyên "hãy tạo báo cáo
+ * mới". Lời khuyên đó chấp nhận được khi việc tạo chỉ tốn một hộp thoại năm ô;
+ * nó không còn chấp nhận được khi người dùng vừa dựng xong một biểu đồ trong
+ * trình dựng và chỉ muốn đổi bảng màu.
+ *
+ * KHÔNG nhận `datamodelId`: nguồn của báo cáo cố định từ lúc tạo. Xem
+ * `updateModelReportBodySchema`.
+ */
+v1Router.patch(
+  '/reports/:id/from-datamodel',
+  authorize('report', 'modify'),
+  asyncHandler(async (req, res) => {
+    const { tenantId } = requireAuth(req);
+    const { id } = idParamSchema.parse(req.params);
+    const body = updateModelReportBodySchema.parse(req.body);
+
+    const existing = await reportsRepo.findById(mysqlPool, tenantId, id);
+    if (!existing) throw notFound('Không tìm thấy báo cáo này.');
+
+    // Ngược chiều với nhánh kia, và cũng cùng lý do: ghi cấu hình dạng ID lên
+    // một báo cáo dựng trên bộ dữ liệu sẽ làm `parseConfig` đọc ra `null`, tức
+    // xoá trắng biểu đồ mà không báo gì.
+    if (existing.source !== 'datamodel' || existing.datamodelId === null) {
+      throw badRequest(
+        'Báo cáo này dựng trên bộ dữ liệu, không phải mô hình. Sửa nó ở PATCH /reports/:id.',
+      );
+    }
+
+    await assertModelChartConfig(tenantId, existing.datamodelId, body.chartType, body.config);
+
+    await reportsRepo.updateModelReport(mysqlPool, tenantId, id, {
+      name: body.name,
+      chartType: body.chartType,
+      config: body.config,
+    });
+
+    res.json(await reportsRepo.findById(mysqlPool, tenantId, id));
+  }),
+);
+
+/**
+ * Sửa một báo cáo NHIỀU biểu đồ — §10.10.
+ *
+ * ⚠️ Đây cũng là đường CHUYỂN ĐỔI: gọi nó trên một báo cáo một-biểu-đồ sẽ ghi
+ * cột `canvas` và biến nó thành báo cáo nhiều biểu đồ. Cố ý, và đó là cách một
+ * báo cáo dựng ở §10.9 thêm được ô thứ hai mà không phải tạo lại từ đầu.
+ *
+ * Chuyển đổi này MỘT CHIỀU — không có đường ngược. Không mất gì: ô đầu tiên
+ * mang đúng cấu hình cũ, và `updateCanvasReport` vẫn chép nó vào
+ * `chart_type`/`config` nên mọi thứ đọc hai cột đó vẫn đọc ra biểu đồ cũ.
+ */
+v1Router.patch(
+  '/reports/:id/canvas',
+  authorize('report', 'modify'),
+  asyncHandler(async (req, res) => {
+    const { tenantId } = requireAuth(req);
+    const { id } = idParamSchema.parse(req.params);
+    const body = updateCanvasReportBodySchema.parse(req.body);
+
+    const existing = await reportsRepo.findById(mysqlPool, tenantId, id);
+    if (!existing) throw notFound('Không tìm thấy báo cáo này.');
+
+    if (existing.source !== 'datamodel' || existing.datamodelId === null) {
+      throw badRequest(
+        'Báo cáo này dựng trên bộ dữ liệu, không phải mô hình. Sửa nó ở PATCH /reports/:id.',
+      );
+    }
+
+    const fields = await explorerFields(tenantId, existing.datamodelId);
+    for (const visual of allVisuals(body.canvas)) {
+      assertChartConfigAgainst(fields, visual.chartType, visual.config);
+    }
+
+    await reportsRepo.updateCanvasReport(mysqlPool, tenantId, id, {
+      name: body.name,
+      canvas: body.canvas,
     });
 
     res.json(await reportsRepo.findById(mysqlPool, tenantId, id));
@@ -1055,7 +1419,8 @@ v1Router.get(
     };
 
     const total = await adminMembersRepo.countMembers(mysqlPool, tenantId, filter);
-    const items = total === 0 ? [] : await adminMembersRepo.listMembers(mysqlPool, tenantId, filter);
+    const items =
+      total === 0 ? [] : await adminMembersRepo.listMembers(mysqlPool, tenantId, filter);
     res.json(buildPageResult(items, total, query.page, query.pageSize));
   }),
 );
@@ -1350,7 +1715,9 @@ v1Router.post(
       },
     );
 
-    res.status(201).json(await connectionsRepo.findOne(mysqlPool, auth.tenantId, id, viewerOf(req)));
+    res
+      .status(201)
+      .json(await connectionsRepo.findOne(mysqlPool, auth.tenantId, id, viewerOf(req)));
   }),
 );
 
@@ -1879,7 +2246,7 @@ v1Router.patch(
      * lưu — một lỗi không có thông báo nào và chỉ lộ ra khi người dùng quay lại
      * nhìn.
      */
-    const keep = <T,>(sent: T | undefined, current: T): T => (sent === undefined ? current : sent);
+    const keep = <T>(sent: T | undefined, current: T): T => (sent === undefined ? current : sent);
     const blankToNull = (value: string | null): string | null =>
       value === null || value.trim() === '' ? null : value;
 
@@ -2135,7 +2502,9 @@ v1Router.patch(
       await regenerateTenant(tenantId);
 
       res.json(
-        (await datamodelsRepo.listMeasures(mysqlPool, tenantId, id)).find((m) => m.id === measureId),
+        (await datamodelsRepo.listMeasures(mysqlPool, tenantId, id)).find(
+          (m) => m.id === measureId,
+        ),
       );
     } catch (err) {
       throw asDuplicateMeasureName(err);
@@ -2610,11 +2979,7 @@ v1Router.get(
     // 404 cho đơn của tổ chức khác, KHÔNG phải 403 — cùng quy ước với cả repo.
     // 403 là một lời xác nhận rằng mã đó có tồn tại.
     if (order === null) {
-      throw new HttpError(
-        404,
-        BILLING_ERROR_CODES.ORDER_NOT_FOUND,
-        'Không tìm thấy đơn hàng này.',
-      );
+      throw new HttpError(404, BILLING_ERROR_CODES.ORDER_NOT_FOUND, 'Không tìm thấy đơn hàng này.');
     }
 
     res.json(order);
@@ -2644,11 +3009,7 @@ v1Router.get(
 
     const order = await billingRepo.findOrderByCode(mysqlPool, auth.tenantId, code);
     if (order === null) {
-      throw new HttpError(
-        404,
-        BILLING_ERROR_CODES.ORDER_NOT_FOUND,
-        'Không tìm thấy đơn hàng này.',
-      );
+      throw new HttpError(404, BILLING_ERROR_CODES.ORDER_NOT_FOUND, 'Không tìm thấy đơn hàng này.');
     }
 
     res.json({
@@ -2689,6 +3050,48 @@ v1Router.post(
     }
 
     res.status(204).end();
+  }),
+);
+
+/**
+ * §10.9 — số liệu XEM TRƯỚC cho trình dựng biểu đồ.
+ *
+ * ═══ Vì sao không để trình dựng gọi thẳng `/query` ══════════════════════════
+ *
+ * Nó gọi được: `/query` trả về đủ chiều, thước đo và số. Nhưng hình dạng trả về
+ * là một ma trận cột × dòng, còn `GET /reports/:id/data` trả về `ReportDataDto`
+ * — nhãn, giá trị, chuỗi, cờ đã cắt. Hai hình dạng nghĩa là hai hàm dựng spec
+ * Vega ở frontend, và chúng sẽ trôi khỏi nhau: biểu đồ xem trước đẹp, biểu đồ
+ * đã lưu lệch một chi tiết mà không ai ngờ tới cho tới khi bấm Lưu.
+ *
+ * Endpoint này gọi ĐÚNG `aggregateFromModel` mà báo cáo đã lưu sẽ gọi. Nên thứ
+ * người dùng thấy trong trình dựng là thứ họ sẽ thấy sau khi lưu — kể cả dòng
+ * "Khác", kể cả thứ tự nhóm, kể cả cách một ô trống được đặt tên.
+ *
+ * Quyền `datamodel:read` chứ không phải `report:modify`: nó không tạo ra gì cả,
+ * nó chỉ đọc mô hình theo một cách khác. Ai mở được tab Explorer thì xem trước
+ * được biểu đồ trên cùng dữ liệu đó.
+ */
+v1Router.post(
+  '/datamodels/:id/report-preview',
+  authorize('datamodel', 'read'),
+  asyncHandler(async (req, res) => {
+    const auth = requireAuth(req);
+    const { id } = idParamSchema.parse(req.params);
+    const body = modelReportPreviewBodySchema.parse(req.body);
+
+    // Kiểm y hệt lúc lưu. Xem trước một cấu hình mà nút Lưu sẽ từ chối là cách
+    // chắc chắn nhất để người dùng mất lòng tin vào cả hai nút.
+    await assertModelChartConfig(auth.tenantId, id, body.chartType, body.config);
+
+    const data: ReportDataDto = await aggregateFromModel(
+      auth.tenantId,
+      auth.userId,
+      id,
+      body.config,
+      body.page ?? 0,
+    );
+    res.json(data);
   }),
 );
 

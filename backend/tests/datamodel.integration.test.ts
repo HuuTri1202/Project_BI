@@ -1,4 +1,5 @@
-﻿import type { RowDataPacket } from 'mysql2';
+import { CANVAS_MAX_PAGES, CANVAS_MAX_VISUALS, DATAMODEL_ERROR_CODES } from '@bi/shared';
+import type { RowDataPacket } from 'mysql2';
 import request from 'supertest';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 
@@ -70,11 +71,7 @@ async function makeLoadedDataset(
 }
 
 /** Mô hình dựng thẳng bằng SQL, bỏ qua bước đọc ClickHouse. */
-async function makeModel(
-  tenantId: number,
-  workspaceId: number,
-  name: string,
-): Promise<number> {
+async function makeModel(tenantId: number, workspaceId: number, name: string): Promise<number> {
   const [result] = await mysqlPool.query(
     'INSERT INTO datamodels (tenant_id, workspace_id, name) VALUES (?, ?, ?)',
     [tenantId, workspaceId, name],
@@ -179,6 +176,11 @@ describe('§10 phân quyền theo bảng route', () => {
     ['patch', '/api/v1/datamodels/1/layout'],
     ['get', '/api/v1/datamodels'],
     ['get', '/api/v1/datamodels/1'],
+    // §10.9 — xem trước biểu đồ trong trình dựng. Gác bằng `datamodel:read`
+    // chứ không `report:modify`: nó không tạo ra gì, nó chỉ hỏi mô hình theo
+    // một cách khác. Nên nó thuộc đúng bảng này, và viewer bị chặn cùng lý do
+    // với Explorer — đây là khả năng tự đặt câu hỏi MỚI trên dữ liệu.
+    ['post', '/api/v1/datamodels/1/report-preview'],
   ];
 
   function call(method: Method, path: string): request.Test {
@@ -238,8 +240,12 @@ describe('§10 cách ly tổ chức', () => {
     ).toBe(404);
     expect((await request(app).delete(`/api/v1/datamodels/${id}`).set(token)).status).toBe(404);
     expect(
-      (await request(app).patch(`/api/v1/datamodels/${id}/layout`).set(token).send({ positions: [] }))
-        .status,
+      (
+        await request(app)
+          .patch(`/api/v1/datamodels/${id}/layout`)
+          .set(token)
+          .send({ positions: [] })
+      ).status,
     ).toBe(404);
     // 404 chứ KHÔNG 403: 403 xác nhận rằng id đó có tồn tại, và một vòng lặp
     // thử id là một cách đếm số mô hình của tổ chức khác.
@@ -353,9 +359,7 @@ describe('§10 vòng đời mô hình', () => {
   });
 
   it('chi tiết trả về đủ bốn phần cho bốn tab', async () => {
-    const res = await request(app)
-      .get(`/api/v1/datamodels/${f.modelA}`)
-      .set(bearer(f.tokenAdminA));
+    const res = await request(app).get(`/api/v1/datamodels/${f.modelA}`).set(bearer(f.tokenAdminA));
 
     expect(res.status).toBe(200);
     expect(res.body.datasets).toEqual([]);
@@ -596,9 +600,7 @@ describe('§10.8 tạo báo cáo từ mô hình', () => {
     const reportId = taoRes.body.id as number;
 
     // Metadata: 200 tròn trịa. `authorize('report', 'read')` cho viewer qua.
-    const meta = await request(app)
-      .get(`/api/v1/reports/${reportId}`)
-      .set(bearer(f.tokenViewerA));
+    const meta = await request(app).get(`/api/v1/reports/${reportId}`).set(bearer(f.tokenViewerA));
     expect(meta.status).toBe(200);
     expect(meta.body.source).toBe('datamodel');
 
@@ -607,5 +609,1114 @@ describe('§10.8 tạo báo cáo từ mô hình', () => {
       .get(`/api/v1/reports/${reportId}/data`)
       .set(bearer(f.tokenViewerA));
     expect(data.status, `phải không phải 403, nhận ${data.status}`).not.toBe(403);
+  });
+});
+
+/**
+ * Trình dựng biểu đồ — §10.9.
+ *
+ * Cùng giới hạn với khối §10.8 ngay trên: không ca nào ra được con số thật, vì
+ * `modelA` chưa có bảng nào trong ClickHouse. Nhưng ba thứ §10.9 thêm vào đều
+ * kiểm được mà không cần kho, và cả ba đều thuộc loại hỏng im lặng:
+ *
+ *   - luật của chiều THỨ HAI (bắt buộc / bị cấm / phải khác chiều chính),
+ *   - `config` mở rộng có ĐI TRỌN vòng lưu-rồi-đọc-lại hay không,
+ *   - đường SỬA mới, và ranh giới của nó với đường sửa của báo cáo bộ dữ liệu.
+ *
+ * Vế thứ hai đáng một ca riêng vì `parseModelConfig` đọc JSON bằng tay: một
+ * trường mới không được nhắc tới ở đó sẽ biến mất lúc đọc lại, và triệu chứng
+ * là "lưu xong mở lại thì mất định dạng" — không lỗi, không log.
+ */
+describe('§10.9 trình dựng biểu đồ', () => {
+  /** Mô hình có hai chiều thật và một thước đo thật — đủ để thả vào cả ba ô. */
+  async function fields(): Promise<{ dims: number[]; measureId: number }> {
+    const { refId, columnIds } = await attachDataset(f.tenantA, f.modelA, f.datasetA);
+    const res = await request(app)
+      .post(`/api/v1/datamodels/${f.modelA}/measures`)
+      .set(bearer(f.tokenAdminA))
+      .send({ datamodelDatasetId: refId, name: 'Số dòng', agg: 'count' });
+    expect(res.status).toBe(201);
+    return { dims: columnIds, measureId: res.body.id as number };
+  }
+
+  function tao(payload: Record<string, unknown>): request.Test {
+    return request(app)
+      .post('/api/v1/reports/from-datamodel')
+      .set(bearer(f.tokenAdminA))
+      .send(payload);
+  }
+
+  it('chiều nhóm màu TRÙNG chiều trên trục -> 400', async () => {
+    // Nó chạy được về mặt SQL, và đó mới là vấn đề: kết quả là một chuỗi trên
+    // mỗi nhóm, tức một biểu đồ trông y hệt biểu đồ một chuỗi nhưng tốn gấp đôi
+    // truy vấn và kèm một chú giải chép lại đúng trục ngang.
+    const { dims, measureId } = await fields();
+    const res = await tao({
+      datamodelId: f.modelA,
+      name: 'Trùng chiều',
+      chartType: 'bar',
+      config: { dimensionId: dims[0], measureId, limit: 10, seriesDimensionId: dims[0] },
+    });
+
+    expect(res.status).toBe(400);
+    expect(res.body.message).toContain('nhóm màu');
+  });
+
+  it('bản đồ nhiệt THIẾU chiều thứ hai -> 400', async () => {
+    // Loại duy nhất BẮT BUỘC có chiều thứ hai: thiếu nó thì không có ô nào để
+    // tô, và Vega vẽ ra một dải một hàng chứ không báo lỗi.
+    const { dims, measureId } = await fields();
+    const res = await tao({
+      datamodelId: f.modelA,
+      name: 'Nhiệt thiếu trục',
+      chartType: 'heatmap',
+      config: { dimensionId: dims[0], measureId, limit: 10 },
+    });
+
+    expect(res.status).toBe(400);
+  });
+
+  it('biểu đồ tròn KHÔNG nhận chiều thứ hai -> 400', async () => {
+    const { dims, measureId } = await fields();
+    const res = await tao({
+      datamodelId: f.modelA,
+      name: 'Tròn có chuỗi',
+      chartType: 'pie',
+      config: { dimensionId: dims[0], measureId, limit: 10, seriesDimensionId: dims[1] },
+    });
+
+    expect(res.status).toBe(400);
+  });
+
+  it('chiều nhóm màu không thuộc mô hình -> 400', async () => {
+    const { dims, measureId } = await fields();
+    const res = await tao({
+      datamodelId: f.modelA,
+      name: 'Chuỗi lạ',
+      chartType: 'bar',
+      config: { dimensionId: dims[0], measureId, limit: 10, seriesDimensionId: 999_999 },
+    });
+
+    expect(res.status).toBe(400);
+  });
+
+  /**
+   * §10.19 — trường vừa bị sửa khỏi mô hình trong lúc trình dựng đang mở.
+   *
+   * Nút "Sửa mô hình" mở trang mô hình ở tab bên cạnh, nên đây là đường đi
+   * chính chứ không còn là chuyện hiếm. Hai điều bị khoá:
+   *
+   *   - MÃ `DataModelFieldUnknown`, không phải `BadRequest` chung. Trình dựng
+   *     dựa vào mã này để tự đọc lại bảng trường.
+   *   - Câu lỗi KHÔNG khuyên tải lại trang. Mọi đường tới đây đều từ trình dựng,
+   *     nơi tải lại là bỏ cả khung chưa lưu.
+   *
+   * Thước đo bị xoá THẬT sau khi đã dùng được, đúng như người dùng làm ở tab
+   * bên cạnh — không phải một id bịa ra.
+   */
+  it('trường vừa bị xoá khỏi mô hình -> FIELD_UNKNOWN, ở cả XEM TRƯỚC lẫn LƯU, không bảo tải lại trang', async () => {
+    const { dims, measureId } = await fields();
+    const config = { dimensionId: dims[0], measureId, limit: 10 };
+
+    const xoa = await request(app)
+      .delete(`/api/v1/datamodels/${f.modelA}/measures/${measureId}`)
+      .set(bearer(f.tokenAdminA));
+    expect(xoa.status).toBe(204);
+
+    const cases: { label: string; res: request.Response }[] = [
+      {
+        label: 'xem trước, thước đo vừa xoá',
+        res: await request(app)
+          .post(`/api/v1/datamodels/${f.modelA}/report-preview`)
+          .set(bearer(f.tokenAdminA))
+          .send({ chartType: 'bar', config }),
+      },
+      {
+        label: 'lưu, thước đo vừa xoá',
+        res: await tao({ datamodelId: f.modelA, name: 'Mất thước đo', chartType: 'bar', config }),
+      },
+      {
+        label: 'xem trước, chiều không còn',
+        res: await request(app)
+          .post(`/api/v1/datamodels/${f.modelA}/report-preview`)
+          .set(bearer(f.tokenAdminA))
+          .send({ chartType: 'bar', config: { ...config, dimensionId: 999_999 } }),
+      },
+    ];
+
+    for (const { label, res } of cases) {
+      expect(res.status, label).toBe(400);
+      expect(res.body.error, label).toBe(DATAMODEL_ERROR_CODES.FIELD_UNKNOWN);
+      expect(res.body.message, label).toContain('không còn trong mô hình');
+      expect(res.body.message, label).toContain('chọn trường khác');
+      expect(res.body.message, label).not.toMatch(/tải lại/i);
+    }
+  });
+
+  it('tuỳ chọn trình bày viết sai tên bị TỪ CHỐI, không lưu im lặng', async () => {
+    // `.strict()` ở zod. Nhận bừa thì trường đó nằm trong `config` mãi mãi và
+    // không bao giờ có tác dụng — người dùng bật một công tắc không nối vào đâu.
+    const { dims, measureId } = await fields();
+    const res = await tao({
+      datamodelId: f.modelA,
+      name: 'Sai tên tuỳ chọn',
+      chartType: 'bar',
+      config: { dimensionId: dims[0], measureId, limit: 10, options: { stack: true } },
+    });
+
+    expect(res.status).toBe(400);
+  });
+
+  it('chiều thứ hai và tuỳ chọn ĐI TRỌN vòng lưu rồi đọc lại', async () => {
+    const { dims, measureId } = await fields();
+    const created = await tao({
+      datamodelId: f.modelA,
+      name: 'Doanh thu theo vùng và năm',
+      chartType: 'hbar',
+      config: {
+        dimensionId: dims[0],
+        measureId,
+        limit: 25,
+        seriesDimensionId: dims[1],
+        options: {
+          stacked: false,
+          showLegend: true,
+          showValues: true,
+          sort: 'label',
+          palette: 'dark',
+        },
+      },
+    });
+    expect(created.status).toBe(201);
+
+    const back = await request(app)
+      .get(`/api/v1/reports/${created.body.id}`)
+      .set(bearer(f.tokenAdminA));
+
+    expect(back.status).toBe(200);
+    expect(back.body.chartType).toBe('hbar');
+    expect(back.body.modelConfig).toMatchObject({
+      dimensionId: dims[0],
+      measureId,
+      limit: 25,
+      seriesDimensionId: dims[1],
+      options: { stacked: false, showValues: true, sort: 'label', palette: 'dark' },
+    });
+  });
+
+  it('"giữ lại nhóm nào" đi trọn vòng, và mặc định là nhóm LỚN nhất', async () => {
+    // `pick` đổi câu hỏi gửi xuống Cube, nên nó phải nằm trong `config` chứ
+    // không trong `options`. Ca này khoá đúng ranh giới đó: nếu ai đó chuyển nó
+    // sang `options` thì `.strict()` của `reportChartOptionsSchema` sẽ từ chối,
+    // và `modelConfig.pick` ở dưới sẽ vắng mặt.
+    const { dims, measureId } = await fields();
+
+    const nhoNhat = await tao({
+      datamodelId: f.modelA,
+      name: 'Năm nhóm nhỏ nhất',
+      chartType: 'bar',
+      config: { dimensionId: dims[0], measureId, limit: 5, pick: 'bottom' },
+    });
+    expect(nhoNhat.status).toBe(201);
+    expect(nhoNhat.body.modelConfig.pick).toBe('bottom');
+
+    // Không gửi cờ = giữ nhóm lớn nhất, tức hành vi của mọi báo cáo lưu trước
+    // bản này. Một mặc định khác ở đây là lặng lẽ đổi số liệu của cả kho báo cáo.
+    const macDinh = await tao({
+      datamodelId: f.modelA,
+      name: 'Không gửi cờ',
+      chartType: 'bar',
+      config: { dimensionId: dims[0], measureId, limit: 5 },
+    });
+    expect(macDinh.status).toBe(201);
+    expect(macDinh.body.modelConfig.pick).toBe('top');
+
+    const bay = await tao({
+      datamodelId: f.modelA,
+      name: 'Giữ nhóm bịa',
+      chartType: 'bar',
+      config: { dimensionId: dims[0], measureId, limit: 5, pick: 'giua' },
+    });
+    expect(bay.status).toBe(400);
+  });
+
+  it('bốn cách sắp trục đều lưu được, và chỉ bốn cách đó', async () => {
+    // `reportChartOptionsSchema` lấy danh sách từ `CHART_SORTS` của `shared`,
+    // cùng chỗ ô chọn bên trình dựng đọc. Ca này khoá cái nối đó: chép tay danh
+    // sách ở một trong hai bên thì người dùng chọn một dòng có thật và nhận về
+    // 400, hoặc lưu được một giá trị mà trình vẽ không hiểu.
+    const { dims, measureId } = await fields();
+
+    for (const sort of ['value', 'value-asc', 'label', 'label-desc']) {
+      const created = await tao({
+        datamodelId: f.modelA,
+        name: `Sắp ${sort}`,
+        chartType: 'bar',
+        config: { dimensionId: dims[0], measureId, limit: 10, options: { sort } },
+      });
+
+      expect(created.status, sort).toBe(201);
+      expect(created.body.modelConfig.options.sort, sort).toBe(sort);
+    }
+
+    const bay = await tao({
+      datamodelId: f.modelA,
+      name: 'Sắp bịa',
+      chartType: 'bar',
+      config: { dimensionId: dims[0], measureId, limit: 10, options: { sort: 'ngau-nhien' } },
+    });
+    expect(bay.status).toBe(400);
+  });
+
+  it('bảng màu CŨ vẫn lưu lại được, dù bộ chọn không còn mời nó', async () => {
+    // Báo cáo đã lưu mang `palette: 'pastel'` trong cột `config`; mở ra rồi bấm
+    // Lưu là gửi lại chính nó. Bỏ khỏi `z.enum` thì mọi báo cáo cũ trở thành
+    // không sửa nổi — chúng vẫn hiện ra, vẫn cho bấm Lưu, và Lưu luôn trả 400.
+    const { dims, measureId } = await fields();
+
+    for (const palette of ['tableau10', 'tableau20', 'pastel', 'dark', 'powerbi', 'teal']) {
+      const res = await tao({
+        datamodelId: f.modelA,
+        name: `Màu ${palette}`,
+        chartType: 'bar',
+        config: { dimensionId: dims[0], measureId, limit: 10, options: { palette } },
+      });
+
+      expect(res.status, palette).toBe(201);
+      expect(res.body.modelConfig.options.palette, palette).toBe(palette);
+    }
+  });
+
+  it('báo cáo §10.8 cũ (không có hai trường mới) vẫn đọc ra được', async () => {
+    // Mọi dòng đã lưu trước bản này đều thiếu `seriesDimensionId` và `options`.
+    // `parseModelConfig` phải đọc chúng thành một báo cáo một chuỗi bình thường,
+    // không phải thành `null` — `null` nghĩa là "chưa có biểu đồ", tức cả kho
+    // báo cáo cũ trắng xoá.
+    const { dims, measureId } = await fields();
+    const created = await tao({
+      datamodelId: f.modelA,
+      name: 'Kiểu cũ',
+      chartType: 'bar',
+      config: { dimensionId: dims[0], measureId, limit: 10 },
+    });
+    expect(created.status).toBe(201);
+
+    const back = await request(app)
+      .get(`/api/v1/reports/${created.body.id}`)
+      .set(bearer(f.tokenAdminA));
+
+    expect(back.body.modelConfig).toMatchObject({ dimensionId: dims[0], measureId, limit: 10 });
+    expect(back.body.modelConfig.seriesDimensionId).toBeNull();
+  });
+
+  it('sửa được: đổi loại biểu đồ, thêm chiều thứ hai, đổi tên', async () => {
+    const { dims, measureId } = await fields();
+    const created = await tao({
+      datamodelId: f.modelA,
+      name: 'Bản đầu',
+      chartType: 'bar',
+      config: { dimensionId: dims[0], measureId, limit: 10 },
+    });
+    expect(created.status).toBe(201);
+
+    const res = await request(app)
+      .patch(`/api/v1/reports/${created.body.id}/from-datamodel`)
+      .set(bearer(f.tokenAdminA))
+      .send({
+        name: 'Bản sửa',
+        chartType: 'area',
+        config: {
+          dimensionId: dims[0],
+          measureId,
+          limit: 50,
+          seriesDimensionId: dims[1],
+          options: { stacked: true },
+        },
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body.name).toBe('Bản sửa');
+    expect(res.body.chartType).toBe('area');
+    expect(res.body.modelConfig.seriesDimensionId).toBe(dims[1]);
+    expect(res.body.modelConfig.limit).toBe(50);
+  });
+
+  it('sửa bằng cấu hình vẫn phải HỢP LỆ — không có cửa sau', async () => {
+    // Đường sửa dùng chung `assertModelChartConfig` với đường tạo. Lệch một
+    // luật ở đây thì trình dựng cho lưu một cấu hình mà chính nó từ chối tạo.
+    const { dims, measureId } = await fields();
+    const created = await tao({
+      datamodelId: f.modelA,
+      name: 'Bản đầu',
+      chartType: 'bar',
+      config: { dimensionId: dims[0], measureId, limit: 10 },
+    });
+
+    const res = await request(app)
+      .patch(`/api/v1/reports/${created.body.id}/from-datamodel`)
+      .set(bearer(f.tokenAdminA))
+      .send({
+        name: 'Hỏng',
+        chartType: 'heatmap',
+        config: { dimensionId: dims[0], measureId, limit: 10 },
+      });
+
+    expect(res.status).toBe(400);
+  });
+
+  it('đường sửa cũ KHÔNG ghi đè được báo cáo trên mô hình', async () => {
+    // Hai hình dạng `config` không giao nhau. Ghi nhầm bên nào cũng cho ra một
+    // báo cáo mà bên đọc tương ứng phân giải thành `null` — mất biểu đồ, không
+    // một dòng lỗi nào.
+    const { dims, measureId } = await fields();
+    const created = await tao({
+      datamodelId: f.modelA,
+      name: 'Trên mô hình',
+      chartType: 'bar',
+      config: { dimensionId: dims[0], measureId, limit: 10 },
+    });
+
+    const res = await request(app)
+      .patch(`/api/v1/reports/${created.body.id}`)
+      .set(bearer(f.tokenAdminA))
+      .send({
+        name: 'Ghi đè bằng tên cột',
+        chartType: 'bar',
+        config: { dimension: 'ma_don', measure: null, aggregate: 'count', limit: 10 },
+      });
+
+    expect(res.status).toBe(400);
+  });
+
+  it('mô hình của tổ chức khác không xem trước được -> 404', async () => {
+    const res = await request(app)
+      .post(`/api/v1/datamodels/${f.modelB}/report-preview`)
+      .set(bearer(f.tokenAdminA))
+      .send({ chartType: 'bar', config: { dimensionId: 1, measureId: 1, limit: 10 } });
+
+    // `assertModelChartConfig` gọi `explorerFields`, và hàm đó tra mô hình
+    // TRONG phạm vi tổ chức trước khi làm bất cứ việc gì khác.
+    expect(res.status).toBe(404);
+  });
+});
+
+/**
+ * Khung nhiều biểu đồ — §10.10.
+ *
+ * Dùng lại đúng bộ đồ nghề của §10.9 (`modelA` + `attachDataset` + một thước đo
+ * `count`), vì phần được kiểm ở đây nằm hoàn toàn ở tầng CẤU HÌNH: hình dạng
+ * khung, luật của từng ô, và ranh giới với báo cáo một biểu đồ. Không ca nào
+ * cần ClickHouse trả về số thật — việc đó đã được chứng minh bằng tay trên dữ
+ * liệu thật, và buộc nó vào CI sẽ biến một bộ test cấu hình thành một bộ test
+ * hạ tầng.
+ */
+describe('§10.10 khung nhiều biểu đồ', () => {
+  async function fields(): Promise<{ dims: number[]; measureId: number }> {
+    const { refId, columnIds } = await attachDataset(f.tenantA, f.modelA, f.datasetA);
+    const res = await request(app)
+      .post(`/api/v1/datamodels/${f.modelA}/measures`)
+      .set(bearer(f.tokenAdminA))
+      .send({ datamodelDatasetId: refId, name: 'Số dòng', agg: 'count' });
+    expect(res.status).toBe(201);
+    return { dims: columnIds, measureId: res.body.id as number };
+  }
+
+  /** Một ô mặc định — mọi ca chỉ ghi đè đúng thứ nó đang kiểm. */
+  function o(
+    id: string,
+    dimensionId: number | undefined,
+    measureId: number,
+    extra: Record<string, unknown> = {},
+  ): Record<string, unknown> {
+    return {
+      id,
+      chartType: 'bar',
+      config: { dimensionId, measureId, limit: 10 },
+      x: 0,
+      y: 0,
+      w: 6,
+      h: 6,
+      ...extra,
+    };
+  }
+
+  function taoKhung(visuals: Record<string, unknown>[], name = 'Khung'): request.Test {
+    return request(app)
+      .post('/api/v1/reports/canvas')
+      .set(bearer(f.tokenAdminA))
+      .send({ datamodelId: f.modelA, name, canvas: { visuals } });
+  }
+
+  it('tạo khung ba ô — vị trí và tiêu đề riêng đi qua nguyên vẹn', async () => {
+    const { dims, measureId } = await fields();
+    const res = await taoKhung([
+      o('a', dims[0], measureId, { x: 0, y: 0, w: 4, h: 7 }),
+      o('b', dims[1], measureId, { x: 4, y: 0, w: 8, h: 7, title: 'Tên riêng' }),
+      o('c', dims[0], measureId, { x: 0, y: 7, w: 12, h: 5, chartType: 'table' }),
+    ]);
+
+    expect(res.status).toBe(201);
+    // Gửi hình dạng CŨ (`{ visuals }`), nhận về hình dạng mới: đường ghi vẫn
+    // nhận cả hai, và đường đọc luôn quy về một trang. Xem `reportCanvasSchema`.
+    expect(res.body.canvas.pages).toHaveLength(1);
+    const oCua = res.body.canvas.pages[0].visuals;
+    expect(oCua).toHaveLength(3);
+    expect(oCua[1]).toMatchObject({ x: 4, w: 8, title: 'Tên riêng' });
+    expect(oCua[2].chartType).toBe('table');
+  });
+
+  it('ô ĐẦU TIÊN được chép sang chart_type/config để đường cũ còn đọc được', async () => {
+    // Đây là hợp đồng giữ cho mọi thứ viết trước §10.10 chạy tiếp: danh sách báo
+    // cáo, `GET /reports/:id/data`, và bất kỳ client cũ nào. Bỏ bản sao đi thì
+    // một khung vừa lưu xong hiện ra là "Chưa có biểu đồ".
+    const { dims, measureId } = await fields();
+    const res = await taoKhung([
+      o('a', dims[0], measureId, { chartType: 'pie' }),
+      o('b', dims[1], measureId, { chartType: 'line', x: 6 }),
+    ]);
+
+    expect(res.status).toBe(201);
+    expect(res.body.chartType).toBe('pie');
+    expect(res.body.modelConfig).toMatchObject({ dimensionId: dims[0], measureId });
+  });
+
+  it('MỘT ô sai làm hỏng cả lần lưu — không lưu một nửa', async () => {
+    // Ô thứ hai là bản đồ nhiệt thiếu chiều thứ hai. Lưu ô hợp lệ rồi lặng lẽ bỏ
+    // ô sai sẽ cho người dùng một khung khác thứ họ vừa dựng.
+    const { dims, measureId } = await fields();
+    const res = await taoKhung([
+      o('ok', dims[0], measureId),
+      o('bad', dims[0], measureId, { chartType: 'heatmap', x: 6 }),
+    ]);
+
+    expect(res.status).toBe(400);
+  });
+
+  it('hai ô TRÙNG mã -> 400', async () => {
+    // Trùng mã thì `canvas-data` trả hai bản ghi cùng khoá và trình vẽ ghép số
+    // liệu vào nhầm ô: biểu đồ đúng hình, sai số. Không ai nhìn ra bằng mắt.
+    const { dims, measureId } = await fields();
+    const res = await taoKhung([o('same', dims[0], measureId), o('same', dims[1], measureId)]);
+
+    expect(res.status).toBe(400);
+  });
+
+  it('khung RỖNG -> 400', async () => {
+    const res = await taoKhung([]);
+    expect(res.status).toBe(400);
+  });
+
+  it('ô tràn khỏi lưới 12 cột -> 400', async () => {
+    const { dims, measureId } = await fields();
+    const res = await taoKhung([o('a', dims[0], measureId, { x: 12 })]);
+    expect(res.status).toBe(400);
+  });
+
+  it('bề rộng bị KẸP vào mép phải thay vì bị từ chối', async () => {
+    // Kéo một ô sang phải rồi nới rộng là thao tác bình thường, và trả 400 cho
+    // nó nghĩa là mất cả lần lưu vì một ô thò ra ngoài mép.
+    const { dims, measureId } = await fields();
+    const res = await taoKhung([o('a', dims[0], measureId, { x: 9, w: 6 })]);
+
+    expect(res.status).toBe(201);
+    expect(res.body.canvas.pages[0].visuals[0]).toMatchObject({ x: 9, w: 3 });
+  });
+
+  it('quá trần số ô -> 400', async () => {
+    const { dims, measureId } = await fields();
+    const many = Array.from({ length: CANVAS_MAX_VISUALS + 1 }, (_, i) =>
+      o(`v${i}`, dims[0], measureId),
+    );
+    const res = await taoKhung(many);
+
+    expect(res.status).toBe(400);
+  });
+
+  it('trường lạ trong ô bị TỪ CHỐI, không lưu im lặng', async () => {
+    const { dims, measureId } = await fields();
+    const res = await taoKhung([o('a', dims[0], measureId, { mauNen: 'do' })]);
+    expect(res.status).toBe(400);
+  });
+
+  it('canvas-data trên báo cáo MỘT biểu đồ -> 409, không phải 500', async () => {
+    const { dims, measureId } = await fields();
+    const created = await request(app)
+      .post('/api/v1/reports/from-datamodel')
+      .set(bearer(f.tokenAdminA))
+      .send({
+        datamodelId: f.modelA,
+        name: 'Một biểu đồ',
+        chartType: 'bar',
+        config: { dimensionId: dims[0], measureId, limit: 10 },
+      });
+    expect(created.status).toBe(201);
+    expect(created.body.canvas).toBeNull();
+
+    const res = await request(app)
+      .get(`/api/v1/reports/${created.body.id}/canvas-data`)
+      .set(bearer(f.tokenAdminA));
+
+    expect(res.status).toBe(409);
+    expect(res.body.error).toBe('ReportNotConfigured');
+  });
+
+  it('CHUYỂN ĐỔI: báo cáo một biểu đồ nhận thêm ô thứ hai', async () => {
+    // Đường để một báo cáo dựng ở §10.9 lớn lên thành khung, thay vì phải tạo
+    // lại từ đầu. Một chiều, và ô đầu tiên giữ nguyên cấu hình cũ.
+    const { dims, measureId } = await fields();
+    const created = await request(app)
+      .post('/api/v1/reports/from-datamodel')
+      .set(bearer(f.tokenAdminA))
+      .send({
+        datamodelId: f.modelA,
+        name: 'Sẽ thành khung',
+        chartType: 'bar',
+        config: { dimensionId: dims[0], measureId, limit: 10 },
+      });
+
+    const res = await request(app)
+      .patch(`/api/v1/reports/${created.body.id}/canvas`)
+      .set(bearer(f.tokenAdminA))
+      .send({
+        name: 'Đã thành khung',
+        canvas: { visuals: [o('a', dims[0], measureId), o('b', dims[1], measureId, { x: 6 })] },
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body.canvas.pages[0].visuals).toHaveLength(2);
+    // Bản sao vẫn được cập nhật, nên `GET /reports/:id/data` không mồ côi.
+    expect(res.body.modelConfig).toMatchObject({ dimensionId: dims[0] });
+  });
+
+  it('không ghi được khung lên báo cáo dựng trên BỘ DỮ LIỆU', async () => {
+    // Cấu hình dạng ID ghi lên một báo cáo dạng tên cột sẽ làm `parseConfig`
+    // đọc ra `null` — xoá trắng biểu đồ mà không báo gì.
+    const { dims, measureId } = await fields();
+    const onDataset = await request(app)
+      .post('/api/v1/reports')
+      .set(bearer(f.tokenAdminA))
+      .send({ datasetId: f.datasetA, name: 'Trên bộ dữ liệu' });
+    expect(onDataset.status).toBe(201);
+
+    const res = await request(app)
+      .patch(`/api/v1/reports/${onDataset.body.id}/canvas`)
+      .set(bearer(f.tokenAdminA))
+      .send({ name: 'Ép thành khung', canvas: { visuals: [o('a', dims[0], measureId)] } });
+
+    expect(res.status).toBe(400);
+  });
+
+  it('mô hình của tổ chức KHÁC không tạo khung được -> 404', async () => {
+    const res = await request(app)
+      .post('/api/v1/reports/canvas')
+      .set(bearer(f.tokenAdminA))
+      .send({
+        datamodelId: f.modelB,
+        name: 'Khung xuyên tổ chức',
+        canvas: { visuals: [o('a', 1, 1)] },
+      });
+
+    expect(res.status).toBe(404);
+  });
+
+  /* ─── §10.12 nhiều TRANG trên một báo cáo ─────────────────────────────────
+   *
+   * Cột `reports.canvas` là JSON và KHÔNG được migrate, nên hai hình dạng cùng
+   * tồn tại trên đĩa. Khối này khoá đúng chỗ đó: hình dạng cũ vẫn ghi được và
+   * đọc ra một trang, hình dạng mới đi trọn vòng, và ba luật của cả khung
+   * (trần trang, mã ô duy nhất XUYÊN trang, ít nhất một ô) thật sự chặn.
+   */
+  function taoTrang(pages: Record<string, unknown>[], name = 'Khung nhiều trang'): request.Test {
+    return request(app)
+      .post('/api/v1/reports/canvas')
+      .set(bearer(f.tokenAdminA))
+      .send({ datamodelId: f.modelA, name, canvas: { pages } });
+  }
+
+  it('hai trang ĐI TRỌN vòng lưu rồi đọc lại — tên và thứ tự giữ nguyên', async () => {
+    const { dims, measureId } = await fields();
+    const res = await taoTrang([
+      { id: 'p1', name: 'Tổng quan', visuals: [o('a', dims[0], measureId)] },
+      { id: 'p2', name: 'Chi tiết', visuals: [o('b', dims[1], measureId, { chartType: 'table' })] },
+    ]);
+
+    expect(res.status).toBe(201);
+    expect(res.body.canvas.pages.map((p: { name: string }) => p.name)).toEqual([
+      'Tổng quan',
+      'Chi tiết',
+    ]);
+    expect(res.body.canvas.pages[1].visuals[0].chartType).toBe('table');
+  });
+
+  it('trang RỖNG được giữ, miễn cả khung còn ít nhất một ô', async () => {
+    // Người ta thêm một trang TRƯỚC rồi mới dựng biểu đồ cho nó. Từ chối trang
+    // rỗng nghĩa là bấm Lưu giữa chừng sẽ làm biến mất trang vừa tạo.
+    const { dims, measureId } = await fields();
+    const res = await taoTrang([
+      { id: 'p1', name: 'Có ô', visuals: [o('a', dims[0], measureId)] },
+      { id: 'p2', name: 'Chưa dựng gì', visuals: [] },
+    ]);
+
+    expect(res.status).toBe(201);
+    expect(res.body.canvas.pages).toHaveLength(2);
+    expect(res.body.canvas.pages[1].visuals).toHaveLength(0);
+  });
+
+  it('MỌI trang đều rỗng -> 400', async () => {
+    const res = await taoTrang([
+      { id: 'p1', name: 'Một', visuals: [] },
+      { id: 'p2', name: 'Hai', visuals: [] },
+    ]);
+    expect(res.status).toBe(400);
+  });
+
+  it('hai ô trùng mã ở HAI TRANG KHÁC NHAU -> 400', async () => {
+    // Duy nhất trong phạm vi một trang là KHÔNG đủ: chuyển ô sang trang khác là
+    // thao tác bình thường và nó mang mã cũ đi theo. Trùng mã thì
+    // `canvas-data` trả hai bản ghi cùng khoá và trình vẽ ghép nhầm số liệu.
+    const { dims, measureId } = await fields();
+    const res = await taoTrang([
+      { id: 'p1', name: 'Một', visuals: [o('same', dims[0], measureId)] },
+      { id: 'p2', name: 'Hai', visuals: [o('same', dims[1], measureId)] },
+    ]);
+
+    expect(res.status).toBe(400);
+  });
+
+  it('quá trần số trang -> 400', async () => {
+    const { dims, measureId } = await fields();
+    const many = Array.from({ length: CANVAS_MAX_PAGES + 1 }, (_, i) => ({
+      id: `p${i}`,
+      name: `Trang ${i}`,
+      visuals: [o(`v${i}`, dims[0], measureId)],
+    }));
+
+    expect((await taoTrang(many)).status).toBe(400);
+  });
+
+  it('ô đầu tiên chép sang chart_type/config kể cả khi TRANG ĐẦU rỗng', async () => {
+    // Soi đúng `pages[0].visuals[0]` sẽ ghi NULL ở đây, và báo cáo vừa lưu xong
+    // hiện ra là "Chưa có biểu đồ" ở trang danh sách.
+    const { dims, measureId } = await fields();
+    const res = await taoTrang([
+      { id: 'p1', name: 'Trống', visuals: [] },
+      { id: 'p2', name: 'Có ô', visuals: [o('a', dims[0], measureId, { chartType: 'pie' })] },
+    ]);
+
+    expect(res.status).toBe(201);
+    expect(res.body.chartType).toBe('pie');
+    expect(res.body.modelConfig).toMatchObject({ dimensionId: dims[0], measureId });
+  });
+
+  it('canvas-data tính ĐÚNG trang được hỏi, không phải cả báo cáo', async () => {
+    const { dims, measureId } = await fields();
+    const created = await taoTrang([
+      { id: 'p1', name: 'Một', visuals: [o('a', dims[0], measureId)] },
+      {
+        id: 'p2',
+        name: 'Hai',
+        visuals: [o('b', dims[1], measureId), o('c', dims[0], measureId, { x: 6 })],
+      },
+    ]);
+    expect(created.status).toBe(201);
+
+    // Không có `pageId` -> trang đầu, đúng một ô.
+    const dau = await request(app)
+      .get(`/api/v1/reports/${created.body.id}/canvas-data`)
+      .set(bearer(f.tokenAdminA));
+    expect(dau.status).toBe(200);
+    expect(dau.body.visuals.map((v: { visualId: string }) => v.visualId)).toEqual(['a']);
+
+    const hai = await request(app)
+      .get(`/api/v1/reports/${created.body.id}/canvas-data?pageId=p2`)
+      .set(bearer(f.tokenAdminA));
+    expect(hai.status).toBe(200);
+    expect(hai.body.visuals.map((v: { visualId: string }) => v.visualId)).toEqual(['b', 'c']);
+
+    // Mã trang LẠ rơi về trang đầu chứ không phải 404: nó xảy ra thật khi hai
+    // người mở cùng một báo cáo và một người xoá một trang.
+    const la = await request(app)
+      .get(`/api/v1/reports/${created.body.id}/canvas-data?pageId=khong-co`)
+      .set(bearer(f.tokenAdminA));
+    expect(la.status).toBe(200);
+    expect(la.body.visuals.map((v: { visualId: string }) => v.visualId)).toEqual(['a']);
+  });
+
+  /* ─── §10.18 chú thích: văn bản, đường kẻ, hình ────────────────────────────
+   *
+   * Luật của từng chú thích đã có test đơn vị ở `annotationSchema.test.ts`.
+   * Khối này khoá phần chỉ database mới trả lời được: chúng đi TRỌN vòng qua
+   * cột JSON, bản ghi cũ đọc ra mảng rỗng, và đường tính số liệu KHÔNG thấy
+   * chúng.
+   */
+  const chu = (id: string, extra: Record<string, unknown> = {}): Record<string, unknown> => ({
+    id,
+    kind: 'text',
+    x: 0,
+    y: 0,
+    w: 6,
+    h: 1,
+    layer: 'front',
+    text: 'Doanh thu quý 3\n— giảm do đóng kho',
+    fontSize: 20,
+    bold: true,
+    italic: false,
+    align: 'left',
+    valign: 'middle',
+    color: '#0F172A',
+    fill: null,
+    ...extra,
+  });
+
+  it('chú thích đi TRỌN vòng, và canvas-data không tính số cho chúng', async () => {
+    const { dims, measureId } = await fields();
+    const created = await taoTrang([
+      {
+        id: 'p1',
+        name: 'Một',
+        visuals: [o('a', dims[0], measureId, { y: 1 })],
+        annotations: [
+          chu('t1'),
+          {
+            id: 'l1',
+            kind: 'line',
+            x: 0,
+            y: 8,
+            w: 12,
+            h: 1,
+            layer: 'front',
+            direction: 'horizontal',
+            style: 'dashed',
+            width: 2,
+            color: '#D64550',
+            arrow: 'end',
+          },
+          {
+            id: 's1',
+            kind: 'shape',
+            x: 0,
+            y: 0,
+            w: 6,
+            h: 8,
+            layer: 'back',
+            shape: 'rounded',
+            fill: '#F1F5F9',
+            opacity: 100,
+            stroke: null,
+            strokeWidth: 1,
+            strokeStyle: 'solid',
+          },
+        ],
+      },
+    ]);
+    expect(created.status).toBe(201);
+
+    const doc = await request(app)
+      .get(`/api/v1/reports/${created.body.id}`)
+      .set(bearer(f.tokenAdminA));
+    const annotations = doc.body.canvas.pages[0].annotations;
+    expect(annotations.map((a: { id: string }) => a.id)).toEqual(['t1', 'l1', 's1']);
+    // Xuống dòng là thứ người viết cố ý gõ — không được mất trên đường qua JSON.
+    expect(annotations[0].text).toBe('Doanh thu quý 3\n— giảm do đóng kho');
+    expect(annotations[2]).toMatchObject({ layer: 'back', fill: '#F1F5F9', stroke: null });
+
+    // Ba chú thích, MỘT ô biểu đồ — và đúng một ô được đem đi tính.
+    const data = await request(app)
+      .get(`/api/v1/reports/${created.body.id}/canvas-data`)
+      .set(bearer(f.tokenAdminA));
+    expect(data.status).toBe(200);
+    expect(data.body.visuals.map((v: { visualId: string }) => v.visualId)).toEqual(['a']);
+  });
+
+  it('client CŨ không gửi `annotations` vẫn lưu được, và đọc ra mảng rỗng', async () => {
+    // Một tab mở từ trước lúc triển khai. Trả 400 cho nó là mất cả khung người ta
+    // vừa dựng, vì một trường mà client đó chưa từng biết tới.
+    const { dims, measureId } = await fields();
+    const res = await taoTrang([{ id: 'p1', name: 'Một', visuals: [o('a', dims[0], measureId)] }]);
+
+    expect(res.status).toBe(201);
+    expect(res.body.canvas.pages[0].annotations).toEqual([]);
+  });
+
+  it('PATCH giữ chú thích, và gỡ hết chú thích cũng là một lần lưu hợp lệ', async () => {
+    const { dims, measureId } = await fields();
+    const created = await taoTrang([
+      { id: 'p1', name: 'Một', visuals: [o('a', dims[0], measureId)], annotations: [chu('t1')] },
+    ]);
+
+    const sua = await request(app)
+      .patch(`/api/v1/reports/${created.body.id}/canvas`)
+      .set(bearer(f.tokenAdminA))
+      .send({
+        name: 'Đã sửa',
+        canvas: {
+          pages: [
+            {
+              id: 'p1',
+              name: 'Một',
+              visuals: [o('a', dims[0], measureId)],
+              annotations: [chu('t1', { text: 'Đã sửa', fill: '#FEF3C7' }), chu('t2', { y: 9 })],
+            },
+          ],
+        },
+      });
+    expect(sua.status).toBe(200);
+    expect(sua.body.canvas.pages[0].annotations).toHaveLength(2);
+    expect(sua.body.canvas.pages[0].annotations[0]).toMatchObject({
+      text: 'Đã sửa',
+      fill: '#FEF3C7',
+    });
+
+    const go = await request(app)
+      .patch(`/api/v1/reports/${created.body.id}/canvas`)
+      .set(bearer(f.tokenAdminA))
+      .send({
+        name: 'Đã sửa',
+        canvas: {
+          pages: [
+            { id: 'p1', name: 'Một', visuals: [o('a', dims[0], measureId)], annotations: [] },
+          ],
+        },
+      });
+    expect(go.status).toBe(200);
+    expect(go.body.canvas.pages[0].annotations).toEqual([]);
+  });
+
+  it('chú thích TRÙNG mã với một biểu đồ -> 400', async () => {
+    // Cùng một lưới, cùng một không gian mã: trình dựng chọn phần tử theo mã, và
+    // trùng nhau thì bấm vào hộp văn bản lại mở cấu hình của biểu đồ.
+    const { dims, measureId } = await fields();
+    const res = await taoTrang([
+      {
+        id: 'p1',
+        name: 'Một',
+        visuals: [o('same', dims[0], measureId)],
+        annotations: [chu('same')],
+      },
+    ]);
+    expect(res.status).toBe(400);
+  });
+
+  it('CHỈ có chú thích, không có biểu đồ nào -> 400', async () => {
+    const res = await taoTrang([{ id: 'p1', name: 'Một', visuals: [], annotations: [chu('t1')] }]);
+    expect(res.status).toBe(400);
+  });
+
+  it('một chú thích sai làm hỏng cả lần lưu — màu chèn CSS lạ bị chặn ở cửa', async () => {
+    const { dims, measureId } = await fields();
+    const res = await taoTrang([
+      {
+        id: 'p1',
+        name: 'Một',
+        visuals: [o('a', dims[0], measureId)],
+        annotations: [chu('t1'), chu('t2', { color: 'red; background-image: url(x)' })],
+      },
+    ]);
+    expect(res.status).toBe(400);
+  });
+});
+
+/* ═══ §10.12 chia trang nhóm, §10.15 bỏ ô chọn ════════════════════════════
+ *
+ * §10.12 thêm `overflow` vào `config`: gộp phần vượt thành cột "Khác", hay chia
+ * trang. §10.15 bỏ hẳn trường đó — mọi biểu đồ dựng trên mô hình đều chia
+ * trang — nên bộ ca ở đây đổi theo, và ca quan trọng nhất là ca CŨ: một client
+ * chưa cập nhật vẫn gửi `overflow` lên, và nó không được phép làm hỏng lần lưu.
+ */
+describe('§10.12 chia trang nhóm', () => {
+  /** Cùng bộ đồ nghề với §10.10 — mô hình rỗng chưa có thước đo nào. */
+  async function fields(): Promise<{ dimensionId: number; measureId: number }> {
+    const { refId, columnIds } = await attachDataset(f.tenantA, f.modelA, f.datasetA);
+    const res = await request(app)
+      .post(`/api/v1/datamodels/${f.modelA}/measures`)
+      .set(bearer(f.tokenAdminA))
+      .send({ datamodelDatasetId: refId, name: 'Số dòng', agg: 'count' });
+    expect(res.status).toBe(201);
+    return { dimensionId: columnIds[0] as number, measureId: res.body.id as number };
+  }
+
+  function taoBaoCao(config: Record<string, unknown>): request.Test {
+    return request(app)
+      .post('/api/v1/reports/from-datamodel')
+      .set(bearer(f.tokenAdminA))
+      .send({ datamodelId: f.modelA, name: 'Chia trang', chartType: 'bar', config });
+  }
+
+  it('`overflow` của client CŨ được nhận rồi bỏ qua, không 400 — §10.15', async () => {
+    /*
+     * Một tab đang mở từ trước bản này vẫn gửi `overflow` kèm mỗi lần lưu. Nếu
+     * `reportModelConfigSchema` là `.strict()` thì người dùng ấy bấm Lưu và nhận
+     * 400 mà không hiểu vì sao — một lỗi chỉ hiện ra sau khi deploy, và chỉ với
+     * người chưa tải lại trang.
+     *
+     * Trường bị BỎ HẲN chứ không lưu im lặng: giữ lại một trường không ai đọc
+     * nữa là hẹn cho người sau đọc nó và tưởng nó có tác dụng.
+     */
+    const { dimensionId, measureId } = await fields();
+
+    const res = await taoBaoCao({ dimensionId, measureId, limit: 5, overflow: 'pages' });
+    expect(res.status).toBe(201);
+    expect(res.body.modelConfig.overflow).toBeUndefined();
+
+    const la = await taoBaoCao({ dimensionId, measureId, limit: 5, overflow: 'cuon' });
+    expect(la.status).toBe(201);
+    expect(la.body.modelConfig.overflow).toBeUndefined();
+  });
+
+  it('`?page=` chỉ nhận số không âm và có TRẦN', async () => {
+    // `offset` đi thẳng vào truy vấn Cube; một `?page=99999999` là một lượt quét
+    // bỏ qua mười tỉ dòng.
+    const { dimensionId, measureId } = await fields();
+    const created = await taoBaoCao({ dimensionId, measureId, limit: 5 });
+
+    const am = await request(app)
+      .get(`/api/v1/reports/${created.body.id}/data?page=-1`)
+      .set(bearer(f.tokenAdminA));
+    expect(am.status).toBe(400);
+
+    const qua = await request(app)
+      .get(`/api/v1/reports/${created.body.id}/data?page=99999999`)
+      .set(bearer(f.tokenAdminA));
+    expect(qua.status).toBe(400);
+  });
+
+  it('số liệu MỘT ô: mã ô lạ -> 404, báo cáo một biểu đồ -> 409', async () => {
+    // Endpoint này đọc cấu hình từ chính báo cáo đã lưu, nên nó chỉ nhận một mã
+    // ô — không có đường lén gửi lên một cấu hình khác.
+    const { dimensionId, measureId } = await fields();
+    const mot = await taoBaoCao({ dimensionId, measureId, limit: 5 });
+
+    const khung = await request(app)
+      .get(`/api/v1/reports/${mot.body.id}/visuals/a/data?page=1`)
+      .set(bearer(f.tokenAdminA));
+    expect(khung.status).toBe(409);
+
+    const tao = await request(app)
+      .post('/api/v1/reports/canvas')
+      .set(bearer(f.tokenAdminA))
+      .send({
+        datamodelId: f.modelA,
+        name: 'Khung để hỏi ô',
+        canvas: {
+          pages: [
+            {
+              id: 'p1',
+              name: 'Một',
+              visuals: [
+                {
+                  id: 'co-that',
+                  chartType: 'bar',
+                  config: { dimensionId, measureId, limit: 5 },
+                  x: 0,
+                  y: 0,
+                  w: 6,
+                  h: 6,
+                },
+              ],
+            },
+          ],
+        },
+      });
+    expect(tao.status).toBe(201);
+
+    const laO = await request(app)
+      .get(`/api/v1/reports/${tao.body.id}/visuals/khong-co/data?page=1`)
+      .set(bearer(f.tokenAdminA));
+    expect(laO.status).toBe(404);
+  });
+});
+
+describe('§10.13 mô hình dựng-hộ được LƯU như mọi mô hình khác', () => {
+  /*
+   * ═══ Khối này ĐẢO khối §10.11 cũ ══════════════════════════════════════════
+   *
+   * §10.11 giấu mô hình dựng-hộ khỏi danh sách bằng một cột `datamodels.hidden`,
+   * và khối cũ ở đây khoá ranh giới "ẩn nghĩa là không bày, không phải không
+   * tồn tại". Người dùng gặp mặt trái của nó ngay lần dùng đầu:
+   *
+   *     "tui vẫn thấy nút mở mô hình nhưng khi thoát ra thì lại không thấy
+   *      trong phần mô hình dữ liệu"
+   *
+   * Một mô hình mở được nhưng không có mặt trong danh sách đọc ra như dữ liệu
+   * BỊ MẤT. Cột đó chưa bao giờ rời khỏi máy dựng nên nó được bỏ hẳn — không
+   * còn migration nào cho nó — và những ca dưới đây khoá chiều ngược lại: không
+   * đường tạo nào giấu được một mô hình nữa.
+   */
+
+  async function create(name: string, extra: Record<string, unknown> = {}): Promise<number> {
+    const res = await request(app)
+      .post('/api/v1/datamodels')
+      .set(bearer(f.tokenAdminA))
+      .send({ workspaceId: f.workspaceA, name, datasetIds: [f.datasetA], ...extra });
+    expect(res.status).toBe(201);
+    return res.body.id as number;
+  }
+
+  function danhSach(): request.Test {
+    return request(app).get('/api/v1/datamodels?page=1&pageSize=100').set(bearer(f.tokenAdminA));
+  }
+
+  it('mô hình vừa tạo CÓ trong danh sách', async () => {
+    // Đây là đúng câu người dùng hỏi: tạo xong, thoát ra, có thấy nó không.
+    const id = await create('Dựng từ file Excel');
+
+    const list = await danhSach();
+    expect(list.status).toBe(200);
+    expect(list.body.items.map((m: { id: number }) => m.id)).toContain(id);
+  });
+
+  it('và được TÍNH vào `total`, không phải chỉ hiện ra', async () => {
+    // `count` và `list` dùng chung hàm `where`. Lệch nhau thì phân trang hiện
+    // "1–10 trong 11" trên một danh sách có 10 dòng, và trang 2 rỗng.
+    const before = (await danhSach()).body.total as number;
+    await create('Dựng từ file lần hai');
+    expect((await danhSach()).body.total).toBe(before + 1);
+  });
+
+  it('client CŨ gửi cờ `hidden` vẫn không giấu được gì', async () => {
+    // Bản frontend trước §10.13 gửi `hidden: true` ở luồng "tạo báo cáo nhanh".
+    // Một tab chưa tải lại vẫn đang chạy bản đó, và nó không được phép làm mô
+    // hình biến mất — cột `hidden` không còn, nên trường thừa này bị bỏ qua.
+    const id = await create('Cờ cũ còn sót', { hidden: true });
+
+    const list = await danhSach();
+    expect(list.body.items.map((m: { id: number }) => m.id)).toContain(id);
+  });
+
+  it('DTO không còn mang `hidden` — cột đã bị bỏ hẳn', async () => {
+    // Không phải chuyện thẩm mỹ: một trường luôn bằng `false` còn nằm trong DTO
+    // là lời mời cho ai đó viết một nhánh `if` dựa vào nó.
+    const id = await create('Xem DTO');
+
+    const one = await request(app).get(`/api/v1/datamodels/${id}`).set(bearer(f.tokenAdminA));
+    expect(one.status).toBe(200);
+    expect(one.body).not.toHaveProperty('hidden');
+    expect((await danhSach()).body.items[0]).not.toHaveProperty('hidden');
+  });
+
+  it('vẫn đi qua CÙNG đường tạo — bảng được gắn vào như mô hình thường', async () => {
+    // Giữ lại từ khối cũ: "tạo báo cáo nhanh" chỉ có nghĩa khi mô hình dựng hộ
+    // giống hệt mô hình người dùng tự dựng.
+    //
+    // ⚠️ Ca này KHÔNG kiểm được việc gieo thước đo: `makeLoadedDataset` chỉ chèn
+    // một dòng MySQL, phía sau nó KHÔNG có bảng ClickHouse nào, nên
+    // `createDataModel` đọc ra một schema rỗng và không có cột nào để gieo.
+    const id = await create('Cùng đường tạo');
+
+    const detail = await request(app).get(`/api/v1/datamodels/${id}`).set(bearer(f.tokenAdminA));
+
+    expect(detail.status).toBe(200);
+    expect(detail.body.datasetCount).toBe(1);
+    expect(detail.body.datasets).toHaveLength(1);
+    expect(detail.body.datasets[0].datasetId).toBe(f.datasetA);
+  });
+
+  it('tổ chức khác vẫn KHÔNG tra được — cách ly không đổi', async () => {
+    // Bỏ `hidden` chỉ đụng chuyện BÀY RA. Tầng bảo mật thật phải y nguyên.
+    const id = await create('Của tổ chức A');
+
+    const res = await request(app).get(`/api/v1/datamodels/${id}`).set(bearer(f.tokenAdminB));
+
+    expect(res.status).toBe(404);
   });
 });

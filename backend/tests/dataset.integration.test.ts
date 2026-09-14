@@ -181,6 +181,14 @@ describe('§7.8 phân quyền theo bảng route', () => {
     ['post', '/api/v1/reports'],
     ['post', '/api/v1/reports/from-datamodel'],
     ['patch', '/api/v1/reports/1'],
+    // §10.9 — sửa báo cáo trên mô hình. Đường RIÊNG khỏi `PATCH /reports/1`,
+    // nên nó cần một dòng riêng ở đây: gắn thiếu `authorize` cho nó thì mọi ca
+    // còn lại vẫn xanh.
+    ['patch', '/api/v1/reports/1/from-datamodel'],
+    // §10.10 — khung nhiều biểu đồ. Hai đường GHI riêng, nên hai dòng riêng:
+    // gắn thiếu `authorize` cho một trong hai thì mọi ca còn lại vẫn xanh.
+    ['post', '/api/v1/reports/canvas'],
+    ['patch', '/api/v1/reports/1/canvas'],
     ['delete', '/api/v1/reports/1'],
   ];
 
@@ -192,6 +200,24 @@ describe('§7.8 phân quyền theo bảng route', () => {
    * ca này đỏ.
    */
   const READ_ROUTES: [Method, string][] = [['get', '/api/v1/reports']];
+
+  /**
+   * §10.10 — viewer phải ĐỌC được số liệu của một khung.
+   *
+   * Không nằm trong `READ_ROUTES` vì nó cần một báo cáo có thật để trả 200, còn
+   * bảng kia bắn vào id 1 và chỉ hỏi "có bị 401/403 không". Ca này gác đúng một
+   * chuyện: `GET /reports/:id/canvas-data` KHÔNG được gắn `datamodel:read`.
+   * Gắn nhầm ô đó vào là mọi khung của viewer hoá trắng — và không ca nào khác
+   * bắt được, vì viewer vẫn 200 ở mọi đường còn lại.
+   */
+  it('viewer đọc được canvas-data (không đòi datamodel:read)', async () => {
+    const res = await request(app)
+      .get('/api/v1/reports/999999/canvas-data')
+      .set(bearer(f.tokenViewerA));
+
+    // 404 = đã QUA cổng quyền rồi mới không tìm thấy báo cáo. 403 mới là hỏng.
+    expect(res.status).toBe(404);
+  });
 
   function call(method: Method, path: string): request.Test {
     const agent = request(app);
