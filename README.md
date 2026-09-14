@@ -1419,6 +1419,9 @@ mô hình chứ không riêng mô hình dựng-hộ: vai trò cột và quan h�
 là hai thứ hay phải sửa ngay giữa lúc dựng biểu đồ, và bắt người dùng đi vòng
 qua danh sách là bắt họ bỏ cả khung đang dựng.
 
+Từ §10.19 nút đó thành **Sửa mô hình ↗** ngay trên bảng trường, và mở ở tab mới
+để khung đang dựng không mất.
+
 #### Phải CHỜ dữ liệu vào kho phân tích
 
 `commitDatasets` trả về ngay khi dòng đã vào MySQL; việc nạp sang ClickHouse
@@ -2476,6 +2479,101 @@ Hai lỗi chỉ lộ ra trên trình duyệt thật và đã sửa trước khi 
 không chuyển vào hộp vừa chèn (hộp nào xuất hiện ở trạng thái đang chọn thì nhận
 tiêu điểm), và đổi tầng làm gắn lại phần tử (xem trên).
 
+### Nút "Sửa mô hình" ngay trên bảng trường (§10.19)
+
+> ở phần mục mô hình dữ liệu này nên có nút bấm để đi đến datamodel để người
+> dùng có thể chỉnh sửa
+
+Cột **Mô hình dữ liệu** của trình dựng có thêm nút **Sửa mô hình ↗**, cùng hàng
+với bộ đếm "3 bảng · 32 trường". Nút mở trang mô hình ở **tab mới**. Lưu thay đổi
+bên đó thì bảng trường bên này tự cập nhật, còn khung đang dựng dở giữ nguyên.
+
+Trước bản này đường sang trang mô hình là chữ "Mở mô hình" cỡ nhỏ trên thanh công
+cụ của khung, lẫn giữa tên mô hình và bộ đếm biểu đồ, và nó đi ngay trong tab qua
+hộp thoại "Rời khỏi trình dựng?". Tức là muốn đổi tên một trường giữa lúc dựng
+thì hoặc lưu một báo cáo còn dở, hoặc bỏ cả khung. Chữ đó được **dời** xuống cột
+Mô hình dữ liệu chứ không thêm một nút thứ hai: hai đường tới cùng một trang mà
+mỗi đường đi một kiểu là thừa.
+
+- Nút hiện ở **mọi** trạng thái của bảng trường, kể cả lúc đọc lỗi. Đó chính là
+  lúc cần sang trang mô hình nhất.
+- Gác bằng `readDataModels`, đúng ô mà route `/datamodels/:id` hỏi. Sửa một báo
+  cáo có sẵn không đòi quyền đó, và một nút dẫn thẳng vào 403 thì tệ hơn không có
+  nút. Không có `datamodel:modify` thì nút ghi "Xem mô hình".
+- Là một `<Link target="_blank">` thật, không phải `window.open` trong một nút,
+  nên bấm chuột giữa và "Sao chép địa chỉ liên kết" đều chạy như mọi liên kết.
+- Tab mới **không** bị đẩy về trang đăng nhập, dù `sessionStorage` không được chép
+  sang: tab trình dựng vẫn giữ khoá "app còn mở" (xem "Đóng app là hết phiên").
+
+#### Hai tab, hai cache, một tin báo
+
+Mỗi tab có cache react-query riêng. Không làm gì thêm thì sửa tên trường ở tab mô
+hình rồi quay lại, bảng trường vẫn là bản cũ, và người dùng tưởng lần sửa không
+ăn.
+
+`features/datamodels/modelChanges.ts` mở một `BroadcastChannel`. Mọi lần ghi mô
+hình đều đi qua `useInvalidateDataModel`, nên đó là chỗ **duy nhất** phát tin.
+`main.tsx` nghe tin, ngay cạnh chỗ dựng `QueryClient`, và dọn cây `datamodels`
+của tab mình.
+
+⚠️ Tab nhận tin gọi `invalidateQueries` **trực tiếp**, không qua
+`useInvalidateDataModel`. Cái đó phát tin, và tab nhận mà phát lại thì hai tab đá
+tin qua lại mãi.
+
+⚠️ **Một** đối tượng kênh cho cả phát lẫn nghe. `BroadcastChannel` không gửi tin
+về chính đối tượng đã phát, nhưng vẫn gửi tới một đối tượng khác cùng tên trong
+cùng tab. Hai đối tượng thì mỗi lần lưu, tab tự dọn cache của mình hai lần.
+
+Phát khi **ghi**, không làm mới khi **quay lại tab**: làm mới mỗi lần alt-tab là
+mỗi ô biểu đồ bắn lại một lượt quét ClickHouse cho một mô hình gần như chắc chắn
+không đổi. Tin không mang dữ liệu nào, kể cả mã mô hình. Tab nhận tự hỏi lại server
+bằng token của nó.
+
+#### Trường vừa mất: ba chỗ phải nói cùng một điều
+
+Sửa mô hình giữa lúc dựng giờ là đường đi chính, nên ô dùng một trường vừa bị ẩn
+hay xoá không còn là chuyện hiếm. Kiểm trên Chromium lộ ra rằng ba chỗ quanh ô đó
+đang nói ba điều khác nhau:
+
+1. **Câu lỗi bảo "tải lại trang".** Trong trình dựng, tải lại là bỏ cả khung chưa
+   lưu, và giờ cũng không cần nữa. `assertChartConfigAgainst`, chỉ được gọi từ
+   xem trước và lưu, tức là đều từ trình dựng, nay trả mã `DataModelFieldUnknown`
+   với câu "… không còn trong mô hình — mô hình vừa được sửa. Hãy chọn trường khác
+   ở cột Mô hình dữ liệu."
+2. **Câu đó chỉ đúng khi bảng trường đã mới.** Mô hình bị đồng nghiệp sửa trên máy
+   khác thì không có tin nào qua kênh. Nên khi một ô nhận mã đó, trình dựng tự đọc
+   lại bảng trường (`useModelReportPreview`). `cancelRefetch: false`: mười hai ô
+   cùng hỏng một lượt thì chung một lần đọc.
+3. **Bấm trường mới không lấp vào ô Trục.** Ô Trục _hiện ra_ trống, vì bảng cấu
+   hình không tìm được trường để in tên, nhưng `dimensionId` vẫn giữ mã cũ.
+   `slotForClick` đếm theo mã, nên cú bấm đầu rơi vào ô Nhóm màu, và biểu đồ vẫn
+   hỏng dù người dùng đã làm đúng câu lỗi bảo. Giờ "trống" được tính **theo mô hình
+   hiện tại**, cùng danh sách bảng cấu hình dùng để in tên ô.
+
+Không tự xoá mã cũ khỏi ô. Làm vậy thì một báo cáo đã lưu, mở ra sau khi mô hình
+đổi, tự nhận "Chưa lưu", và ai lỡ tay ẩn nhầm một cột rồi bật lại sẽ thấy cấu
+hình đã mất.
+
+#### Đo trên Chromium thật
+
+Báo cáo hai biểu đồ trên `docs/kiem-thu/du-lieu-thu/kiem-thu-ban-hang.csv`, hai
+tab trong cùng một phiên trình duyệt, 36 phép kiểm, tất cả xanh:
+
+```
+bấm "Sửa mô hình"                → tab mới /datamodels/:id, không về /login, trình dựng không hỏi "Rời khỏi…"
+alt-tab khi chưa lưu gì           → 0 request mới
+đổi tên "Khu vực" → "Vùng miền"   → bảng trường đổi, không tải lại; ĐÚNG 1 lần đọc lại bảng trường
+                                    tên báo cáo gõ dở, ghi chú chưa lưu, chấm "Chưa lưu" còn nguyên
+tab mô hình sau khi lưu           → 0 request dội ngược
+ẩn cột đang dùng                  → trường biến khỏi bảng trường; ô báo "chọn trường khác", không "tải lại"
+bấm "Mã đơn" cho ô hỏng           → ô vẽ lại (bản đầu: KHÔNG — cú bấm rơi vào ô Nhóm màu)
+xoá thước đo bằng fetch trần      → bảng trường chưa biết (đúng như máy khác); dùng nó → 400 → tự đọc lại 1 lần
+gấp cột                           → nút gấp theo cột
+```
+
+Giới hạn: đồng nghiệp sửa mô hình trên máy khác thì trình dựng chỉ biết khi một ô
+**hỏi** lại. Ô đã vẽ xong mà không đổi gì thì vẫn giữ số cũ tới lúc đó.
+
 ### Báo cáo đã lưu vẽ NGAY, rồi mới làm mới ngầm
 
 Báo cáo lưu **cấu hình**, không lưu con số. Nên mỗi lần mở là một lượt tính lại
@@ -2654,26 +2752,28 @@ dùng một khung khác thứ họ vừa dựng, mà không nói gì.
 
 ### Bài test đáng đọc
 
-| File                                                 | Khoá lại điều gì                                                                                                                                                                                                                                                                                                       |
-| ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `backend/tests/datamodel.integration.test.ts` §10.13 | 6 ca khoá chiều ngược của §10.11: mô hình dựng-hộ **có** trong danh sách, được tính vào `total`, và một client cũ còn gửi cờ `hidden` cũng không giấu được gì                                                                                                                                                          |
-| `frontend/tests/fieldSheets.test.ts`                 | gom trường theo bảng và lọc theo từ khoá. Sau khi bỏ hai khối "Chiều"/"Thước đo", thứ tự và cách gom là thứ duy nhất còn giúp người dùng tìm được một trường                                                                                                                                                           |
-| `frontend/tests/chartSpec.test.ts`                   | mọi spec Vega **biên dịch được** (bắt cả `warn`, không chỉ lỗi ném ra), bốn cách sắp trục cho ra **bốn** spec khác nhau, và chế độ vừa-khung (§10.13) khai đúng `autosize: fit` — thiếu nó thì trục vẫn thò ra 42px và không có gì đỏ ở đâu cả                                                                         |
-| `frontend/tests/querySnapshots.test.ts`              | ảnh chụp số liệu trên đĩa. Phần lớn ca kiểm chuyện **trượt** — đổi cấu hình, đổi mô hình, mục hỏng, `localStorage` bị chặn — vì một cache sai không hỏng ra mặt, nó vẽ một biểu đồ trông bình thường bằng số của câu hỏi khác                                                                                          |
-| `frontend/tests/savedReportInstant.test.tsx`         | mở báo cáo đã lưu thì có biểu đồ ở **khung hình đầu tiên**, và màn hình **nói ra** đó là số cũ đang cập nhật. Request cố ý không bao giờ trả lời — đây là bài kiểm về đúng khoảnh khắc chờ                                                                                                                             |
-| `frontend/tests/shelfKind.test.tsx`                  | ô thả có in ra loại trường nó nhận không, và có in ĐÚNG cái `accepts` của nó không. Kiểm ở trạng thái ĐÃ ĐIỀN — trạng thái trống chưa bao giờ là chỗ thiếu thông tin — và trên cả `VisualPanel` thật, nên bắt được cả tên ô đổi theo loại biểu đồ ("Lát cắt") lẫn ô bị khoá                                            |
-| `frontend/tests/canvasVisual.test.ts`                | phép tính bố cục và luật của một ô — `findSlot`, `clampBox`, `assignField`, `toDto`, và `hasUnsavedWork`. Sai ở đây không hiện ra như lỗi: một ô lệch cột trông y hệt một ô người dùng tự đặt lệch, còn `hasUnsavedWork` sai là mất việc của người dùng mà không một câu cảnh báo                                      |
-| `frontend/tests/CanvasView.test.tsx`                 | render thật trong DOM: ghép số liệu theo `visualId` (ca này **đảo thứ tự** mảng trả về), và một ô hỏng không kéo theo ô khác                                                                                                                                                                                           |
-| `backend/tests/datamodel.integration.test.ts` §10.10 | 20 ca ở tầng cấu hình — trùng mã ô, khung rỗng, tràn lưới, quá trần, trường lạ, chuyển đổi, ranh giới với báo cáo trên bộ dữ liệu, và **hình dạng cũ `{visuals}` vẫn ghi được rồi đọc ra một trang**                                                                                                                   |
-| `backend/tests/datamodel.integration.test.ts` §10.12 | `?page=` có trần, `canvas-data?pageId=` tính đúng trang được hỏi (mã lạ rơi về trang đầu, không 404), và `overflow` của một client CHƯA cập nhật được nhận rồi bỏ qua thay vì 400 — lỗi kiểu đó chỉ hiện ra sau khi deploy, và chỉ với người chưa tải lại trang                                                        |
-| `frontend/tests/groupPaging.test.tsx`                | hai cái nút ‹ › và thanh thẻ trang. Phần lớn ca kiểm chuyện **không** bày ra nút: cấu hình không chia trang, dữ liệu vừa một trang, không có `onPage`. Một cặp nút chết chỉ nói với người dùng rằng có gì đó hỏng                                                                                                      |
-| `frontend/tests/sidePanel.test.tsx`                  | hai cột bên gấp lại được (§10.15). Phần lớn ca kiểm hai thứ hỏng LẶNG LẼ quanh cái nút: hai cột dùng chung một khoá thì gấp cột này gấp luôn cột kia, và `localStorage` bị chặn thì ĐỌC cũng ném lỗi — một lỗi lúc render là cả trình dựng trắng màn                                                                   |
-| `frontend/tests/vegaSpecKey.test.ts`                 | thứ quyết định "vẽ lại từ đầu" hay "cập nhật tại chỗ" (§10.17). Hỏng theo hai hướng ngược nhau và không hướng nào đỏ ở đâu cả: quá nhạy thì mỗi nhịp kéo là một lần chớp trắng, quá trơ thì đổi bảng màu mà biểu đồ đứng yên                                                                                           |
-| `frontend/tests/appSession.test.ts`                  | đóng app là hết phiên. Hỏng theo hai hướng và cả hai đều trông như app chạy bình thường: lỏng thì mở lại vẫn vào thẳng tài khoản của người trước, chặt thì mỗi lần F5 hay Ctrl+bấm sang tab mới lại bắt gõ mật khẩu. Có một ca riêng cho thứ tự **hỏi khoá rồi mới giữ khoá** — đảo lại thì không bao giờ đăng xuất ai |
-| `frontend/tests/annotations.test.ts`                 | chú thích trong trình dựng (§10.18). Ca đầu tiên đáng giá nhất: MỌI mẫu trên thanh Chèn đi qua đúng schema zod mà backend dùng — lệch một trường là nút Lưu trả 400 cho thứ người dùng không hề gõ sai. Kèm luật bỏ hộp chữ trống, chấm "Chưa lưu", và cửa vào API điền `annotations` cho backend cũ                   |
-| `frontend/tests/annotationView.test.tsx`             | vẽ chú thích và phím bấm trong hộp (§10.18). Hai ca khoá hai lỗi có thật: Backspace trong ô gõ chữ KHÔNG được xoá cả hộp, và đổi tầng KHÔNG được gỡ rồi gắn lại phần tử — ca này đã được chạy trên cách vẽ hai danh sách cũ và đỏ đúng như mong đợi                                                                    |
-| `backend/tests/annotationSchema.test.ts`             | luật ghi của chú thích, không cần container. Phần lớn ca kiểm TỪ CHỐI: mã màu chở CSS, hộp chữ chỉ có khoảng trắng, trường lạ, loại chưa tồn tại — thứ sai ở đây không hỏng lúc lưu mà hỏng ở trang xem của người khác                                                                                                 |
-| `frontend/tests/reportViewPage.test.tsx`             | trang xem mở được cho **mọi** vai trò, và nút "Chỉnh sửa" chỉ có mặt khi nó thật sự dẫn tới một trình dựng dùng được — không phải bảo mật, mà là đừng bày ra một cái nút dẫn tới 403                                                                                                                                   |
+| File                                                 | Khoá lại điều gì                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `backend/tests/datamodel.integration.test.ts` §10.13 | 6 ca khoá chiều ngược của §10.11: mô hình dựng-hộ **có** trong danh sách, được tính vào `total`, và một client cũ còn gửi cờ `hidden` cũng không giấu được gì                                                                                                                                                                                                                                                                                     |
+| `frontend/tests/fieldSheets.test.ts`                 | gom trường theo bảng và lọc theo từ khoá. Sau khi bỏ hai khối "Chiều"/"Thước đo", thứ tự và cách gom là thứ duy nhất còn giúp người dùng tìm được một trường                                                                                                                                                                                                                                                                                      |
+| `frontend/tests/chartSpec.test.ts`                   | mọi spec Vega **biên dịch được** (bắt cả `warn`, không chỉ lỗi ném ra), bốn cách sắp trục cho ra **bốn** spec khác nhau, và chế độ vừa-khung (§10.13) khai đúng `autosize: fit` — thiếu nó thì trục vẫn thò ra 42px và không có gì đỏ ở đâu cả                                                                                                                                                                                                    |
+| `frontend/tests/querySnapshots.test.ts`              | ảnh chụp số liệu trên đĩa. Phần lớn ca kiểm chuyện **trượt** — đổi cấu hình, đổi mô hình, mục hỏng, `localStorage` bị chặn — vì một cache sai không hỏng ra mặt, nó vẽ một biểu đồ trông bình thường bằng số của câu hỏi khác                                                                                                                                                                                                                     |
+| `frontend/tests/savedReportInstant.test.tsx`         | mở báo cáo đã lưu thì có biểu đồ ở **khung hình đầu tiên**, và màn hình **nói ra** đó là số cũ đang cập nhật. Request cố ý không bao giờ trả lời — đây là bài kiểm về đúng khoảnh khắc chờ                                                                                                                                                                                                                                                        |
+| `frontend/tests/shelfKind.test.tsx`                  | ô thả có in ra loại trường nó nhận không, và có in ĐÚNG cái `accepts` của nó không. Kiểm ở trạng thái ĐÃ ĐIỀN — trạng thái trống chưa bao giờ là chỗ thiếu thông tin — và trên cả `VisualPanel` thật, nên bắt được cả tên ô đổi theo loại biểu đồ ("Lát cắt") lẫn ô bị khoá                                                                                                                                                                       |
+| `frontend/tests/canvasVisual.test.ts`                | phép tính bố cục và luật của một ô — `findSlot`, `clampBox`, `assignField`, `slotForClick`, `toDto`, và `hasUnsavedWork`. Từ §10.19 `slotForClick` tính ô "trống" theo mô hình HIỆN TẠI: ô Trục giữ một chiều vừa bị ẩn thì cú bấm lấp vào đó, không rơi sang ô Nhóm màu. Sai ở đây không hiện ra như lỗi: một ô lệch cột trông y hệt một ô người dùng tự đặt lệch, còn `hasUnsavedWork` sai là mất việc của người dùng mà không một câu cảnh báo |
+| `frontend/tests/CanvasView.test.tsx`                 | render thật trong DOM: ghép số liệu theo `visualId` (ca này **đảo thứ tự** mảng trả về), và một ô hỏng không kéo theo ô khác                                                                                                                                                                                                                                                                                                                      |
+| `backend/tests/datamodel.integration.test.ts` §10.10 | 20 ca ở tầng cấu hình — trùng mã ô, khung rỗng, tràn lưới, quá trần, trường lạ, chuyển đổi, ranh giới với báo cáo trên bộ dữ liệu, và **hình dạng cũ `{visuals}` vẫn ghi được rồi đọc ra một trang**                                                                                                                                                                                                                                              |
+| `backend/tests/datamodel.integration.test.ts` §10.12 | `?page=` có trần, `canvas-data?pageId=` tính đúng trang được hỏi (mã lạ rơi về trang đầu, không 404), và `overflow` của một client CHƯA cập nhật được nhận rồi bỏ qua thay vì 400 — lỗi kiểu đó chỉ hiện ra sau khi deploy, và chỉ với người chưa tải lại trang                                                                                                                                                                                   |
+| `frontend/tests/groupPaging.test.tsx`                | hai cái nút ‹ › và thanh thẻ trang. Phần lớn ca kiểm chuyện **không** bày ra nút: cấu hình không chia trang, dữ liệu vừa một trang, không có `onPage`. Một cặp nút chết chỉ nói với người dùng rằng có gì đó hỏng                                                                                                                                                                                                                                 |
+| `frontend/tests/sidePanel.test.tsx`                  | hai cột bên gấp lại được (§10.15). Phần lớn ca kiểm hai thứ hỏng LẶNG LẼ quanh cái nút: hai cột dùng chung một khoá thì gấp cột này gấp luôn cột kia, và `localStorage` bị chặn thì ĐỌC cũng ném lỗi — một lỗi lúc render là cả trình dựng trắng màn                                                                                                                                                                                              |
+| `frontend/tests/vegaSpecKey.test.ts`                 | thứ quyết định "vẽ lại từ đầu" hay "cập nhật tại chỗ" (§10.17). Hỏng theo hai hướng ngược nhau và không hướng nào đỏ ở đâu cả: quá nhạy thì mỗi nhịp kéo là một lần chớp trắng, quá trơ thì đổi bảng màu mà biểu đồ đứng yên                                                                                                                                                                                                                      |
+| `frontend/tests/appSession.test.ts`                  | đóng app là hết phiên. Hỏng theo hai hướng và cả hai đều trông như app chạy bình thường: lỏng thì mở lại vẫn vào thẳng tài khoản của người trước, chặt thì mỗi lần F5 hay Ctrl+bấm sang tab mới lại bắt gõ mật khẩu. Có một ca riêng cho thứ tự **hỏi khoá rồi mới giữ khoá** — đảo lại thì không bao giờ đăng xuất ai                                                                                                                            |
+| `frontend/tests/annotations.test.ts`                 | chú thích trong trình dựng (§10.18). Ca đầu tiên đáng giá nhất: MỌI mẫu trên thanh Chèn đi qua đúng schema zod mà backend dùng — lệch một trường là nút Lưu trả 400 cho thứ người dùng không hề gõ sai. Kèm luật bỏ hộp chữ trống, chấm "Chưa lưu", và cửa vào API điền `annotations` cho backend cũ                                                                                                                                              |
+| `frontend/tests/annotationView.test.tsx`             | vẽ chú thích và phím bấm trong hộp (§10.18). Hai ca khoá hai lỗi có thật: Backspace trong ô gõ chữ KHÔNG được xoá cả hộp, và đổi tầng KHÔNG được gỡ rồi gắn lại phần tử — ca này đã được chạy trên cách vẽ hai danh sách cũ và đỏ đúng như mong đợi                                                                                                                                                                                               |
+| `backend/tests/annotationSchema.test.ts`             | luật ghi của chú thích, không cần container. Phần lớn ca kiểm TỪ CHỐI: mã màu chở CSS, hộp chữ chỉ có khoảng trắng, trường lạ, loại chưa tồn tại — thứ sai ở đây không hỏng lúc lưu mà hỏng ở trang xem của người khác                                                                                                                                                                                                                            |
+| `frontend/tests/modelChanges.test.tsx`               | nút "Sửa mô hình" và tin báo giữa các tab (§10.19). Phần lớn ca kiểm chuyện tin KHÔNG đi: tab nhận không phát lại (hai tab đá tin qua lại mãi), tab tự lưu không tự nhận tin của mình, huỷ nghe thì thôi dọn. Kèm ca ô nhận `DataModelFieldUnknown` thì bảng trường tự đọc lại, còn lỗi khác thì không. Mỗi ca đã được chạy trên code cố tình làm hỏng để thấy nó đỏ                                                                              |
+| `backend/tests/datamodel.integration.test.ts` §10.19 | thước đo bị xoá THẬT sau khi đã dùng được, rồi xem trước và lưu: mã `DataModelFieldUnknown` chứ không phải `ValidationError` chung, và câu lỗi KHÔNG khuyên tải lại trang. Chạy trên code cũ thì đỏ ở đúng mã lỗi                                                                                                                                                                                                                                 |
+| `frontend/tests/reportViewPage.test.tsx`             | trang xem mở được cho **mọi** vai trò, và nút "Chỉnh sửa" chỉ có mặt khi nó thật sự dẫn tới một trình dựng dùng được — không phải bảo mật, mà là đừng bày ra một cái nút dẫn tới 403                                                                                                                                                                                                                                                              |
 
 Không ca nào cần ClickHouse trả số thật. Việc đó đã được chứng minh bằng tay
 trên dữ liệu thật; buộc nó vào CI sẽ biến một bộ test cấu hình thành một bộ test

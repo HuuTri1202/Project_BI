@@ -1,4 +1,4 @@
-import { CANVAS_MAX_PAGES, CANVAS_MAX_VISUALS } from '@bi/shared';
+import { CANVAS_MAX_PAGES, CANVAS_MAX_VISUALS, DATAMODEL_ERROR_CODES } from '@bi/shared';
 import type { RowDataPacket } from 'mysql2';
 import request from 'supertest';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
@@ -698,6 +698,59 @@ describe('§10.9 trình dựng biểu đồ', () => {
     });
 
     expect(res.status).toBe(400);
+  });
+
+  /**
+   * §10.19 — trường vừa bị sửa khỏi mô hình trong lúc trình dựng đang mở.
+   *
+   * Nút "Sửa mô hình" mở trang mô hình ở tab bên cạnh, nên đây là đường đi
+   * chính chứ không còn là chuyện hiếm. Hai điều bị khoá:
+   *
+   *   - MÃ `DataModelFieldUnknown`, không phải `BadRequest` chung. Trình dựng
+   *     dựa vào mã này để tự đọc lại bảng trường.
+   *   - Câu lỗi KHÔNG khuyên tải lại trang. Mọi đường tới đây đều từ trình dựng,
+   *     nơi tải lại là bỏ cả khung chưa lưu.
+   *
+   * Thước đo bị xoá THẬT sau khi đã dùng được, đúng như người dùng làm ở tab
+   * bên cạnh — không phải một id bịa ra.
+   */
+  it('trường vừa bị xoá khỏi mô hình -> FIELD_UNKNOWN, ở cả XEM TRƯỚC lẫn LƯU, không bảo tải lại trang', async () => {
+    const { dims, measureId } = await fields();
+    const config = { dimensionId: dims[0], measureId, limit: 10 };
+
+    const xoa = await request(app)
+      .delete(`/api/v1/datamodels/${f.modelA}/measures/${measureId}`)
+      .set(bearer(f.tokenAdminA));
+    expect(xoa.status).toBe(204);
+
+    const cases: { label: string; res: request.Response }[] = [
+      {
+        label: 'xem trước, thước đo vừa xoá',
+        res: await request(app)
+          .post(`/api/v1/datamodels/${f.modelA}/report-preview`)
+          .set(bearer(f.tokenAdminA))
+          .send({ chartType: 'bar', config }),
+      },
+      {
+        label: 'lưu, thước đo vừa xoá',
+        res: await tao({ datamodelId: f.modelA, name: 'Mất thước đo', chartType: 'bar', config }),
+      },
+      {
+        label: 'xem trước, chiều không còn',
+        res: await request(app)
+          .post(`/api/v1/datamodels/${f.modelA}/report-preview`)
+          .set(bearer(f.tokenAdminA))
+          .send({ chartType: 'bar', config: { ...config, dimensionId: 999_999 } }),
+      },
+    ];
+
+    for (const { label, res } of cases) {
+      expect(res.status, label).toBe(400);
+      expect(res.body.error, label).toBe(DATAMODEL_ERROR_CODES.FIELD_UNKNOWN);
+      expect(res.body.message, label).toContain('không còn trong mô hình');
+      expect(res.body.message, label).toContain('chọn trường khác');
+      expect(res.body.message, label).not.toMatch(/tải lại/i);
+    }
   });
 
   it('tuỳ chọn trình bày viết sai tên bị TỪ CHỐI, không lưu im lặng', async () => {

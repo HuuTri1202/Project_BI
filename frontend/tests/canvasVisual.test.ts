@@ -167,22 +167,54 @@ describe('assignField', () => {
 });
 
 describe('slotForClick', () => {
+  /** Mô hình đang có đủ ba chiều mà các ca dưới dùng. */
+  const ALL = new Set([D1, D2, 3]);
+
   it('đổ vào ô còn TRỐNG trước khi thay ô đã có', () => {
     // Người ta bấm trường thứ hai để THÊM, không phải để thay trường thứ nhất.
-    expect(slotForClick(emptyVisual({ x: 0, y: 0 }), { kind: 'dimension', id: D1 })).toBe(
+    expect(slotForClick(emptyVisual({ x: 0, y: 0 }), { kind: 'dimension', id: D1 }, ALL)).toBe(
       'dimension',
     );
-    expect(slotForClick(draft(), { kind: 'dimension', id: D2 })).toBe('series');
+    expect(slotForClick(draft(), { kind: 'dimension', id: D2 }, ALL)).toBe('series');
   });
 
   it('hết ô trống thì thay ô CHÍNH — chỗ dễ nhận ra nhất khi bấm nhầm', () => {
-    expect(slotForClick(draft({ seriesId: D2 }), { kind: 'dimension', id: 3 })).toBe('dimension');
+    expect(slotForClick(draft({ seriesId: D2 }), { kind: 'dimension', id: 3 }, ALL)).toBe(
+      'dimension',
+    );
   });
 
   it('biểu đồ tròn không có ô Nhóm màu để đổ vào', () => {
-    expect(slotForClick(draft({ chartType: 'pie' }), { kind: 'dimension', id: D2 })).toBe(
+    expect(slotForClick(draft({ chartType: 'pie' }), { kind: 'dimension', id: D2 }, ALL)).toBe(
       'dimension',
     );
+  });
+
+  /*
+   * §10.19 — chiều vừa bị ẩn ở trang mô hình (tab bên cạnh). Ô Trục HIỆN RA
+   * trống, và câu lỗi của ô bảo chọn trường khác. Ca đầu là đúng lỗi đã gặp
+   * trên Chromium: cú bấm rơi vào ô Nhóm màu, biểu đồ vẫn hỏng.
+   */
+  it('ô Trục giữ một chiều mô hình KHÔNG CÒN -> tính là trống, cú bấm lấp vào đó', () => {
+    const conLai = new Set([D2, 3]);
+    expect(slotForClick(draft(), { kind: 'dimension', id: D2 }, conLai)).toBe('dimension');
+  });
+
+  it('ô Nhóm màu giữ một chiều không còn -> cú bấm lấp vào ô Nhóm màu, không thay ô Trục', () => {
+    const conLai = new Set([D1, 3]);
+    expect(slotForClick(draft({ seriesId: D2 }), { kind: 'dimension', id: 3 }, conLai)).toBe(
+      'series',
+    );
+  });
+
+  it('vá ra đúng một cấu hình backend nhận: chiều mới thay mã cũ ở ô Trục', () => {
+    const conLai = new Set([D2, 3]);
+    const hong = draft();
+    const patch = assignField(hong, slotForClick(hong, { kind: 'dimension', id: 3 }, conLai), {
+      kind: 'dimension',
+      id: 3,
+    });
+    expect(patch).toEqual({ dimensionId: 3 });
   });
 });
 

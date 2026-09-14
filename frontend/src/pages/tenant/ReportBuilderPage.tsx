@@ -29,6 +29,7 @@ import {
   useUpdateCanvasReport,
 } from '../../features/datasets/hooks';
 import { CanvasBoard } from '../../features/reports/builder/CanvasBoard';
+import { EditModelLink } from '../../features/reports/builder/EditModelLink';
 import { PageTabs } from '../../features/reports/PageTabs';
 import { ReportShell } from '../../features/reports/ReportShell';
 import { SidePanel } from '../../features/reports/builder/SidePanel';
@@ -499,7 +500,8 @@ function Builder({
   /** Bấm một trường trong bảng: đổ vào ô ĐANG CHỌN. */
   function addByClick(field: DragField): void {
     if (selected === null) return;
-    const changes = assignField(selected, slotForClick(selected, field), field);
+    const slot = slotForClick(selected, field, new Set(dimensions.map((f) => f.id)));
+    const changes = assignField(selected, slot, field);
     if (changes !== null) patch(selected.id, changes);
   }
 
@@ -633,9 +635,9 @@ function Builder({
   /**
    * Rời trang tới `path`, hỏi lại nếu còn việc chưa lưu.
    *
-   * Tổng quát thay vì chỉ biết đường về danh sách: mô hình dựng-hộ (migration
-   * 31) cần một đường sang trang mô hình để sửa vai trò cột hoặc khai quan hệ,
-   * và đường đó cũng làm mất khung đang dựng y như nút Thoát.
+   * Nhận một đường dẫn chứ không chỉ biết đường về: tới §10.18 nó còn chở cả
+   * đường sang trang mô hình. Từ §10.19 đường đó mở TAB MỚI và không làm mất
+   * khung nữa (`EditModelLink`), nên không còn đi qua đây.
    */
   function goTo(path: string): void {
     if (dirty) {
@@ -787,33 +789,6 @@ function Builder({
                     Đổi mô hình
                   </button>
                 )}
-                {/* Đường sang trang mô hình.
-
-                    Tới §10.12 nút này chỉ hiện cho mô hình dựng-hộ, vì
-                    chỉ nó mới bị giấu khỏi danh sách. Giờ không mô hình nào bị
-                    giấu nữa, nhưng nút vẫn đáng có cho MỌI mô hình: hai thứ chỉ
-                    sửa được ở trang mô hình — vai trò cột và quan hệ giữa các
-                    sheet — là hai thứ hay phải sửa ngay giữa lúc dựng biểu đồ,
-                    và bắt người dùng đi vòng qua danh sách là bắt họ bỏ cả
-                    khung đang dựng.
-
-                    `goTo` chứ không `navigate`: đường này cũng làm mất khung chưa
-                    lưu y như nút Thoát. */}
-                {permissions.readDataModels && (
-                  <>
-                    <span aria-hidden="true" className="text-slate-300">
-                      ·
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => goTo(`/datamodels/${modelId}`)}
-                      className="text-xs text-brand-700 hover:underline"
-                      title="Mở trang mô hình để sửa vai trò cột hoặc khai quan hệ giữa các sheet"
-                    >
-                      Mở mô hình
-                    </button>
-                  </>
-                )}
                 <span aria-hidden="true" className="text-slate-300">
                   ·
                 </span>
@@ -943,29 +918,43 @@ function Builder({
 
           {/* ─── Mô hình dữ liệu ──────────────────────────────────────── */}
           <SidePanel title="Mô hình dữ liệu" storageKey="fields" width="w-64">
+            {/* Hàng đầu cột: bộ đếm bên trái, nút sang trang mô hình bên phải.
+
+                Nút hiện ở MỌI trạng thái của bảng trường, kể cả lúc đọc lỗi
+                hay mô hình chưa có trường nào — đó chính là lúc người dùng cần
+                sang trang mô hình nhất. Xem `EditModelLink`.
+
+                Gác bằng `readDataModels`, đúng ô mà route `/datamodels/:id`
+                hỏi: sửa một báo cáo có sẵn KHÔNG đòi quyền đó, và một nút dẫn
+                thẳng vào trang 403 thì tệ hơn không có nút. */}
+            <div className="flex shrink-0 items-center justify-between gap-2">
+              {/* Đếm BẢNG và TRƯỜNG, không đếm "chiều" với "thước đo".
+                  Bảng trường bên dưới đã thôi chia theo vai trò, nên một dòng
+                  "30 chiều · 13 thước đo" ngay trên nó lại dựng lại đúng cái
+                  ranh giới vừa bỏ — và ranh giới đó do phép đoán của backend
+                  vẽ ra, không phải do người dùng. */}
+              <p className="min-w-0 truncate text-xs text-slate-400">
+                {fields.isError
+                  ? 'Không đọc được mô hình'
+                  : fields.isPending
+                    ? 'Đang đọc mô hình…'
+                    : `${sheetCount} bảng · ${dimensions.length + measures.length} trường`}
+              </p>
+              {permissions.readDataModels && (
+                <EditModelLink modelId={modelId} canEdit={permissions.can('datamodel', 'modify')} />
+              )}
+            </div>
             {fields.isError ? (
               <p className="mt-2 text-xs text-red-600">{getApiError(fields.error).message}</p>
-            ) : fields.isPending ? (
-              <p className="mt-2 text-xs text-slate-400">Đang đọc mô hình…</p>
-            ) : (
-              <>
-                {/* Đếm BẢNG và TRƯỜNG, không đếm "chiều" với "thước đo".
-                    Bảng trường bên dưới đã thôi chia theo vai trò, nên một dòng
-                    "30 chiều · 13 thước đo" ngay trên nó lại dựng lại đúng cái
-                    ranh giới vừa bỏ — và ranh giới đó do phép đoán của backend
-                    vẽ ra, không phải do người dùng. */}
-                <p className="shrink-0 text-xs text-slate-400">
-                  {sheetCount} bảng · {dimensions.length + measures.length} trường
-                </p>
-                <FieldsPanel
-                  dimensions={dimensions}
-                  measures={measures}
-                  used={usedBy(selected)}
-                  onPick={addByClick}
-                  onDragStart={setDragging}
-                  onDragEnd={() => setDragging(null)}
-                />
-              </>
+            ) : fields.isPending ? null : (
+              <FieldsPanel
+                dimensions={dimensions}
+                measures={measures}
+                used={usedBy(selected)}
+                onPick={addByClick}
+                onDragStart={setDragging}
+                onDragEnd={() => setDragging(null)}
+              />
             )}
           </SidePanel>
         </div>

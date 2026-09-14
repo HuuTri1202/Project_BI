@@ -5,6 +5,7 @@ import { BrowserRouter } from 'react-router-dom';
 import App from './App';
 import { beginAppSession } from './auth/appSession';
 import { AuthProvider } from './auth/AuthProvider';
+import { syncModelChangesAcrossTabs } from './features/datamodels/modelChanges';
 import { createQueryClient } from './services/queryClient';
 import './index.css';
 
@@ -12,6 +13,8 @@ const rootEl = document.getElementById('root');
 if (!rootEl) throw new Error('Root element #root not found');
 
 const queryClient = createQueryClient();
+// Sửa mô hình ở tab này → bảng trường của trình dựng ở tab kia tự làm mới.
+syncModelChangesAcrossTabs(queryClient);
 
 // Quyết định phiên cũ còn sống hay không TRƯỚC lần render đầu tiên, không phải
 // trong một effect: `AuthProvider` đọc token ngay lúc dựng state để chọn giữa

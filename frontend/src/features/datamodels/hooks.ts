@@ -1,16 +1,17 @@
-import type {
-  CreateFormulaMeasureInput,
-  CreateRowExprMeasureInput,
-  DataModelDetailDto,
-  DataModelDto,
-  DataModelMeasureDto,
-  DataModelRelationshipDto,
-  ExplorerFieldsDto,
-  ExplorerQueryDto,
-  ExplorerResultDto,
-  ExplorerSqlDto,
-  PageResult,
-  ReportDataDto,
+import {
+  DATAMODEL_ERROR_CODES,
+  type CreateFormulaMeasureInput,
+  type CreateRowExprMeasureInput,
+  type DataModelDetailDto,
+  type DataModelDto,
+  type DataModelMeasureDto,
+  type DataModelRelationshipDto,
+  type ExplorerFieldsDto,
+  type ExplorerQueryDto,
+  type ExplorerResultDto,
+  type ExplorerSqlDto,
+  type PageResult,
+  type ReportDataDto,
 } from '@bi/shared';
 import {
   keepPreviousData,
@@ -22,10 +23,12 @@ import {
 } from '@tanstack/react-query';
 import { useMemo } from 'react';
 
+import { getApiError } from '../../services/apiClient';
 import { readSnapshot, snapshotIdOf, writeSnapshot } from '../../services/querySnapshots';
 import { useWorkspace } from '../../workspace/useWorkspace';
 import * as api from './api';
 import { dataModelKeys } from './keys';
+import { announceModelChanged } from './modelChanges';
 
 /**
  * Hook dữ liệu của tầng ngữ nghĩa (§10).
@@ -168,11 +171,23 @@ export function useExplorerFields(id: number | null): UseQueryResult<ExplorerFie
  *
  * Ảnh chụp KHÔNG che được lỗi: `isError` vẫn thắng ở `CanvasBoard`, nên Cube
  * chết là ô hiện câu lỗi chứ không phải một biểu đồ cũ trông như còn sống.
+ *
+ * ═══ Trường không còn trong mô hình → đọc lại bảng trường ══════════════════
+ *
+ * Câu lỗi của mã `FIELD_UNKNOWN` bảo người dùng chọn trường khác ở cột Mô hình
+ * dữ liệu. Câu đó chỉ đúng khi cột ấy KHÔNG còn liệt kê chính cái trường vừa
+ * mất. Sửa mô hình ở tab khác của app thì `modelChanges.ts` đã làm mới rồi;
+ * còn đồng nghiệp sửa trên máy khác thì không có tin nào tới — và câu trả lời
+ * 400 này chính là bằng chứng bảng trường đã cũ.
+ *
+ * `cancelRefetch: false`: mười hai ô cùng hỏng một lượt thì chung MỘT lần đọc
+ * lại, không phải mười hai lần huỷ nhau.
  */
 export function useModelReportPreview(
   id: number | null,
   input: api.ModelReportPreviewInput | null,
 ): UseQueryResult<ReportDataDto> {
+  const queryClient = useQueryClient();
   const page = input?.page ?? 0;
   const queryKey = dataModelKeys.reportPreview(id ?? 0, input?.config ?? null, page);
   // `localStorage` là I/O đồng bộ. Đọc một lần cho mỗi khoá chứ không phải mỗi
@@ -207,9 +222,22 @@ export function useModelReportPreview(
      */
     queryKey,
     queryFn: async () => {
-      const data = await api.previewModelReport(id as number, input as api.ModelReportPreviewInput);
-      writeSnapshot(snapshotId, data);
-      return data;
+      try {
+        const data = await api.previewModelReport(
+          id as number,
+          input as api.ModelReportPreviewInput,
+        );
+        writeSnapshot(snapshotId, data);
+        return data;
+      } catch (err) {
+        if (getApiError(err).error === DATAMODEL_ERROR_CODES.FIELD_UNKNOWN) {
+          void queryClient.invalidateQueries(
+            { queryKey: dataModelKeys.fields(id as number) },
+            { cancelRefetch: false },
+          );
+        }
+        throw err;
+      }
     },
     enabled: id !== null && input !== null,
     retry: false,
@@ -246,10 +274,15 @@ export function useExplorerStatus(id: number | null): UseQueryResult<api.Explore
  * Quét cả cây `datamodels` chứ không nhắm từng khoá: bốn tab đọc bốn endpoint
  * khác nhau của cùng một mô hình, và gần như mọi thao tác ghi đều làm đổi ít
  * nhất hai trong bốn.
+ *
+ * Rồi báo cho các tab khác (§10.19): trình dựng mở trang mô hình ở tab mới, và
+ * bảng trường bên đó phải thấy thứ vừa sửa ở đây. Mọi thao tác ghi mô hình đều
+ * đi qua hàm này, nên đây là chỗ DUY NHẤT phải phát tin — xem `modelChanges.ts`.
  */
 export function useInvalidateDataModel(): () => Promise<void> {
   const queryClient = useQueryClient();
   return async () => {
+    announceModelChanged();
     await queryClient.invalidateQueries({ queryKey: dataModelKeys.all });
   };
 }

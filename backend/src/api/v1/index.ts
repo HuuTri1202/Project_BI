@@ -4,6 +4,7 @@ import {
   BILLING_ERROR_CODES,
   CHART_SERIES_SUPPORT,
   CHART_TYPE_LABELS,
+  DATAMODEL_ERROR_CODES,
   DATASET_ERROR_CODES,
   ORDER_STATUS_LABELS,
   REPORT_ERROR_CODES,
@@ -698,6 +699,27 @@ async function assertModelChartConfig(
 }
 
 /**
+ * Một ô dùng trường mà mô hình không còn — mô hình đã được sửa sau khi trình
+ * dựng đọc bảng trường.
+ *
+ * Mã `FIELD_UNKNOWN`, không phải `BadRequest` chung: trình dựng dựa vào mã
+ * này để tự đọc lại bảng trường (§10.19), nên câu "chọn trường khác" bên dưới
+ * đúng cả khi người sửa mô hình là một đồng nghiệp trên máy khác.
+ *
+ * ⚠️ KHÔNG khuyên "tải lại trang" như trước. Mọi đường tới đây — xem trước và
+ * lưu — đều đi ra từ trình dựng, nơi tải lại trang là bỏ cả khung chưa lưu. Từ
+ * khi nút "Sửa mô hình" mở trang mô hình ở tab bên cạnh, sửa mô hình giữa lúc
+ * dựng là đường đi CHÍNH chứ không còn là chuyện hiếm.
+ */
+function fieldGone(what: string): HttpError {
+  return new HttpError(
+    400,
+    DATAMODEL_ERROR_CODES.FIELD_UNKNOWN,
+    `${what} không còn trong mô hình — mô hình vừa được sửa. Hãy chọn trường khác ở cột Mô hình dữ liệu.`,
+  );
+}
+
+/**
  * Cùng bộ luật, nhưng nhận SẴN bảng trường thay vì tự đi lấy.
  *
  * Tách ra vì một khung §10.10 có tới 12 ô, và mỗi lần gọi `explorerFields` là
@@ -710,10 +732,10 @@ function assertChartConfigAgainst(
   config: ReportModelConfigDto,
 ): void {
   if (!fields.dimensions.some((f) => f.id === config.dimensionId)) {
-    throw badRequest('Chiều đã chọn không còn trong mô hình. Hãy tải lại trang rồi chọn lại.');
+    throw fieldGone('Chiều đã chọn');
   }
   if (!fields.measures.some((f) => f.id === config.measureId)) {
-    throw badRequest('Thước đo đã chọn không còn trong mô hình. Hãy tải lại trang rồi chọn lại.');
+    throw fieldGone('Thước đo đã chọn');
   }
 
   const series = config.seriesDimensionId ?? null;
@@ -732,7 +754,7 @@ function assertChartConfigAgainst(
       throw badRequest('Chiều nhóm màu phải khác chiều trên trục. Hãy chọn một chiều khác.');
     }
     if (!fields.dimensions.some((f) => f.id === series)) {
-      throw badRequest('Chiều nhóm màu không còn trong mô hình. Hãy tải lại trang rồi chọn lại.');
+      throw fieldGone('Chiều nhóm màu');
     }
   } else if (support === 'required') {
     throw badRequest(

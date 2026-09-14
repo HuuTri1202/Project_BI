@@ -509,14 +509,29 @@ export function assignField(
  * Đổ vào ô còn TRỐNG trước, vì đó gần như luôn là ý định: người ta bấm trường
  * thứ hai để thêm, không phải để thay trường thứ nhất. Hết ô trống thì thay ô
  * chính, nơi một cú bấm nhầm dễ nhận ra và dễ sửa nhất.
+ *
+ * "Trống" là trống THEO MÔ HÌNH HIỆN TẠI, không theo mã còn nằm trong ô — §10.19.
+ * Một chiều vừa bị ẩn hay xoá ở trang mô hình thì ô Trục HIỆN RA trống (bảng
+ * cấu hình không tìm được trường nào để in tên), trong khi `dimensionId` vẫn giữ
+ * mã cũ. Đếm theo mã thì cú bấm đầu tiên rơi vào ô Nhóm màu, ô Trục trông trống
+ * vẫn trống, biểu đồ vẫn báo lỗi — dù người dùng đã làm đúng câu lỗi bảo:
+ * "chọn trường khác ở cột Mô hình dữ liệu". Cú bấm phải đi theo thứ đang hiện ra.
  */
-export function slotForClick(draft: VisualDraft, field: DragField): Slot {
+export function slotForClick(
+  draft: VisualDraft,
+  field: DragField,
+  /** Mã các chiều mô hình ĐANG có — cùng danh sách bảng cấu hình dùng để in tên ô. */
+  dimensionIds: ReadonlySet<number>,
+): Slot {
   if (field.kind === 'measure') return 'measure';
-  if (draft.dimensionId === null) return 'dimension';
+  const live = (id: number | null): number | null =>
+    id !== null && dimensionIds.has(id) ? id : null;
+  const dimension = live(draft.dimensionId);
+  if (dimension === null) return 'dimension';
   if (
     CHART_SERIES_SUPPORT[draft.chartType] !== 'no' &&
-    draft.seriesId === null &&
-    field.id !== draft.dimensionId
+    live(draft.seriesId) === null &&
+    field.id !== dimension
   ) {
     return 'series';
   }
