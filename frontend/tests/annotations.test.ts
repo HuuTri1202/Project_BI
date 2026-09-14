@@ -115,9 +115,12 @@ describe('lưu', () => {
 });
 
 describe('thao tác', () => {
+  // Một tờ ghi chú vàng như báo cáo cũ còn giữ — nút "Ghi chú" đã bỏ, nhưng hộp
+  // văn bản nền vàng vẫn là một chú thích hợp lệ.
   const note = {
-    ...presetOf('note').make('n', { x: 2, y: 4 }),
+    ...presetOf('text').make('n', { x: 2, y: 4 }),
     text: 'Ghi chú',
+    fill: '#FEF3C7',
   } as TextAnnotationDto;
 
   it('`applyPatch` không bao giờ đổi loại hay mã của chú thích', () => {

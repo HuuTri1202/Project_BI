@@ -2387,6 +2387,9 @@ theo VIỆC người dựng báo cáo muốn làm:
 | Chỉ  | Kẻ ngang · Kẻ dọc · Mũi tên | chia báo cáo thành khu, chỉ vào đúng cái cột cần nhìn                                        |
 | Gom  | Khung nền · Khoanh vùng     | nền xám gom vài biểu đồ thành một khu, vòng đỏ khoanh quanh một điểm bất thường              |
 
+> §10.20: nút **Ghi chú** đã bỏ theo yêu cầu, thanh Chèn còn bảy mẫu. Báo cáo cũ có
+> ghi chú vàng vẫn mở ra y nguyên — đó chỉ là một hộp văn bản có nền vàng.
+
 Đó là đúng những thứ Power BI để ở mục Insert và Looker Studio để trên thanh
 công cụ. Về hình học chỉ có ba loại (`text`, `line`, `shape`); tám mẫu là tám
 điểm xuất phát chỉnh sẵn, còn mọi thứ vẫn đổi được trong cột bên phải: cỡ chữ,
@@ -2573,6 +2576,144 @@ gấp cột                           → nút gấp theo cột
 
 Giới hạn: đồng nghiệp sửa mô hình trên máy khác thì trình dựng chỉ biết khi một ô
 **hỏi** lại. Ô đã vẽ xong mà không đổi gì thì vẫn giữ số cũ tới lúc đó.
+
+### Hoàn tác, thu phóng, và cú kéo đi theo con trỏ (§10.20)
+
+> thêm nút hoàn tác, zoom in, zoom out, bỏ phần ghi chú và cải thiện độ mượt mà
+> khi thao tác với các tính năng chèn
+
+Trên đầu khung, cạnh nút "+ Thêm biểu đồ", có thêm hai cụm nút:
+
+- **Hoàn tác / Làm lại** (↶ ↷). Phím tắt: Ctrl+Z, và Ctrl+Y hoặc Ctrl+Shift+Z.
+- **Thu nhỏ / mức % / Phóng to**, gồm 50 · 75 · 100 · 125 · 150%. Bấm vào con số
+  để về 100%.
+
+Nút **Ghi chú** (tờ ghi chú vàng) đã bỏ khỏi thanh Chèn, còn bảy mẫu. Nó chỉ là
+một hộp văn bản có sẵn nền vàng: hộp Văn bản vẫn chọn được đúng màu nền đó, và
+báo cáo cũ có ghi chú vàng vẫn mở ra y nguyên.
+
+#### Hoàn tác: lưu ảnh chụp, gộp theo khoá
+
+`builder/history.ts`. Mỗi bước lịch sử là **cả mảng trang trước thay đổi**, không
+phải một lệnh kèm lệnh ngược của nó. Mọi phép sửa khung vốn đã tạo mảng mới và giữ
+nguyên phần không đổi, nên một bước chỉ tốn vài con trỏ. Nếu lưu theo lệnh, mỗi
+phép sửa mới lại cần viết đúng một lệnh ngược.
+
+Hai thay đổi **cùng khoá**, cách nhau dưới 800 ms, gộp làm một bước. Khoá gồm
+loại, mã và nhóm trường: `c:<mã>:text`, `o:<mã>:h,w,x,y`…
+
+| Thao tác                                | Số bước hoàn tác                |
+| --------------------------------------- | ------------------------------- |
+| gõ một câu vào hộp văn bản              | 1                               |
+| giữ phím mũi tên dời một hộp            | 1                               |
+| một cú kéo thả                          | 1, và hai cú kéo liền nhau là 2 |
+| đổi cỡ chữ rồi đổi màu chữ              | 2                               |
+| thu phóng, đổi trang đang xem, chọn hộp | 0: không đổi báo cáo            |
+
+⚠️ Nạp báo cáo và đổi mô hình dùng `reset`, không dùng `set`. Nếu dùng `set`, bấm
+Ctrl+Z ngay khi mở báo cáo sẽ ra một khung trống. Còn hoàn tác về khung của mô
+hình cũ thì đổ lại những mã trường không tồn tại trong mô hình mới.
+
+⚠️ Trong ô nhập chữ (tên báo cáo, hộp văn bản đang gõ, tiêu đề biểu đồ), Ctrl+Z
+thuộc về chính ô đó (`isTextEntry`). Nếu giật nó sang hoàn tác cả khung, một lần
+sửa lỗi chính tả sẽ xoá mất cái biểu đồ vừa kéo.
+
+Mỗi bước nhớ **trang** đang mở lúc thay đổi xảy ra. Hoàn tác một thay đổi ở Trang
+2 trong lúc đứng ở Trang 1 thì Trang 2 tự mở ra. Không có điều này, bấm Ctrl+Z
+trông như không có gì xảy ra.
+
+Tên báo cáo không nằm trong lịch sử, vì nó đã có hoàn tác của ô nhập.
+
+#### Thu phóng: co giãn hình, không dựng lại bố cục
+
+`builder/ZoomViewport.tsx`. Lưới vẫn dựng ở bề rộng của mức 100%, rồi cả khối được
+`scale()`. Nhờ vậy ở 50% người dùng thấy **đúng** bố cục của 100%, chỉ nhỏ đi:
+chữ trong biểu đồ, cỡ chữ hộp văn bản, độ dày nét đều thu cùng một tỉ lệ.
+
+Cách còn lại là đổi bước lưới theo mức phóng. Khi đó biểu đồ dựng lại ở cỡ mới
+nhưng chữ giữ nguyên, nên một tiêu đề 24px trong một hàng còn 22px bị cắt mất nửa.
+
+- `transform` không đổi bố cục, nên lớp ngoài mang cỡ **đã** thu phóng để thanh
+  cuộn đúng, còn lớp trong mang phép `scale()`.
+- ⚠️ Ở 100% cả hai lớp vẫn có mặt, chỉ không mang style nào. Nếu bỏ hẳn chúng,
+  đổi 100% ↔ 75% là đổi cây DOM: React dựng lại cả khung, mọi biểu đồ vẽ lại từ
+  đầu.
+- Biểu đồ vẫn chạm đúng khi đã thu phóng, vì trình dựng vẽ bằng SVG và Vega tìm
+  mục dưới con trỏ theo phần tử DOM nhận sự kiện, không bằng phép trừ toạ độ.
+- Cú kéo đo tỉ lệ thật (`bề rộng trên màn hình ÷ bề rộng bố cục`) rồi chia bước
+  lưới theo đó. Nếu dùng bước bố cục, ở 50% con trỏ đi một ô thì hộp đi hai ô.
+- Mức thu phóng nhớ trong `localStorage`, không lưu vào báo cáo. Đó là sở thích
+  của người ngồi trước màn hình. Lưu vào báo cáo thì đồng nghiệp mở ra sẽ thấy khung
+  bị thu nhỏ theo màn hình của người khác.
+
+#### Kéo mượt: hộp đi theo con trỏ, khung nét đứt đi theo lưới
+
+Tới §10.19 hộp quy về ô lưới **ngay trong lúc kéo**, nhảy cóc từng bước 56–90px.
+Mỗi nhịp chuột còn ghi vào state của cả trang, nên cả trình dựng vẽ lại vài chục
+lần một giây.
+
+Giờ cú kéo có hai lớp, và **không** lớp nào đi qua React:
+
+1. Hộp đi theo con trỏ từng pixel bằng `transform`, còn khi co giãn thì bằng
+   `width`/`height`. Giá trị ghi thẳng vào DOM trong `requestAnimationFrame`.
+2. Một khung nét đứt nhảy theo ô lưới, báo trước chỗ hộp sẽ đặt. Người dùng vẫn
+   thấy đúng thứ sẽ được lưu ở mọi thời điểm, như lời hứa cũ của lưới.
+
+Thả tay mới ghi vào state, **đúng một lần**, rồi hộp trượt 160 ms từ chỗ tay thả
+về ô lưới (FLIP, `builder/glide.ts`). Ngoài ra:
+
+- Kéo sát mép trên hoặc dưới thì khung tự cuộn.
+- Có vùng chết 3px, để một cú bấm run tay không dời biểu đồ.
+- Tay nắm co giãn của chú thích nay có vùng bấm 20px bọc quanh ô vuông nhìn thấy
+  10px. Bản cũ chỉ có 12px cho cả hai, và bấm lệch 1px là trượt.
+- Hộp mới chèn hiện ra nhẹ, để mắt bắt được nó rơi xuống chỗ nào.
+- Tất cả tắt khi hệ điều hành bật "giảm chuyển động".
+
+⚠️ Mọi thứ ghi vào `el.style` trong lúc kéo phải được xoá trước khi React đặt hộp
+vào ô mới. Sót `width` là hộp giữ cỡ của khoảnh khắc thả tay mãi mãi. React không
+tự dọn, vì những thuộc tính đó chưa bao giờ nằm trong prop `style` của nó.
+
+⚠️ `flushSync` khi thả tay. Hộp phải đứng ở ô **mới** trước lúc đo cho hoạt ảnh
+trượt. Để React tự gộp lượt vẽ thì phép đo thấy ô cũ, và hộp trượt ngược về chỗ
+vừa rời.
+
+#### Đo trên Chromium thật
+
+Báo cáo hai biểu đồ trên `docs/kiem-thu/du-lieu-thu/kiem-thu-ban-hang.csv`. Mỗi
+vòng có ba cú kéo (dời mũi tên, co giãn mũi tên, dời biểu đồ), mỗi cú 90 nhịp chuột
+16 ms. Chạy 6 vòng, cùng một kịch bản cho cả hai bản:
+
+```
+                           §10.19 (cũ)           §10.20 (mới)
+hộp lệch khỏi con trỏ      25 px, tối đa 45      0 px
+CPU mỗi cú kéo             281–441 ms            56–88 ms
+khung hình > 34 ms         6 / 18 cú kéo         1 / 18 (35 ms)
+```
+
+Khung hình dài xuất hiện rải rác ở **cả hai** bản. Trace Chromium của 4 cú kéo
+không có tác vụ nào dài quá 40 ms trên luồng chính, nên đó là nhiễu của máy chứ
+không phải việc của trang. Bản bỏ `will-change` và `translate3d` cho ra 4/18,
+nên hai thứ đó được giữ.
+
+44 phép kiểm e2e, tất cả xanh. Những phép đáng kể:
+
+```
+chèn → Hoàn tác → Làm lại          → hộp mất rồi về; hoàn tác về bản đã lưu thì hết "Chưa lưu"
+một cú kéo → Ctrl+Z                 → về ĐÚNG ô cũ; khung nét đứt bật giữa cú kéo, tắt khi thả
+thả tay                             → không sót transform/width/height, tầng về lại 3
+4 nhịp mũi tên xuống → Ctrl+Z       → một lần là về
+gõ "Doanh thu tăng" → Ctrl+Z        → trong ô gõ: không đụng khung; ngoài ô: bỏ cả đoạn, lần 2 bỏ hộp
+Ctrl+Z ở Trang 1                    → hoàn tác kẻ ngang của Trang 2 và tự mở Trang 2
+Thu nhỏ → 75%                       → khung 888 → 666px, CÙNG phần tử SVG, vùng cuộn không dư
+kéo 2 bước lưới màn hình ở 75%      → sang đúng 2 cột, dời đúng 113px trên màn hình
+rê lên cột "Miền Trung" ở 75%       → tooltip "Khu vực Miền Trung · Doanh thu 9482000"
+tải lại                             → vẫn 75%; ở 150% có thanh cuộn ngang; bấm con số → 100%
+co ô biểu đồ (§10.16)               → biểu đồ hẹp theo 420 → 270px
+```
+
+Bộ 40 phép kiểm của §10.18 chạy lại trên bản mới, tất cả xanh: gõ chữ, Backspace
+trong ô gõ, tay nắm co giãn, mũi tên đè biểu đồ, đổi tầng giữ nguyên phần tử, lưu
+→ F5, trang xem.
 
 ### Báo cáo đã lưu vẽ NGAY, rồi mới làm mới ngầm
 
@@ -2772,6 +2913,7 @@ dùng một khung khác thứ họ vừa dựng, mà không nói gì.
 | `frontend/tests/annotationView.test.tsx`             | vẽ chú thích và phím bấm trong hộp (§10.18). Hai ca khoá hai lỗi có thật: Backspace trong ô gõ chữ KHÔNG được xoá cả hộp, và đổi tầng KHÔNG được gỡ rồi gắn lại phần tử — ca này đã được chạy trên cách vẽ hai danh sách cũ và đỏ đúng như mong đợi                                                                                                                                                                                               |
 | `backend/tests/annotationSchema.test.ts`             | luật ghi của chú thích, không cần container. Phần lớn ca kiểm TỪ CHỐI: mã màu chở CSS, hộp chữ chỉ có khoảng trắng, trường lạ, loại chưa tồn tại — thứ sai ở đây không hỏng lúc lưu mà hỏng ở trang xem của người khác                                                                                                                                                                                                                            |
 | `frontend/tests/modelChanges.test.tsx`               | nút "Sửa mô hình" và tin báo giữa các tab (§10.19). Phần lớn ca kiểm chuyện tin KHÔNG đi: tab nhận không phát lại (hai tab đá tin qua lại mãi), tab tự lưu không tự nhận tin của mình, huỷ nghe thì thôi dọn. Kèm ca ô nhận `DataModelFieldUnknown` thì bảng trường tự đọc lại, còn lỗi khác thì không. Mỗi ca đã được chạy trên code cố tình làm hỏng để thấy nó đỏ                                                                              |
+| `frontend/tests/builderHistory.test.ts`              | hoàn tác, phép tính kéo, thu phóng (§10.20). Phần lớn ca kiểm hoàn tác sai theo cách LẶNG LẼ: gộp nhầm hai việc làm một (Ctrl+Z xoá luôn thứ không định xoá), không gộp khi phải gộp (gõ một câu phải bấm Ctrl+Z hai chục lần), làm lại được sau khi đã rẽ nhánh, và Ctrl+Z trong ô nhập chữ bị giật sang hoàn tác cả khung. Kèm bước lưới ở mức 50%: dùng bước bố cục thì con trỏ đi một ô, hộp đi hai                                           |
 | `backend/tests/datamodel.integration.test.ts` §10.19 | thước đo bị xoá THẬT sau khi đã dùng được, rồi xem trước và lưu: mã `DataModelFieldUnknown` chứ không phải `ValidationError` chung, và câu lỗi KHÔNG khuyên tải lại trang. Chạy trên code cũ thì đỏ ở đúng mã lỗi                                                                                                                                                                                                                                 |
 | `frontend/tests/reportViewPage.test.tsx`             | trang xem mở được cho **mọi** vai trò, và nút "Chỉnh sửa" chỉ có mặt khi nó thật sự dẫn tới một trình dựng dùng được — không phải bảo mật, mà là đừng bày ra một cái nút dẫn tới 403                                                                                                                                                                                                                                                              |
 

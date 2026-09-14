@@ -1,11 +1,6 @@
-import {
-  CANVAS_COLUMNS,
-  CANVAS_MIN_H,
-  CANVAS_MIN_W,
-  CANVAS_ROW_HEIGHT,
-  type ReportAnnotationDto,
-} from '@bi/shared';
+import { CANVAS_COLUMNS, CANVAS_MIN_H, CANVAS_MIN_W, type ReportAnnotationDto } from '@bi/shared';
 import { useEffect, useRef, useState } from 'react';
+import { flushSync } from 'react-dom';
 
 import { useModelReportPreview } from '../../datamodels/hooks';
 import { getApiError } from '../../../services/apiClient';
@@ -15,6 +10,8 @@ import { cellStyle, rowsNeeded } from '../canvasLayout';
 import { ReportChart } from '../ReportChart';
 import { ANNOTATION_MIN, type AnnotationPatch } from './annotation';
 import { AnnotationBox } from './AnnotationBox';
+import { DRAG_DEAD_ZONE_PX, gridPitch, sameBox, snapBox, spanPx, type Box } from './dragMath';
+import { glide, scaleOf } from './glide';
 import { blockerOf, clampBox, previewConfigOfDraft, type VisualDraft } from './visual';
 
 /**
@@ -32,11 +29,30 @@ import { blockerOf, clampBox, previewConfigOfDraft, type VisualDraft } from './v
  * ở mọi khung hình, và `setPointerCapture` giữ được sự kiện cả khi con trỏ chạy
  * ra ngoài cửa sổ — thứ mà thả tay ngoài mép màn hình cần tới.
  *
- * ═══ Lưới, không phải pixel ═════════════════════════════════════════════════
+ * ═══ Hộp đi theo con trỏ, khung nét đứt đi theo lưới — §10.20 ══════════════
  *
- * Mọi thứ quy về đơn vị lưới NGAY trong lúc kéo, nên ô bám vào lưới liên tục
- * thay vì trôi tự do rồi mới nhảy về chỗ lúc thả tay. Người dùng thấy đúng thứ
- * sẽ được lưu, ở mọi thời điểm.
+ *   "cải thiện độ mượt mà khi thao tác với các tính năng chèn"
+ *
+ * Tới §10.19 hộp quy về ô lưới NGAY trong lúc kéo: nó nhảy cóc từng bước 56–90px,
+ * và đo trên Chromium thì hộp lệch khỏi con trỏ trung bình 25px, có lúc 45px.
+ * Mỗi nhịp chuột còn ghi thẳng vào state của cả trang, nên cả trình dựng — hai
+ * cột bên, mọi ô biểu đồ — vẽ lại vài chục lần một giây.
+ *
+ * Giờ một cú kéo có hai lớp, và KHÔNG lớp nào đi qua React:
+ *
+ *   - Hộp đi theo con trỏ từng pixel bằng `transform` (co giãn thì bằng
+ *     `width`/`height`), ghi thẳng vào DOM trong `requestAnimationFrame`.
+ *   - Một khung nét đứt nhảy theo ô lưới, báo trước chỗ hộp sẽ đặt. Người dùng
+ *     vẫn thấy đúng thứ sẽ được lưu ở mọi thời điểm — lời hứa cũ của lưới, giữ
+ *     nguyên — chỉ là không bắt chính cái hộp phải nhảy cóc để nói điều đó.
+ *
+ * Thả tay mới ghi vào state, ĐÚNG MỘT LẦN, rồi hộp trượt từ chỗ tay thả về ô
+ * lưới (`glide`). Một lần ghi cũng là một bước hoàn tác.
+ *
+ * ⚠️ Mọi thứ ghi vào `el.style` trong lúc kéo phải được xoá trước khi React đặt
+ * hộp vào ô mới. Sót `width` là hộp giữ cỡ của khoảnh khắc thả tay mãi mãi, dù ô
+ * lưới đã đổi. React không tự dọn: những thuộc tính đó chưa bao giờ nằm trong
+ * prop `style` của nó.
  *
  * ═══ Bàn phím là đường đi ĐẦY ĐỦ, không phải lối phụ ════════════════════════
  *
@@ -44,37 +60,64 @@ import { blockerOf, clampBox, previewConfigOfDraft, type VisualDraft } from './v
  * được bằng chuột là một khung người dùng bàn phím không dựng nổi báo cáo.
  */
 
-/** Phải khớp `gap` của `CanvasGrid` — hai số lệch nhau thì ô trôi dần khi kéo. */
-const GAP = 12;
+/** Vùng sát mép khung cuộn mà giữ con trỏ ở đó thì khung tự cuộn theo. */
+const EDGE_PX = 40;
 
-type Box = { x: number; y: number; w: number; h: number };
+/**
+ * Tầng của hộp ĐANG KÉO và của khung nét đứt: trên cả ba tầng vẽ thường
+ * (`CANVAS_LAYER_Z`), để thứ đang cầm trên tay không chui xuống dưới biểu đồ.
+ */
+const DRAGGING_Z = '5';
+const GHOST_Z = 4;
 
 /**
  * Thứ đang được kéo — một ô biểu đồ HOẶC một chú thích (§10.18).
  *
- * Không mang `id` mà mang sẵn `apply` và cỡ tối thiểu: phép tính kéo và co
- * giãn là MỘT, chỉ khác chỗ ghi kết quả vào và cỡ nhỏ nhất được phép. Hai bản
- * `begin`/`move` cho hai loại là hai chỗ để quên sửa khi đổi bước lưới.
+ * Mang sẵn phần tử DOM và hình học lúc bắt đầu: mỗi khung hình chỉ cộng quãng
+ * con trỏ đi vào đó, không đo lại gì — đo DOM giữa lúc ghi DOM là cách chắc
+ * chắn nhất để trình duyệt phải tính lại bố cục mỗi khung hình.
  */
 interface DragState {
   mode: 'move' | 'resize';
-  pointerX: number;
-  pointerY: number;
-  box: Box;
-  min: { w: number; h: number };
-  apply: (patch: Partial<Box>) => void;
-  pitchX: number;
-  pitchY: number;
+  target: Grabbable;
+  el: HTMLElement;
+  ghost: HTMLElement;
+  scroller: HTMLElement | null;
+  startX: number;
+  startY: number;
+  startScrollLeft: number;
+  startScrollTop: number;
+  clientX: number;
+  clientY: number;
+  /** Mức thu phóng thật của khung (§10.20). */
+  scale: number;
+  /** Bước lưới tính bằng pixel màn hình. */
+  pitch: { x: number; y: number };
+  /** Hình học BỐ CỤC (px chưa thu phóng) lúc bắt đầu, tính từ góc trên-trái của lưới. */
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+  gridWidth: number;
+  /** Ô lưới khung nét đứt đang chỉ — cũng là thứ sẽ được lưu khi thả tay. */
+  snapped: Box;
+  moved: boolean;
+  frame: number | null;
+  zIndex: string;
+  onScroll: () => void;
 }
 
 /** Một phần tử kéo được trên khung, nhìn từ phía phép tính kéo thả. */
 interface Grabbable {
   box: Box;
   min: { w: number; h: number };
-  apply: (patch: Partial<Box>) => void;
+  /** `merge`: gộp với thay đổi cùng loại ngay trước vào một bước hoàn tác. */
+  apply: (patch: Partial<Box>, merge: boolean) => void;
   select: () => void;
   remove: () => void;
 }
+
+const boxOf = ({ x, y, w, h }: Box): Box => ({ x, y, w, h });
 
 export function CanvasBoard({
   drafts,
@@ -100,19 +143,31 @@ export function CanvasBoard({
   /** Tiêu đề để hiện trên đầu ô — trang tự dựng từ nhãn chiều và thước đo. */
   labelOf: (draft: VisualDraft) => string;
   onSelect: (id: string) => void;
-  onChange: (id: string, patch: Partial<VisualDraft>) => void;
+  onChange: (id: string, patch: Partial<VisualDraft>, merge?: boolean) => void;
   onRemove: (id: string) => void;
-  onChangeAnnotation: (id: string, patch: AnnotationPatch) => void;
+  onChangeAnnotation: (id: string, patch: AnnotationPatch, merge?: boolean) => void;
   onRemoveAnnotation: (id: string) => void;
   onEditText: (id: string | null) => void;
 }): React.ReactElement {
   const boardRef = useRef<HTMLDivElement>(null);
+  const ghostRef = useRef<HTMLDivElement>(null);
   const drag = useRef<DragState | null>(null);
+
+  // Rời trang giữa một cú kéo (đổi trang báo cáo bằng bàn phím, hoàn tác…) thì
+  // khung hình đã hẹn không được chạy trên một phần tử đã gỡ.
+  useEffect(
+    () => () => {
+      const state = drag.current;
+      if (state?.frame != null) cancelAnimationFrame(state.frame);
+      state?.scroller?.removeEventListener('scroll', state.onScroll);
+    },
+    [],
+  );
 
   const visualTarget = (draft: VisualDraft): Grabbable => ({
     box: draft,
     min: { w: CANVAS_MIN_W, h: CANVAS_MIN_H },
-    apply: (patch) => onChange(draft.id, patch),
+    apply: (patch, merge) => onChange(draft.id, patch, merge),
     select: () => onSelect(draft.id),
     remove: () => onRemove(draft.id),
   });
@@ -120,7 +175,7 @@ export function CanvasBoard({
   const annotationTarget = (a: ReportAnnotationDto): Grabbable => ({
     box: a,
     min: ANNOTATION_MIN,
-    apply: (patch) => onChangeAnnotation(a.id, patch),
+    apply: (patch, merge) => onChangeAnnotation(a.id, patch, merge),
     select: () => onSelect(a.id),
     remove: () => onRemoveAnnotation(a.id),
   });
@@ -131,25 +186,46 @@ export function CanvasBoard({
     event: React.PointerEvent<HTMLElement>,
   ): void {
     const board = boardRef.current;
-    if (board === null) return;
+    const ghost = ghostRef.current;
+    const el = event.currentTarget.closest('section');
+    // Chỉ nút chuột CHÍNH. Chuột phải để mở menu của trình duyệt, không phải để
+    // bắt đầu dời một biểu đồ.
+    if (board === null || ghost === null || el === null || event.button !== 0) return;
 
-    const rect = board.getBoundingClientRect();
-    const colWidth = (rect.width - GAP * (CANVAS_COLUMNS - 1)) / CANVAS_COLUMNS;
-    const { x, y, w, h } = target.box;
+    const grid = board.getBoundingClientRect();
+    const own = el.getBoundingClientRect();
+    const scale = scaleOf(board);
+    const scroller = board.closest<HTMLElement>('[data-canvas-scroller]');
 
-    drag.current = {
+    const state: DragState = {
       mode,
-      pointerX: event.clientX,
-      pointerY: event.clientY,
-      box: { x, y, w, h },
-      min: target.min,
-      apply: target.apply,
-      // BƯỚC lưới, không phải bề rộng ô: hai ô cạnh nhau cách nhau một bề rộng
-      // CỘNG một khoảng hở. Bỏ quên khoảng hở thì kéo ngang qua 12 cột lệch mất
-      // hơn một cột.
-      pitchX: colWidth + GAP,
-      pitchY: CANVAS_ROW_HEIGHT + GAP,
+      target,
+      el,
+      ghost,
+      scroller,
+      startX: event.clientX,
+      startY: event.clientY,
+      startScrollLeft: scroller?.scrollLeft ?? 0,
+      startScrollTop: scroller?.scrollTop ?? 0,
+      clientX: event.clientX,
+      clientY: event.clientY,
+      scale,
+      pitch: gridPitch(grid.width, scale),
+      left: (own.left - grid.left) / scale,
+      top: (own.top - grid.top) / scale,
+      width: el.offsetWidth,
+      height: el.offsetHeight,
+      gridWidth: board.offsetWidth,
+      snapped: boxOf(target.box),
+      moved: false,
+      frame: null,
+      zIndex: el.style.zIndex,
+      // Cuộn bằng con lăn giữa lúc kéo: con trỏ đứng yên nhưng khung chạy dưới
+      // nó, nên hộp phải đi theo dù không có `pointermove` nào.
+      onScroll: () => schedule(state),
     };
+    drag.current = state;
+    scroller?.addEventListener('scroll', state.onScroll);
 
     event.currentTarget.setPointerCapture(event.pointerId);
     // Chặn hành vi mặc định: kéo trên một tiêu đề sẽ bôi đen chữ, và trên màn
@@ -158,33 +234,109 @@ export function CanvasBoard({
     target.select();
   }
 
-  function move(event: React.PointerEvent<HTMLElement>): void {
-    const state = drag.current;
-    if (state === null) return;
-
-    const dx = Math.round((event.clientX - state.pointerX) / state.pitchX);
-    const dy = Math.round((event.clientY - state.pointerY) / state.pitchY);
-    if (dx === 0 && dy === 0) return;
-
-    if (state.mode === 'move') {
-      state.apply(clampBox({ ...state.box, x: state.box.x + dx, y: state.box.y + dy }, state.min));
-      return;
-    }
-
-    // Co giãn giữ nguyên góc trên-trái, nên bề rộng bị chặn bởi mép phải của
-    // khung chứ không được phép đẩy ô sang trái như `clampBox` sẽ làm.
-    state.apply({
-      w: Math.min(Math.max(state.box.w + dx, state.min.w), CANVAS_COLUMNS - state.box.x),
-      h: Math.max(state.box.h + dy, state.min.h),
+  function schedule(state: DragState): void {
+    if (state.frame !== null) return;
+    state.frame = requestAnimationFrame(() => {
+      state.frame = null;
+      if (drag.current === state) paint(state, true);
     });
   }
 
+  /** Vẽ MỘT khung hình của cú kéo. Chỉ ghi DOM, không đụng state của React. */
+  function paint(state: DragState, autoScroll: boolean): void {
+    const { el, ghost, scroller, scale, target } = state;
+    const dx = state.clientX - state.startX + ((scroller?.scrollLeft ?? 0) - state.startScrollLeft);
+    const dy = state.clientY - state.startY + ((scroller?.scrollTop ?? 0) - state.startScrollTop);
+
+    if (!state.moved) {
+      if (Math.hypot(dx, dy) < DRAG_DEAD_ZONE_PX) return;
+      state.moved = true;
+      el.style.zIndex = DRAGGING_Z;
+      el.style.willChange = state.mode === 'move' ? 'transform' : 'width, height';
+      Object.assign(ghost.style, cellStyle(state.snapped));
+      ghost.hidden = false;
+    }
+
+    const lx = dx / scale;
+    const ly = dy / scale;
+    if (state.mode === 'move') {
+      // Kẹp trong khung: hộp không được trôi ra ngoài mép trái/phải hay lên trên
+      // hàng đầu — nơi khung nét đứt cũng không theo tới được.
+      const tx = Math.min(Math.max(lx, -state.left), state.gridWidth - state.left - state.width);
+      const ty = Math.max(ly, -state.top);
+      el.style.transform = `translate3d(${tx}px, ${ty}px, 0)`;
+    } else {
+      const minW = spanPx(target.min.w, state.pitch.x / scale);
+      const minH = spanPx(target.min.h, state.pitch.y / scale);
+      el.style.width = `${Math.min(Math.max(state.width + lx, minW), state.gridWidth - state.left)}px`;
+      el.style.height = `${Math.max(state.height + ly, minH)}px`;
+    }
+
+    const snapped = snapBox(state.mode, boxOf(target.box), target.min, dx, dy, state.pitch);
+    if (!sameBox(snapped, state.snapped)) {
+      state.snapped = snapped;
+      Object.assign(ghost.style, cellStyle(snapped));
+    }
+
+    // Giữ con trỏ sát mép trên/dưới thì khung tự cuộn — không có nó thì không
+    // kéo nổi một hộp xuống quá đáy màn hình, trừ khi thả ra, cuộn, rồi kéo lại.
+    if (autoScroll && scroller !== null) {
+      const edge = scroller.getBoundingClientRect();
+      const over =
+        state.clientY > edge.bottom - EDGE_PX
+          ? state.clientY - (edge.bottom - EDGE_PX)
+          : state.clientY < edge.top + EDGE_PX
+            ? state.clientY - (edge.top + EDGE_PX)
+            : 0;
+      if (over !== 0) {
+        const before = scroller.scrollTop;
+        scroller.scrollTop += Math.sign(over) * Math.max(2, Math.round(Math.abs(over) / 3));
+        // Chạm đáy thì thôi — không thì vòng khung hình quay mãi mà không cuộn được gì.
+        if (scroller.scrollTop !== before) schedule(state);
+      }
+    }
+  }
+
+  function move(event: React.PointerEvent<HTMLElement>): void {
+    const state = drag.current;
+    if (state === null) return;
+    state.clientX = event.clientX;
+    state.clientY = event.clientY;
+    schedule(state);
+  }
+
   function end(event: React.PointerEvent<HTMLElement>): void {
-    if (drag.current === null) return;
+    const state = drag.current;
+    if (state === null) return;
     drag.current = null;
+    if (state.frame !== null) cancelAnimationFrame(state.frame);
+    state.scroller?.removeEventListener('scroll', state.onScroll);
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
+    if (!state.moved) return;
+
+    // Khung hình CUỐI với toạ độ lúc thả tay — nhịp `pointermove` sau cùng có thể
+    // còn nằm trong một khung hình chưa kịp chạy.
+    paint(state, false);
+    const { el, ghost, target, snapped } = state;
+    const from = el.getBoundingClientRect();
+
+    el.style.transform = '';
+    el.style.width = '';
+    el.style.height = '';
+    el.style.willChange = '';
+    el.style.zIndex = state.zIndex;
+    ghost.hidden = true;
+
+    if (!sameBox(snapped, boxOf(target.box))) {
+      const patch =
+        state.mode === 'move' ? { x: snapped.x, y: snapped.y } : { w: snapped.w, h: snapped.h };
+      // `flushSync`: hộp phải đứng ở ô MỚI trước khi đo cho `glide`. Để React tự
+      // gộp lượt vẽ thì phép đo thấy ô cũ, và hộp trượt ngược về chỗ vừa rời.
+      flushSync(() => target.apply(patch, false));
+    }
+    glide(el, from, state.scale);
   }
 
   function onKey(event: React.KeyboardEvent<HTMLElement>, target: Grabbable): void {
@@ -207,14 +359,20 @@ export function CanvasBoard({
 
     const [dx, dy] = delta;
     const { box, min } = target;
-    if (event.shiftKey) {
-      target.apply({
-        w: Math.min(Math.max(box.w + dx, min.w), CANVAS_COLUMNS - box.x),
-        h: Math.max(box.h + dy, min.h),
-      });
-      return;
-    }
-    target.apply(clampBox({ ...box, x: box.x + dx, y: box.y + dy }, min));
+    const next: Box = event.shiftKey
+      ? {
+          ...boxOf(box),
+          w: Math.min(Math.max(box.w + dx, min.w), CANVAS_COLUMNS - box.x),
+          h: Math.max(box.h + dy, min.h),
+        }
+      : clampBox({ ...boxOf(box), x: box.x + dx, y: box.y + dy }, min);
+    if (sameBox(next, boxOf(box))) return;
+
+    const el = event.currentTarget;
+    const from = el.getBoundingClientRect();
+    // Giữ phím mũi tên là MỘT bước hoàn tác, không phải hai chục.
+    flushSync(() => target.apply(next, true));
+    glide(el, from, boardRef.current === null ? 1 : scaleOf(boardRef.current));
   }
 
   const annotationBox = (a: ReportAnnotationDto): React.ReactElement => {
@@ -271,6 +429,17 @@ export function CanvasBoard({
           );
         })}
         {annotations.map(annotationBox)}
+        {/* Khung nét đứt của cú kéo. Luôn nằm sẵn trong lưới và chỉ bật lên khi
+            kéo: gắn/gỡ nó mỗi lần là một lượt vẽ lại cả khung đúng lúc cú kéo
+            bắt đầu — khoảnh khắc nhạy nhất với độ giật. */}
+        <div
+          ref={ghostRef}
+          hidden
+          aria-hidden="true"
+          data-drag-ghost=""
+          style={{ zIndex: GHOST_Z }}
+          className="pointer-events-none rounded-lg border-2 border-dashed border-brand-400 bg-brand-50/50"
+        />
       </CanvasGrid>
     </div>
   );

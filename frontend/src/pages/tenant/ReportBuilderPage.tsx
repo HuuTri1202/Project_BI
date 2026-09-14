@@ -8,7 +8,7 @@ import {
   REPORT_NAME_MAX,
   type ReportDto,
 } from '@bi/shared';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Navigate, useNavigate, useParams } from 'react-router-dom';
 
 import { usePermissions } from '../../auth/usePermissions';
@@ -29,6 +29,10 @@ import {
   useUpdateCanvasReport,
 } from '../../features/datasets/hooks';
 import { CanvasBoard } from '../../features/reports/builder/CanvasBoard';
+import { CanvasTools } from '../../features/reports/builder/CanvasTools';
+import { isTextEntry, undoShortcut, useHistory } from '../../features/reports/builder/history';
+import { ZoomViewport } from '../../features/reports/builder/ZoomViewport';
+import { readZoom, writeZoom } from '../../features/reports/builder/zoom';
 import { EditModelLink } from '../../features/reports/builder/EditModelLink';
 import { PageTabs } from '../../features/reports/PageTabs';
 import { ReportShell } from '../../features/reports/ReportShell';
@@ -255,7 +259,16 @@ function Builder({
    * cách bấm "Rời đi" mà không đọc, và lần cần hỏi thật cũng mất tác dụng.
    */
   const [initialPages] = useState<PageDraft[]>(() => [emptyPage('Trang 1')]);
-  const [pages, setPages] = useState<PageDraft[]>(initialPages);
+  /**
+   * Hoàn tác / làm lại — §10.20. Lịch sử giữ MẢNG TRANG, không giữ tên báo cáo:
+   * tên nằm trong một ô nhập chữ, và ở đó Ctrl+Z là của chính ô đó. Xem
+   * `history.ts`.
+   */
+  const history = useHistory<PageDraft[]>(() => initialPages);
+  const pages = history.present;
+  const resetHistory = history.reset;
+  /** Mức thu phóng khung — §10.20. Sở thích của người ngồi trước màn hình. */
+  const [zoom, setZoom] = useState(readZoom);
   const [activePageId, setActivePageId] = useState<string | null>(() => null);
   const [selectedId, setSelectedId] = useState<string | null>(() => null);
   /**
@@ -310,7 +323,9 @@ function Builder({
 
     if (loaded.canvas !== null) {
       const list = pagesFromDto(loaded.canvas);
-      setPages(list);
+      // `reset` chứ không `set`: nạp bản đã lưu không phải thứ để hoàn tác —
+      // bấm Ctrl+Z ngay khi mở báo cáo mà ra một khung trống là mất cả báo cáo.
+      resetHistory(list);
       setActivePageId(list[0]?.id ?? null);
       setSelectedId(list[0]?.visuals[0]?.id ?? null);
       setBaseline(snapshotOf(loaded.name, readyPages(list)));
@@ -326,7 +341,7 @@ function Builder({
         h: CANVAS_DEFAULT_H,
       });
       const only: PageDraft = { ...emptyPage('Trang 1'), visuals: [one] };
-      setPages([only]);
+      resetHistory([only]);
       setActivePageId(only.id);
       setSelectedId(one.id);
       // Mốc so sánh là khung MỘT Ô vừa dựng ra, không phải khung rỗng — mở một
@@ -335,7 +350,7 @@ function Builder({
     }
 
     setSeeded(true);
-  }, [seeded, loaded]);
+  }, [seeded, loaded, resetHistory]);
 
   const dimensions = fields.data?.dimensions ?? [];
   const measures = fields.data?.measures ?? [];
@@ -361,6 +376,59 @@ function Builder({
   const activePage = pages.find((p) => p.id === activePageId) ?? pages[0] ?? null;
   const drafts = activePage?.visuals ?? [];
   const annotations = activePage?.annotations ?? [];
+
+  /**
+   * Mọi phép sửa khung đi qua đây, nên mọi phép sửa đều hoàn tác được.
+   *
+   * `key` khác `null` thì gộp với thay đổi CÙNG khoá ngay trước thành một bước:
+   * gõ một câu, giữ phím mũi tên, kéo bộ chọn màu. Mang theo trang đang mở để
+   * hoàn tác một thay đổi ở trang 2 thì mở lại trang 2 — không thì người dùng
+   * bấm Ctrl+Z ở trang 1 và không thấy gì đổi.
+   */
+  function setPages(update: (list: PageDraft[]) => PageDraft[], key: string | null = null): void {
+    history.set(update, { key, pageId: activePage?.id ?? null });
+  }
+
+  function undo(): void {
+    const pageId = history.undo();
+    if (pageId !== null) setActivePageId(pageId);
+    // Hộp chữ đang gõ có thể vừa bị hoàn tác mất; ô gõ không được treo lại.
+    setTypingId(null);
+  }
+
+  function redo(): void {
+    const pageId = history.redo();
+    if (pageId !== null) setActivePageId(pageId);
+    setTypingId(null);
+  }
+
+  /*
+   * Ctrl+Z / Ctrl+Y trên cả trang, TRỪ khi đang gõ chữ trong một ô nhập — ở đó
+   * trình duyệt tự hoàn tác chữ của ô, đúng thứ người đang gõ chờ đợi.
+   *
+   * Handler đọc qua ref: gắn lại listener sau mỗi lượt vẽ thì một phím bấm rơi
+   * đúng khe giữa gỡ và gắn sẽ mất.
+   */
+  const shortcuts = useRef({ undo, redo });
+  shortcuts.current = { undo, redo };
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent): void => {
+      const what = undoShortcut(event);
+      if (what === null || isTextEntry(event.target)) return;
+      // Hộp thoại đang mở ("Rời khỏi trình dựng?") thì phím tắt không được sửa
+      // khung phía sau lưng nó.
+      if (document.querySelector('dialog[open]') !== null) return;
+      event.preventDefault();
+      shortcuts.current[what]();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
+  function changeZoom(next: number): void {
+    setZoom(next);
+    writeZoom(next);
+  }
 
   /*
    * Chú thích đang chọn — hỏi TRƯỚC ô biểu đồ.
@@ -395,16 +463,28 @@ function Builder({
    * một trang khác — thứ sẽ không có lỗi nào báo và chỉ lộ ra khi người dùng
    * chuyển sang trang đó.
    */
-  function editPage(change: (list: VisualDraft[]) => VisualDraft[]): void {
+  function editPage(
+    change: (list: VisualDraft[]) => VisualDraft[],
+    key: string | null = null,
+  ): void {
     const pageId = activePage?.id;
     if (pageId === undefined) return;
-    setPages((list) =>
-      list.map((p) => (p.id === pageId ? { ...p, visuals: change(p.visuals) } : p)),
+    setPages(
+      (list) => list.map((p) => (p.id === pageId ? { ...p, visuals: change(p.visuals) } : p)),
+      key,
     );
   }
 
-  function patch(id: string, changes: Partial<VisualDraft>): void {
-    editPage((list) => list.map((d) => (d.id === id ? { ...d, ...changes } : d)));
+  /**
+   * Sửa một ô. `merge` (mặc định): cùng ô, cùng NHÓM trường, sửa liền tay thì gộp
+   * một bước hoàn tác — gõ tiêu đề, giữ mũi tên. Cú kéo thả xong thì không gộp:
+   * hai cú kéo liền nhau là hai việc người dùng muốn lùi riêng.
+   */
+  function patch(id: string, changes: Partial<VisualDraft>, merge = true): void {
+    editPage(
+      (list) => list.map((d) => (d.id === id ? { ...d, ...changes } : d)),
+      merge ? mergeKey('o', id, changes) : null,
+    );
   }
 
   function addVisual(): void {
@@ -419,11 +499,14 @@ function Builder({
   /** Cùng vai trò với `editPage`, cho mảng chú thích của trang đang mở. */
   function editAnnotations(
     change: (list: PageDraft['annotations']) => PageDraft['annotations'],
+    key: string | null = null,
   ): void {
     const pageId = activePage?.id;
     if (pageId === undefined) return;
-    setPages((list) =>
-      list.map((p) => (p.id === pageId ? { ...p, annotations: change(p.annotations) } : p)),
+    setPages(
+      (list) =>
+        list.map((p) => (p.id === pageId ? { ...p, annotations: change(p.annotations) } : p)),
+      key,
     );
   }
 
@@ -441,8 +524,11 @@ function Builder({
     setTypingId(fresh.kind === 'text' ? fresh.id : null);
   }
 
-  function patchAnnotation(id: string, changes: AnnotationPatch): void {
-    editAnnotations((list) => list.map((a) => (a.id === id ? applyPatch(a, changes) : a)));
+  function patchAnnotation(id: string, changes: AnnotationPatch, merge = true): void {
+    editAnnotations(
+      (list) => list.map((a) => (a.id === id ? applyPatch(a, changes) : a)),
+      merge ? mergeKey('c', id, changes) : null,
+    );
   }
 
   function removeAnnotation(id: string): void {
@@ -530,7 +616,9 @@ function Builder({
     // trong một mô hình, nên giữ lại một trang tên "Doanh thu theo vùng" trống
     // rỗng là giữ lại một cái vỏ không còn ruột.
     const fresh = emptyPage('Trang 1');
-    setPages([fresh]);
+    // `reset`: hoàn tác về khung của mô hình CŨ là đổ lại những mã trường không
+    // tồn tại trong mô hình mới.
+    history.reset([fresh]);
     setActivePageId(fresh.id);
     setSelectedId(fresh.visuals[0]?.id ?? null);
     setTypingId(null);
@@ -801,12 +889,23 @@ function Builder({
                     ` · trang ${pages.findIndex((p) => p.id === activePage?.id) + 1}/${pages.length}`}
                 </span>
               </div>
-              <Button
-                onClick={addVisual}
-                disabled={drafts.length >= CANVAS_MAX_VISUALS || cubeDown}
-              >
-                + Thêm biểu đồ
-              </Button>
+              <div className="flex flex-wrap items-center gap-2">
+                <CanvasTools
+                  canUndo={history.canUndo}
+                  canRedo={history.canRedo}
+                  onUndo={undo}
+                  onRedo={redo}
+                  zoom={zoom}
+                  onZoom={changeZoom}
+                  zoomDisabled={cubeDown}
+                />
+                <Button
+                  onClick={addVisual}
+                  disabled={drafts.length >= CANVAS_MAX_VISUALS || cubeDown}
+                >
+                  + Thêm biểu đồ
+                </Button>
+              </div>
             </div>
 
             {/* Thanh Chèn nằm NGOÀI vùng cuộn, cùng lý do với nút "Thêm biểu
@@ -822,7 +921,7 @@ function Builder({
               }
             />
 
-            <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+            <ZoomViewport zoom={cubeDown ? 1 : zoom}>
               {cubeDown ? (
                 <CubeOfflineNotice
                   command={status.data?.command ?? ''}
@@ -851,7 +950,7 @@ function Builder({
                   onEditText={setTypingId}
                 />
               )}
-            </div>
+            </ZoomViewport>
 
             {/* Thanh thẻ LUÔN hiện trong trình dựng, kể cả khi mới có một trang
                 — đó là chỗ duy nhất có nút "+", nên giấu nó đi khi chỉ có một
@@ -1011,4 +1110,14 @@ function toId(raw: string | undefined): number | null {
   if (raw === undefined) return null;
   const n = Number(raw);
   return Number.isInteger(n) && n > 0 ? n : null;
+}
+
+/**
+ * Khoá gộp bước hoàn tác cho một lần sửa: cùng loại, cùng mã, cùng NHÓM trường.
+ *
+ * Đổi cỡ chữ rồi đổi màu chữ liền tay là hai bước — hai việc khác nhau; gõ
+ * mười chữ vào cùng một hộp là một bước.
+ */
+function mergeKey(kind: 'o' | 'c', id: string, changes: object): string {
+  return `${kind}:${id}:${Object.keys(changes).sort().join(',')}`;
 }

@@ -6,7 +6,11 @@ import { presetOf, type AnnotationPresetKey } from './annotation';
  * Thanh "Chèn" của trình dựng — §10.18.
  *
  * Ba nhóm, xếp theo việc người dựng báo cáo muốn làm: VIẾT (tiêu đề, đoạn giải
- * thích, ghi chú), CHỈ (đường kẻ, mũi tên), GOM (khung nền, vòng khoanh).
+ * thích), CHỈ (đường kẻ, mũi tên), GOM (khung nền, vòng khoanh).
+ *
+ * Nút "Ghi chú" (tờ ghi chú vàng) bị bỏ theo yêu cầu. Nó chỉ là một hộp văn bản
+ * có sẵn nền vàng — hộp Văn bản vẫn đặt được đúng màu nền đó ở cột bên phải, và
+ * báo cáo cũ có ghi chú vàng vẫn mở ra y nguyên.
  *
  * Nút có cả hình LẪN chữ, không phải một dãy biểu tượng trần. Tám biểu tượng
  * nhỏ đứng cạnh nhau thì "ghi chú" với "văn bản", "khung nền" với "khoanh
@@ -14,7 +18,7 @@ import { presetOf, type AnnotationPresetKey } from './annotation';
  * phải rê chuột mới biết là có là một tính năng không ai dùng.
  */
 const GROUPS: readonly (readonly AnnotationPresetKey[])[] = [
-  ['title', 'text', 'note'],
+  ['title', 'text'],
   ['hline', 'vline', 'arrow'],
   ['panel', 'circle'],
 ];
@@ -84,13 +88,6 @@ function PresetIcon({ preset }: { preset: AnnotationPresetKey }): React.ReactEle
       return (
         <svg {...common}>
           <path d="M4 6h16M4 11h16M4 16h10" />
-        </svg>
-      );
-    case 'note':
-      return (
-        <svg {...common}>
-          <path d="M5 4h14v10l-6 6H5z" fill="#FEF3C7" />
-          <path d="M13 20v-6h6" />
         </svg>
       );
     case 'hline':

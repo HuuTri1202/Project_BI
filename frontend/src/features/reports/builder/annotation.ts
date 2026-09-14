@@ -62,7 +62,7 @@ export const FILL_COLORS: readonly ColorOption[] = [
 ];
 
 export type AnnotationPresetKey =
-  'title' | 'text' | 'note' | 'hline' | 'vline' | 'arrow' | 'panel' | 'circle';
+  'title' | 'text' | 'hline' | 'vline' | 'arrow' | 'panel' | 'circle';
 
 export interface AnnotationPreset {
   key: AnnotationPresetKey;
@@ -158,14 +158,6 @@ export const ANNOTATION_PRESETS: readonly AnnotationPreset[] = [
     w: 4,
     h: 2,
     make: (id, at) => text(id, { ...at, w: 4, h: 2 }, {}),
-  },
-  {
-    key: 'note',
-    label: 'Ghi chú',
-    hint: 'Tờ ghi chú vàng dán cạnh biểu đồ — "tháng 7 giảm vì đóng kho".',
-    w: 3,
-    h: 3,
-    make: (id, at) => text(id, { ...at, w: 3, h: 3 }, { fill: '#FEF3C7' }),
   },
   {
     key: 'hline',

@@ -5,6 +5,7 @@ import { AnnotationView } from '../annotations/AnnotationView';
 import { CANVAS_LAYER_Z, textFrameStyle, textStyle } from '../annotations/annotationStyle';
 import { cellStyle } from '../canvasLayout';
 import { describeAnnotation } from './annotation';
+import { appear } from './glide';
 
 /**
  * Một chú thích trên khung SOẠN THẢO — §10.18.
@@ -79,9 +80,15 @@ export function AnnotationBox({
    * thì trình duyệt đã tự đưa tiêu điểm vào, và giật tiêu điểm theo mỗi lần
    * `selected` đổi sẽ kéo nó ra khỏi bảng bên phải ngay khi người dùng bấm vào
    * một nút ở đó.
+   *
+   * Cùng lúc đó hộp HIỆN RA nhẹ (§10.20): chỗ trống `findSlot` tìm được có thể
+   * nằm dưới cả hai biểu đồ, và một hộp bật ra tức thì ở đó thì mắt không bắt kịp
+   * nó rơi xuống đâu.
    */
   useEffect(() => {
-    if (selected && !editing) boxRef.current?.focus({ preventScroll: false });
+    if (!selected) return;
+    if (boxRef.current !== null) appear(boxRef.current);
+    if (!editing) boxRef.current?.focus({ preventScroll: false });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- chỉ lúc gắn, xem trên
   }, []);
 
@@ -149,14 +156,20 @@ export function AnnotationBox({
           >
             ✕
           </button>
+          {/* Vùng BẤM 20px bọc một ô vuông NHÌN THẤY 10px (§10.20). Bản cũ là
+              12px cho cả hai, và đo trên Chromium thì một cú bấm lệch 1px ra
+              ngoài mép là trượt hẳn — con trỏ rơi xuống khung phía sau và cú kéo
+              co giãn biến thành không có gì. */}
           <span
             onPointerDown={(e) => {
               e.stopPropagation();
               onGrabResize(e);
             }}
             aria-hidden="true"
-            className="absolute -right-1 -bottom-1 h-3 w-3 cursor-nwse-resize rounded-sm border border-brand-500 bg-white"
-          />
+            className="absolute -right-2.5 -bottom-2.5 flex h-5 w-5 cursor-nwse-resize items-center justify-center"
+          >
+            <span className="h-2.5 w-2.5 rounded-sm border border-brand-500 bg-white" />
+          </span>
         </>
       )}
     </section>
