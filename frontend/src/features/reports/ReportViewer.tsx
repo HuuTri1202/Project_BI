@@ -4,12 +4,13 @@ import {
   type ReportDataDto,
   type ReportDto,
 } from '@bi/shared';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type Ref } from 'react';
 
 import { ErrorState, TableSkeleton } from '../../components/ui/states';
 import { dataModelKeys } from '../datamodels/keys';
 import { useReportCanvasData, useReportData } from '../datasets/hooks';
 import { getApiError } from '../../services/apiClient';
+import { DANG_TAI, loiXuat } from '../../services/danhDauXuat';
 import { readSnapshot, snapshotIdOf, writeSnapshot } from '../../services/querySnapshots';
 import { previewConfigOfDto } from './builder/visual';
 import { CanvasView } from './CanvasView';
@@ -59,7 +60,29 @@ function cellSnapshotId(datamodelId: number, config: Parameters<typeof previewCo
  * trang. Số liệu tới từ `GET /reports/:id/canvas-data` và `GET /reports/:id/data`
  * — hai endpoint cố ý chỉ gác `report:read`.
  */
-export function ReportViewer({ report }: { report: ReportDto }): React.ReactElement {
+export function ReportViewer({
+  report,
+  activePageId,
+  onSelectPage,
+  vungXuatRef,
+}: {
+  report: ReportDto;
+  /**
+   * Trang báo cáo đang mở — §10.12.
+   *
+   * `null` = "chưa chọn gì", và nó được suy ra thành trang ĐẦU ngay bên dưới
+   * thay vì được một effect gán hộ. Cùng lập luận với `selected` trong trình
+   * dựng: một effect gán hộ sẽ tranh chấp với lựa chọn thật của người dùng
+   * trong đúng lượt render mà báo cáo vừa nạp xong.
+   *
+   * Trạng thái nằm ở trang cha chứ không ở đây: nút "Xuất" trên thanh tiêu đề
+   * cũng phải biết người dùng đang ở trang nào.
+   */
+  activePageId: string | null;
+  onSelectPage: (pageId: string) => void;
+  /** Vùng đem đi chụp khi xuất ảnh — đúng phần báo cáo, không có thanh thẻ trang. */
+  vungXuatRef?: Ref<HTMLDivElement> | undefined;
+}): React.ReactElement {
   /**
    * Khung nhiều biểu đồ (§10.10) — nhánh này phải hỏi TRƯỚC mọi thứ khác.
    *
@@ -69,15 +92,6 @@ export function ReportViewer({ report }: { report: ReportDto }): React.ReactElem
    */
   const canvas = report.canvas;
 
-  /**
-   * Trang báo cáo đang mở — §10.12.
-   *
-   * `null` = "chưa chọn gì", và nó được suy ra thành trang ĐẦU ngay bên dưới
-   * thay vì được một effect gán hộ. Cùng lập luận với `selected` trong trình
-   * dựng: một effect gán hộ sẽ tranh chấp với lựa chọn thật của người dùng
-   * trong đúng lượt render mà báo cáo vừa nạp xong.
-   */
-  const [activePageId, setActivePageId] = useState<string | null>(null);
   const pages = canvas?.pages ?? [];
   // `?? pages[0]` cũng là đường lui khi trang đang mở vừa bị người khác xoá.
   const activePage = pages.find((p) => p.id === activePageId) ?? pages[0];
@@ -178,26 +192,32 @@ export function ReportViewer({ report }: { report: ReportDto }): React.ReactElem
          tức là biến mất ở đúng lúc người ta cần nó nhất. */
       <div className="flex h-full min-h-0 flex-col">
         <div className="min-h-0 flex-1 overflow-y-auto">
-          {canvasData.isError ? (
-            // Lỗi ĐÈ LÊN ảnh chụp, không phải ngược lại: Cube chết mà màn hình
-            // vẫn vẽ số của hôm qua là biến một sự cố thành một báo cáo trông
-            // bình thường.
-            <ErrorState message={getApiError(canvasData.error).message} />
-          ) : (
-            <CanvasView
-              page={activePage}
-              reportId={report.id}
-              data={canvasData.data ?? saved}
-              refreshing={canvasData.data === undefined && saved !== undefined}
-            />
-          )}
+          {/* Vùng chụp là thẻ BỌC trong khung cuộn, không phải chính khung cuộn:
+              khung cuộn chỉ cao bằng màn hình, còn thẻ bọc cao bằng cả báo cáo. */}
+          <div ref={vungXuatRef}>
+            {canvasData.isError ? (
+              // Lỗi ĐÈ LÊN ảnh chụp, không phải ngược lại: Cube chết mà màn hình
+              // vẫn vẽ số của hôm qua là biến một sự cố thành một báo cáo trông
+              // bình thường.
+              <div {...loiXuat(getApiError(canvasData.error).message)}>
+                <ErrorState message={getApiError(canvasData.error).message} />
+              </div>
+            ) : (
+              <CanvasView
+                page={activePage}
+                reportId={report.id}
+                data={canvasData.data ?? saved}
+                refreshing={canvasData.data === undefined && saved !== undefined}
+              />
+            )}
+          </div>
         </div>
 
         {/* Một trang thì không có gì để chuyển — và một thanh thẻ có đúng một
             thẻ chỉ chiếm chỗ mà không nói thêm điều gì. Mọi báo cáo dựng trước
             §10.12 rơi vào nhánh này, nên chúng trông y hệt như trước. */}
         {pages.length > 1 && (
-          <PageTabs pages={pages} activeId={activePage.id} onSelect={setActivePageId} />
+          <PageTabs pages={pages} activeId={activePage.id} onSelect={onSelectPage} />
         )}
       </div>
     );
@@ -206,47 +226,57 @@ export function ReportViewer({ report }: { report: ReportDto }): React.ReactElem
   // ─── Báo cáo một biểu đồ ───────────────────────────────────────────────────
   return (
     <div className="mx-auto w-full max-w-5xl overflow-y-auto">
-      <section className="rounded-xl border border-slate-200 bg-white p-5">
-        {/* Báo cáo vừa được wizard tạo: chưa có biểu đồ, và đó là trạng thái
+      {/* Thẻ bọc để chụp — cùng lý do với nhánh khung: khung cuộn bên ngoài chỉ
+          cao bằng màn hình. */}
+      <div ref={vungXuatRef}>
+        <section className="rounded-xl border border-slate-200 bg-white p-5">
+          {/* Báo cáo vừa được wizard tạo: chưa có biểu đồ, và đó là trạng thái
             bình thường. Nói rõ bước tiếp theo thay vì để một khung trống. */}
-        {notConfigured && <NotConfigured sourceName={report.sourceName} />}
+          {notConfigured && <NotConfigured sourceName={report.sourceName} />}
 
-        {!notConfigured && data.isPending && <TableSkeleton rows={4} />}
+          {!notConfigured && data.isPending && (
+            <div {...DANG_TAI}>
+              <TableSkeleton rows={4} />
+            </div>
+          )}
 
-        {/* Bộ dữ liệu chưa vào kho phân tích — trạng thái BÌNH THƯỜNG kéo dài
+          {/* Bộ dữ liệu chưa vào kho phân tích — trạng thái BÌNH THƯỜNG kéo dài
             vài giây sau khi tải file lên, không phải sự cố. Hộp đỏ ở đây dạy
             người dùng rằng hệ thống hay hỏng vặt, đúng cái bẫy mà khối
             `notConfigured` ngay trên đã tránh. Hook tự hỏi lại mỗi 3 giây nên
             biểu đồ tự hiện, không cần F5. */}
-        {!notConfigured && notLoaded && (
-          <p className="py-10 text-center text-sm text-slate-500">
-            Đang nạp bộ dữ liệu vào kho phân tích… biểu đồ sẽ tự hiện khi xong.
-          </p>
-        )}
+          {!notConfigured && notLoaded && (
+            <p className="py-10 text-center text-sm text-slate-500" {...DANG_TAI}>
+              Đang nạp bộ dữ liệu vào kho phân tích… biểu đồ sẽ tự hiện khi xong.
+            </p>
+          )}
 
-        {!notConfigured && !notLoaded && data.isError && (
-          <ErrorState message={getApiError(data.error).message} />
-        )}
+          {!notConfigured && !notLoaded && data.isError && (
+            <div {...loiXuat(getApiError(data.error).message)}>
+              <ErrorState message={getApiError(data.error).message} />
+            </div>
+          )}
 
-        {data.data && chartType !== null && (
-          <ReportChart
-            chartType={chartType}
-            data={data.data}
-            options={report.modelConfig?.options}
-            onPage={setGroupPage}
-          />
-        )}
-      </section>
+          {data.data && chartType !== null && (
+            <ReportChart
+              chartType={chartType}
+              data={data.data}
+              options={report.modelConfig?.options}
+              onPage={setGroupPage}
+            />
+          )}
+        </section>
 
-      {/* Bảng số liệu chỉ lặp lại khi biểu đồ KHÔNG phải là bảng — `ReportChart`
+        {/* Bảng số liệu chỉ lặp lại khi biểu đồ KHÔNG phải là bảng — `ReportChart`
           đã tự vẽ bảng cho loại đó, và hai bảng giống hệt nhau chồng lên nhau
           đọc ra như một lỗi hiển thị. */}
-      {data.data && data.data.rows.length > 0 && chartType !== 'table' && (
-        <section className="mt-6">
-          <h2 className="mb-3 text-sm font-semibold text-slate-900">Số liệu</h2>
-          <ReportDataTable data={data.data} />
-        </section>
-      )}
+        {data.data && data.data.rows.length > 0 && chartType !== 'table' && (
+          <section className="mt-6">
+            <h2 className="mb-3 text-sm font-semibold text-slate-900">Số liệu</h2>
+            <ReportDataTable data={data.data} />
+          </section>
+        )}
+      </div>
     </div>
   );
 }

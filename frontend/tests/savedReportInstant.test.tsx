@@ -89,7 +89,7 @@ function ve(): void {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={queryClient}>
-      <ReportViewer report={REPORT} />
+      <ReportViewer report={REPORT} activePageId={null} onSelectPage={() => {}} />
     </QueryClientProvider>,
   );
 }

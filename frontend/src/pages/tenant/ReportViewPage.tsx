@@ -1,3 +1,4 @@
+import { useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 
 import { usePermissions } from '../../auth/usePermissions';
@@ -6,6 +7,7 @@ import { Button } from '../../components/ui/Button';
 import { ErrorState, TableSkeleton } from '../../components/ui/states';
 import { useReport, useReportCanvasData } from '../../features/datasets/hooks';
 import { ReportShell } from '../../features/reports/ReportShell';
+import { XuatBaoCao } from '../../features/reports/export/XuatBaoCao';
 import { ReportViewer } from '../../features/reports/ReportViewer';
 import { getApiError } from '../../services/apiClient';
 
@@ -54,6 +56,14 @@ export default function ReportViewPage(): React.ReactElement {
   const id = toId(params['reportId']);
   const report = useReport(id);
   const loaded = report.data;
+
+  /**
+   * Trang báo cáo đang mở, và vùng đang hiển thị — ở TRANG này chứ không ở
+   * `ReportViewer`, vì nút "Xuất" trên thanh tiêu đề cần cả hai: chụp đúng trang
+   * người dùng đang xem, và biết các trang còn lại để xuất PDF nhiều trang.
+   */
+  const [activePageId, setActivePageId] = useState<string | null>(null);
+  const vungXuatRef = useRef<HTMLDivElement>(null);
 
   /**
    * Số liệu của TRANG ĐẦU, hỏi NGAY — không chờ báo cáo nạp xong (§10.14).
@@ -126,6 +136,13 @@ export default function ReportViewPage(): React.ReactElement {
   const canEdit = permissions.can('report', 'modify') && permissions.readDataModels;
   const editable = canEdit && loaded.source === 'datamodel';
 
+  /**
+   * Nút "Xuất" KHÔNG hỏi quyền — mọi vai trò có `report:read` đều xuất được
+   * thứ họ đang xem (xem `XuatBaoCao`). Chỉ vắng khi báo cáo chưa có biểu đồ:
+   * một tệp PDF chứa câu "Báo cáo chưa có biểu đồ" không phải thứ ai cần gửi đi.
+   */
+  const coTheXuat = loaded.canvas !== null || loaded.chartType !== null;
+
   return (
     <ReportShell
       onExit={backToList}
@@ -135,20 +152,30 @@ export default function ReportViewPage(): React.ReactElement {
         </p>
       }
       actions={
-        editable ? (
-          <Button variant="primary" onClick={() => void navigate('edit')}>
-            Chỉnh sửa
-          </Button>
-        ) : canEdit ? (
-          <Badge tone="neutral">Dựng trên bộ dữ liệu — chỉ xem</Badge>
-        ) : undefined
+        <>
+          {coTheXuat && (
+            <XuatBaoCao report={loaded} activePageId={activePageId} vungRef={vungXuatRef} />
+          )}
+          {editable ? (
+            <Button variant="primary" onClick={() => void navigate('edit')}>
+              Chỉnh sửa
+            </Button>
+          ) : canEdit ? (
+            <Badge tone="neutral">Dựng trên bộ dữ liệu — chỉ xem</Badge>
+          ) : null}
+        </>
       }
     >
       {/* KHÔNG `overflow-y-auto` ở đây: `ReportViewer` tự dựng cột cuộn của nó
           để ghim được thanh thẻ trang ở mép dưới. Cuộn ở cả hai tầng thì thanh
           thẻ trôi theo nội dung và mất tác dụng của việc ghim. */}
       <div className="flex min-h-0 flex-1 flex-col">
-        <ReportViewer report={loaded} />
+        <ReportViewer
+          report={loaded}
+          activePageId={activePageId}
+          onSelectPage={setActivePageId}
+          vungXuatRef={vungXuatRef}
+        />
       </div>
     </ReportShell>
   );

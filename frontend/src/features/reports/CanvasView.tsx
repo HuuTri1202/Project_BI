@@ -9,6 +9,7 @@ import { useState } from 'react';
 
 import { useReportVisualData } from '../datasets/hooks';
 import { getApiError } from '../../services/apiClient';
+import { DANG_TAI } from '../../services/danhDauXuat';
 import { AnnotationView } from './annotations/AnnotationView';
 import { CANVAS_LAYER_Z } from './annotations/annotationStyle';
 import { CanvasGrid } from './CanvasGrid';
@@ -63,8 +64,14 @@ export function CanvasView({
    */
   return (
     <>
+      {/* `DANG_TAI` ở đây và ở mọi chỗ "đang…" bên dưới: việc xuất ảnh đợi tới
+          khi không còn cái nào — xem `danhDauXuat`. Số lần trước là số đúng
+          nhưng cũ, và một tệp PDF gửi đi thì không còn dòng chữ nào nói ra
+          điều đó. */}
       {refreshing && (
-        <p className="mb-2 text-xs text-slate-400">Số liệu lần trước — đang cập nhật…</p>
+        <p className="mb-2 text-xs text-slate-400" {...DANG_TAI}>
+          Số liệu lần trước — đang cập nhật…
+        </p>
       )}
       <CanvasGrid minRows={rowsNeeded([...page.visuals, ...page.annotations])}>
         {page.visuals.map((visual) => {
@@ -178,7 +185,10 @@ function ViewCard({
         {/* Lật trang nhóm là một vòng tới Cube. Nói ra, nếu không thì một cú bấm
             không thấy gì đổi trong nửa giây đọc ra như một cú bấm trượt. */}
         {paged.isFetching && (
-          <span className="ml-auto shrink-0 text-[10px] whitespace-nowrap text-slate-400">
+          <span
+            className="ml-auto shrink-0 text-[10px] whitespace-nowrap text-slate-400"
+            {...DANG_TAI}
+          >
             đang tính…
           </span>
         )}
@@ -186,7 +196,10 @@ function ViewCard({
 
       <div className="min-h-0 flex-1 overflow-hidden p-2">
         {loading ? (
-          <p className="flex h-full items-center justify-center text-xs text-slate-400">
+          <p
+            className="flex h-full items-center justify-center text-xs text-slate-400"
+            {...DANG_TAI}
+          >
             Đang tải…
           </p>
         ) : cell === undefined ? (
