@@ -1,4 +1,4 @@
-# Kịch bản kiểm thử trình duyệt — BI Platform
+# Kịch bản kiểm thử trình duyệt — Open Insight
 
 > Sinh tự động từ `kich-ban-trinh-duyet.html`. **Đừng sửa tay** —
 > sửa file HTML rồi chạy lại `xuat-kich-ban-md.py`.
@@ -164,12 +164,12 @@ Tổng cộng **52 kịch bản**. Hai ô cuối mỗi mục để người ki�
 
 *Cùng một người, hai tổ chức, hai vai trò khác nhau*
 
-- **Tài khoản:** hanh@saomai.vn — quản trị ở Sao Mai, người xem ở BI Platform
+- **Tài khoản:** hanh@saomai.vn — quản trị ở Sao Mai, người xem ở Open Insight
 
 **Các bước:**
 
 1. Đăng nhập → đang ở Công ty Sao Mai. Vào Quản lý tổ chức, để ý có nút Thêm thành viên
-2. Bấm bộ chuyển tổ chức trên sidebar, chọn BI Platform
+2. Bấm bộ chuyển tổ chức trên sidebar, chọn Open Insight
 3. Vào lại Quản lý tổ chức
 
 **Kết quả mong đợi:**

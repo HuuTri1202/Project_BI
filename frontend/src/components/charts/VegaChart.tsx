@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { TopLevelSpec } from 'vega-lite';
 
+import { KHONG_XUAT, THUOC_TINH_DANG_VE } from '../../services/danhDauXuat';
+import { hamBieuThucVega, type DoChu } from './vegaExpr';
 import { khongKichThuoc, soDo } from './vegaSpecKey';
 
 /**
@@ -90,6 +92,20 @@ export function VegaChart<T extends object>({
   const [failed, setFailed] = useState(false);
 
   /*
+   * Số việc Vega đang làm dở — để việc xuất ảnh biết khi nào biểu đồ vẽ xong
+   * (xem `danhDauXuat`).
+   *
+   * Đếm chứ không bật/tắt: số liệu mới và kích thước mới có thể cùng chạy
+   * `runAsync` chồng lên nhau, và cái xong trước không được gỡ dấu của cái
+   * còn chạy. Ghi thẳng vào thuộc tính của thẻ, KHÔNG qua state: một lần vẽ lại
+   * không có lý do gì bắt React render lại cả bảng ẩn bên dưới hai lần.
+   *
+   * Thẻ ra đời đã mang dấu (xem JSX) — trước khi effect đầu tiên kịp chạy thì
+   * biểu đồ cũng đã là "chưa vẽ xong".
+   */
+  const dangChay = useRef(0);
+
+  /*
    * Bản MỚI NHẤT của hai prop, cho hàm bất đồng bộ bên dưới.
    *
    * Việc dựng view có một quãng `await import(...)` ở giữa. Số liệu hoặc kích
@@ -114,9 +130,10 @@ export function VegaChart<T extends object>({
     let cancelled = false;
     let view: VegaView | null = null;
 
+    demVe(host, dangChay, 1);
     void (async () => {
       try {
-        const { default: vegaEmbed } = await import('vega-embed');
+        const { default: vegaEmbed, vega } = await import('vega-embed');
         if (cancelled) return;
 
         const { spec: specMoi, data: dataMoi } = moiNhat.current;
@@ -136,6 +153,14 @@ export function VegaChart<T extends object>({
             // chuỗi `oklch(...)`, và trình duyệt tự hiểu nó khi nằm trong thuộc
             // tính `fill` của SVG. Canvas thì khắt khe hơn khi phân tích màu.
             renderer: 'svg',
+            // Hàm riêng mà spec được gọi (đo nhãn trục — §10.22). Thiếu dòng
+            // này thì spec gọi tới chúng không parse được, và ô hiện "Không vẽ
+            // được biểu đồ".
+            // `textMetrics` có trong gói `vega` lúc chạy (xuất lại từ
+            // vega-scenegraph) nhưng bộ khai kiểu của nó không nhắc tới.
+            expressionFunctions: hamBieuThucVega(
+              (vega as unknown as { textMetrics: DoChu }).textMetrics,
+            ),
           },
         );
 
@@ -149,6 +174,8 @@ export function VegaChart<T extends object>({
         viewRef.current = view;
       } catch {
         if (!cancelled) setFailed(true);
+      } finally {
+        demVe(host, dangChay, -1);
       }
     })();
 
@@ -177,7 +204,7 @@ export function VegaChart<T extends object>({
     const view = viewRef.current;
     if (view === null) return;
     view.data(TEN_DU_LIEU, data as unknown as Record<string, unknown>[]);
-    void view.runAsync();
+    veLai(view, hostRef.current, dangChay);
   }, [data]);
 
   /*
@@ -191,7 +218,7 @@ export function VegaChart<T extends object>({
     if (view === null || (rong === null && cao === null)) return;
     if (rong !== null) view.width(rong);
     if (cao !== null) view.height(cao);
-    void view.runAsync();
+    veLai(view, hostRef.current, dangChay);
   }, [rong, cao]);
 
   if (failed) {
@@ -208,10 +235,30 @@ export function VegaChart<T extends object>({
           duyệt được. `aria-hidden` để nó im lặng, và toàn bộ số liệu được lặp
           lại ở bảng ẩn thị giác bên dưới. Một trang KPI mà người khiếm thị
           không đọc được là lỗi, không phải thiếu sót thẩm mỹ. */}
-      <div ref={hostRef} aria-hidden="true" />
+      <div ref={hostRef} aria-hidden="true" {...{ [THUOC_TINH_DANG_VE]: '' }} />
       <VisuallyHiddenTable data={data} caption={ariaLabel} />
     </div>
   );
+}
+
+/**
+ * Tăng/giảm số việc đang vẽ, và giữ dấu `data-dang-ve` trên thẻ khớp với nó.
+ *
+ * Hàm ở cấp module chứ không trong component: effect gọi nó thì không phải kê
+ * thêm phụ thuộc, và danh sách phụ thuộc của effect dựng view là thứ §10.17 cố
+ * ý giữ đúng một phần tử.
+ */
+function demVe(host: HTMLElement | null, dem: { current: number }, buoc: 1 | -1): void {
+  dem.current = Math.max(0, dem.current + buoc);
+  if (host === null) return;
+  if (dem.current > 0) host.setAttribute(THUOC_TINH_DANG_VE, '');
+  else host.removeAttribute(THUOC_TINH_DANG_VE);
+}
+
+/** `runAsync` có đếm — cái xong trước không gỡ dấu của cái còn đang chạy. */
+function veLai(view: VegaView, host: HTMLElement | null, dem: { current: number }): void {
+  demVe(host, dem, 1);
+  void view.runAsync().finally(() => demVe(host, dem, -1));
 }
 
 /**
@@ -239,7 +286,9 @@ function VisuallyHiddenTable<T extends object>({
   const columns = first ? Object.keys(first) : [];
 
   return (
-    <div className="sr-only">
+    // `KHONG_XUAT`: bảng này có thể dài hàng trăm dòng; chép nó vào ảnh xuất chỉ
+    // làm chậm việc chụp để rồi vẫn vô hình.
+    <div className="sr-only" {...KHONG_XUAT}>
       <table>
         <caption>{caption}</caption>
         <thead>

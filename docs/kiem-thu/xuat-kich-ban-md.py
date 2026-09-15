@@ -163,7 +163,7 @@ def main():
 
     so_kb = sum(1 for loai, _ in b.khoi if loai == 'kb')
 
-    ra = ['# Kịch bản kiểm thử trình duyệt — BI Platform\n']
+    ra = ['# Kịch bản kiểm thử trình duyệt — Open Insight\n']
     ra.append('> Sinh tự động từ `kich-ban-trinh-duyet.html`. **Đừng sửa tay** —')
     ra.append('> sửa file HTML rồi chạy lại `xuat-kich-ban-md.py`.\n')
     ra.append(f'Tổng cộng **{so_kb} kịch bản**. Hai ô cuối mỗi mục để người kiểm điền.\n')

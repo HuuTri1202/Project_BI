@@ -1,4 +1,4 @@
-<title>Hồ Sơ Kiểm Thử BI Platform</title>
+<title>Hồ Sơ Kiểm Thử Open Insight</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -968,7 +968,7 @@ Toan he thong: 10 dong `pending` so voi 8 dong `ready`.</div>
 <tr data-kq="pass" data-ng="live"><td class="id">XT-16</td><td class="muc">Token khai <code>alg: none</code> (tấn công alg confusion)</td><td class="mongdoi">401 — thuật toán phải bị ghim HS256</td><td class="thucte">HTTP 401 · "Phiên đăng nhập không hợp lệ hoặc đã hết hạn."</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
 <tr data-kq="pass" data-ng="live"><td class="id">XT-17</td><td class="muc">Đổi mật khẩu nhưng nhập sai mật khẩu hiện tại</td><td class="mongdoi">4xx, nêu đúng ô sai</td><td class="thucte">HTTP 400 · fields.currentPassword = "Mật khẩu hiện tại không đúng"</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
 <tr data-kq="pass" data-ng="live"><td class="id">XT-18</td><td class="muc">Chuyển sang tổ chức mình không thuộc</td><td class="mongdoi">403, không cấp token</td><td class="thucte">HTTP 403 NoMembership · "Bạn không còn quyền truy cập tổ chức này."</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
-<tr data-kq="pass" data-ng="live"><td class="id">XT-19</td><td class="muc">Chuyển tổ chức hợp lệ với tài khoản thuộc ba tổ chức<span class="src">hanh@saomai.vn</span></td><td class="mongdoi">200, vai trò đổi theo tổ chức đích</td><td class="thucte">HTTP 200: "Công ty Sao Mai" (admin) → "BI Platform" (viewer)</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="live"><td class="id">XT-19</td><td class="muc">Chuyển tổ chức hợp lệ với tài khoản thuộc ba tổ chức<span class="src">hanh@saomai.vn</span></td><td class="mongdoi">200, vai trò đổi theo tổ chức đích</td><td class="thucte">HTTP 200: "Công ty Sao Mai" (admin) → "Open Insight" (viewer)</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
 <tr data-kq="pass" data-ng="live"><td class="id">XT-20</td><td class="muc">Đăng xuất</td><td class="mongdoi">204 — JWT vô trạng thái, client tự bỏ token</td><td class="thucte">HTTP 204, không có Set-Cookie (token nằm ở client)</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
 <tr data-kq="pass" data-ng="live"><td class="id">XT-21</td><td class="muc">Đăng nhập sai 13 lần liên tiếp từ cùng một IP<span class="src">Ngưỡng cấu hình: 10 lần / 15 phút</span></td><td class="mongdoi">429 từ lần thứ 11</td><td class="thucte">10 lần đầu HTTP 401, từ lần 11 trở đi HTTP 429; bộ đếm Redis = 13, TTL 894s</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
 </tbody></table></div>
@@ -989,7 +989,7 @@ Toan he thong: 10 dong `pending` so voi 8 dong `ready`.</div>
 <tr data-kq="pass" data-ng="live"><td class="id">PQ-08</td><td class="muc">Quản trị <b>tổ chức</b> mở console vận hành hệ thống</td><td class="mongdoi">403 — hai trục vai trò độc lập</td><td class="thucte">HTTP 403 · "Chức năng này chỉ dành cho quản trị hệ thống."</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
 <tr data-kq="pass" data-ng="live"><td class="id">PQ-09</td><td class="muc">Quản trị <b>hệ thống</b> mở console vận hành</td><td class="mongdoi">200 kèm số liệu xuyên mọi tổ chức</td><td class="thucte">HTTP 200 · activeTenants=6, totalUsers=9, totalWorkspaces=13</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
 <tr data-kq="pass" data-ng="live"><td class="id">PQ-10</td><td class="muc">Gọi API khi không gửi token</td><td class="mongdoi">401, <b>không</b> phải 403</td><td class="thucte">HTTP 401 Unauthorized · "Thiếu token xác thực."</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
-<tr data-kq="pass" data-ng="live"><td class="id">PQ-11</td><td class="muc">Quản trị hệ thống vẫn mang một vai trò tổ chức riêng, không tự động là admin ở mọi nơi</td><td class="mongdoi">Trả về vai trò tổ chức cụ thể</td><td class="thucte">HTTP 200, đang ở "BI Platform" với vai trò tổ chức "admin"</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
+<tr data-kq="pass" data-ng="live"><td class="id">PQ-11</td><td class="muc">Quản trị hệ thống vẫn mang một vai trò tổ chức riêng, không tự động là admin ở mọi nơi</td><td class="mongdoi">Trả về vai trò tổ chức cụ thể</td><td class="thucte">HTTP 200, đang ở "Open Insight" với vai trò tổ chức "admin"</td><td class="kl"><span class="pill pass">Đạt</span></td></tr>
 </tbody></table></div>
 </section>
 

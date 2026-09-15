@@ -36,11 +36,11 @@ Mật khẩu chia làm hai nhóm: tài khoản seed dùng `Admin@12345` (lấy t
 
 | # | Email | Mật khẩu | Vai trò nền tảng | Tổ chức · vai trò trong đó |
 |---|---|---|---|---|
-| 1 | `admin@bi-platform.local` | `Admin@12345` | **superadmin** | BI Platform · admin |
+| 1 | `admin@bi-platform.local` | `Admin@12345` | **superadmin** | Open Insight · admin |
 | 2 | `mai@anhduong.vn` | `Matkhau@123` | user | Công ty Ánh Dương · admin |
-| 3 | `viewer@bi-platform.local` | `Matkhau@123` | user | BI Platform · **viewer** |
-| 4 | `hanh@saomai.vn` | `Matkhau@123` | user | **Công ty Sao Mai · admin**<br>BI Platform · viewer |
-| 5 | `nam@saomai.vn` | `Matkhau@123` | user | Công ty Sao Mai · viewer<br>BI Platform · viewer |
+| 3 | `viewer@bi-platform.local` | `Matkhau@123` | user | Open Insight · **viewer** |
+| 4 | `hanh@saomai.vn` | `Matkhau@123` | user | **Công ty Sao Mai · admin**<br>Open Insight · viewer |
+| 5 | `nam@saomai.vn` | `Matkhau@123` | user | Công ty Sao Mai · viewer<br>Open Insight · viewer |
 | 6 | `dang@gmail.com` | *(mật khẩu của bạn — tôi không đặt lại)* | user | NASA · admin |
 
 Tài khoản số 6 do bạn tự đăng ký qua trình duyệt. Tôi cố ý **không** đụng tới nó.
@@ -56,7 +56,7 @@ là hai trục **độc lập** và rất dễ đọc nhầm:
 
 Ai đăng ký qua form đều tự động là `admin` của tổ chức mình vừa lập, nhưng vẫn
 là `user` ở cấp nền tảng. `hanh@saomai.vn` là ví dụ rõ nhất: admin ở Sao Mai
-nhưng chỉ viewer ở BI Platform — đổi tổ chức thì quyền đổi theo.
+nhưng chỉ viewer ở Open Insight — đổi tổ chức thì quyền đổi theo.
 
 ---
 
@@ -66,7 +66,7 @@ Bốn **công ty thật** — đây là những gì console `/admin` hiện mặ
 
 | Tổ chức | slug | Workspace |
 |---|---|---|
-| BI Platform | `bi-platform` | Không gian mặc định |
+| Open Insight | `bi-platform` | Không gian mặc định |
 | Công ty Ánh Dương | `cong-ty-anh-duong` | Không gian mặc định |
 | Công ty Sao Mai | `cong-ty-sao-mai` | Không gian mặc định · Phòng Kinh doanh |
 | NASA | `nasa` | Không gian mặc định |
@@ -148,7 +148,7 @@ chết ngay. Ba trường hợp nút này từ chối:
 | Chính mình | `403 CannotModifySelf` — dùng `/profile` để đổi |
 
 Trường hợp đầu là lý do `nam@saomai.vn` và `hanh@saomai.vn` **không** cấp lại
-được từ Sao Mai: họ còn ở BI Platform, nên tài khoản là danh tính dùng chung và
+được từ Sao Mai: họ còn ở Open Insight, nên tài khoản là danh tính dùng chung và
 admin một tổ chức không được đặt lại mật khẩu của nó.
 
 **Không gian cá nhân KHÔNG tính là "công ty khác".** Ai cũng có một cái, nên đếm

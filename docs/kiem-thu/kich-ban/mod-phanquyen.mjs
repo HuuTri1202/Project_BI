@@ -4,7 +4,7 @@ import { writeFileSync } from 'node:fs';
 
 await login('admin');       // mai@anhduong.vn  — admin tổ chức Ánh Dương (id 2)
 await login('superadmin');  // admin@bi-platform.local
-await login('viewer');      // viewer@bi-platform.local — viewer tổ chức BI Platform
+await login('viewer');      // viewer@bi-platform.local — viewer tổ chức Open Insight
 
 // ── PQ — phân quyền theo vai trò ─────────────────────────────────────────────
 

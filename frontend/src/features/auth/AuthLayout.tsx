@@ -1,3 +1,4 @@
+import { APP_INITIALS, APP_NAME } from '@bi/shared';
 import type { ReactNode } from 'react';
 
 interface AuthLayoutProps {
@@ -14,9 +15,9 @@ export function AuthLayout({ title, subtitle, children, footer }: AuthLayoutProp
       <div className="w-full max-w-md">
         <div className="mb-6 flex items-center justify-center gap-2.5">
           <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-brand-600 text-lg font-bold text-white">
-            BI
+            {APP_INITIALS}
           </span>
-          <span className="text-lg font-semibold tracking-tight text-slate-900">BI Platform</span>
+          <span className="text-lg font-semibold tracking-tight text-slate-900">{APP_NAME}</span>
         </div>
 
         <div className="rounded-2xl border border-slate-200 bg-white p-7 shadow-sm sm:p-8">

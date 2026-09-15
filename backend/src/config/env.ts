@@ -1,4 +1,6 @@
 import 'dotenv/config';
+
+import { APP_NAME } from '@bi/shared';
 import { z } from 'zod';
 
 /**
@@ -225,7 +227,7 @@ const envSchema = z.object({
   // --- Seed tài khoản quản trị đầu tiên (§2.7) ---
   // Đều có giá trị mặc định nên KHÔNG bắt buộc khai trong .env; chỉ script
   // seed đọc tới.
-  SEED_TENANT_NAME: z.string().min(1).default('BI Platform'),
+  SEED_TENANT_NAME: z.string().min(1).default(APP_NAME),
   SEED_TENANT_SLUG: z.string().min(1).default('bi-platform'),
   SEED_ADMIN_EMAIL: z.string().email().default('admin@bi-platform.local'),
   SEED_ADMIN_PASSWORD: z.string().min(8).max(72).default('Admin@12345'),

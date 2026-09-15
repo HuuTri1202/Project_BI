@@ -25,6 +25,11 @@ export const billingKeys = {
 
   /** Gói hiện tại + mức sử dụng. Đổi sau mỗi lần thanh toán thành công. */
   summary: () => [...billingKeys.all, 'summary'] as const,
+  /**
+   * Gói của tổ chức như MỌI thành viên thấy. Cùng nhánh `billing` để một lần
+   * thanh toán xong cuốn theo cả huy hiệu của creator lẫn viewer.
+   */
+  tenantPlan: () => [...billingKeys.all, 'tenant-plan'] as const,
   subscriptions: () => [...billingKeys.all, 'subscriptions'] as const,
 
   orders: () => [...billingKeys.all, 'orders'] as const,

@@ -1,4 +1,11 @@
-import { CANVAS_COLUMNS, CANVAS_MIN_H, CANVAS_MIN_W, type ReportVisualDto } from '@bi/shared';
+import {
+  CANVAS_COLUMNS,
+  CANVAS_MIN_H,
+  CANVAS_MIN_W,
+  distinctFieldLabels,
+  type ExplorerFieldDto,
+  type ReportVisualDto,
+} from '@bi/shared';
 import { describe, expect, it } from 'vitest';
 
 import { cellStyle, rowsNeeded } from '../src/features/reports/canvasLayout';
@@ -7,6 +14,7 @@ import {
   blockerOf,
   clampBox,
   emptyVisual,
+  fieldLabelsOf,
   findSlot,
   fromDto,
   hasAnyVisual,
@@ -343,6 +351,89 @@ describe('titleOf', () => {
 
   it('chưa đủ nhãn thì KHÔNG bịa ra một cái tên nửa vời', () => {
     expect(titleOf(draft(), null, 'Doanh thu')).toBe('Biểu đồ chưa cấu hình');
+  });
+});
+
+/**
+ * Hai trường CÙNG TÊN — §10.21.
+ *
+ *   "do đang trùng dim là name nên khi di chuột vào chỉ hiện 1 dim name thôi"
+ *
+ * Luật đặt tên nằm ở `@bi/shared` và backend dùng nó cho kết quả truy vấn. Ở đây
+ * khoá hai điều: bản thân luật, và việc trình dựng gọi nó với ĐÚNG danh sách cột
+ * mà backend hỏi — lệch là cùng một ô mang hai tiêu đề ở hai màn hình.
+ */
+describe('distinctFieldLabels', () => {
+  const f = (label: string, datasetName: string): { label: string; datasetName: string } => ({
+    label,
+    datasetName,
+  });
+
+  it('không trùng thì GIỮ NGUYÊN — không ai nên thấy tên mình tự dài ra', () => {
+    expect(distinctFieldLabels([f('Khu vực', 'orders'), f('Doanh thu', 'orders')])).toEqual([
+      'Khu vực',
+      'Doanh thu',
+    ]);
+  });
+
+  it('trùng tên, khác bảng: thêm tên BẢNG cho CẢ HAI', () => {
+    expect(
+      distinctFieldLabels([f('name', 'products'), f('name', 'categories'), f('price', 'products')]),
+    ).toEqual(['name (products)', 'name (categories)', 'price']);
+  });
+
+  it('trùng tên, cùng bảng: tên bảng không phân biệt được gì, nên đánh số', () => {
+    expect(distinctFieldLabels([f('price', 'products'), f('price', 'products')])).toEqual([
+      'price',
+      'price (2)',
+    ]);
+  });
+
+  it('tên ghép ra lại đụng một tên có sẵn thì vẫn không trùng', () => {
+    const ra = distinctFieldLabels([
+      f('name (products)', 'orders'),
+      f('name', 'products'),
+      f('name', 'categories'),
+    ]);
+    expect(new Set(ra).size).toBe(3);
+  });
+});
+
+describe('fieldLabelsOf', () => {
+  const truong = (id: number, label: string, datasetName: string): ExplorerFieldDto => ({
+    id,
+    label,
+    datasetName,
+    cubeType: 'string',
+  });
+  const dims = [truong(D1, 'name', 'products'), truong(D2, 'name', 'categories')];
+  const meas = [{ ...truong(M, 'price', 'products'), cubeType: 'number' as const }];
+
+  it('Trục và Nhóm màu cùng tên: tiêu đề ô nói rõ bảng, như trang xem', () => {
+    const ten = fieldLabelsOf(draft({ seriesId: D2 }), dims, meas);
+    expect(ten).toEqual({ dimension: 'name (products)', measure: 'price' });
+    expect(titleOf(draft({ seriesId: D2 }), ten.dimension, ten.measure)).toBe(
+      'price theo name (products)',
+    );
+  });
+
+  it('không có Nhóm màu thì không có gì trùng — tên giữ nguyên', () => {
+    expect(fieldLabelsOf(draft(), dims, meas)).toEqual({ dimension: 'name', measure: 'price' });
+  });
+
+  it('loại biểu đồ KHÔNG nhận chuỗi: backend không hỏi chiều đó, nên nó không làm đổi tên', () => {
+    // Biểu đồ tròn giữ `seriesId` cũ trong bản nháp nhưng không dùng tới.
+    expect(fieldLabelsOf(draft({ chartType: 'pie', seriesId: D2 }), dims, meas)).toEqual({
+      dimension: 'name',
+      measure: 'price',
+    });
+  });
+
+  it('trường không còn trong mô hình thì trả `null`, không bịa', () => {
+    expect(fieldLabelsOf(draft({ dimensionId: 999 }), dims, meas)).toEqual({
+      dimension: null,
+      measure: 'price',
+    });
   });
 });
 

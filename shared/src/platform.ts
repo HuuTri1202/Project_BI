@@ -69,7 +69,63 @@ export interface PlatformUserDto {
   mustChangePassword: boolean;
   lastLoginAt: string | null;
   createdAt: string;
-  tenants: { id: number; name: string; role: TenantRole }[];
+  tenants: PlatformUserTenantDto[];
+}
+
+/**
+ * Một tổ chức người dùng đang tham gia, KÈM gói tổ chức đó đang dùng.
+ *
+ * Gói gắn với tổ chức chứ không gắn với người: một người thuộc công ty gói Doanh
+ * nghiệp và có thêm không gian cá nhân gói Miễn phí thì đang dùng CẢ HAI, tuỳ
+ * lúc họ mở tổ chức nào. Nên gói nằm trên từng dòng tổ chức, không phải một ô
+ * "gói của người dùng" — ô đó không có câu trả lời đúng.
+ */
+export interface PlatformUserTenantDto {
+  id: number;
+  name: string;
+  role: TenantRole;
+  plan: {
+    code: string;
+    name: string;
+    isPaid: boolean;
+    /** `null` = gói Miễn phí, không có hạn. */
+    periodEnd: string | null;
+  };
+}
+
+/** Số đơn đã thanh toán của MỘT gói trong MỘT ngày (UTC). */
+export interface PaidOrdersPoint {
+  date: string;
+  planCode: string;
+  planName: string;
+  orders: number;
+  revenueVnd: number;
+}
+
+/** Một đơn vừa thanh toán — ai mua, cho tổ chức nào, gói gì. */
+export interface RecentPaidOrderDto {
+  orderCode: string;
+  tenantId: number;
+  tenantName: string;
+  /** Người bấm mua. `null` khi tài khoản đó đã bị xoá. */
+  buyerName: string | null;
+  buyerEmail: string | null;
+  planName: string;
+  amountVnd: number;
+  paidAt: string;
+}
+
+/** Khối đơn thanh toán trên trang Tổng quan của quản trị hệ thống. */
+export interface PlatformBillingOverviewDto {
+  /** Số đơn đã thanh toán trong `rangeDays` ngày gần nhất. */
+  paidOrders: number;
+  /** Tổng tiền của chính các đơn đó. */
+  revenueVnd: number;
+  /** Tổ chức đang có gói TRẢ PHÍ còn hạn, tính tại thời điểm hỏi. */
+  payingTenants: number;
+  /** Chỉ những ngày có đơn — giao diện tự trải ra đủ `rangeDays` ngày. */
+  daily: PaidOrdersPoint[];
+  recentOrders: RecentPaidOrderDto[];
 }
 
 export interface PlatformWorkspaceDto {
@@ -111,6 +167,8 @@ export interface PlatformOverviewDto {
    */
   growth: GrowthPoint[];
   rangeDays: number;
+  /** Đơn thanh toán trong cùng `rangeDays` ngày. */
+  billing: PlatformBillingOverviewDto;
 }
 
 export const PLATFORM_ERROR_CODES = {

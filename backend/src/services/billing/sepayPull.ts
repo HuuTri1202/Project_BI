@@ -1,3 +1,4 @@
+import { LATE_PAYMENT_WINDOW_HOURS } from '@bi/shared';
 import type { RowDataPacket } from 'mysql2';
 
 import { env } from '../../config/env';
@@ -53,17 +54,6 @@ interface KetQua {
 }
 
 /**
- * Bao lâu sau khi tạo đơn thì vẫn còn đi tìm tiền cho nó.
- *
- * Đơn hết hiệu lực sau 15 phút, nhưng đó chỉ là hạn của MÃ QR. Tiền thì vẫn về
- * sau đó — chuyển khoản liên ngân hàng ngoài giờ, hoặc khách quét mã rồi đi ăn
- * trưa mới bấm xác nhận. `confirmPayment` CỐ Ý chấp nhận đơn `expired` vì lý do
- * đó, và nếu con quét này ngừng nhìn sau 15 phút thì sự cho phép đó thành vô
- * nghĩa: tiền về, không ai đi lấy, khách mất tiền.
- */
-const CUA_SO_GIO = 24;
-
-/**
  * Có đơn nào đáng đi tìm tiền không.
  *
  * Hỏi database TRƯỚC khi gọi Sepay, và đó là thứ khiến nhịp quét dày trở nên rẻ:
@@ -75,16 +65,23 @@ const CUA_SO_GIO = 24;
  * khoản lúc 17h05 cho đơn tạo lúc 16h50, đơn đã `expired`, con quét ngừng nhìn,
  * và khoản tiền đó nằm trong tài khoản mà không đơn nào nhận.
  *
- * Chặn theo THỜI GIAN TẠO thay vì theo trạng thái: 24 giờ đủ rộng cho mọi kiểu
- * chuyển khoản chậm, và đủ hẹp để câu SELECT không quét cả lịch sử đơn hàng.
+ * Chặn theo HẠN MÃ QR, cửa sổ `LATE_PAYMENT_WINDOW_HOURS` lấy từ `@bi/shared`:
+ * màn thanh toán của khách còn hỏi lại trạng thái đúng tới mốc đó, và hai phía
+ * đọc chung một luật thì không bên nào ngừng nhìn trước bên kia. Đủ rộng cho
+ * mọi kiểu chuyển khoản chậm, đủ hẹp để không quét cả lịch sử đơn hàng.
+ *
+ * `expires_at` chứ không `created_at`: cột này do Node ghi, so với đồng hồ Node;
+ * còn `created_at` do MySQL tự điền, và đồng hồ của container MySQL trên máy dev
+ * lệch với máy thật vài phút là chuyện đã đo được. Nó cũng khớp thẳng chỉ mục
+ * `idx_orders_status_expires`.
  */
 async function coDonDangCho(): Promise<boolean> {
   const [rows] = await mysqlPool.query<RowDataPacket[]>(
     `SELECT 1 FROM orders
       WHERE status IN ('pending', 'awaiting_confirmation', 'expired')
-        AND created_at > NOW() - INTERVAL ? HOUR
+        AND expires_at > ?
       LIMIT 1`,
-    [CUA_SO_GIO],
+    [new Date(Date.now() - LATE_PAYMENT_WINDOW_HOURS * 3_600_000)],
   );
   return rows.length > 0;
 }
@@ -133,7 +130,7 @@ export async function quetSepay(): Promise<KetQua> {
     if (maDon === null) continue;
 
     try {
-      await confirmPayment({
+      const r = await confirmPayment({
         orderCode: maDon,
         // Số tiền phải là SỐ NGUYÊN đồng. Ngân hàng Việt Nam không có phần lẻ,
         // nhưng chuỗi vẫn mang ".00" nên vẫn phải cắt tường minh.
@@ -141,23 +138,63 @@ export async function quetSepay(): Promise<KetQua> {
         providerTxnRef: String(t.id),
         source: 'webhook',
         rawPayload: t,
-        occurredAt: t.transaction_date === null ? null : new Date(t.transaction_date),
+        occurredAt: gioSepay(t.transaction_date),
         // Không có người thực hiện — nhật ký ghi `actor_user_id = NULL`, và đó
         // là sự thật chứ không phải thiếu dữ liệu.
         actor: { actorUserId: null, actorEmail: null, actorPlatformRole: null },
       });
-      apDung += 1;
-    } catch {
       /*
-       * Nuốt và đi tiếp. Danh sách này chứa MỌI giao dịch gần đây, phần lớn đã
-       * được ghi nhận từ lần quét trước — chúng đâm vào khoá UNIQUE và ném ở đây
-       * mỗi vòng. Đó là hoạt động BÌNH THƯỜNG, không phải lỗi, nên không log.
-       *
-       * Lỗi thật (đơn không tồn tại, đơn đã huỷ) cũng không được kéo theo những
-       * giao dịch khác trong cùng lô.
+       * Chỉ đếm khoản MỚI ghi nhận. Danh sách này chứa mọi giao dịch gần đây, nên
+       * khoản của lần quét trước quay lại ở MỖI vòng — `confirmPayment` trả
+       * `alreadyProcessed` cho chúng chứ không ném. Đếm cả chúng thì còn một đơn
+       * nào đang chờ là log "đã tự ghi nhận" lặp lại mỗi 5 giây cho một khoản cũ.
        */
+      if (!r.alreadyProcessed) apDung += 1;
+    } catch (err) {
+      /*
+       * Không kéo theo những giao dịch khác trong cùng lô — nhưng cũng KHÔNG
+       * nuốt im. Tới được đây là lỗi thật: mã đơn không có trong database này
+       * (hai máy dev dùng chung một tài khoản ngân hàng), đơn đã huỷ, mã tham
+       * chiếu đã thuộc đơn khác, hoặc MySQL hỏng. Nuốt im nghĩa là khách đã
+       * chuyển tiền, đơn đứng `pending`, và không một dòng log nào nói vì sao.
+       *
+       * Báo MỘT lần cho mỗi cặp (giao dịch, lỗi): giao dịch đó quay lại mỗi 5
+       * giây, và cùng một câu lặp 720 lần mỗi giờ thì chôn mất mọi log khác.
+       */
+      baoLoiMotLan(String(t.id), maDon, err);
     }
   }
 
   return { doc: list.length, apDung };
+}
+
+/**
+ * `transaction_date` của Sepay là GIỜ VIỆT NAM không kèm múi giờ: `"2026-09-15 10:58:00"`.
+ *
+ * `new Date()` đọc chuỗi dạng đó theo múi giờ của MÁY CHẠY. Trên máy dev ở Việt
+ * Nam thì tình cờ đúng; lên một server chạy UTC thì mọi `occurred_at` lệch 7
+ * tiếng, lặng lẽ — sao kê ghi 10:58 mà hệ thống ghi 17:58.
+ *
+ * Hình dạng lạ thì trả `null` (cột cho phép) thay vì đoán: một mốc thời gian sai
+ * trong sổ đối soát tệ hơn một ô trống.
+ */
+export function gioSepay(raw: string | null): Date | null {
+  if (raw === null || !/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(raw)) return null;
+  const d = new Date(`${raw.replace(' ', 'T')}+07:00`);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+const daBao = new Set<string>();
+
+function baoLoiMotLan(txnId: string, maDon: string, err: unknown): void {
+  const message = err instanceof Error ? err.message : String(err);
+  const key = `${txnId}|${message}`;
+  if (daBao.has(key)) return;
+  // Trần cho một tiến trình sống nhiều tuần. Xoá sạch thì tệ nhất là báo lại
+  // một lần những lỗi còn đó — chấp nhận được.
+  if (daBao.size >= 1_000) daBao.clear();
+  daBao.add(key);
+  console.warn(
+    `[billing] Sepay: giao dịch ${txnId} ghi mã ${maDon} nhưng không ghi nhận được — ${message}`,
+  );
 }

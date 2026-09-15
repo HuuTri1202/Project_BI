@@ -149,6 +149,24 @@ describe('ReportViewPage — trang xem, và nút vào trình dựng', () => {
     expect(screen.queryByText(/Dựng trên bộ dữ liệu/)).toBeNull();
   });
 
+  it.each(['admin', 'creator', 'viewer'] as const)(
+    '%s thấy nút Xuất — xuất ảnh chỉ cần quyền xem',
+    async (role) => {
+      // Xuất là chụp lại đúng thứ đang được xem, trong trình duyệt; không có con
+      // số nào mà `report:read` chưa trả về. Nên không vai trò nào bị giấu nút.
+      await mo(role, {
+        chartType: 'bar',
+        canvas: { pages: [{ id: 'p1', name: 'Trang 1', visuals: [], annotations: [] }] },
+      });
+      expect(screen.getByRole('button', { name: /Xuất/ })).toBeInTheDocument();
+    },
+  );
+
+  it('báo cáo CHƯA có biểu đồ thì không có nút Xuất — không có gì để xuất', async () => {
+    await mo('admin');
+    expect(screen.queryByRole('button', { name: /Xuất/ })).toBeNull();
+  });
+
   it('mũi tên ← luôn có mặt, và nói đúng nó đi đâu', async () => {
     // Trang đứng NGOÀI khung sidebar, nên đây là đường về duy nhất.
     await mo('viewer');

@@ -1,4 +1,4 @@
-# Bộ test case — Nền tảng BI Platform
+# Bộ test case — Nền tảng Open Insight
 
 > Sinh tự động từ hồ sơ kiểm thử. **Đừng sửa tay** — sửa file
 > `bo-test-case.html` rồi chạy lại `xuat-markdown.py`.
@@ -37,7 +37,7 @@ không phải kết quả suy ra từ mã nguồn.
 | XT-16 | Token khai alg: none (tấn công alg confusion) | 401 — thuật toán phải bị ghim HS256 | HTTP 401 · "Phiên đăng nhập không hợp lệ hoặc đã hết hạn." | Đạt |
 | XT-17 | Đổi mật khẩu nhưng nhập sai mật khẩu hiện tại | 4xx, nêu đúng ô sai | HTTP 400 · fields.currentPassword = "Mật khẩu hiện tại không đúng" | Đạt |
 | XT-18 | Chuyển sang tổ chức mình không thuộc | 403, không cấp token | HTTP 403 NoMembership · "Bạn không còn quyền truy cập tổ chức này." | Đạt |
-| XT-19 | Chuyển tổ chức hợp lệ với tài khoản thuộc ba tổ chức — hanh@saomai.vn | 200, vai trò đổi theo tổ chức đích | HTTP 200: "Công ty Sao Mai" (admin) → "BI Platform" (viewer) | Đạt |
+| XT-19 | Chuyển tổ chức hợp lệ với tài khoản thuộc ba tổ chức — hanh@saomai.vn | 200, vai trò đổi theo tổ chức đích | HTTP 200: "Công ty Sao Mai" (admin) → "Open Insight" (viewer) | Đạt |
 | XT-20 | Đăng xuất | 204 — JWT vô trạng thái, client tự bỏ token | HTTP 204, không có Set-Cookie (token nằm ở client) | Đạt |
 | XT-21 | Đăng nhập sai 13 lần liên tiếp từ cùng một IP — Ngưỡng cấu hình: 10 lần / 15 phút | 429 từ lần thứ 11 | 10 lần đầu HTTP 401, từ lần 11 trở đi HTTP 429; bộ đếm Redis = 13, TTL 894s | Đạt |
 
@@ -55,7 +55,7 @@ không phải kết quả suy ra từ mã nguồn.
 | PQ-08 | Quản trị tổ chức mở console vận hành hệ thống | 403 — hai trục vai trò độc lập | HTTP 403 · "Chức năng này chỉ dành cho quản trị hệ thống." | Đạt |
 | PQ-09 | Quản trị hệ thống mở console vận hành | 200 kèm số liệu xuyên mọi tổ chức | HTTP 200 · activeTenants=6, totalUsers=9, totalWorkspaces=13 | Đạt |
 | PQ-10 | Gọi API khi không gửi token | 401, không phải 403 | HTTP 401 Unauthorized · "Thiếu token xác thực." | Đạt |
-| PQ-11 | Quản trị hệ thống vẫn mang một vai trò tổ chức riêng, không tự động là admin ở mọi nơi | Trả về vai trò tổ chức cụ thể | HTTP 200, đang ở "BI Platform" với vai trò tổ chức "admin" | Đạt |
+| PQ-11 | Quản trị hệ thống vẫn mang một vai trò tổ chức riêng, không tự động là admin ở mọi nơi | Trả về vai trò tổ chức cụ thể | HTTP 200, đang ở "Open Insight" với vai trò tổ chức "admin" | Đạt |
 
 ## AT · An toàn và cách ly tổ chức — 11 ca, gọi API thật
 

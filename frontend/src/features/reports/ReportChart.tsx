@@ -3,6 +3,7 @@ import { useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import { VegaChart } from '../../components/charts/VegaChart';
 import { TBody, Td, Th, THead, TableWrap, Tr } from '../../components/ui/Table';
+import { KHONG_XUAT } from '../../services/danhDauXuat';
 import { buildChartSpec, hasSeries } from './chartSpec';
 
 /**
@@ -228,8 +229,11 @@ function Pager({
     // (16px), và không chừa chỗ thì nút › nằm một nửa dưới nó.
     <div className="mt-2 flex items-center justify-end gap-1.5 pe-4 text-xs text-slate-500">
       <span className="tabular-nums">Trang {page + 1}</span>
+      {/* Hai cái nút KHÔNG vào ảnh xuất: trên giấy chúng không bấm được, còn
+          "Trang N" thì vẫn nói cho người đọc biết đây chưa phải toàn bộ nhóm. */}
       <button
         type="button"
+        {...KHONG_XUAT}
         disabled={page === 0}
         onClick={() => onPage(page - 1)}
         aria-label="Nhóm trang trước"
@@ -240,6 +244,7 @@ function Pager({
       </button>
       <button
         type="button"
+        {...KHONG_XUAT}
         disabled={!hasMore}
         onClick={() => onPage(page + 1)}
         aria-label="Nhóm trang sau"

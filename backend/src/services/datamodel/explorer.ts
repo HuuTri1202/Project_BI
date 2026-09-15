@@ -3,6 +3,7 @@ import {
   MEASURE_AGGS_BY_CUBE_TYPE,
   MEASURE_AGG_LABELS,
   MEASURE_OP_LABELS,
+  distinctFieldLabels,
   moTaThuocDo,
   type DataModelMeasureDto,
   type MeasureAgg,
@@ -306,12 +307,15 @@ function buildQuery(
   const restrict = internal.restrict ?? [];
   const columns: ExplorerResultDto['columns'] = [];
   const keys: string[] = [];
+  /** Bảng của từng cột, cùng thứ tự với `columns` — xem `distinctFieldLabels`. */
+  const bangCua: string[] = [];
 
   const dimensions = input.dimensionIds.map((id) => {
     const found = index.columns.get(id);
     if (found === undefined) throw unknownField();
     const key = `${found.cubeName}.${dimensionNameFor(id)}`;
     columns.push({ id, label: found.label, kind: 'dimension' });
+    bangCua.push(found.datasetName);
     keys.push(key);
     return key;
   });
@@ -360,8 +364,22 @@ function buildQuery(
       // hình khai — nếu không thì đổi sang trung vị xong tiêu đề vẫn nói "Tổng".
       mota: moTaThuocDo(found.nguon, agg ?? found.agg, found.datasetName),
     });
+    bangCua.push(found.datasetName);
     keys.push(key);
     return key;
+  });
+
+  /*
+   * Hai cột cùng tên thì thêm tên bảng — §10.21. Làm ở ĐÂY, nơi mọi truy vấn
+   * trên mô hình đi qua: trục, chú giải, tooltip, bảng số liệu của báo cáo và
+   * bảng kết quả Explorer đều nhận cùng một bộ tên. Trùng tên ở tooltip của
+   * Vega-Lite là MẤT một dòng, không chỉ xấu.
+   */
+  const labels = distinctFieldLabels(
+    columns.map((c, i) => ({ label: c.label, datasetName: bangCua[i] ?? '' })),
+  );
+  columns.forEach((c, i) => {
+    c.label = labels[i] ?? c.label;
   });
 
   const query: CubeQuery = { measures, dimensions };

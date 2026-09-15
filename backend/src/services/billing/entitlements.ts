@@ -1,4 +1,4 @@
-import type { BillingSummaryDto, BillingUsageDto, PlanDto } from '@bi/shared';
+import type { BillingSummaryDto, BillingUsageDto, PlanDto, TenantPlanDto } from '@bi/shared';
 
 import * as billingRepo from '../../repositories/billing';
 import type { Db } from '../../repositories/db';
@@ -111,6 +111,26 @@ export async function buildBillingSummary(
             carriedOverDays: subscription.carriedOverDays,
           },
     usage: toUsage(used, plan),
+  };
+}
+
+/**
+ * Gói của tổ chức cho MỌI thành viên — xem `GET /v1/billing/plan`.
+ *
+ * Dựng từ chính `buildBillingSummary` để không có hai cách tính "đang ở gói nào"
+ * — con số thành viên thấy phải là con số admin thấy và con số `kiemHanMuc`
+ * chặn. Chỉ LỌC bớt trường, không tính lại.
+ */
+export async function buildTenantPlan(db: Db, tenantId: number, now: Date): Promise<TenantPlanDto> {
+  const summary = await buildBillingSummary(db, tenantId, now);
+  return {
+    planCode: summary.plan.code,
+    planName: summary.plan.name,
+    // Theo GIÁ của gói, không theo việc có subscription: một gói cấp tay giá 0
+    // vẫn là gói trả phí nếu dòng `plans` của nó có giá.
+    isPaid: summary.plan.priceVnd > 0,
+    periodEnd: summary.subscription?.periodEnd ?? null,
+    usage: summary.usage,
   };
 }
 

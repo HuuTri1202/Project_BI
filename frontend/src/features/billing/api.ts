@@ -8,6 +8,7 @@ import type {
   PaymentMethodDto,
   PlanDto,
   SubscriptionDto,
+  TenantPlanDto,
 } from '@bi/shared';
 
 import { apiClient } from '../../services/apiClient';
@@ -37,6 +38,12 @@ export async function fetchPaymentMethods(): Promise<PaymentMethodDto[]> {
 
 export async function fetchBillingSummary(): Promise<BillingSummaryDto> {
   const { data } = await apiClient.get<BillingSummaryDto>('/v1/billing/me');
+  return data;
+}
+
+/** Gói của tổ chức đang mở — mọi vai trò đọc được, không cần quyền thanh toán. */
+export async function fetchTenantPlan(): Promise<TenantPlanDto> {
+  const { data } = await apiClient.get<TenantPlanDto>('/v1/billing/plan');
   return data;
 }
 

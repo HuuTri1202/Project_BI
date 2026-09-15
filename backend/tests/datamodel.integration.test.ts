@@ -1,7 +1,7 @@
 import { CANVAS_MAX_PAGES, CANVAS_MAX_VISUALS, DATAMODEL_ERROR_CODES } from '@bi/shared';
 import type { RowDataPacket } from 'mysql2';
 import request from 'supertest';
-import { afterAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createApp } from '../src/app';
 import { closeMysql, mysqlPool } from '../src/config/mysql';
@@ -1718,5 +1718,98 @@ describe('§10.13 mô hình dựng-hộ được LƯU như mọi mô hình khác
     const res = await request(app).get(`/api/v1/datamodels/${id}`).set(bearer(f.tokenAdminB));
 
     expect(res.status).toBe(404);
+  });
+});
+
+/**
+ * Hai trường CÙNG TÊN từ hai bảng — §10.21.
+ *
+ *   "do đang trùng dim là name nên khi di chuột vào chỉ hiện 1 dim name thôi,
+ *    nhưng đáng lẻ ra phải cả 2 dim như đã kéo thả"
+ *
+ * Nhãn cột là KHOÁ của tooltip Vega-Lite, nên hai nhãn trùng là mất một dòng.
+ * Ca này đi qua route thật tới tận chỗ gọi Cube; chỉ `fetch` tới Cube là giả, và
+ * nó trả đúng hình dạng `/load` — một dòng mang mọi khoá truy vấn đã xin.
+ */
+describe('§10.21 trường trùng tên', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  function cubeGia(): void {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((_url: string, init: { body: string }) => {
+        const { query } = JSON.parse(init.body) as {
+          query: { dimensions: string[]; measures: string[] };
+        };
+        const row = Object.fromEntries([
+          ...query.dimensions.map((k) => [k, 'Giá trị']),
+          ...query.measures.map((k) => [k, 7]),
+        ]);
+        return Promise.resolve(new Response(JSON.stringify({ data: [row] }), { status: 200 }));
+      }),
+    );
+  }
+
+  /** Hai bảng cùng có cột `ma_don` — `attachDataset` dựng đúng hai cột đó cho mỗi bảng. */
+  async function haiBangTrungTen(): Promise<{
+    donHang: number;
+    danhMuc: number;
+    measureId: number;
+  }> {
+    const datasetB = await makeLoadedDataset(f.tenantA, f.workspaceA, 'danh-muc');
+    const a = await attachDataset(f.tenantA, f.modelA, f.datasetA);
+    const b = await attachDataset(f.tenantA, f.modelA, datasetB);
+    const res = await request(app)
+      .post(`/api/v1/datamodels/${f.modelA}/measures`)
+      .set(bearer(f.tokenAdminA))
+      .send({ datamodelDatasetId: a.refId, name: 'Số dòng', agg: 'count' });
+    expect(res.status).toBe(201);
+    return { donHang: a.columnIds[0]!, danhMuc: b.columnIds[0]!, measureId: res.body.id as number };
+  }
+
+  it('Trục và Nhóm màu cùng tên: trục, chú giải và tooltip nhận hai tên KHÁC nhau, kèm tên bảng', async () => {
+    const { donHang, danhMuc, measureId } = await haiBangTrungTen();
+    cubeGia();
+
+    const res = await request(app)
+      .post(`/api/v1/datamodels/${f.modelA}/report-preview`)
+      .set(bearer(f.tokenAdminA))
+      .send({
+        chartType: 'bar',
+        config: { dimensionId: donHang, seriesDimensionId: danhMuc, measureId, limit: 10 },
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body.dimensionLabel).toBe('ma_don (don-hang)');
+    expect(res.body.seriesLabel).toBe('ma_don (danh-muc)');
+    // Không trùng với ai thì giữ nguyên tên người dùng đặt.
+    expect(res.body.measureLabel).toBe('Số dòng');
+  });
+
+  it('bảng kết quả Explorer cũng vậy, còn tên KHÔNG trùng thì giữ nguyên', async () => {
+    const { donHang, danhMuc, measureId } = await haiBangTrungTen();
+    cubeGia();
+
+    const trung = await request(app)
+      .post(`/api/v1/datamodels/${f.modelA}/query`)
+      .set(bearer(f.tokenAdminA))
+      .send({ dimensionIds: [donHang, danhMuc], measureIds: [measureId] });
+    expect(trung.status).toBe(200);
+    expect(trung.body.columns.map((c: { label: string }) => c.label)).toEqual([
+      'ma_don (don-hang)',
+      'ma_don (danh-muc)',
+      'Số dòng',
+    ]);
+
+    const motBang = await request(app)
+      .post(`/api/v1/datamodels/${f.modelA}/query`)
+      .set(bearer(f.tokenAdminA))
+      .send({ dimensionIds: [donHang], measureIds: [measureId] });
+    expect(motBang.body.columns.map((c: { label: string }) => c.label)).toEqual([
+      'ma_don',
+      'Số dòng',
+    ]);
   });
 });

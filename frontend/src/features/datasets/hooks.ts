@@ -9,6 +9,7 @@ import {
 } from '@tanstack/react-query';
 import { getApiError } from '../../services/apiClient';
 import { useWorkspace } from '../../workspace/useWorkspace';
+import { billingKeys } from '../billing/keys';
 import { tenantKeys } from '../tenant/keys';
 import * as api from './api';
 import { datasetKeys } from './keys';
@@ -142,7 +143,14 @@ export function useReportVisualData(id: number | null, visualId: string, page: n
   });
 }
 
-/** Dọn cả danh sách báo cáo lẫn trang Home (khối "Báo cáo gần đây"). */
+/**
+ * Dọn cả danh sách báo cáo, trang Home (khối "Báo cáo gần đây") và MỨC SỬ DỤNG
+ * của gói.
+ *
+ * Mức sử dụng vì nút "Tạo báo cáo" báo trước khi tổ chức đã chạm hạn mức (xem
+ * `useHetHanMuc`). Không dọn thì xoá một báo cáo xong nút vẫn nói "đã đủ 3/3",
+ * và tạo xong cái thứ ba nút vẫn mời tạo tiếp.
+ */
 function useInvalidateReports(): () => Promise<void> {
   const queryClient = useQueryClient();
   return async () => {
@@ -151,6 +159,7 @@ function useInvalidateReports(): () => Promise<void> {
       queryKey: tenantKeys.all,
       predicate: (q) => q.queryKey[1] === 'home',
     });
+    await queryClient.invalidateQueries({ queryKey: billingKeys.tenantPlan() });
   };
 }
 

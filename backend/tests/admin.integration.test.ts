@@ -256,6 +256,154 @@ describe('tổng quan hệ thống', () => {
     const res = await request(app).get('/api/admin/overview').set(bearer(f.tokenRoot));
     expect(res.body.totalUsers).toBe(3);
   });
+
+  describe('đơn thanh toán', () => {
+    async function idCua(sql: string): Promise<number> {
+      const [rows] = await mysqlPool.query<(RowDataPacket & { id: number })[]>(sql);
+      const id = rows[0]?.id;
+      if (id === undefined) throw new Error(`Không có dòng nào: ${sql}`);
+      return Number(id);
+    }
+
+    async function taoDon(input: {
+      tenantId: number;
+      code: string;
+      planCode: 'pro' | 'business';
+      status: 'paid' | 'refunded' | 'pending';
+      amount: number;
+      createdBy: number;
+      paidDaysAgo?: number;
+    }): Promise<void> {
+      const planId = await idCua(`SELECT id FROM plans WHERE code = '${input.planCode}'`);
+      const methodId = await idCua("SELECT id FROM payment_methods WHERE code = 'vietqr_bank'");
+      const paid = input.status === 'pending' ? null : (input.paidDaysAgo ?? 0);
+      await mysqlPool.query(
+        `INSERT INTO orders
+           (tenant_id, order_code, plan_id, payment_method_id, status, amount_vnd,
+            plan_code, plan_name, plan_duration_days, expires_at, paid_at, created_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 30, NOW(3) + INTERVAL 15 MINUTE,
+                 IF(? IS NULL, NULL, UTC_TIMESTAMP(3) - INTERVAL ? DAY), ?)`,
+        [
+          input.tenantId,
+          input.code,
+          planId,
+          methodId,
+          input.status,
+          input.amount,
+          input.planCode,
+          input.planCode === 'pro' ? 'Chuyên nghiệp' : 'Doanh nghiệp',
+          paid,
+          paid ?? 0,
+          input.createdBy,
+        ],
+      );
+    }
+
+    it('đếm đơn ĐÃ THANH TOÁN theo ngày và gói, kèm người mua', async () => {
+      await taoDon({
+        tenantId: f.tenantA,
+        code: 'BIAAAAAAAAA1',
+        planCode: 'pro',
+        status: 'paid',
+        amount: 299_000,
+        createdBy: f.alice,
+      });
+      await taoDon({
+        tenantId: f.tenantB,
+        code: 'BIAAAAAAAAA2',
+        planCode: 'business',
+        status: 'paid',
+        amount: 899_000,
+        createdBy: f.carol,
+      });
+      // Không phải doanh thu: tiền đã trả lại, và đơn chưa trả.
+      await taoDon({
+        tenantId: f.tenantA,
+        code: 'BIAAAAAAAAA3',
+        planCode: 'pro',
+        status: 'refunded',
+        amount: 299_000,
+        createdBy: f.alice,
+      });
+      await taoDon({
+        tenantId: f.tenantB,
+        code: 'BIAAAAAAAAA4',
+        planCode: 'pro',
+        status: 'pending',
+        amount: 299_000,
+        createdBy: f.carol,
+      });
+      // Ngoài khoảng 30 ngày: không vào biểu đồ, nhưng vẫn là một đơn đã bán.
+      await taoDon({
+        tenantId: f.tenantA,
+        code: 'BIAAAAAAAAA5',
+        planCode: 'pro',
+        status: 'paid',
+        amount: 299_000,
+        createdBy: f.alice,
+        paidDaysAgo: 40,
+      });
+
+      const res = await request(app)
+        .get('/api/admin/overview')
+        .set(bearer(f.tokenRoot))
+        .expect(200);
+      const { billing } = res.body;
+
+      expect(billing.paidOrders).toBe(2);
+      expect(billing.revenueVnd).toBe(1_198_000);
+      const homNay = res.body.growth.at(-1).date;
+      expect(billing.daily).toEqual([
+        {
+          date: homNay,
+          planCode: 'business',
+          planName: 'Doanh nghiệp',
+          orders: 1,
+          revenueVnd: 899_000,
+        },
+        {
+          date: homNay,
+          planCode: 'pro',
+          planName: 'Chuyên nghiệp',
+          orders: 1,
+          revenueVnd: 299_000,
+        },
+      ]);
+
+      expect(billing.recentOrders.map((o: { orderCode: string }) => o.orderCode)).toEqual([
+        'BIAAAAAAAAA2',
+        'BIAAAAAAAAA1',
+        'BIAAAAAAAAA5',
+      ]);
+      expect(billing.recentOrders[0]).toMatchObject({
+        tenantId: f.tenantB,
+        tenantName: 'Công ty Beta',
+        buyerName: 'Lê Thị Cúc',
+        buyerEmail: 'carol@beta.test',
+        planName: 'Doanh nghiệp',
+        amountVnd: 899_000,
+      });
+    });
+
+    it('tổ chức đang trả phí: gói có giá và còn hạn', async () => {
+      // Ba tổ chức của bộ này đều mang gói Doanh nghiệp (giá > 0) từ fixture.
+      const truoc = await request(app).get('/api/admin/overview').set(bearer(f.tokenRoot));
+      expect(truoc.body.billing.payingTenants).toBe(3);
+
+      await mysqlPool.query(
+        "UPDATE subscriptions SET period_start = NOW(3) - INTERVAL 40 DAY, period_end = NOW(3) - INTERVAL 1 DAY WHERE tenant_id = ? AND status = 'active'",
+        [f.tenantB],
+      );
+      const sau = await request(app).get('/api/admin/overview').set(bearer(f.tokenRoot));
+      expect(sau.body.billing.payingTenants).toBe(2);
+      expect(sau.body.billing).toMatchObject({
+        paidOrders: 0,
+        revenueVnd: 0,
+        daily: [],
+        recentOrders: [],
+      });
+    });
+  });
 });
 
 describe('quản lý tổ chức', () => {
@@ -511,8 +659,59 @@ describe('quản lý người dùng toàn hệ thống', () => {
 
     const alice = res.body.items.find((u: { email: string }) => u.email === 'alice@alpha.test');
     expect(alice.tenants).toEqual([
-      { id: f.tenantA, name: 'Công ty Alpha', role: 'admin' },
+      {
+        id: f.tenantA,
+        name: 'Công ty Alpha',
+        role: 'admin',
+        plan: {
+          code: 'business',
+          name: 'Doanh nghiệp',
+          isPaid: true,
+          periodEnd: expect.any(String),
+        },
+      },
     ]);
+  });
+
+  it('gói hiện theo TỪNG tổ chức; tổ chức chưa mua hay đã hết hạn thì là Miễn phí', async () => {
+    // Gói gắn với tổ chức: cùng một người, ở công ty thì Doanh nghiệp, ở không
+    // gian cá nhân thì Miễn phí. Một ô "gói của người dùng" không có câu trả lời
+    // đúng, nên gói đi theo từng dòng tổ chức.
+    const caNhan = await makeTenant('Không gian của An', 'khong-gian-cua-an', f.alice);
+    await makeMembership(f.alice, caNhan, 'admin');
+
+    const doc = async (): Promise<{ name: string; plan: Record<string, unknown> }[]> => {
+      const res = await request(app)
+        .get('/api/admin/users')
+        .query({ q: 'alice@alpha.test' })
+        .set(bearer(f.tokenRoot))
+        .expect(200);
+      return res.body.items[0].tenants;
+    };
+
+    const truoc = await doc();
+    expect(truoc.find((t) => t.name === 'Công ty Alpha')?.plan).toMatchObject({
+      code: 'business',
+      isPaid: true,
+    });
+    expect(truoc.find((t) => t.name === 'Không gian của An')?.plan).toEqual({
+      code: 'free',
+      name: 'Miễn phí',
+      isPaid: false,
+      periodEnd: null,
+    });
+
+    // Hết hạn mà chưa ai đổi `status` — đúng tình trạng thật, vì không có tiến
+    // trình nào đặt `expired`. Phải về Miễn phí như `kiemHanMuc` đang coi.
+    await mysqlPool.query(
+      "UPDATE subscriptions SET period_start = NOW(3) - INTERVAL 40 DAY, period_end = NOW(3) - INTERVAL 1 DAY WHERE tenant_id = ? AND status = 'active'",
+      [f.tenantA],
+    );
+    const sau = await doc();
+    expect(sau.find((t) => t.name === 'Công ty Alpha')?.plan).toMatchObject({
+      code: 'free',
+      isPaid: false,
+    });
   });
 
   it('một người thuộc hai công ty thì hiện đủ cả hai', async () => {

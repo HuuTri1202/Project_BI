@@ -1,5 +1,6 @@
 import {
   ORDER_STATUSES_LIVE,
+  isAwaitingLatePayment,
   type BillingSummaryDto,
   type CreateOrderInput,
   type OrderDetailDto,
@@ -8,6 +9,7 @@ import {
   type PaymentMethodDto,
   type PlanDto,
   type SubscriptionDto,
+  type TenantPlanDto,
 } from '@bi/shared';
 import {
   keepPreviousData,
@@ -50,6 +52,39 @@ export function usePaymentMethods(): UseQueryResult<PaymentMethodDto[]> {
 
 export function useBillingSummary(): UseQueryResult<BillingSummaryDto> {
   return useQuery({ queryKey: billingKeys.summary(), queryFn: api.fetchBillingSummary });
+}
+
+/**
+ * Gói của tổ chức đang mở — cho MỌI vai trò.
+ *
+ * Tách khỏi `useBillingSummary` vì hook kia gọi `/billing/me`, gác bằng quyền
+ * QUẢN LÝ thanh toán: creator và viewer nhận 403. Mà họ vẫn cần biết tổ chức
+ * đang ở gói nào và còn tạo được bao nhiêu báo cáo — gói quản trị viên mua là
+ * gói của cả tổ chức.
+ */
+export function useTenantPlan(): UseQueryResult<TenantPlanDto> {
+  return useQuery({ queryKey: billingKeys.tenantPlan(), queryFn: api.fetchTenantPlan });
+}
+
+/**
+ * Còn tạo thêm được một thứ bị đếm hạn mức không — `null` là còn (hoặc chưa biết).
+ *
+ * Trả về CÂU NÓI chứ không phải cờ: nơi gọi hiện nó ngay tại nút bấm, trước khi
+ * người dùng bỏ công dựng cả một báo cáo rồi mới bị từ chối lúc Lưu. Server vẫn
+ * là nơi chặn thật (`trongHanMuc`); đây chỉ là báo trước.
+ *
+ * Đang tải hay lỗi thì coi như còn chỗ: chặn nhầm một người còn quyền tạo tệ hơn
+ * nhiều so với để server từ chối một lần.
+ */
+export function useHetHanMuc(loai: 'reports' | 'workspaces' | 'members'): string | null {
+  const { data } = useTenantPlan();
+  if (data === undefined) return null;
+
+  const { used, limit } = data.usage[loai];
+  if (limit === null || used < limit) return null;
+
+  const danhTu = { reports: 'báo cáo', workspaces: 'workspace', members: 'thành viên' }[loai];
+  return `Gói ${data.planName} cho tối đa ${limit.toLocaleString('vi-VN')} ${danhTu}, tổ chức đang có ${used.toLocaleString('vi-VN')}.`;
 }
 
 export function useSubscriptionHistory(): UseQueryResult<SubscriptionDto[]> {
@@ -116,13 +151,35 @@ export function useOrderStatus(
     queryKey: billingKeys.orderStatus(code ?? ''),
     queryFn: () => api.fetchOrderStatus(code as string),
     enabled: code !== null && enabled,
-    refetchInterval: (query) => {
-      const status = query.state.data?.status;
-      return status !== undefined && ORDER_STATUSES_LIVE.includes(status) ? 2_000 : false;
-    },
+    refetchInterval: (query) => orderStatusPollMs(query.state.data, Date.now()),
     refetchIntervalInBackground: true,
     staleTime: 0,
   });
+}
+
+/**
+ * Bao lâu nữa thì hỏi lại trạng thái đơn; `false` là thôi hẳn.
+ *
+ * ─── Đơn `expired` VẪN hỏi tiếp, chậm hơn ─────────────────────────────────
+ *
+ * Bản cũ dừng ngay khi đơn rời `ORDER_STATUSES_LIVE`, và `expired` nằm ngoài
+ * danh sách đó. Nhưng hết hạn chỉ là hết hạn MÃ QR: backend vẫn nhận tiền về
+ * muộn trong `LATE_PAYMENT_WINDOW_HOURS`. Đơn thật đã đi đúng đường này (nhật ký
+ * ghi `expired` -> `paid`): backend ghi nhận và bật gói, còn màn hình đã ngừng
+ * hỏi từ lúc hết hạn nên đứng mãi ở câu "đơn đã đóng, hãy tạo đơn mới". Khách
+ * không bao giờ thấy "thành công", và được mời chuyển tiền lần hai.
+ *
+ * 5 giây, bằng nhịp con quét sao kê ở backend: hỏi nhanh hơn thứ nó chờ không
+ * mua được gì. Và có HẠN — hết cửa sổ thì thôi, một tab bỏ quên qua đêm không
+ * gõ cửa server mãi.
+ */
+export function orderStatusPollMs(
+  data: api.OrderStatusDto | undefined,
+  now: number,
+): number | false {
+  if (data === undefined) return false;
+  if (ORDER_STATUSES_LIVE.includes(data.status)) return 2_000;
+  return isAwaitingLatePayment(data, now) ? 5_000 : false;
 }
 
 /**

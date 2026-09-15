@@ -2847,4 +2847,25 @@ export const migrations: readonly Migration[] = [
       `ALTER TABLE reports ADD COLUMN canvas JSON NULL AFTER config`,
     ],
   },
+  {
+    id: 35,
+    name: 'rename_seed_tenant_open_insight',
+    statements: [
+      // ─── Sản phẩm đổi tên: BI Platform -> Open Insight ──────────────────────
+      //
+      // Tổ chức mà `npm run seed:admin` dựng ra mang TÊN SẢN PHẨM (mặc định của
+      // `SEED_TENANT_NAME`). Nó hiện ngay dưới tên sản phẩm trên sidebar và
+      // trong bộ chuyển tổ chức, nên chỉ đổi mặc định thôi thì máy nào đã seed
+      // sẽ thấy "Open Insight" ở trên và "BI Platform" ngay bên dưới.
+      //
+      // Khớp CẢ slug LẪN tên cũ, và đó là toàn bộ sự cẩn trọng của câu này: chỉ
+      // đúng tổ chức seed còn giữ nguyên tên mặc định mới bị đổi. Ai đã đặt tên
+      // riêng cho nó thì tên đó là của họ, không phải của sản phẩm.
+      //
+      // Slug `bi-platform` GIỮ NGUYÊN: nó là định danh, `seed:admin` tìm tổ chức
+      // bằng chính chuỗi đó, và đổi nó là lần seed sau dựng ra một tổ chức thứ hai.
+      `UPDATE tenants SET name = 'Open Insight'
+        WHERE slug = 'bi-platform' AND name = 'BI Platform'`,
+    ],
+  },
 ];

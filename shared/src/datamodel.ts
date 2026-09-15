@@ -621,6 +621,57 @@ export interface ExplorerFieldsDto {
   measures: ExplorerFieldDto[];
 }
 
+/**
+ * Mỗi trường trong một câu hỏi một tên RIÊNG — §10.21.
+ *
+ * ═══ Chuyện đã xảy ra ════════════════════════════════════════════════════════
+ *
+ * Hai bảng `products` và `categories` cùng có cột `name`. Người dùng thả
+ * `products.name` vào Trục và `categories.name` vào Nhóm màu: biểu đồ tô màu
+ * đúng, nhưng rê chuột thì tooltip chỉ còn MỘT dòng "name" — mất hẳn nhóm màu.
+ *
+ * Nhãn trường đi khắp nơi như một cái TÊN: tên trục, tên chú giải, tiêu đề cột
+ * bảng số liệu, tiêu đề ô — và tooltip của Vega-Lite, thứ dựng thành một object
+ * lấy tên làm KHOÁ, nên hai khoá "name" gộp làm một và một giá trị biến mất. Trục
+ * ghi "name", chú giải ghi "name", không ai đọc được cái nào của bảng nào.
+ *
+ * ═══ Luật ════════════════════════════════════════════════════════════════════
+ *
+ *   1. Tên KHÔNG trùng thì giữ nguyên. Gần như mọi biểu đồ rơi vào đây, và không
+ *      ai nên thấy tên trường của mình tự dài ra khi không cần.
+ *   2. Trùng, và đến từ những bảng khác nhau, thì thêm tên BẢNG: `name (products)`,
+ *      `name (categories)` — đúng chữ đứng dưới tên trường ở cột Mô hình dữ liệu.
+ *   3. Vẫn trùng thì đánh số. Tên bảng không giúp được khi mọi trường cùng tên
+ *      đều từ MỘT bảng (một chiều và một thước đo cùng tên), nên khi đó bỏ qua
+ *      bước 2 thay vì ghép một tên bảng chẳng phân biệt được gì.
+ *
+ * Nằm ở `@bi/shared` vì HAI phía phải ra cùng một chữ: backend đặt tên cho kết
+ * quả truy vấn (trục, tooltip, bảng, trang xem), còn trình dựng đặt tiêu đề ô
+ * trước khi có kết quả. Hai bản chép tay sẽ cho "price theo name" ở trình dựng và
+ * "price theo name (products)" ở trang xem của cùng một ô.
+ *
+ * Thứ tự vào = thứ tự ra; tên trả về cùng vị trí với trường tương ứng.
+ */
+export function distinctFieldLabels(
+  fields: readonly { label: string; datasetName: string }[],
+): string[] {
+  const tables = new Map<string, Set<string>>();
+  for (const f of fields) {
+    const seen = tables.get(f.label) ?? new Set<string>();
+    seen.add(f.datasetName);
+    tables.set(f.label, seen);
+  }
+
+  const used = new Set<string>();
+  return fields.map((f) => {
+    const base = (tables.get(f.label)?.size ?? 0) > 1 ? `${f.label} (${f.datasetName})` : f.label;
+    let label = base;
+    for (let n = 2; used.has(label); n += 1) label = `${base} (${String(n)})`;
+    used.add(label);
+    return label;
+  });
+}
+
 export const TIME_GRANULARITIES = ['day', 'week', 'month', 'quarter', 'year'] as const;
 export type TimeGranularity = (typeof TIME_GRANULARITIES)[number];
 

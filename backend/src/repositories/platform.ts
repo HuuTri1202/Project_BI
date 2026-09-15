@@ -1,5 +1,6 @@
 import type {
   GrowthPoint,
+  PlatformBillingOverviewDto,
   PlatformRole,
   PlatformTenantDto,
   PlatformTenantMemberDto,
@@ -128,6 +129,120 @@ export async function fetchGrowth(db: Db, rangeDays: number): Promise<GrowthPoin
     points.push(byDate.get(date) ?? { date, tenants: 0, users: 0, workspaces: 0 });
   }
   return points;
+}
+
+/** Số đơn vừa thanh toán hiện trên trang Tổng quan. */
+const RECENT_PAID_ORDERS = 8;
+
+interface PaidDailyRow extends RowDataPacket {
+  d: string;
+  plan_code: string;
+  plan_name: string;
+  c: number;
+  revenue: string | number;
+}
+
+interface RecentPaidRow extends RowDataPacket {
+  order_code: string;
+  tenant_id: number;
+  tenant_name: string;
+  buyer_name: string | null;
+  buyer_email: string | null;
+  plan_name: string;
+  amount_vnd: string | number;
+  paid_at: Date;
+}
+
+/**
+ * Đơn thanh toán của cả nền tảng trong `rangeDays` ngày — khối "Đơn thanh toán"
+ * trên trang Tổng quan.
+ *
+ * ─── Chỉ đếm `paid` ────────────────────────────────────────────────────────
+ *
+ * Không đếm `refunded`: đơn đó từng có tiền về rồi trả lại, và cộng nó vào doanh
+ * thu là báo một con số nền tảng không giữ. `awaiting_confirmation` cũng không —
+ * nó còn nằm ở trang Đơn hàng chờ người đối chiếu, chưa phải đã bán.
+ *
+ * ─── Theo `paid_at`, không theo `created_at` ───────────────────────────────
+ *
+ * Đơn tạo ngày 30 mà tiền về ngày 1 là doanh thu của ngày 1 — đúng như sao kê
+ * ngân hàng sẽ ghi. `DATE()` chạy theo session UTC (`config/mysql.ts`), cùng
+ * luật với `fetchGrowth` để hai biểu đồ cạnh nhau chung một trục ngày.
+ *
+ * ─── Gom theo MÃ gói, lấy tên từ ảnh chụp trên đơn ─────────────────────────
+ *
+ * `orders.plan_name` là tên lúc bán. Gói bị đổi tên giữa chừng thì cùng một mã
+ * mang hai tên, nên câu gom lấy `MAX(plan_name)` trong nhóm mã thay vì gom theo
+ * tên — một gói không được tách thành hai cột màu chỉ vì ai đó sửa chính tả.
+ */
+export async function fetchBillingOverview(
+  db: Db,
+  rangeDays: number,
+  now: Date = new Date(),
+): Promise<PlatformBillingOverviewDto> {
+  const since = new Date(now.getTime() - rangeDays * 86_400_000);
+
+  const [daily] = await db.query<PaidDailyRow[]>(
+    `SELECT DATE(paid_at) AS d, plan_code, MAX(plan_name) AS plan_name,
+            COUNT(*) AS c, SUM(amount_vnd) AS revenue
+       FROM orders
+      WHERE status = 'paid' AND paid_at >= ?
+      GROUP BY d, plan_code
+      ORDER BY d ASC, plan_code ASC`,
+    [since],
+  );
+
+  /*
+   * Tổ chức đang TRẢ PHÍ lúc này: gói còn hạn và có giá. Gói cấp tay mà dòng
+   * `plans` của nó có giá vẫn tính — cùng luật `isPaid` của `buildTenantPlan`.
+   * Tổ chức đã xoá mềm thì không.
+   */
+  const [paying] = await db.query<RowDataPacket[]>(
+    `SELECT COUNT(*) AS n
+       FROM subscriptions s
+       JOIN plans p ON p.id = s.plan_id AND p.deleted_at IS NULL
+       JOIN tenants t ON t.id = s.tenant_id AND t.deleted_at IS NULL
+      WHERE s.status = 'active' AND s.period_end > ? AND p.price_vnd > 0`,
+    [now],
+  );
+
+  const [recent] = await db.query<RecentPaidRow[]>(
+    `SELECT o.order_code, o.tenant_id, t.name AS tenant_name,
+            u.full_name AS buyer_name, u.email AS buyer_email,
+            o.plan_name, o.amount_vnd, o.paid_at
+       FROM orders o
+       JOIN tenants t ON t.id = o.tenant_id
+       LEFT JOIN users u ON u.id = o.created_by AND u.deleted_at IS NULL
+      WHERE o.status = 'paid'
+      ORDER BY o.paid_at DESC, o.id DESC
+      LIMIT ?`,
+    [RECENT_PAID_ORDERS],
+  );
+
+  const points = daily.map((row) => ({
+    date: String(row.d),
+    planCode: row.plan_code,
+    planName: row.plan_name,
+    orders: Number(row.c),
+    revenueVnd: Number(row.revenue),
+  }));
+
+  return {
+    paidOrders: points.reduce((sum, p) => sum + p.orders, 0),
+    revenueVnd: points.reduce((sum, p) => sum + p.revenueVnd, 0),
+    payingTenants: Number(paying[0]?.['n'] ?? 0),
+    daily: points,
+    recentOrders: recent.map((row) => ({
+      orderCode: row.order_code,
+      tenantId: Number(row.tenant_id),
+      tenantName: row.tenant_name,
+      buyerName: row.buyer_name,
+      buyerEmail: row.buyer_email,
+      planName: row.plan_name,
+      amountVnd: Number(row.amount_vnd),
+      paidAt: row.paid_at.toISOString(),
+    })),
+  };
 }
 
 // ─── Tenant ──────────────────────────────────────────────────────────────────
@@ -403,9 +518,17 @@ interface UserTenantRow extends RowDataPacket {
   tenant_id: number;
   tenant_name: string;
   role: TenantRole;
+  plan_code: string | null;
+  plan_name: string | null;
+  plan_price_vnd: number | null;
+  period_end: Date | null;
 }
 
-export async function listUsers(db: Db, filter: UserFilter): Promise<PlatformUserDto[]> {
+export async function listUsers(
+  db: Db,
+  filter: UserFilter,
+  now: Date = new Date(),
+): Promise<PlatformUserDto[]> {
   const where = userWhere(filter);
   const direction = filter.order === 'asc' ? 'ASC' : 'DESC';
 
@@ -424,19 +547,51 @@ export async function listUsers(db: Db, filter: UserFilter): Promise<PlatformUse
   // Nạp tổ chức của cả trang trong MỘT câu, thay vì mỗi người một truy vấn.
   // Hai mươi dòng là hai mươi vòng đi về nếu làm kiểu N+1.
   const ids = rows.map((row) => Number(row.id));
+
+  /*
+   * Gói của từng tổ chức, cùng câu — theo ĐÚNG luật của `buildBillingSummary`:
+   *
+   *   subscription `active` còn hạn (theo giờ ỨNG DỤNG, không `NOW()` của MySQL:
+   *   đồng hồ container lệch vài phút là lệch đúng những gói sắp hết hạn)
+   *   → gói của nó, nếu dòng `plans` còn sống
+   *   → không thì gói `free`
+   *
+   * `uq_subscriptions_one_active` bảo đảm mỗi tổ chức tối đa một dòng `active`,
+   * nên LEFT JOIN không nhân đôi dòng tổ chức nào. `free` là mã gieo ở migration
+   * 30 — cùng hằng `FREE_PLAN_CODE` ở `services/billing/limits.ts`, ghi thẳng ở
+   * đây vì repository không import tầng service.
+   */
   const [tenantRows] = await db.query<UserTenantRow[]>(
-    `SELECT m.user_id, m.tenant_id, t.name AS tenant_name, m.role
+    `SELECT m.user_id, m.tenant_id, t.name AS tenant_name, m.role,
+            COALESCE(p.code, fp.code) AS plan_code,
+            COALESCE(p.name, fp.name) AS plan_name,
+            COALESCE(p.price_vnd, fp.price_vnd) AS plan_price_vnd,
+            s.period_end
        FROM memberships m
        JOIN tenants t ON t.id = m.tenant_id AND t.deleted_at IS NULL
+       LEFT JOIN subscriptions s
+              ON s.tenant_id = t.id AND s.status = 'active' AND s.period_end > ?
+       LEFT JOIN plans p ON p.id = s.plan_id AND p.deleted_at IS NULL
+       LEFT JOIN plans fp ON fp.code = 'free' AND fp.deleted_at IS NULL
       WHERE m.user_id IN (${ids.map(() => '?').join(',')}) AND m.removed_at IS NULL
       ORDER BY t.name ASC`,
-    ids,
+    [now, ...ids],
   );
 
-  const byUser = new Map<number, { id: number; name: string; role: TenantRole }[]>();
+  const byUser = new Map<number, PlatformUserDto['tenants']>();
   for (const row of tenantRows) {
     const list = byUser.get(Number(row.user_id)) ?? [];
-    list.push({ id: Number(row.tenant_id), name: row.tenant_name, role: row.role });
+    list.push({
+      id: Number(row.tenant_id),
+      name: row.tenant_name,
+      role: row.role,
+      plan: {
+        code: row.plan_code ?? 'free',
+        name: row.plan_name ?? 'Miễn phí',
+        isPaid: Number(row.plan_price_vnd ?? 0) > 0,
+        periodEnd: row.period_end ? row.period_end.toISOString() : null,
+      },
+    });
     byUser.set(Number(row.user_id), list);
   }
 
