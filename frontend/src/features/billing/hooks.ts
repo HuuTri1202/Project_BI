@@ -1,5 +1,6 @@
 import {
   ORDER_STATUSES_LIVE,
+  isAwaitingLatePayment,
   type BillingSummaryDto,
   type CreateOrderInput,
   type OrderDetailDto,
@@ -116,13 +117,35 @@ export function useOrderStatus(
     queryKey: billingKeys.orderStatus(code ?? ''),
     queryFn: () => api.fetchOrderStatus(code as string),
     enabled: code !== null && enabled,
-    refetchInterval: (query) => {
-      const status = query.state.data?.status;
-      return status !== undefined && ORDER_STATUSES_LIVE.includes(status) ? 2_000 : false;
-    },
+    refetchInterval: (query) => orderStatusPollMs(query.state.data, Date.now()),
     refetchIntervalInBackground: true,
     staleTime: 0,
   });
+}
+
+/**
+ * Bao lâu nữa thì hỏi lại trạng thái đơn; `false` là thôi hẳn.
+ *
+ * ─── Đơn `expired` VẪN hỏi tiếp, chậm hơn ─────────────────────────────────
+ *
+ * Bản cũ dừng ngay khi đơn rời `ORDER_STATUSES_LIVE`, và `expired` nằm ngoài
+ * danh sách đó. Nhưng hết hạn chỉ là hết hạn MÃ QR: backend vẫn nhận tiền về
+ * muộn trong `LATE_PAYMENT_WINDOW_HOURS`. Đơn thật đã đi đúng đường này (nhật ký
+ * ghi `expired` -> `paid`): backend ghi nhận và bật gói, còn màn hình đã ngừng
+ * hỏi từ lúc hết hạn nên đứng mãi ở câu "đơn đã đóng, hãy tạo đơn mới". Khách
+ * không bao giờ thấy "thành công", và được mời chuyển tiền lần hai.
+ *
+ * 5 giây, bằng nhịp con quét sao kê ở backend: hỏi nhanh hơn thứ nó chờ không
+ * mua được gì. Và có HẠN — hết cửa sổ thì thôi, một tab bỏ quên qua đêm không
+ * gõ cửa server mãi.
+ */
+export function orderStatusPollMs(
+  data: api.OrderStatusDto | undefined,
+  now: number,
+): number | false {
+  if (data === undefined) return false;
+  if (ORDER_STATUSES_LIVE.includes(data.status)) return 2_000;
+  return isAwaitingLatePayment(data, now) ? 5_000 : false;
 }
 
 /**

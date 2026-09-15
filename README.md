@@ -84,6 +84,13 @@ npm run dev
   > phần còn lại chạy bình thường, chỉ mất chức năng nạp.
 - `dev` chạy song song backend và frontend, log gắn nhãn `[api]` / `[web]` theo
   màu. **Ctrl+C tắt cả hai.**
+- Sửa `backend/.env` lúc `dev` đang chạy thì **backend tự khởi động lại** sau
+  khoảng 3 giây, và log in tên các biến vừa đổi. `tsx watch` bỏ qua mọi file bắt
+  đầu bằng dấu chấm, nên việc canh file này do chính backend làm
+  (`config/envWatch.ts`).
+  > Trước khi có cơ chế này, đã xảy ra đúng một ca: thêm `SEPAY_API_TOKEN` rồi
+  > quét mã chuyển 2.000đ. Tiền về Sepay, nhưng đơn nằm `pending` mãi, vì tiến
+  > trình đang chạy chưa từng đọc token đó. Không có lỗi, không có log.
 
 | Địa chỉ                      |                                  |
 | ---------------------------- | -------------------------------- |

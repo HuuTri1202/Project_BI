@@ -2,6 +2,7 @@ import type { Server } from 'node:http';
 import { createApp } from './app';
 import { closeClickhouse } from './config/clickhouse';
 import { env } from './config/env';
+import { watchEnvFile } from './config/envWatch';
 import { closeMysql } from './config/mysql';
 import { closeRedis } from './config/redis';
 import { runMigrations } from './db/migrate';
@@ -37,6 +38,11 @@ async function start(): Promise<void> {
   // nên đặt trước hay sau `listen` đều được; đặt cạnh runner kia để hai vòng
   // lặp nền nằm chung một chỗ trong file này.
   startBillingRunner();
+
+  // Sửa `.env` lúc đang chạy thì tự khởi động lại — chỉ khi dev. Không có nó,
+  // thêm `SEPAY_API_TOKEN` rồi quét mã trả tiền là tiền về mà đơn đứng `pending`
+  // mãi, vì tiến trình này chưa từng đọc token đó. Xem `config/envWatch.ts`.
+  if (env.NODE_ENV === 'development') watchEnvFile();
 
   // Cube schema (§10) dựng lại từ database, cùng lý do đặt sau `listen`.
   //

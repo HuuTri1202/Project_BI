@@ -12,6 +12,7 @@ import {
   isQrKey,
   parseQrDataUrl,
 } from '../src/services/billing/qrImage';
+import { gioSepay } from '../src/services/billing/sepayPull';
 import { adapterFor, timMaDon } from '../src/services/billing/webhook';
 import { signPayload, verifySignature, verifyToken } from '../src/services/billing/webhookSignature';
 import { buildVietQrPayload, crc16, normalizeContent } from '../src/services/billing/vietqr';
@@ -256,6 +257,8 @@ describe('§11 bóc mã đơn khỏi nội dung chuyển khoản', () => {
     expect(timMaDon('CT DEN:0011 BI7K3XQ92FMR GD 123456')).toBe('BI7K3XQ92FMR');
     expect(timMaDon('bi7k3xq92fmr')).toBe('BI7K3XQ92FMR');
     expect(timMaDon('BI7K3XQ92FMR')).toBe('BI7K3XQ92FMR');
+    // Nguyên văn từ sao kê thật qua Sepay: ngân hàng nối mã của nó vào bằng `-`.
+    expect(timMaDon('O5CH7KHG55KQ-BI50BTJSV3K6')).toBe('BI50BTJSV3K6');
   });
 
   it('không bịa ra mã khi nội dung không có', () => {
@@ -265,6 +268,22 @@ describe('§11 bóc mã đơn khỏi nội dung chuyển khoản', () => {
     expect(timMaDon(null)).toBeNull();
     // Chứa I/L/O/U -> không thuộc bảng chữ nên không phải mã của ta.
     expect(timMaDon('BIIIIIIIIIII')).toBeNull();
+  });
+});
+
+describe('§11.2 giờ giao dịch của Sepay', () => {
+  it('là giờ Việt Nam, bất kể máy chạy ở múi giờ nào', () => {
+    // `new Date('2026-09-15 10:58:00')` cho 03:58Z trên máy ở Việt Nam nhưng
+    // 10:58Z trên server UTC. Bài này đỏ ở đúng một trong hai nếu ai bỏ `+07:00`.
+    expect(gioSepay('2026-09-15 10:58:00')?.toISOString()).toBe('2026-09-15T03:58:00.000Z');
+    expect(gioSepay('2026-09-15 03:00:00')?.toISOString()).toBe('2026-09-14T20:00:00.000Z');
+  });
+
+  it('hình dạng lạ thì để trống, không đoán', () => {
+    expect(gioSepay(null)).toBeNull();
+    expect(gioSepay('')).toBeNull();
+    expect(gioSepay('15/09/2026 10:58')).toBeNull();
+    expect(gioSepay('2026-13-45 99:99:99')).toBeNull();
   });
 });
 

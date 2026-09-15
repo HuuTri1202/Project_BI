@@ -95,7 +95,39 @@ export const ORDER_STATUS_LABELS: Record<OrderStatus, string> = {
  */
 export const ORDER_STATUSES_LIVE: readonly OrderStatus[] = ['pending', 'awaiting_confirmation'];
 
-/** Đơn đã kết thúc, không đổi trạng thái nữa trừ khi hoàn tiền. */
+/**
+ * Tiền về MUỘN vẫn được nhận trong chừng này giờ sau khi mã QR hết hạn — §11.2.
+ *
+ * Hết hạn chỉ nghĩa là MÃ QR không dùng được nữa, không nghĩa là từ chối tiền
+ * khách đã chuyển: `confirmPayment` cố ý nhận đơn `expired`. Con số này là MỘT
+ * luật cho hai phía, và hai phía phải cùng đọc nó:
+ *
+ *   backend   con quét sao kê Sepay còn đi tìm tiền cho đơn tới lúc này
+ *   giao diện màn thanh toán còn hỏi lại trạng thái tới lúc này
+ *
+ * Lệch nhau là đúng lỗi đã gặp: tiền được ghi nhận khi đơn đã `expired` (nhật ký
+ * ghi `expired` -> `paid`), gói bật đúng — còn màn hình đã NGỪNG HỎI từ lúc hết
+ * hạn, đứng ở câu "đơn đã đóng, hãy tạo đơn mới", tức là mời khách chuyển tiền
+ * lần hai.
+ */
+export const LATE_PAYMENT_WINDOW_HOURS = 24;
+
+/** Đơn đã hết hạn nhưng tiền về lúc này vẫn được ghi nhận. */
+export function isAwaitingLatePayment(
+  order: { status: OrderStatus; expiresAt: string },
+  now: number,
+): boolean {
+  if (order.status !== 'expired') return false;
+  const expiresAt = Date.parse(order.expiresAt);
+  return Number.isFinite(expiresAt) && now < expiresAt + LATE_PAYMENT_WINDOW_HOURS * 3_600_000;
+}
+
+/**
+ * Đơn đã kết thúc: khách không cần làm gì thêm, giao diện không cần hỏi lại.
+ *
+ * ⚠️ `expired` vẫn có thể thành `paid` khi tiền về muộn — xem
+ * `isAwaitingLatePayment`. Danh sách này không nói điều ngược lại.
+ */
 export const ORDER_STATUSES_FINAL: readonly OrderStatus[] = [
   'paid',
   'failed',

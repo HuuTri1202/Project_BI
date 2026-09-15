@@ -1,4 +1,4 @@
-import { ORDER_STATUSES_LIVE, type BillingCycle } from '@bi/shared';
+import { ORDER_STATUSES_LIVE, isAwaitingLatePayment, type BillingCycle } from '@bi/shared';
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 
@@ -284,6 +284,45 @@ export function OrderDetailPage(): React.ReactElement {
               ? `Tự chuyển về trang gói sau ${conMayGiay} giây…`
               : 'Đang chuyển…'}
           </p>
+        </div>
+      </div>
+    );
+  }
+
+  /*
+   * ─── Mã QR hết hạn, nhưng tiền về muộn VẪN được nhận — §11.2 ─────────────
+   *
+   * Tách khỏi nhánh "đã đóng" dưới đây vì câu chữ của nhánh đó sai với đơn này:
+   * "hãy tạo đơn mới" nói với người VỪA chuyển tiền là hãy chuyển lần nữa. Người
+   * đọc màn này có hai loại — đã chuyển (tiền đang trên đường) và chưa chuyển —
+   * nên phải nói với cả hai, và nói với người đã chuyển TRƯỚC.
+   *
+   * Màn hình vẫn đang hỏi lại server (`orderStatusPollMs`), nên tiền tới thì nó
+   * tự sang "Thanh toán thành công" như với một đơn chưa hết hạn.
+   */
+  if (hienTai === 'expired' && isAwaitingLatePayment({ ...don, status: hienTai }, now)) {
+    return (
+      <div className="mx-auto w-full max-w-lg space-y-4 overflow-y-auto pr-1">
+        <div className="rounded-xl border border-slate-200 bg-white p-6 text-center">
+          <p className="text-base font-semibold text-slate-900">
+            Mã QR của đơn <span className="font-mono">{don.orderCode}</span> đã hết hạn
+          </p>
+          <p className="mt-2 text-sm text-slate-600">
+            <strong className="text-slate-900">Đã chuyển khoản rồi?</strong> Đừng chuyển lại — tiền
+            về muộn vẫn được ghi nhận cho đơn này, và màn hình sẽ tự chuyển sang thành công khi tiền
+            tới.
+          </p>
+          <p className="mt-2 text-sm text-slate-500">
+            Chưa chuyển thì hãy tạo đơn mới: mã QR cũ không dùng được nữa.
+          </p>
+          <div className="mt-4 flex justify-center gap-2">
+            <Link to="/billing/plans">
+              <Button variant="primary">Tạo đơn mới</Button>
+            </Link>
+            <Link to="/billing/orders">
+              <Button>Xem lịch sử đơn</Button>
+            </Link>
+          </div>
         </div>
       </div>
     );

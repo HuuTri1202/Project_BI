@@ -92,6 +92,17 @@ export function startBillingRunner(): void {
     sepayDelay = SEPAY_MS;
     console.log('[billing] tự đọc sao kê Sepay: BẬT, quét mỗi 5 giây khi có đơn đang chờ');
     scheduleSepay(0);
+  } else {
+    /*
+     * Nói ra cả khi TẮT. Trước đây chỉ có dòng "BẬT", nên thiếu token trông y hệt
+     * mọi lần khởi động khác — và triệu chứng hiện ở chỗ khác hẳn: khách chuyển
+     * tiền xong, màn thanh toán đứng "đang chờ" mãi, không ai nhìn vào đâu để
+     * biết vì sao.
+     */
+    console.log(
+      '[billing] tự đọc sao kê Sepay: TẮT — chưa có SEPAY_API_TOKEN trong backend/.env. ' +
+        'Tiền về chỉ được nhận qua webhook công khai hoặc nút xác nhận tay.',
+    );
   }
 }
 
