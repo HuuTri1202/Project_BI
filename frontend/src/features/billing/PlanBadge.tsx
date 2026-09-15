@@ -27,6 +27,14 @@ import { useTenantPlan } from './hooks';
  * Không hiện gì trong lúc đang tải, và cũng không hiện khung xám nhấp nháy: đây
  * là thông tin phụ trên một thanh điều hướng, và một ô nhấp nháy ở đó kéo mắt
  * khỏi thứ người dùng đang định bấm.
+ *
+ * ─── Luôn một dòng ──────────────────────────────────────────────────────────
+ *
+ * Dòng đầu sidebar chỉ có 208px. "Open Insight" cộng "CHUYÊN NGHIỆP" giãn chữ
+ * `tracking-wide` dài hơn thế 2px, và flex ép cả tên sản phẩm lẫn huy hiệu gãy
+ * làm hai dòng. Bỏ giãn chữ thì ba gói có sẵn vừa một dòng. Tên gói do quản trị
+ * hệ thống đặt, nên một tên dài hơn bị cắt "…" (tên đủ ở `title`) thay vì đẩy
+ * tên sản phẩm xuống dòng.
  */
 export function PlanBadge(): React.ReactElement | null {
   const permissions = usePermissions();
@@ -35,7 +43,7 @@ export function PlanBadge(): React.ReactElement | null {
   if (data === undefined) return null;
 
   const mau = data.isPaid ? 'bg-brand-600 text-white' : 'bg-slate-800 text-slate-400';
-  const khung = `ml-2 rounded px-1.5 py-0.5 text-[10px] font-semibold tracking-wide uppercase ${mau}`;
+  const khung = `ml-1.5 min-w-0 truncate rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase ${mau}`;
 
   if (!permissions.manageBilling) {
     return (

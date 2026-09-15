@@ -182,7 +182,7 @@ function SidebarContent({
   return (
     <>
       <div className="flex h-16 shrink-0 items-center px-6">
-        <span className="text-lg font-bold text-white">{APP_NAME}</span>
+        <span className="shrink-0 text-lg font-bold whitespace-nowrap text-white">{APP_NAME}</span>
         <PlanBadge />
       </div>
 
