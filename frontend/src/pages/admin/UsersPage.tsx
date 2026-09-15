@@ -143,6 +143,7 @@ export default function UsersPage(): React.ReactElement {
                     Email
                   </SortableTh>
                   <Th>Tổ chức</Th>
+                  <Th>Gói dịch vụ</Th>
                   <Th>Trạng thái</Th>
                   <SortableTh sortKey="lastLoginAt" activeKey={query.sort} order={query.order} onSort={onSort}>
                     Đăng nhập gần nhất
@@ -181,6 +182,9 @@ export default function UsersPage(): React.ReactElement {
                             ))}
                           </div>
                         )}
+                      </Td>
+                      <Td>
+                        <GoiDichVu tenants={user.tenants} />
                       </Td>
                       <Td>
                         <Badge tone={user.isActive ? 'success' : 'warning'}>
@@ -274,5 +278,42 @@ export default function UsersPage(): React.ReactElement {
       </ConfirmDialog>
       </PageBody>
     </Page>
+  );
+}
+
+/**
+ * Gói người dùng đang dùng — MỘT dòng cho mỗi tổ chức họ tham gia.
+ *
+ * Gói gắn với tổ chức, không gắn với người: quản trị viên mua gói thì mọi thành
+ * viên của tổ chức đó cùng dùng. Một người thuộc công ty gói Doanh nghiệp và có
+ * thêm không gian cá nhân gói Miễn phí đang dùng CẢ HAI, tuỳ lúc mở tổ chức nào —
+ * gộp thành một gói là trả lời sai cho một nửa số lần mở.
+ *
+ * Gói trả phí xếp lên đầu và mang màu thương hiệu: câu người vận hành hỏi khi
+ * nhìn cột này là người này có đang ở gói trả tiền nào không.
+ */
+function GoiDichVu({ tenants }: { tenants: PlatformUserDto['tenants'] }): React.ReactElement {
+  if (tenants.length === 0) return <span className="text-xs text-slate-400">—</span>;
+
+  const sapXep = [...tenants].sort(
+    (a, b) => Number(b.plan.isPaid) - Number(a.plan.isPaid) || a.name.localeCompare(b.name, 'vi'),
+  );
+
+  return (
+    <ul className="space-y-1.5">
+      {sapXep.map((t) => (
+        <li key={t.id} className="text-xs">
+          <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+            <Badge tone={t.plan.isPaid ? 'brand' : 'neutral'}>{t.plan.name}</Badge>
+            <span className="text-slate-500">{t.name}</span>
+          </div>
+          {t.plan.periodEnd !== null && (
+            <div className="mt-0.5 text-slate-400">
+              Hết hạn {new Date(t.plan.periodEnd).toLocaleDateString('vi-VN')}
+            </div>
+          )}
+        </li>
+      ))}
+    </ul>
   );
 }

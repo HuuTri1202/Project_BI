@@ -81,8 +81,14 @@ adminRouter.get(
     // trên chính trang mà mọi superadmin mở đầu tiên.
     const counts = await platformRepo.fetchOverviewCounts(mysqlPool);
     const growth = await platformRepo.fetchGrowth(mysqlPool, GROWTH_RANGE_DAYS);
+    const billing = await platformRepo.fetchBillingOverview(mysqlPool, GROWTH_RANGE_DAYS);
 
-    const body: PlatformOverviewDto = { ...counts, growth, rangeDays: GROWTH_RANGE_DAYS };
+    const body: PlatformOverviewDto = {
+      ...counts,
+      growth,
+      rangeDays: GROWTH_RANGE_DAYS,
+      billing,
+    };
     res.json(body);
   }),
 );

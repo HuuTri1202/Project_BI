@@ -1,5 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
+
+import { usePermissions } from '../../auth/usePermissions';
+import { useHetHanMuc } from '../billing/hooks';
 import { UploadWizard } from '../datasets/wizard/UploadWizard';
 
 /**
@@ -75,6 +78,8 @@ export function CreateReportMenu({
   const [wizardOpen, setWizardOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
+  /** Tổ chức đã chạm hạn mức báo cáo của gói — xem `HetHanMucPanel`. */
+  const hetHanMuc = useHetHanMuc('reports');
 
   useEffect(() => {
     if (!open) return;
@@ -96,13 +101,21 @@ export function CreateReportMenu({
   // ghi chú đầu file.
   if (datamodelId !== undefined) {
     return (
-      <button
-        type="button"
-        onClick={() => navigate(`/datamodels/${datamodelId}/report/new`)}
-        className="flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
-      >
-        Tạo báo cáo
-      </button>
+      <div ref={rootRef} className="relative">
+        <button
+          type="button"
+          onClick={() =>
+            hetHanMuc === null
+              ? void navigate(`/datamodels/${datamodelId}/report/new`)
+              : setOpen((v) => !v)
+          }
+          {...(hetHanMuc === null ? {} : { 'aria-expanded': open })}
+          className="flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
+        >
+          Tạo báo cáo
+        </button>
+        {open && hetHanMuc !== null && <HetHanMucPanel message={hetHanMuc} />}
+      </div>
     );
   }
 
@@ -130,7 +143,9 @@ export function CreateReportMenu({
         </svg>
       </button>
 
-      {open && (
+      {open && hetHanMuc !== null && <HetHanMucPanel message={hetHanMuc} />}
+
+      {open && hetHanMuc === null && (
         <div
           role="menu"
           className="absolute right-0 z-40 mt-1.5 w-72 rounded-xl border border-slate-200 bg-white p-1.5 shadow-lg"
@@ -172,6 +187,44 @@ export function CreateReportMenu({
           như thường, rồi dựng hộ một mô hình ẩn trên đúng các sheet vừa tích và
           đi thẳng vào trình dựng. Xem `UploadWizard`. */}
       <UploadWizard open={wizardOpen} onClose={() => setWizardOpen(false)} goal="report" />
+    </div>
+  );
+}
+
+/**
+ * Tổ chức đã dùng hết số báo cáo của gói — nói ra NGAY tại nút, không đợi tới
+ * lúc Lưu.
+ *
+ * Server chặn thật ở cả ba đường tạo (`trongHanMuc`). Nhưng chỉ có lớp chặn đó
+ * thì người dùng đi hết một vòng: tải file hoặc chọn mô hình, kéo thả từng biểu
+ * đồ, bấm Lưu — rồi mới được biết mọi thứ vừa làm không lưu được. Nên cả hai mục
+ * của menu nhường chỗ cho câu này: cả hai đều kết thúc bằng một báo cáo mới.
+ *
+ * Người không quản lý thanh toán không có link "Xem các gói" (trang đó trả 403
+ * cho họ); gói là của cả tổ chức, nên việc của họ là nhờ quản trị viên.
+ */
+function HetHanMucPanel({ message }: { message: string }): React.ReactElement {
+  const permissions = usePermissions();
+
+  return (
+    <div
+      role="status"
+      className="absolute right-0 z-40 mt-1.5 w-80 rounded-xl border border-amber-200 bg-amber-50 p-3.5 text-sm text-amber-900 shadow-lg"
+    >
+      <p className="font-semibold">Đã hết lượt tạo báo cáo</p>
+      <p className="mt-1">{message} Xoá bớt báo cáo không còn dùng, hoặc nâng cấp gói.</p>
+      {permissions.manageBilling ? (
+        <Link
+          to="/billing/plans"
+          className="mt-2 inline-block font-semibold underline underline-offset-2"
+        >
+          Xem các gói
+        </Link>
+      ) : (
+        <p className="mt-2 text-amber-800">
+          Gói do quản trị viên tổ chức quản lý — hãy nhờ họ nâng cấp.
+        </p>
+      )}
     </div>
   );
 }

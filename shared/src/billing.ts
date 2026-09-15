@@ -376,6 +376,23 @@ export interface BillingSummaryDto {
   usage: BillingUsageDto;
 }
 
+/**
+ * Gói của tổ chức như MỌI THÀNH VIÊN thấy — `GET /v1/billing/plan`.
+ *
+ * Gói gắn với tổ chức, nên thành viên nào cũng dùng chung gói mà quản trị viên
+ * mua. Bản cắt gọn của `BillingSummaryDto`: không giá, không nguồn cấp gói,
+ * không lịch sử — những thứ đó là việc QUẢN LÝ thanh toán (`billing:read`).
+ */
+export interface TenantPlanDto {
+  planCode: string;
+  planName: string;
+  /** Gói có giá hay không — quyết định màu huy hiệu. */
+  isPaid: boolean;
+  /** Hết hạn lúc nào; `null` = đang ở gói Miễn phí, không có hạn. */
+  periodEnd: string | null;
+  usage: BillingUsageDto;
+}
+
 // ─── Input ───────────────────────────────────────────────────────────────────
 
 export interface CreateOrderInput {

@@ -37,14 +37,19 @@ export function LimitAlert({
   return (
     <p role="alert" className="mb-4 rounded-lg bg-red-50 px-3.5 py-3 text-sm text-red-700">
       {message}
-      {vuotHanMuc && permissions.manageBilling && (
-        <>
-          {' '}
-          <Link to="/billing/plans" className="font-semibold underline underline-offset-2">
-            Xem các gói
-          </Link>
-        </>
-      )}
+      {vuotHanMuc &&
+        (permissions.manageBilling ? (
+          <>
+            {' '}
+            <Link to="/billing/plans" className="font-semibold underline underline-offset-2">
+              Xem các gói
+            </Link>
+          </>
+        ) : (
+          // Gói là của cả tổ chức và chỉ quản trị viên mua được. Câu của server
+          // nói "nâng cấp gói" — với creator thì việc đó là đi nhờ người khác.
+          ' Gói do quản trị viên tổ chức quản lý — hãy nhờ họ nâng cấp.'
+        ))}
     </p>
   );
 }

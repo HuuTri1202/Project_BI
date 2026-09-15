@@ -51,9 +51,32 @@ export async function demWorkspace(db: Db, tenantId: number): Promise<number> {
   return toNumber(rows[0]?.['n']);
 }
 
+/**
+ * Báo cáo chiếm chỗ = báo cáo người dùng còn THẤY và còn xoá được.
+ *
+ * Tới bản này câu đếm chỉ lọc `reports.deleted_at`. Nhưng xoá mềm một mô hình,
+ * một bộ dữ liệu hay một workspace KHÔNG xoá báo cáo dựng trên nó — chỉ làm nó
+ * biến khỏi danh sách (xem `buildWhere` ở `repositories/reports.ts`). Đo trên
+ * máy dev: một tổ chức bị tính 11 báo cáo mà danh sách hiện 3; tổ chức seed bị
+ * tính 5 mà hiện 0. Khi hạn mức được chặn thật, tổ chức Miễn phí đó không tạo
+ * nổi một báo cáo nào và không có gì trên màn hình để xoá cho bớt.
+ *
+ * Nên điều kiện ở đây là ĐÚNG bộ điều kiện của danh sách, thêm workspace. Cùng
+ * mẹo `LEFT JOIN` + `IS NULL`: báo cáo dựng trên mô hình không có dòng
+ * `datasets`, `d.deleted_at` ra NULL và vế đó tự bỏ qua.
+ */
 export async function demBaoCao(db: Db, tenantId: number): Promise<number> {
   const [rows] = await db.query<RowDataPacket[]>(
-    'SELECT COUNT(*) AS n FROM reports WHERE tenant_id = ? AND deleted_at IS NULL',
+    `SELECT COUNT(*) AS n
+       FROM reports r
+       JOIN workspaces w ON w.id = r.workspace_id
+       LEFT JOIN datasets d ON d.id = r.dataset_id
+       LEFT JOIN datamodels dm ON dm.id = r.datamodel_id
+      WHERE r.tenant_id = ?
+        AND r.deleted_at IS NULL
+        AND w.deleted_at IS NULL
+        AND d.deleted_at IS NULL
+        AND dm.deleted_at IS NULL`,
     [tenantId],
   );
   return toNumber(rows[0]?.['n']);

@@ -66,8 +66,8 @@ import {
   updateConnection,
 } from '../../services/connections/connectionService';
 import { createOrder } from '../../services/billing/createOrder';
-import { buildBillingSummary } from '../../services/billing/entitlements';
-import { kiemHanMuc } from '../../services/billing/limits';
+import { buildBillingSummary, buildTenantPlan } from '../../services/billing/entitlements';
+import { kiemHanMuc, trongHanMuc } from '../../services/billing/limits';
 import { isQrKey } from '../../services/billing/qrImage';
 import { deleteDataset } from '../../services/connections/deleteDataset';
 import { DEFAULT_PORTS, DEFAULT_SSL, REQUIRED_GRANTS } from '../../services/connections/drivers';
@@ -640,11 +640,6 @@ v1Router.post(
       );
     }
 
-    // Hạn mức gói — §11.2. Gắn ở ROUTE vì không có tầng service ở giữa:
-    // `reportsRepo.createReport` là repository thuần, và quy ước của repo là
-    // repository không mang luật nghiệp vụ.
-    await kiemHanMuc(mysqlPool, auth.tenantId, 'reports', new Date());
-
     // Bộ dữ liệu §8 tạo TRƯỚC khi hai phần được gộp chưa có workspace. Báo cáo
     // thì bắt buộc phải nằm trong một workspace, nên rơi về workspace đang mở của
     // người gọi — thà đặt vào chỗ họ đang đứng còn hơn từ chối tạo báo cáo trên
@@ -652,12 +647,17 @@ v1Router.post(
     const workspaceId =
       detail.workspaceId ?? (await resolveWorkspace(mysqlPool, auth.tenantId, undefined)).id;
 
-    const id = await reportsRepo.createReport(mysqlPool, auth.tenantId, {
-      workspaceId,
-      datasetId: body.datasetId,
-      name: body.name,
-      createdBy: auth.userId,
-    });
+    // Hạn mức gói — §11.2. Kiểm và ghi trong CÙNG một khoá, xem `trongHanMuc`.
+    // Gắn ở ROUTE vì không có tầng service ở giữa: repository thuần không mang
+    // luật nghiệp vụ.
+    const id = await trongHanMuc(auth.tenantId, 'reports', (conn) =>
+      reportsRepo.createReport(conn, auth.tenantId, {
+        workspaceId,
+        datasetId: body.datasetId,
+        name: body.name,
+        createdBy: auth.userId,
+      }),
+    );
 
     res.status(201).json(await reportsRepo.findById(mysqlPool, auth.tenantId, id));
   }),
@@ -780,20 +780,20 @@ v1Router.post(
 
     // Hạn mức gói — §11.2. Đặt SAU hai câu kiểm chiều/thước đo: lỗi cụ thể hơn
     // thì nói trước, và người chọn nhầm trường không nên nhận thông báo "hết hạn
-    // mức" cho một việc họ chưa làm sai.
-    await kiemHanMuc(mysqlPool, auth.tenantId, 'reports', new Date());
-
-    const id = await reportsRepo.createModelReport(mysqlPool, auth.tenantId, {
-      // Báo cáo nằm cùng workspace với mô hình. Khác nhánh bộ dữ liệu — ở đó
-      // bộ dữ liệu §8 có thể chưa thuộc workspace nào nên phải rơi về workspace
-      // đang mở; mô hình thì luôn có.
-      workspaceId: model.workspaceId,
-      datamodelId: model.id,
-      name: body.name,
-      chartType: body.chartType,
-      config: body.config,
-      createdBy: auth.userId,
-    });
+    // mức" cho một việc họ chưa làm sai. Kiểm và ghi trong cùng một khoá.
+    const id = await trongHanMuc(auth.tenantId, 'reports', (conn) =>
+      reportsRepo.createModelReport(conn, auth.tenantId, {
+        // Báo cáo nằm cùng workspace với mô hình. Khác nhánh bộ dữ liệu — ở đó
+        // bộ dữ liệu §8 có thể chưa thuộc workspace nào nên phải rơi về workspace
+        // đang mở; mô hình thì luôn có.
+        workspaceId: model.workspaceId,
+        datamodelId: model.id,
+        name: body.name,
+        chartType: body.chartType,
+        config: body.config,
+        createdBy: auth.userId,
+      }),
+    );
 
     res.status(201).json(await reportsRepo.findById(mysqlPool, auth.tenantId, id));
   }),
@@ -825,13 +825,18 @@ v1Router.post(
       assertChartConfigAgainst(fields, visual.chartType, visual.config);
     }
 
-    const id = await reportsRepo.createCanvasReport(mysqlPool, auth.tenantId, {
-      workspaceId: model.workspaceId,
-      datamodelId: model.id,
-      name: body.name,
-      canvas: body.canvas,
-      createdBy: auth.userId,
-    });
+    // Hạn mức gói — §11.2. Tới bản này đường này KHÔNG kiểm gì, mà nó lại là
+    // đường duy nhất trình dựng gọi: gói Miễn phí tạo được báo cáo thứ tư qua
+    // giao diện. Cùng khoá với hai đường kia — xem `trongHanMuc`.
+    const id = await trongHanMuc(auth.tenantId, 'reports', (conn) =>
+      reportsRepo.createCanvasReport(conn, auth.tenantId, {
+        workspaceId: model.workspaceId,
+        datamodelId: model.id,
+        name: body.name,
+        canvas: body.canvas,
+        createdBy: auth.userId,
+      }),
+    );
 
     res.status(201).json(await reportsRepo.findById(mysqlPool, auth.tenantId, id));
   }),
@@ -2889,6 +2894,27 @@ v1Router.get(
   asyncHandler(async (req, res) => {
     const auth = requireAuth(req);
     res.json(await buildBillingSummary(mysqlPool, auth.tenantId, new Date()));
+  }),
+);
+
+/**
+ * Gói của tổ chức đang mở, như MỌI THÀNH VIÊN thấy — kể cả creator và viewer.
+ *
+ * Gói gắn với tổ chức: quản trị viên mua thì mọi thành viên cùng được hưởng hạn
+ * mức đó. Nhưng tới bản này chỉ admin THẤY điều đó — `/billing/me` gác bằng
+ * `billing:read`, và huy hiệu gói ẩn với người còn lại. Một creator ở tổ chức
+ * gói Doanh nghiệp nhìn sidebar không thấy gói nào, và không biết vì sao lúc tạo
+ * báo cáo thứ tư ở không gian cá nhân thì bị chặn còn ở công ty thì không.
+ *
+ * KHÔNG gác `billing:read` — đó là quyền QUẢN LÝ thanh toán. Đây chỉ trả thứ
+ * thành viên cần để biết mình được làm gì: tên gói, hạn dùng, mức sử dụng. Giá,
+ * lịch sử đơn và nguồn cấp gói vẫn chỉ ở `/billing/me`.
+ */
+v1Router.get(
+  '/billing/plan',
+  asyncHandler(async (req, res) => {
+    const auth = requireAuth(req);
+    res.json(await buildTenantPlan(mysqlPool, auth.tenantId, new Date()));
   }),
 );
 

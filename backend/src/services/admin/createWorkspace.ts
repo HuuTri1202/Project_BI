@@ -5,7 +5,7 @@ import { mysqlPool } from '../../config/mysql';
 import * as adminWorkspacesRepo from '../../repositories/adminWorkspaces';
 import { HttpError } from '../../utils/httpError';
 import { slugifyOrFallback } from '../auth/slug';
-import { kiemHanMuc } from '../billing/limits';
+import { trongHanMuc } from '../billing/limits';
 
 export interface CreateWorkspaceInput {
   tenantId: number;
@@ -30,51 +30,52 @@ export interface CreateWorkspaceInput {
  * và mọi lần tạo lại đều phải mang hậu tố.
  */
 export async function createWorkspace(input: CreateWorkspaceInput): Promise<AdminWorkspaceDto> {
+  const base = slugifyOrFallback(input.name, 'khong-gian');
+
   /*
-   * Hạn mức gói — §11.2. Đặt ở SERVICE chứ không ở route, và TRƯỚC vòng lặp.
-   *
-   * Trước vòng lặp vì đây là chỗ duy nhất chạy đúng một lần: đặt bên trong thì
-   * mỗi lần né slug là một lần đếm lại, và tất cả trừ lần đầu đều thừa.
+   * Hạn mức gói — §11.2. Đặt ở SERVICE chứ không ở route.
    *
    * Ở service vì `provisionTenant` INSERT thẳng vào `workspaces` không qua hàm
    * này — nghĩa là đường tạo tổ chức KHÔNG bị chặn, đúng ý: tổ chức mới luôn ở 0
    * workspace và gói Free cho 1, nên chặn ở đó là chặn người vừa bấm Đăng ký.
    *
-   * ⚠️ Kiểm bằng `mysqlPool`, không có khoá, nên có khe hở giữa kiểm và ghi: hai
-   * request song song có thể cùng thấy "còn một chỗ" và tạo ra 6 workspace ở gói
-   * 5. Chấp nhận có ý thức, ba lý do: độ lệch tối đa bằng số request song song
-   * trừ một và nó TỰ KHÉP LẠI ở lần tạo kế tiếp; không tốn tài nguyên vật lý nào;
-   * và bọc transaction quanh vòng `try/catch ER_DUP_ENTRY` dưới đây là loại tinh
-   * tế mà người sửa sau sẽ viết sai. Dung lượng và thành viên thì KHÁC — chúng có
-   * khoá, xem `commit.ts` và `createMember.ts`.
+   * Khoá, kiểm và cả vòng né slug nằm trong CÙNG một transaction (`trongHanMuc`).
+   * Bản trước kiểm trên pool và chấp nhận khe hở "tự khép lại ở lần sau"; đo
+   * được năm request cùng lúc ở hạn mức 2 tạo cả năm workspace — tức hạn mức
+   * không chặn gì cả khi người ta bấm nhanh.
+   *
+   * Vòng `try/catch ER_DUP_ENTRY` vẫn đúng trong transaction: InnoDB chỉ huỷ CÂU
+   * lệnh trùng khoá, không huỷ cả transaction, nên lần thử kế tiếp chạy tiếp trên
+   * cùng connection và cùng khoá. Kiểm chỉ chạy một lần, trước vòng lặp.
    */
-  await kiemHanMuc(mysqlPool, input.tenantId, 'workspaces', new Date());
-
-  const base = slugifyOrFallback(input.name, 'khong-gian');
-
-  for (let attempt = 1; attempt <= 20; attempt += 1) {
-    const slug = attempt === 1 ? base : `${base}-${attempt}`;
-    try {
-      const [result] = await mysqlPool.query<ResultSetHeader>(
-        `INSERT INTO workspaces (tenant_id, name, slug, description, created_by)
-         VALUES (?, ?, ?, ?, ?)`,
-        [input.tenantId, input.name, slug, input.description ?? null, input.createdBy],
-      );
-
-      const created = await adminWorkspacesRepo.findOne(mysqlPool, input.tenantId, result.insertId);
-      if (!created) throw new Error('Vừa tạo workspace xong nhưng đọc lại không thấy');
-      return created;
-    } catch (err) {
-      if (!isDuplicateSlug(err)) throw err;
-      // Trùng slug -> thử hậu tố kế tiếp.
+  const id = await trongHanMuc(input.tenantId, 'workspaces', async (conn) => {
+    for (let attempt = 1; attempt <= 20; attempt += 1) {
+      const slug = attempt === 1 ? base : `${base}-${attempt}`;
+      try {
+        const [result] = await conn.query<ResultSetHeader>(
+          `INSERT INTO workspaces (tenant_id, name, slug, description, created_by)
+           VALUES (?, ?, ?, ?, ?)`,
+          [input.tenantId, input.name, slug, input.description ?? null, input.createdBy],
+        );
+        return result.insertId;
+      } catch (err) {
+        if (!isDuplicateSlug(err)) throw err;
+        // Trùng slug -> thử hậu tố kế tiếp.
+      }
     }
-  }
 
-  throw new HttpError(
-    409,
-    ADMIN_ERROR_CODES.WORKSPACE_SLUG_EXHAUSTED,
-    'Không tạo được định danh cho workspace. Thử đổi tên khác.',
-  );
+    throw new HttpError(
+      409,
+      ADMIN_ERROR_CODES.WORKSPACE_SLUG_EXHAUSTED,
+      'Không tạo được định danh cho workspace. Thử đổi tên khác.',
+    );
+  });
+
+  // Đọc lại SAU khi commit, trên pool: trong transaction thì connection khác
+  // chưa thấy dòng mới, và `findOne` là repository đọc bình thường.
+  const created = await adminWorkspacesRepo.findOne(mysqlPool, input.tenantId, id);
+  if (!created) throw new Error('Vừa tạo workspace xong nhưng đọc lại không thấy');
+  return created;
 }
 
 function isDuplicateSlug(err: unknown): boolean {

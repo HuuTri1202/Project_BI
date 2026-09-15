@@ -1,5 +1,6 @@
 import {
   ANNOTATION_KIND_LABELS,
+  BILLING_ERROR_CODES,
   CANVAS_COLUMNS,
   CANVAS_DEFAULT_H,
   CANVAS_MAX_ANNOTATIONS,
@@ -16,6 +17,8 @@ import { Button } from '../../components/ui/Button';
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
 import { SearchSelect } from '../../components/ui/SearchSelect';
 import { ErrorState, TableSkeleton } from '../../components/ui/states';
+import { useHetHanMuc } from '../../features/billing/hooks';
+import { LimitAlert } from '../../features/billing/LimitAlert';
 import { CubeOfflineNotice } from '../../features/datamodels/CubeOfflineNotice';
 import {
   useDataModel,
@@ -281,7 +284,10 @@ function Builder({
    */
   const [typingId, setTypingId] = useState<string | null>(null);
   const [dragging, setDragging] = useState<DragField | null>(null);
-  const [saveError, setSaveError] = useState<string | null>(null);
+  /** Lỗi của lần Lưu gần nhất — giữ cả MÃ để nhận ra vượt hạn mức gói (§11.2). */
+  const [saveError, setSaveError] = useState<{ message: string; code: string } | null>(null);
+  /** Tổ chức đã dùng hết số báo cáo của gói — chỉ đáng nói khi đang dựng MỚI. */
+  const hetHanMuc = useHetHanMuc('reports');
   /**
    * Yêu cầu đổi mô hình đang chờ xác nhận.
    *
@@ -669,7 +675,10 @@ function Builder({
     if (modelId === null || !hasAnyVisual(pages)) return;
     setSaveError(null);
 
-    const onError = (err: unknown): void => setSaveError(getApiError(err).message);
+    const onError = (err: unknown): void => {
+      const { message, error } = getApiError(err);
+      setSaveError({ message, code: error });
+    };
 
     if (editingId !== null) {
       update.mutate(
@@ -819,10 +828,28 @@ function Builder({
         </>
       }
     >
-      {saveError !== null && (
-        <div className="mb-3 shrink-0">
-          <ErrorState message={saveError} />
-        </div>
+      {saveError !== null &&
+        (saveError.code === BILLING_ERROR_CODES.LIMIT_EXCEEDED ? (
+          <div className="shrink-0">
+            <LimitAlert message={saveError.message} code={saveError.code} />
+          </div>
+        ) : (
+          <div className="mb-3 shrink-0">
+            <ErrorState message={saveError.message} />
+          </div>
+        ))}
+
+      {/* Báo TRƯỚC, lúc người dùng còn chưa bỏ công dựng gì: báo cáo mới sẽ không
+          lưu được. Sửa báo cáo có sẵn thì không đếm thêm gì nên không cần nói.
+          Server vẫn là nơi chặn thật — xem `trongHanMuc`. */}
+      {editingId === null && hetHanMuc !== null && saveError === null && (
+        <p
+          role="status"
+          className="mb-3 shrink-0 rounded-lg border border-amber-200 bg-amber-50 px-3.5 py-2.5 text-sm text-amber-900"
+        >
+          {hetHanMuc} Báo cáo đang dựng sẽ không lưu được cho tới khi xoá bớt báo cáo cũ hoặc nâng
+          cấp gói.
+        </p>
       )}
 
       {/* Chưa chọn mô hình: cả trang chỉ hỏi đúng một câu. Hiện sẵn khung và

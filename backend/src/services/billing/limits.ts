@@ -1,5 +1,7 @@
 import { BILLING_ERROR_CODES } from '@bi/shared';
+import type { PoolConnection } from 'mysql2/promise';
 
+import { withTransaction } from '../../db/tx';
 import * as billingRepo from '../../repositories/billing';
 import type { Db } from '../../repositories/db';
 import * as usageRepo from '../../repositories/usage';
@@ -254,4 +256,49 @@ export async function kiemHanMuc(
     BILLING_ERROR_CODES.LIMIT_EXCEEDED,
     `Gói ${hanMuc.planName} cho tối đa ${soHoa(gioiHan)} ${danhTu}, ${dang}. ${loiThoat}`,
   );
+}
+
+/**
+ * Tạo MỘT thứ bị đếm hạn mức: khoá tổ chức → kiểm → ghi, trong cùng một
+ * transaction.
+ *
+ * ═══ Vì sao có hàm này ═════════════════════════════════════════════════════
+ *
+ * `kiemHanMuc` đã dặn "gọi BÊN TRONG transaction đang tạo", nhưng một lời dặn
+ * không giữ được ai. Đo được trước bản này:
+ *
+ *   `POST /reports/canvas`   không kiểm gì — đường duy nhất trình dựng gọi, nên
+ *                            gói Miễn phí tạo được báo cáo thứ tư qua giao diện
+ *   hai đường báo cáo kia    kiểm trên pool rồi ghi trên connection khác: sáu
+ *                            request cùng lúc ở 2/3 cho ra 5 báo cáo
+ *   `POST /workspaces`       cùng kiểu: năm request ở hạn mức 2 tạo cả năm
+ *
+ * Hàm này làm cho cách đúng là cách NGẮN nhất: nơi gọi chỉ viết phần ghi, và
+ * không có chỗ nào để đặt câu kiểm sai connection.
+ *
+ * ─── Vì sao khoá dòng `tenants` ────────────────────────────────────────────
+ *
+ * `SELECT … FOR UPDATE` trên đúng dòng tổ chức là một mutex cho MỌI lần tạo của
+ * tổ chức đó, bất kể route nào — ba đường tạo báo cáo xếp hàng sau cùng một
+ * khoá. Khoá các dòng `reports` thì không được: câu `COUNT(*)` không khoá được
+ * dòng CHƯA tồn tại. Chỉ các tổ chức cùng tạo một lúc mới chờ nhau, và mỗi lần
+ * chờ chỉ dài bằng một câu đếm cộng một câu INSERT. `commit.ts` và
+ * `createMember.ts` đã khoá đúng dòng này từ trước, nên dung lượng, thành viên,
+ * báo cáo và workspace dùng chung một thứ tự khoá — không có deadlock chéo.
+ *
+ * ⚠️ `ghi` chạy trong transaction: mọi câu ghi phải đi qua `conn` nó nhận, và
+ * không được gọi ra dịch vụ ngoài (Cube, ClickHouse) — giữ khoá tổ chức trong
+ * lúc chờ mạng là chặn mọi thao tác tạo của cả tổ chức.
+ */
+export async function trongHanMuc<T>(
+  tenantId: number,
+  loai: LoaiHanMuc,
+  ghi: (conn: PoolConnection) => Promise<T>,
+  now: Date = new Date(),
+): Promise<T> {
+  return withTransaction(async (conn) => {
+    await conn.query('SELECT id FROM tenants WHERE id = ? FOR UPDATE', [tenantId]);
+    await kiemHanMuc(conn, tenantId, loai, now);
+    return ghi(conn);
+  });
 }
