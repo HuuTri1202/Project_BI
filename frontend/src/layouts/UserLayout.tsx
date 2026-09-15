@@ -1,3 +1,4 @@
+import { APP_NAME } from '@bi/shared';
 import type { PermissionFlag } from '../auth/usePermissions';
 import { useEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
@@ -181,7 +182,7 @@ function SidebarContent({
   return (
     <>
       <div className="flex h-16 shrink-0 items-center px-6">
-        <span className="text-lg font-bold text-white">BI Platform</span>
+        <span className="text-lg font-bold text-white">{APP_NAME}</span>
         <PlanBadge />
       </div>
 

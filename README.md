@@ -1,4 +1,4 @@
-# BI Platform
+# Open Insight
 
 Nền tảng **Self-Service BI & Data Analytics** — người dùng nghiệp vụ tự tải dữ
 liệu lên, định nghĩa mô hình ngữ nghĩa, kéo-thả ra biểu đồ và chia sẻ dashboard

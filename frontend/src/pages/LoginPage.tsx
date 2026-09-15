@@ -1,3 +1,4 @@
+import { APP_NAME } from '@bi/shared';
 import { useState, type FormEvent } from 'react';
 import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { redirectTargetFor } from '../auth/redirectTarget';
@@ -107,7 +108,7 @@ export default function LoginPage(): React.ReactElement {
       <div className="w-full max-w-md">
         <div className="rounded-2xl border border-slate-200 bg-white p-8 shadow-sm">
           <header className="mb-7 text-center">
-            <h1 className="text-2xl font-bold tracking-tight text-brand-700">BI Platform</h1>
+            <h1 className="text-2xl font-bold tracking-tight text-brand-700">{APP_NAME}</h1>
             <p className="mt-1.5 text-sm text-slate-500">Đăng nhập để vào hệ thống</p>
           </header>
 

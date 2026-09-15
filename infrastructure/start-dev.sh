@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# start-dev.sh - Khởi động môi trường dev cho BI Platform (MySQL + Redis)
+# start-dev.sh - Khởi động môi trường dev cho Open Insight (MySQL + Redis)
 #
 # Cách dùng:
 #   ./start-dev.sh            # khởi động và chờ services sẵn sàng
@@ -40,7 +40,7 @@ done
 # BƯỚC 1: Kiểm tra Docker
 # =============================================================================
 echo
-echo "${BOLD}=== BI Platform - Dev Environment ===${NC}"
+echo "${BOLD}=== Open Insight - Dev Environment ===${NC}"
 echo
 info "Bước 1/5: Kiểm tra Docker..."
 

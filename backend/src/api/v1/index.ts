@@ -1,6 +1,7 @@
 import {
   ADMIN_ERROR_CODES,
   allVisuals,
+  APP_NAME,
   BILLING_ERROR_CODES,
   CHART_SERIES_SUPPORT,
   CHART_TYPE_LABELS,
@@ -189,7 +190,7 @@ import {
 export const v1Router = Router();
 
 v1Router.get('/', (_req: Request, res: Response) => {
-  res.json({ name: 'BI Platform API', version: 'v1' });
+  res.json({ name: `${APP_NAME} API`, version: 'v1' });
 });
 
 v1Router.use(authenticate, requireFreshMembership);

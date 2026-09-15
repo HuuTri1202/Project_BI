@@ -6,7 +6,7 @@ import { useBillingSummary } from './hooks';
 /**
  * Huy hiệu gói trên sidebar — §11.
  *
- * ─── Vì sao đặt cạnh "BI Platform", không phải trong bộ chuyển tổ chức ─────
+ * ─── Vì sao đặt cạnh tên sản phẩm, không phải trong bộ chuyển tổ chức ──────
  *
  * Chỗ tự nhiên nhất trông như là `TenantSwitcher`, ngay cạnh tên tổ chức. Nhưng
  * component đó `return null` khi người dùng chỉ thuộc MỘT tổ chức — tức là với

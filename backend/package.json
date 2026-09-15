@@ -2,7 +2,7 @@
   "name": "bi-platform-backend",
   "version": "0.1.0",
   "private": true,
-  "description": "BI Platform backend API (Express + TypeScript)",
+  "description": "Open Insight backend API (Express + TypeScript)",
   "main": "dist/index.js",
   "scripts": {
     "predev": "node ../scripts/free-ports.mjs 4000",

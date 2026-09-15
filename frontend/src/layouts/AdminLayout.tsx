@@ -1,3 +1,4 @@
+import { APP_NAME } from '@bi/shared';
 import { useEffect, useState } from 'react';
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../auth/useAuth';
@@ -122,7 +123,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }): React.Reac
   return (
     <>
       <div className="flex h-16 shrink-0 items-center px-6">
-        <span className="text-lg font-bold text-white">BI Platform</span>
+        <span className="text-lg font-bold text-white">{APP_NAME}</span>
         <span className="ml-2 rounded bg-slate-800 px-1.5 py-0.5 text-[10px] font-semibold tracking-wide text-slate-400 uppercase">
           quản trị
         </span>

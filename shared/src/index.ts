@@ -10,6 +10,8 @@ export * from './auth';
  * `tenant` chứ không vào `workspace` — người ta mua gói cho cả tổ chức.
  */
 export * from './billing';
+/** Tên sản phẩm hiển thị — xem `brand.ts` về những định danh CỐ Ý không đổi. */
+export * from './brand';
 /**
  * `data` gom CẢ HAI nguồn dữ liệu vào một khái niệm `Dataset`: bảng đồng bộ từ
  * CSDL khách hàng (§8) và sheet trong file Excel/CSV tải lên (§7). Phân biệt

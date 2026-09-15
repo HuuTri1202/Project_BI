@@ -88,7 +88,7 @@ def main():
     )
 
     ra = []
-    ra.append('# Bộ test case — Nền tảng BI Platform\n')
+    ra.append('# Bộ test case — Nền tảng Open Insight\n')
     ra.append('> Sinh tự động từ hồ sơ kiểm thử. **Đừng sửa tay** — sửa file')
     ra.append('> `bo-test-case.html` rồi chạy lại `xuat-markdown.py`.\n')
     ra.append('| | |')
