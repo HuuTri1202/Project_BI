@@ -292,6 +292,7 @@ export function buildChartSpec({
         // này — nên nó phải có tác dụng. Trước bản này nó không, kể cả với
         // `'label'` vốn đã có từ §10.9: một ô chọn bấm mãi không thấy gì đổi.
         ...pieOrder(opts, data.measureLabel),
+        tooltip: tooltipOf(data, ['label', 'value'], valueFormat),
       },
     } as TopLevelSpec;
   }
@@ -312,6 +313,7 @@ export function buildChartSpec({
               ? {}
               : { legend: { format: valueFormat } }),
         },
+        tooltip: tooltipOf(data, ['label', 'series', 'value'], valueFormat),
       },
     };
 
@@ -423,9 +425,17 @@ export function buildChartSpec({
               ...(multi ? {} : { color: mau }),
             };
 
+  const tooltip = {
+    tooltip: tooltipOf(
+      data,
+      multi ? ['label', 'series', 'value'] : ['label', 'value'],
+      valueFormat,
+    ),
+  };
+
   const encoding = horizontal
-    ? { y: groupAxis, x: valueAxisSpec, ...offset, ...color }
-    : { x: groupAxis, y: valueAxisSpec, ...offset, ...color };
+    ? { y: groupAxis, x: valueAxisSpec, ...offset, ...color, ...tooltip }
+    : { x: groupAxis, y: valueAxisSpec, ...offset, ...color, ...tooltip };
 
   const layers: object[] = [{ mark, encoding }];
 
@@ -452,6 +462,54 @@ export function buildChartSpec({
     ...(horizontal && !fit ? { height: { step: BAR_STEP } } : { height: boxHeight }),
     ...(layers.length === 1 ? (layers[0] as object) : { layer: layers }),
   } as TopLevelSpec;
+}
+
+/**
+ * Tooltip khai TƯỜNG MINH từng dòng — §10.21.
+ *
+ * ═══ Vì sao không để `tooltip: true` tự suy ═══════════════════════════════════
+ *
+ * `tooltip: true` bảo Vega-Lite dựng tooltip từ các kênh đang vẽ, lấy TÊN TRỤC
+ * làm tên dòng. Nó dựng thành một object lấy tên làm khoá, và hai hỏng hóc đi ra
+ * từ đúng chỗ đó — cả hai đã đo bằng `compile()`:
+ *
+ *   hai trường cùng tên   Trục `name` (products) + Nhóm màu `name` (categories)
+ *                         cho ra `{"name": …, "price": …}`: dòng nhóm màu bị
+ *                         BỎ HẲN, không phải ghi đè. Người dùng rê chuột và
+ *                         không thấy chiều thứ hai mình vừa kéo thả.
+ *
+ *   ô nhỏ bỏ tên trục     `tenDuoi` trả `null` để nhường chỗ cho dữ liệu (§10.16),
+ *                         và tooltip rơi về tên TRƯỜNG KỸ THUẬT: "label",
+ *                         "series" — chữ người dùng chưa từng đặt.
+ *
+ * Tách tooltip khỏi trục là chữa được cả hai: tên dòng lấy thẳng từ nhãn dữ
+ * liệu, và không bao giờ trùng nhau. Backend đã đặt tên riêng cho các trường
+ * trùng tên (`nhanKhongTrung` — thêm tên bảng); đánh số ở đây là lưới an toàn
+ * cho nguồn khác, vì tên trùng ở tooltip là MẤT một giá trị, không phải xấu.
+ *
+ * Thứ tự: các chiều trước, con số sau — đọc như một dòng của bảng số liệu.
+ */
+function tooltipOf(
+  data: ReportDataDto,
+  fields: readonly ('label' | 'series' | 'value')[],
+  format: string | undefined,
+): object[] {
+  const ten = {
+    label: data.dimensionLabel === '' ? 'Nhóm' : data.dimensionLabel,
+    series: data.seriesLabel === undefined || data.seriesLabel === '' ? 'Chuỗi' : data.seriesLabel,
+    value: data.measureLabel === '' ? 'Giá trị' : data.measureLabel,
+  };
+
+  const daDung = new Set<string>();
+  return fields.map((field) => {
+    let title = ten[field];
+    for (let n = 2; daDung.has(title); n += 1) title = `${ten[field]} (${String(n)})`;
+    daDung.add(title);
+
+    return field === 'value'
+      ? { field, type: 'quantitative', title, ...(format === undefined ? {} : { format }) }
+      : { field, type: 'nominal', title };
+  });
 }
 
 /**

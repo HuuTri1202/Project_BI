@@ -57,6 +57,7 @@ import {
   emptyPage,
   emptyVisual,
   findSlot,
+  fieldLabelsOf,
   fromDto,
   hasAnyVisual,
   hasUnsavedWork,
@@ -447,12 +448,12 @@ function Builder({
   // lệch nhau được.
   const sheetCount = groupBySheet(dimensions, measures).length;
 
-  const labelOf = (draft: VisualDraft): string =>
-    titleOf(
-      draft,
-      dimensions.find((f) => f.id === draft.dimensionId)?.label ?? null,
-      measures.find((f) => f.id === draft.measureId)?.label ?? null,
-    );
+  const labelOf = (draft: VisualDraft): string => {
+    // Cùng luật đặt tên với backend, để tiêu đề ô ở đây khớp trang xem khi hai
+    // trường trùng tên — §10.21.
+    const ten = fieldLabelsOf(draft, dimensions, measures);
+    return titleOf(draft, ten.dimension, ten.measure);
+  };
 
   // ─── Sửa một ô ─────────────────────────────────────────────────────────────
 

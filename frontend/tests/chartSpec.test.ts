@@ -563,3 +563,89 @@ describe('buildChartSpec', () => {
     });
   });
 });
+
+/**
+ * Tooltip — §10.21.
+ *
+ *   "do đang trùng dim là name nên khi di chuột vào chỉ hiện 1 dim name thôi,
+ *    nhưng đáng lẻ ra phải cả 2 dim như đã kéo thả"
+ *
+ * Kiểm trên spec ĐÃ BIÊN DỊCH, không trên spec ta dựng: chỗ hỏng nằm ở cách
+ * Vega-Lite ghép tooltip thành một object lấy tên dòng làm khoá, nên chỉ đọc
+ * spec đầu vào thì ca này xanh cả trên code cũ.
+ */
+describe('tooltip', () => {
+  interface VegaMark {
+    encode?: { update?: { tooltip?: { signal: string } } };
+    marks?: VegaMark[];
+  }
+
+  /**
+   * Tên các dòng tooltip của mark ĐẦU TIÊN có tooltip, theo đúng thứ tự hiện ra.
+   *
+   * Vega-Lite biên dịch tooltip thành một biểu thức object `{"tên": giá trị, …}`;
+   * tên nào bị gộp thì nó biến mất khỏi chính chuỗi này.
+   */
+  function dongTooltip(
+    spec: ReturnType<typeof buildChartSpec>,
+    rows: ReportDataDto['rows'],
+  ): string[] {
+    const vega = compile({ ...spec!, data: { values: rows } }).spec as { marks: VegaMark[] };
+    const tim = (marks: VegaMark[]): string | undefined => {
+      for (const m of marks) {
+        const s = m.encode?.update?.tooltip?.signal ?? (m.marks ? tim(m.marks) : undefined);
+        if (s !== undefined) return s;
+      }
+      return undefined;
+    };
+    const signal = tim(vega.marks) ?? '';
+    return [...signal.matchAll(/"([^"]+)": /g)].map((m) => m[1] ?? '');
+  }
+
+  const TRUNG_TEN = fakeData({
+    rows: [
+      { label: 'Bánh croissant', series: 'Bánh ngọt', value: 28000 },
+      { label: 'Trà đào', series: 'Trà & Đồ uống', value: 35000 },
+    ],
+    dimensionLabel: 'name',
+    seriesLabel: 'name',
+    measureLabel: 'price',
+  });
+
+  for (const chartType of ['bar', 'hbar', 'line', 'area', 'scatter', 'heatmap'] as const) {
+    it(`${chartType}: hai chiều CÙNG TÊN vẫn đủ hai dòng, không dòng nào bị nuốt`, () => {
+      const spec = buildChartSpec({ chartType, data: TRUNG_TEN });
+      const dong = dongTooltip(spec, TRUNG_TEN.rows);
+
+      expect(dong).toHaveLength(3);
+      expect(new Set(dong).size).toBe(3);
+      expect(dong[dong.length - 1]).toBe('price');
+    });
+  }
+
+  it('tên đã phân biệt từ backend thì hiện NGUYÊN VĂN, không đánh số thêm', () => {
+    const data = {
+      ...TRUNG_TEN,
+      dimensionLabel: 'name (products)',
+      seriesLabel: 'name (categories)',
+    };
+    expect(dongTooltip(buildChartSpec({ chartType: 'bar', data }), data.rows)).toEqual([
+      'name (products)',
+      'name (categories)',
+      'price',
+    ]);
+  });
+
+  it('ô nhỏ bỏ TÊN TRỤC nhưng tooltip vẫn mang tên trường, không phải "label"', () => {
+    const spec = buildChartSpec({ chartType: 'bar', data: fakeData(), height: 109, width: 195 });
+    expect(dongTooltip(spec, fakeData().rows)).toEqual(['Khu vực', 'Doanh thu']);
+  });
+
+  it('biểu đồ tròn và thước đo tỉ lệ: tooltip đọc CÙNG định dạng với trục', () => {
+    const spec = buildChartSpec({ chartType: 'pie', data: PERCENT });
+    expect(dongTooltip(spec, PERCENT.rows)).toEqual(['Khu vực', 'Doanh thu']);
+    expect(JSON.stringify((spec as { encoding: { tooltip: unknown } }).encoding.tooltip)).toContain(
+      '.1%',
+    );
+  });
+});

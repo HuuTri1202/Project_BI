@@ -7,9 +7,11 @@ import {
   CHART_SERIES_SUPPORT,
   CHART_TYPE_LABELS,
   DEFAULT_CHART_PALETTE,
+  distinctFieldLabels,
   normalizePalette,
   PAGE_NAME_MAX,
   type ChartType,
+  type ExplorerFieldDto,
   type ReportAnnotationDto,
   type GroupPick,
   type ReportCanvasDto,
@@ -556,4 +558,43 @@ export function titleOf(
     return `${measureLabel} theo ${dimensionLabel}`;
   }
   return 'Biểu đồ chưa cấu hình';
+}
+
+/**
+ * Tên chiều và thước đo của một ô, ĐÚNG như backend sẽ gọi chúng — §10.21.
+ *
+ * Hai trường cùng tên từ hai bảng (Trục `products.name`, Nhóm màu
+ * `categories.name`) thì backend trả về `name (products)` / `name (categories)`,
+ * và trang xem dựng tiêu đề ô từ đó. Trình dựng lấy tên từ bảng trường, nên phải
+ * đi qua cùng `distinctFieldLabels`, với cùng DANH SÁCH và cùng THỨ TỰ cột mà
+ * truy vấn backend dùng: chiều, chiều tách chuỗi (nếu có), thước đo. Lệch một
+ * trong hai là cùng một ô mang hai tiêu đề ở hai màn hình.
+ *
+ * Chiều tách chuỗi chỉ tính khi backend thật sự hỏi nó — cùng điều kiện với
+ * `aggregateFromModel`: loại biểu đồ nhận chuỗi, và không trùng chiều chính.
+ */
+export function fieldLabelsOf(
+  draft: VisualDraft,
+  dimensions: readonly ExplorerFieldDto[],
+  measures: readonly ExplorerFieldDto[],
+): { dimension: string | null; measure: string | null } {
+  const dimension = dimensions.find((f) => f.id === draft.dimensionId);
+  const measure = measures.find((f) => f.id === draft.measureId);
+  if (dimension === undefined || measure === undefined) {
+    return { dimension: dimension?.label ?? null, measure: measure?.label ?? null };
+  }
+
+  const seriesId = seriesUsed(draft);
+  const series =
+    seriesId === null || seriesId === dimension.id
+      ? undefined
+      : dimensions.find((f) => f.id === seriesId);
+  const labels = distinctFieldLabels(
+    series === undefined ? [dimension, measure] : [dimension, series, measure],
+  );
+
+  return {
+    dimension: labels[0] ?? dimension.label,
+    measure: labels[labels.length - 1] ?? measure.label,
+  };
 }
