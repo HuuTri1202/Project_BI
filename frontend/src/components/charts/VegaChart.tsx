@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { TopLevelSpec } from 'vega-lite';
 
+import { hamBieuThucVega, type DoChu } from './vegaExpr';
 import { khongKichThuoc, soDo } from './vegaSpecKey';
 
 /**
@@ -116,7 +117,7 @@ export function VegaChart<T extends object>({
 
     void (async () => {
       try {
-        const { default: vegaEmbed } = await import('vega-embed');
+        const { default: vegaEmbed, vega } = await import('vega-embed');
         if (cancelled) return;
 
         const { spec: specMoi, data: dataMoi } = moiNhat.current;
@@ -136,6 +137,14 @@ export function VegaChart<T extends object>({
             // chuỗi `oklch(...)`, và trình duyệt tự hiểu nó khi nằm trong thuộc
             // tính `fill` của SVG. Canvas thì khắt khe hơn khi phân tích màu.
             renderer: 'svg',
+            // Hàm riêng mà spec được gọi (đo nhãn trục — §10.22). Thiếu dòng
+            // này thì spec gọi tới chúng không parse được, và ô hiện "Không vẽ
+            // được biểu đồ".
+            // `textMetrics` có trong gói `vega` lúc chạy (xuất lại từ
+            // vega-scenegraph) nhưng bộ khai kiểu của nó không nhắc tới.
+            expressionFunctions: hamBieuThucVega(
+              (vega as unknown as { textMetrics: DoChu }).textMetrics,
+            ),
           },
         );
 

@@ -9,6 +9,7 @@ import {
 } from '@bi/shared';
 import type { TopLevelSpec } from 'vega-lite';
 
+import { HAM_DO_RONG_NHAN } from '../../components/charts/vegaExpr';
 import { CHART_AXIS_CONFIG } from '../admin/charts/theme';
 
 /**
@@ -129,6 +130,28 @@ const TEN_TRUC_NGANG = 320;
  */
 const BAR_STEP = 24;
 
+/**
+ * Chữ của nhãn trục nhóm — khai TƯỜNG MINH dù trùng mặc định của Vega, vì hàm đo
+ * trong `nhanTrucNhom` nhận đúng hai hằng này. Để trục tự lấy mặc định thì một
+ * lần đổi cấu hình chung sẽ làm chữ vẽ ra và chữ được đo lệch nhau mà không ai
+ * thấy.
+ */
+const NHAN_CO_CHU = 10;
+const NHAN_PHONG = 'sans-serif';
+
+/** Khoảng hở tối thiểu giữa hai nhãn nằm ngang kề nhau. */
+const NHAN_KHE = 6;
+
+/**
+ * Nhãn dựng đứng dài tối đa bao nhiêu pixel — tức ăn tối đa bấy nhiêu chiều cao.
+ *
+ * 120 là đúng giới hạn cũ. Ô nhỏ (dưới `TEN_TRUC_CAO`, nơi tên trục đã bị bỏ để
+ * nhường chỗ) thì một nửa: 120px nhãn trong một ô cao 109px là không còn gì để
+ * vẽ. Cùng NGƯỠNG với tên trục nên không thêm điểm nào mà view phải dựng lại.
+ */
+const NHAN_DOC_TOI_DA = 120;
+const NHAN_DOC_O_NHO = 60;
+
 export interface ChartSpecInput {
   chartType: ChartType;
   data: ReportDataDto;
@@ -246,6 +269,12 @@ export function buildChartSpec({
   const tenTrai = (label: string): string | null =>
     fit && boxWidth !== null && boxWidth < TEN_TRUC_NGANG ? null : label;
 
+  /** Nhãn của trục nhóm nằm NGANG (mọi loại trừ thanh ngang) — xem `nhanTrucNhom`. */
+  const nhanNhom = nhanTrucNhom(
+    fit && boxHeight < TEN_TRUC_CAO ? NHAN_DOC_O_NHO : NHAN_DOC_TOI_DA,
+    denseLabels,
+  );
+
   const multi = hasSeries(data);
 
   /*
@@ -328,7 +357,7 @@ export function buildChartSpec({
           type: 'nominal',
           title: tenDuoi(data.dimensionLabel),
           sort: sortOf(opts),
-          axis: { labelAngle: -35, labelLimit: 120, ...denseLabels },
+          axis: nhanNhom,
         },
         y: {
           field: 'series',
@@ -355,9 +384,7 @@ export function buildChartSpec({
     sort: sortOf(opts),
     // Nằm ngang thì nhãn có cả chiều rộng để trải ra, nên không xoay và cho
     // gấp đôi chỗ. Đó chính là lý do loại này tồn tại bên cạnh biểu đồ cột.
-    axis: horizontal
-      ? { labelLimit: 220, ...denseLabels }
-      : { labelAngle: -35, labelLimit: 120, ...denseLabels },
+    axis: horizontal ? { labelLimit: 220, ...denseLabels } : nhanNhom,
   };
 
   /*
@@ -462,6 +489,70 @@ export function buildChartSpec({
     ...(horizontal && !fit ? { height: { step: BAR_STEP } } : { height: boxHeight }),
     ...(layers.length === 1 ? (layers[0] as object) : { layer: layers }),
   } as TopLevelSpec;
+}
+
+/**
+ * Nhãn của trục nhóm nằm ngang: nằm ngang nếu MỌI nhãn vừa một cột, không thì
+ * dựng đứng — §10.22.
+ *
+ * ═══ Lỗi đã đo ══════════════════════════════════════════════════════════════
+ *
+ * Trước bản này nhãn luôn nghiêng -35°. Trên Chromium, ô "Discount theo Product
+ * Name" (20 cột, mỗi cột ~44px) chỉ còn 6/20 tên ở trình dựng và 10/20 ở trang
+ * xem, và tâm mỗi tên lệch 46px khỏi cột của nó. Hai hỏng hóc, một nguyên nhân:
+ *
+ *   lệch    Vega neo GÓC PHẢI của chữ nghiêng vào vạch, nên thân chữ nằm dưới
+ *           cột bên TRÁI. Người đọc gán tên cho nhầm cột.
+ *
+ *   thiếu   `labelOverlap: 'greedy'` so hộp bao của chữ ĐÃ XOAY. Nghiêng 35°, một
+ *           nhãn 120px vẫn chiếm ~100px bề ngang — hai, ba cột. Vega bỏ mọi nhãn
+ *           đè nhau, nên còn một tên cho mỗi hai, ba cột.
+ *
+ * Dựng đứng thì mỗi nhãn chỉ chiếm đúng một dòng chữ (~11px) bề ngang và nằm
+ * thẳng dưới vạch: 20 tên trên 870px hiện đủ. Nhưng "2024", "Bắc" mà cũng dựng
+ * đứng thì khó đọc vô cớ — nên nhãn nào vừa thì cứ nằm ngang.
+ *
+ * ═══ Vì sao quyết định nằm TRONG Vega, không tính sẵn ở đây ══════════════════
+ *
+ * "Vừa hay không" cần hai con số: bề ngang một cột và độ rộng nhãn dài nhất.
+ * Cả hai đều ĐỔI mà spec không đổi — cột hẹp lại khi kéo ô, nhãn đổi khi lật
+ * trang nhóm. `VegaChart` cập nhật hai thứ đó TẠI CHỖ và chỉ dựng lại view khi
+ * spec đổi (§10.17). Ghi hai con số vào spec là mỗi cú kéo, mỗi lần bấm ›  thành
+ * một lần dựng lại — một chớp trắng.
+ *
+ * Nên spec chỉ ghi CÔNG THỨC. Vega tính bước từ chính thang `x` đang sống
+ * (`range`/`domain`) và đo nhãn bằng `doRongNhanToiDa` — hàm riêng đăng ký ở
+ * `VegaChart` (xem `components/charts/vegaExpr.ts`).
+ *
+ * ─── Chi tiết đáng giữ ─────────────────────────────────────────────────────
+ *
+ *   · `labelAlign`/`labelBaseline` PHẢI khai. Góc là biểu thức thì Vega-Lite tự
+ *     suy căn lề thành biểu thức trả `null` ở góc 0, và SVG hiểu `null` là
+ *     `text-anchor: start` — nhãn ngang bắt đầu TẠI vạch, lệch nửa bề rộng. Đã
+ *     đo; `tests/axisLabels.test.ts` giữ đúng ca này.
+ *   · Nằm ngang chỉ khi nhãn ≤ bước − khe, nên nhãn ngang không bao giờ thò ra
+ *     ngoài vùng vẽ. Nhờ vậy đổi hướng nhãn không đổi BỀ NGANG vùng vẽ, và
+ *     không có vòng "đổi hướng → đổi bước → đổi hướng lại".
+ *   · `greedy` vẫn giữ: khi bước hẹp hơn cả một dòng chữ (100 nhóm trên một ô
+ *     nhỏ) thì không cách nào hiện đủ, và bỏ bớt vẫn hơn một vệt xám.
+ */
+function nhanTrucNhom(
+  nganSachDoc: number,
+  denseLabels: { labelOverlap?: 'greedy' },
+): Record<string, unknown> {
+  const buoc = "(span(range('x')) / max(1, length(domain('x'))))";
+  const rongNhat = `${HAM_DO_RONG_NHAN}(domain('x'), ${String(NHAN_CO_CHU)}, '${NHAN_PHONG}')`;
+  const ngang = `(${buoc} >= ${rongNhat} + ${String(NHAN_KHE)})`;
+
+  return {
+    labelFont: NHAN_PHONG,
+    labelFontSize: NHAN_CO_CHU,
+    labelAngle: { expr: `${ngang} ? 0 : -90` },
+    labelAlign: { expr: `${ngang} ? 'center' : 'right'` },
+    labelBaseline: { expr: `${ngang} ? 'top' : 'middle'` },
+    labelLimit: { expr: `${ngang} ? ${buoc} : ${String(nganSachDoc)}` },
+    ...denseLabels,
+  };
 }
 
 /**
