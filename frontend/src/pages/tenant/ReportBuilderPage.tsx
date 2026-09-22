@@ -52,7 +52,7 @@ import { AnnotationPanel } from '../../features/reports/builder/AnnotationPanel'
 import { InsertBar } from '../../features/reports/builder/InsertBar';
 import type { DragField } from '../../features/reports/builder/dnd';
 import { FieldsPanel } from '../../features/reports/builder/FieldsPanel';
-import { groupBySheet } from '../../features/reports/builder/sheets';
+import { groupBySheet } from '../../features/datamodels/sheets';
 import { VisualPanel } from '../../features/reports/builder/VisualPanel';
 import {
   assignField,

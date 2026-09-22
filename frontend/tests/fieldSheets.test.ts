@@ -1,7 +1,7 @@
 import type { ExplorerFieldDto } from '@bi/shared';
 import { describe, expect, it } from 'vitest';
 
-import { filterSheets, groupBySheet } from '../src/features/reports/builder/sheets';
+import { filterSheets, groupBySheet } from '../src/features/datamodels/sheets';
 
 /**
  * Bảng trường chia theo BẢNG, không chia theo vai trò đoán được — §10.10.

@@ -2,8 +2,9 @@ import type { ExplorerFieldDto } from '@bi/shared';
 import { useState } from 'react';
 
 import { DND_MIME, type DragField, type FieldKind } from './dnd';
-import { moTaCua, shortName } from './fieldText';
-import { filterSheets, groupBySheet } from './sheets';
+import { moTaCua } from './fieldText';
+import { filterSheets, groupBySheet, shortName } from '../../datamodels/sheets';
+import { TypeGlyph } from '../../datamodels/TypeGlyph';
 
 /**
  * Cột "Mô hình dữ liệu" — MỌI trường của mô hình, chia theo bảng.
@@ -159,44 +160,5 @@ function FieldPill({
         )}
       </span>
     </button>
-  );
-}
-
-/**
- * Ký hiệu kiểu dữ liệu, đọc trong nửa giây.
- *
- * Cùng quy ước với mọi công cụ BI: `#` là số, `T` là chữ, lịch là thời gian.
- * Thước đo dùng ký hiệu tổng `Σ` chứ không dùng kiểu của cột nó gộp — cái người
- * dùng cần phân biệt trong bảng này là "kéo cái này ra được một con số" chứ
- * không phải "cột gốc là Float64".
- *
- * Từ khi bảng trường thôi chia theo vai trò, ký hiệu này là chỗ DUY NHẤT còn
- * nói được trường nào đã gộp sẵn — nên nó không còn là trang trí.
- */
-function TypeGlyph({
-  field,
-  kind,
-}: {
-  field: ExplorerFieldDto;
-  kind: FieldKind;
-}): React.ReactElement {
-  const text =
-    kind === 'measure'
-      ? 'Σ'
-      : field.cubeType === 'number'
-        ? '#'
-        : field.cubeType === 'time'
-          ? '📅'
-          : field.cubeType === 'boolean'
-            ? '✓'
-            : 'T';
-
-  return (
-    <span
-      aria-hidden="true"
-      className="mt-0.5 inline-flex h-4 w-4 shrink-0 items-center justify-center text-xs font-semibold text-slate-400"
-    >
-      {text}
-    </span>
   );
 }
