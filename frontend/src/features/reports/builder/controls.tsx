@@ -10,7 +10,7 @@ import {
 import { useState } from 'react';
 
 import { DND_MIME, safeParse, type DragField, type FieldKind } from './dnd';
-import { shortName } from './fieldText';
+import { shortName } from '../../datamodels/sheets';
 
 /**
  * Những mảnh giao diện nhỏ của trình dựng — §10.9, tách ra ở §10.10.

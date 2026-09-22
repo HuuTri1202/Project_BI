@@ -1,6 +1,4 @@
 import {
-  COLUMN_ROLE_HINTS,
-  COLUMN_ROLE_LABELS,
   MEASURE_AGG_HINTS,
   MEASURE_AGG_LABELS,
   moTaThuocDo,
@@ -19,6 +17,8 @@ import { Button } from '../../../components/ui/Button';
 import { TBody, Td, Th, THead, TableWrap, Tr } from '../../../components/ui/Table';
 import { EmptyState, ErrorState, TableSkeleton } from '../../../components/ui/states';
 import { CubeOfflineNotice } from '../../../features/datamodels/CubeOfflineNotice';
+import { groupBySheet, shortName, type LoaiTruong } from '../../../features/datamodels/sheets';
+import { TypeGlyph } from '../../../features/datamodels/TypeGlyph';
 import {
   useExplorerFields,
   useExplorerStatus,
@@ -97,10 +97,41 @@ function formatCell(
  * thì vẫn có thể.
  */
 const SQL_KEYWORDS = new Set([
-  'SELECT', 'FROM', 'WHERE', 'GROUP', 'BY', 'ORDER', 'LIMIT', 'OFFSET',
-  'LEFT', 'RIGHT', 'INNER', 'OUTER', 'FULL', 'CROSS', 'JOIN', 'ON', 'AS',
-  'AND', 'OR', 'NOT', 'NULL', 'IS', 'IN', 'ASC', 'DESC', 'HAVING',
-  'UNION', 'ALL', 'DISTINCT', 'CASE', 'WHEN', 'THEN', 'ELSE', 'END', 'WITH',
+  'SELECT',
+  'FROM',
+  'WHERE',
+  'GROUP',
+  'BY',
+  'ORDER',
+  'LIMIT',
+  'OFFSET',
+  'LEFT',
+  'RIGHT',
+  'INNER',
+  'OUTER',
+  'FULL',
+  'CROSS',
+  'JOIN',
+  'ON',
+  'AS',
+  'AND',
+  'OR',
+  'NOT',
+  'NULL',
+  'IS',
+  'IN',
+  'ASC',
+  'DESC',
+  'HAVING',
+  'UNION',
+  'ALL',
+  'DISTINCT',
+  'CASE',
+  'WHEN',
+  'THEN',
+  'ELSE',
+  'END',
+  'WITH',
 ]);
 
 /**
@@ -119,7 +150,8 @@ const SQL_KEYWORDS = new Set([
  * ⚠️ Phát ra CẢ phần nằm giữa các match, nếu không câu lệnh sẽ mất ký tự — một
  * lỗi rất dễ mắc và rất khó thấy, vì SQL thiếu một dấu ngoặc vẫn trông như SQL.
  */
-const TOKEN = /(`[^`]*`)|("(?:[^"\\]|\\.)*")|('(?:[^'\\]|\\.)*')|(\b\d+(?:\.\d+)?\b)|([A-Za-z_][A-Za-z0-9_]*)/g;
+const TOKEN =
+  /(`[^`]*`)|("(?:[^"\\]|\\.)*")|('(?:[^'\\]|\\.)*')|(\b\d+(?:\.\d+)?\b)|([A-Za-z_][A-Za-z0-9_]*)/g;
 
 function highlight(text: string): React.ReactNode[] {
   const out: React.ReactNode[] = [];
@@ -245,7 +277,9 @@ function SqlPanel({
         )}
         <p>
           Câu lệnh này do Cube sinh từ{' '}
-          <strong className="font-medium text-slate-600">quan hệ bạn khai ở tab Relationship</strong>{' '}
+          <strong className="font-medium text-slate-600">
+            quan hệ bạn khai ở tab Relationship
+          </strong>{' '}
           và định nghĩa thước đo ở tab Schemas — lựa chọn ở đây chỉ quyết định phần{' '}
           <code className="rounded bg-slate-100 px-1 py-0.5 text-slate-700">SELECT</code>. Nếu phép{' '}
           <code className="rounded bg-slate-100 px-1 py-0.5 text-slate-700">JOIN</code> trông không
@@ -302,9 +336,7 @@ function PanelTab({
       onClick={onClick}
       aria-pressed={active}
       className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
-        active
-          ? 'bg-white text-slate-900 shadow-sm'
-          : 'text-slate-500 hover:text-slate-800'
+        active ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800'
       }`}
     >
       {children}
@@ -312,23 +344,51 @@ function PanelTab({
   );
 }
 
-function FieldGroup({
-  title,
-  fields,
-  selected,
+/**
+ * Bộ chọn trường — chia theo BẢNG, không chia theo vai trò đoán được.
+ *
+ * ═══ Vì sao bỏ hai khối "Chiều" và "Thước đo" ══════════════════════════════
+ *
+ * Bản trước xếp trường thành hai khối theo vai trò mà backend ĐOÁN ra lúc thêm
+ * bảng vào mô hình: cột số vào "Thước đo", cột chữ và ngày vào "Chiều", trừ khi
+ * từ cuối của tên nghe như một định danh (`id`, `code`…) — xem
+ * `classifyColumn.ts`. Người dùng nói thẳng chỗ hỏng:
+ *
+ *     "sắp xếp theo sheet dữ liệu chứ ko tự đoán dim vs measure"
+ *
+ * Người nạp dữ liệu nhớ theo BẢNG — họ là người đã nạp từng bảng vào — chứ
+ * không nhớ hệ thống đã xếp `Postal Code` vào khối nào. Hai khối tách đôi một
+ * bảng khiến đi tìm một cột phải tìm ở hai chỗ.
+ *
+ * Bảng trường của trình dựng đã đổi theo hướng này từ §10.10, và hai bộ chọn
+ * trường của cùng một mô hình mà xếp khác nhau thì người dùng phải học hai lần
+ * — nên chúng dùng chung `groupBySheet` (xem `features/datamodels/sheets.ts`).
+ *
+ * ⚠️ Đây là thay đổi CÁCH HIỂN THỊ. Truy vấn vẫn gửi `dimensionIds` và
+ * `measureIds` riêng, backend không đổi một dòng nào: chiều vẫn là chiều, thước
+ * đo vẫn là thước đo. Ký hiệu `Σ` đầu dòng và câu phép tính dưới tên là chỗ nói
+ * ra điều đó.
+ */
+function BangTruong({
+  dimensions,
+  measures,
+  chonChieu,
+  chonThuocDo,
   onToggle,
-  emptyHint,
-  giaiThich,
   moTa,
-  chuThich,
 }: {
-  title: string;
-  fields: ExplorerFieldDto[];
-  selected: Set<number>;
-  onToggle: (id: number) => void;
-  emptyHint: string;
-  /** Một câu "nhóm này là gì", cho người chưa từng dùng công cụ BI nào. */
-  giaiThich?: string;
+  dimensions: ExplorerFieldDto[];
+  measures: ExplorerFieldDto[];
+  /**
+   * Hai tập RIÊNG, không gộp làm một.
+   *
+   * Mã chiều đến từ bảng cột còn mã thước đo đến từ bảng thước đo, nên hai bên
+   * trùng số là chuyện bình thường. Gộp một tập thì tích "Row ID" có thể làm
+   * sáng luôn một thước đo tình cờ cùng mã.
+   */
+  chonChieu: Set<number>;
+  chonThuocDo: Set<number>;
+  onToggle: (kind: LoaiTruong, id: number) => void;
   /**
    * Câu "con số này tính từ đâu ra", dựng lại mỗi lần render.
    *
@@ -336,58 +396,54 @@ function FieldGroup({
    * nên câu mô tả phải đọc `aggs` ở thời điểm render. Trả `null` cho chiều —
    * chiều không gộp gì cả, thêm một dòng chữ dưới nó chỉ tổ ồn.
    */
-  moTa?: (field: ExplorerFieldDto) => string | null;
-  chuThich?: string;
+  moTa: (field: ExplorerFieldDto) => string | null;
 }): React.ReactElement {
-  // Gom theo bảng: một mô hình bốn bảng cho ra vài chục trường, và một danh
-  // sách phẳng thì không tìm được gì.
-  const byDataset = new Map<string, ExplorerFieldDto[]>();
-  for (const field of fields) {
-    const list = byDataset.get(field.datasetName) ?? [];
-    list.push(field);
-    byDataset.set(field.datasetName, list);
-  }
+  const sheets = groupBySheet(dimensions, measures);
 
   return (
     <section>
-      {/* Khoảng cách dưới tiêu đề do câu giải thích gánh khi nó có mặt — nếu
-          không thì hai lề cộng lại và tiêu đề trôi hẳn khỏi danh sách nó đặt tên. */}
-      <h3
-        className={`text-xs font-semibold tracking-wide text-slate-500 uppercase ${
-          giaiThich === undefined ? 'mb-1.5' : ''
-        }`}
-      >
-        {title}
-      </h3>
-      {giaiThich !== undefined && (
-        <p className="mt-0.5 mb-1.5 text-xs leading-snug text-slate-400">{giaiThich}</p>
-      )}
-      {fields.length === 0 ? (
-        <p className="text-xs text-slate-400">{emptyHint}</p>
+      <h3 className="text-xs font-semibold tracking-wide text-slate-500 uppercase">Trường</h3>
+      <p className="mt-0.5 mb-2 text-xs leading-snug text-slate-400">
+        Tích vào trường để đưa vào truy vấn. <span className="font-semibold">Σ</span> là trường đã
+        gộp sẵn — chọn nó là ra một con số.
+      </p>
+
+      {sheets.length === 0 ? (
+        <p className="text-xs text-slate-400">
+          Mô hình này chưa có trường nào. Kiểm ở tab Schemas.
+        </p>
       ) : (
         <div className="space-y-3">
-          {[...byDataset.entries()].map(([datasetName, list]) => (
-            <div key={datasetName}>
-              <div className="mb-1 text-xs font-medium text-slate-600">{datasetName}</div>
+          {sheets.map((sheet) => (
+            <div key={sheet.name}>
+              {/* Tên BẢNG thôi: tên mô hình đã ở tiêu đề trang, lặp lại nó
+                  trước mỗi nhóm chỉ đẩy phần khác nhau ra ngoài mép cắt chữ. */}
+              <div className="mb-1 truncate text-xs font-medium text-slate-600" title={sheet.name}>
+                {shortName(sheet.name)}
+              </div>
               <ul className="space-y-0.5">
-                {list.map((field) => {
-                  const mota = moTa?.(field) ?? null;
+                {sheet.fields.map(({ field, kind }) => {
+                  const mota = kind === 'measure' ? moTa(field) : null;
+                  const chon = kind === 'measure' ? chonThuocDo : chonChieu;
                   return (
-                    <li key={field.id}>
+                    <li key={`${kind}-${field.id}`}>
                       {/* `items-start` chứ không `items-center`: ô tích phải
                           thẳng hàng với TÊN, không trôi xuống giữa khối hai
                           dòng khi có câu mô tả. */}
                       <label className="flex cursor-pointer items-start gap-2 rounded px-1.5 py-1 text-sm hover:bg-slate-50">
                         <input
                           type="checkbox"
-                          checked={selected.has(field.id)}
-                          onChange={() => onToggle(field.id)}
+                          checked={chon.has(field.id)}
+                          onChange={() => onToggle(kind, field.id)}
                           className="mt-1 rounded border-slate-300"
                         />
+                        <TypeGlyph field={field} kind={kind} />
                         <span className="min-w-0">
                           <span className="block text-slate-700">{field.label}</span>
                           {mota !== null && (
-                            <span className="block text-xs leading-snug text-slate-500">{mota}</span>
+                            <span className="block text-xs leading-snug text-slate-500">
+                              {mota}
+                            </span>
                           )}
                         </span>
                       </label>
@@ -399,9 +455,12 @@ function FieldGroup({
           ))}
         </div>
       )}
-      {chuThich !== undefined && fields.length > 0 && (
+
+      {measures.length > 0 && (
         <p className="mt-2.5 border-t border-slate-100 px-1.5 pt-2 text-xs leading-snug text-slate-400">
-          {chuThich}
+          Trường có Σ được tạo sẵn lúc thêm bảng vào mô hình: mỗi cột số một phép gộp, mỗi bảng một
+          phép đếm dòng. Đổi phép cho riêng truy vấn này ở khối Cách tính, hoặc sửa hẳn ở tab
+          Schemas.
         </p>
       )}
     </section>
@@ -459,7 +518,7 @@ function AggBar({
         onClick={() => onPick(agg)}
         className={`rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors ${
           on
-            ? 'border-brand-500 bg-brand-50 text-brand-800'
+            ? 'text-brand-800 border-brand-500 bg-brand-50'
             : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
         }`}
       >
@@ -471,13 +530,16 @@ function AggBar({
   return (
     <div className="flex flex-wrap items-center gap-2">
       <span className="min-w-32 text-sm text-slate-700">{field.label}</span>
-      <div role="group" aria-label={`Phép tính của ${field.label}`} className="flex flex-wrap gap-1">
+      <div
+        role="group"
+        aria-label={`Phép tính của ${field.label}`}
+        className="flex flex-wrap gap-1"
+      >
         {(field.availableAggs ?? []).map(nut)}
       </div>
     </div>
   );
 }
-
 
 export default function ExplorerTab(): React.ReactElement {
   const model = useOutletContext<DataModelDetailDto>();
@@ -499,7 +561,6 @@ export default function ExplorerTab(): React.ReactElement {
   const [queryError, setQueryError] = useState<string | null>(null);
   const [showSql, setShowSql] = useState(false);
   const sql = useQuerySql(model.id);
-
 
   /**
    * Tích hoặc bỏ tích một trường.
@@ -586,8 +647,8 @@ export default function ExplorerTab(): React.ReactElement {
         onRetry={() => void status.refetch()}
         retrying={status.isFetching}
       >
-        Hai tab <strong>Schemas</strong> và <strong>Relationship</strong> vẫn dùng được bình
-        thường — chúng không cần Cube.
+        Hai tab <strong>Schemas</strong> và <strong>Relationship</strong> vẫn dùng được bình thường
+        — chúng không cần Cube.
       </CubeOfflineNotice>
     );
   }
@@ -604,21 +665,9 @@ export default function ExplorerTab(): React.ReactElement {
     (m) => measures.has(m.id) && (m.availableAggs?.length ?? 0) > 0,
   );
 
-
   return (
     <div className="flex h-full min-h-0 gap-5">
       <aside className="w-64 shrink-0 space-y-5 overflow-y-auto border-r border-slate-200 pr-4">
-        {/* Nhãn đọc từ `COLUMN_ROLE_LABELS` chứ không viết lại chuỗi ở đây:
-            cùng hai từ đó còn hiện ở ô chọn vai trò của tab Schemas và ở hộp
-            thoại báo cáo, và ba bản sao sẽ lệch nhau ngay lần sửa đầu tiên. */}
-        <FieldGroup
-          title={COLUMN_ROLE_LABELS.dimension}
-          giaiThich={COLUMN_ROLE_HINTS.dimension}
-          fields={fields.data?.dimensions ?? []}
-          selected={dimensions}
-          onToggle={(id) => toggle('dimension', id)}
-          emptyHint="Không có chiều nào. Kiểm vai trò cột ở tab Schemas."
-        />
         {/*
          * Mỗi thước đo mang theo PHÉP TÍNH của nó ngay dưới tên.
          *
@@ -627,19 +676,25 @@ export default function ExplorerTab(): React.ReactElement {
          * là hai dòng chữ y hệt — một cái là tiền của MỘT đơn, cái kia là tổng
          * tiền của cả nhóm. Xem `MeasureSourceDto`.
          */}
-        <FieldGroup
-          title={COLUMN_ROLE_LABELS.measure}
-          giaiThich={COLUMN_ROLE_HINTS.measure}
-          fields={fields.data?.measures ?? []}
-          selected={measures}
-          onToggle={(id) => toggle('measure', id)}
-          emptyHint="Chưa có thước đo nào. Mô hình không có cột số nào để đo."
+        <BangTruong
+          dimensions={fields.data?.dimensions ?? []}
+          measures={fields.data?.measures ?? []}
+          chonChieu={dimensions}
+          chonThuocDo={measures}
+          onToggle={toggle}
           moTa={(field) =>
             field.nguon === undefined || field.agg === undefined
               ? null
-              : moTaThuocDo(field.nguon, aggs.get(field.id) ?? field.agg, field.datasetName)
+              : // Tên bảng RÚT GỌN: tiêu đề nhóm ngay trên đã nói bảng nào, và
+                // "Đếm số dòng của bảng Global-Superstore · Orders" dài tới mức
+                // xuống hai dòng cho một câu không thêm tin gì. Bảng KẾT QUẢ thì
+                // vẫn dùng tên đầy đủ — ở đó không có nhóm nào nói hộ.
+                moTaThuocDo(
+                  field.nguon,
+                  aggs.get(field.id) ?? field.agg,
+                  shortName(field.datasetName),
+                )
           }
-          chuThich="Thước đo được tạo sẵn lúc thêm bảng vào mô hình: mỗi cột số một phép gộp, mỗi bảng một phép đếm dòng. Đổi phép cho riêng truy vấn này ở khối Cách tính, hoặc sửa hẳn ở tab Schemas."
         />
       </aside>
 

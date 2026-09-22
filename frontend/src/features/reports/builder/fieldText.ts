@@ -18,8 +18,3 @@ export function moTaCua(field: ExplorerFieldDto): string | null {
   if (field.nguon === undefined || field.agg === undefined) return null;
   return moTaThuocDo(field.nguon, field.agg, field.datasetName);
 }
-
-/** "Global-Superstore · Orders" → "Orders". Tên mô hình đã ở tiêu đề trang. */
-export function shortName(datasetName: string): string {
-  return datasetName.split(' · ').pop() ?? datasetName;
-}

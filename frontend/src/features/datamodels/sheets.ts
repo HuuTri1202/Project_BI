@@ -1,19 +1,29 @@
 import type { ExplorerFieldDto } from '@bi/shared';
 
-import type { FieldKind } from './dnd';
-
 /**
- * Gom trường của mô hình theo BẢNG — §10.10.
+ * Gom trường của mô hình theo BẢNG — §10.10, dùng chung cho hai bộ chọn trường.
  *
- * File riêng, không nằm trong `FieldsPanel`: một module vừa xuất component vừa
- * xuất hàm thuần thì mất hot-reload (`react-refresh/only-export-components`).
- * Và tách ra thì khoá được bằng test, mà thứ tự ở đây đáng khoá — xem dưới.
+ * ═══ Vì sao nằm ở `features/datamodels`, không nằm trong trình dựng ═════════
+ *
+ * Luật gom và thứ tự ở đây nói về TRƯỜNG CỦA MÔ HÌNH, không nói gì về việc dựng
+ * biểu đồ. Hai nơi đọc nó: bảng trường của trình dựng (`reports/builder`) và bộ
+ * chọn trường của tab Explorer (`pages/tenant/datamodel`). Để file này ở trong
+ * trình dựng thì Explorer phải với sang một thư mục nó không liên quan, hoặc
+ * chép lại luật — mà hai bản chép sẽ lệch nhau ngay lần sửa đầu tiên, và lệch
+ * kiểu này không hiện ra như lỗi, chỉ hiện ra như hai danh sách sắp khác nhau.
+ *
+ * File riêng, không nằm cạnh component: một module vừa xuất component vừa xuất
+ * hàm thuần thì mất hot-reload (`react-refresh/only-export-components`). Và
+ * tách ra thì khoá được bằng test, mà thứ tự ở đây đáng khoá — xem dưới.
  */
+
+/** Vai trò của trường TRONG TRUY VẤN: chia nhóm hay để đo. */
+export type LoaiTruong = 'dimension' | 'measure';
 
 /** Một bảng trong mô hình, cùng mọi trường của nó. */
 export interface Sheet {
   name: string;
-  fields: { field: ExplorerFieldDto; kind: FieldKind }[];
+  fields: { field: ExplorerFieldDto; kind: LoaiTruong }[];
 }
 
 /**
@@ -24,7 +34,7 @@ export interface Sheet {
  * — đúng thứ tự họ sẽ tìm.
  *
  * Trong một bảng thì cột đứng trước, trường đã gộp sẵn đứng sau. KHÔNG phải để
- * chia lại theo vai trò — bảng trường đã thôi làm điều đó — mà vì trường gộp là
+ * chia lại theo vai trò — hai bộ chọn đã thôi làm điều đó — mà vì trường gộp là
  * thứ DỰNG TRÊN các cột ấy, nên đọc cột trước rồi tới thứ tính từ chúng là thứ
  * tự tự nhiên.
  *
@@ -38,7 +48,7 @@ export function groupBySheet(
 ): Sheet[] {
   const sheets = new Map<string, Sheet>();
 
-  const push = (field: ExplorerFieldDto, kind: FieldKind): void => {
+  const push = (field: ExplorerFieldDto, kind: LoaiTruong): void => {
     const name = field.datasetName;
     const sheet = sheets.get(name) ?? { name, fields: [] };
     sheet.fields.push({ field, kind });
@@ -71,4 +81,9 @@ export function filterSheets(sheets: readonly Sheet[], query: string): Sheet[] {
       ),
     }))
     .filter((sheet) => sheet.fields.length > 0);
+}
+
+/** "Global-Superstore · Orders" → "Orders". Tên mô hình đã ở tiêu đề trang. */
+export function shortName(datasetName: string): string {
+  return datasetName.split(' · ').pop() ?? datasetName;
 }
