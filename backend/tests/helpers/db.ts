@@ -36,6 +36,10 @@ export async function resetDatabase(): Promise<void> {
     'connections',
     'workspaces',
     'memberships',
+    // Vé đặt lại mật khẩu — migration 36. Phải đứng TRƯỚC `users` (khoá ngoại
+    // CASCADE). Bỏ sót nó thì vé của ca trước vẫn nằm lại, trỏ vào một user_id
+    // mà AUTO_INCREMENT vừa cấp lại cho người khác.
+    'password_reset_tokens',
     'users',
     'tenants',
   ]) {

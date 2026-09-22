@@ -11,11 +11,20 @@ import { expiresInSeconds, signAccessToken } from '../../services/auth/token';
 import { asyncHandler } from '../../utils/asyncHandler';
 import { HttpError, unauthorized } from '../../utils/httpError';
 import {
+  DA_GUI_NEU_CO,
+  datLaiMatKhau,
+  kiemVe,
+  yeuCauDatLai,
+} from '../../services/auth/passwordReset';
+import {
   changePasswordSchema,
+  forgotPasswordSchema,
   loginSchema,
   registerSchema,
+  resetPasswordSchema,
   switchTenantSchema,
   updateProfileSchema,
+  verifyResetTokenSchema,
 } from './schemas';
 
 export const authRouter = Router();
@@ -316,6 +325,73 @@ authRouter.patch(
 authRouter.post('/logout', (_req, res) => {
   res.status(204).end();
 });
+
+/**
+ * POST /api/auth/forgot-password — xin liên kết đặt lại mật khẩu
+ *
+ * LUÔN trả 202 với cùng một câu, kể cả khi email không tồn tại hay tài khoản đã
+ * bị khoá. Lý lẽ đầy đủ ở `services/auth/passwordReset.ts`; tóm tắt: phân biệt
+ * được ở đây là biến endpoint này thành máy dò xem email nào có tài khoản.
+ *
+ * Hạn mức dùng bucket RIÊNG chứ không dùng chung với `login`. Hai lý do: người
+ * bị khoá vì gõ sai mật khẩu vẫn phải xin lại được mật khẩu (đó chính là lúc họ
+ * cần nhất), và ngược lại một kẻ dội email vào đây không được phép khoá luôn
+ * đường đăng nhập của cả một dải IP.
+ */
+authRouter.post(
+  '/forgot-password',
+  authRateLimit('forgot-password'),
+  asyncHandler(async (req, res) => {
+    const { email } = forgotPasswordSchema.parse(req.body);
+
+    await yeuCauDatLai(email);
+
+    // 202 chứ không phải 200: ta đã NHẬN yêu cầu, còn thư có tới hộp thư hay
+    // không thì ở đây chưa biết và cố ý không nói.
+    res.status(202).json({ message: DA_GUI_NEU_CO });
+  }),
+);
+
+/**
+ * POST /api/auth/reset-password/verify — kiểm liên kết trước khi dựng form
+ *
+ * Tách riêng khỏi bước đổi mật khẩu để người mở một liên kết đã hết hạn biết
+ * ngay, thay vì gõ xong mật khẩu mới rồi mới bị từ chối.
+ *
+ * POST chứ không phải GET dù nó chỉ đọc: vé nằm trong body, không nằm trên URL.
+ * Trên URL thì nó vào access log của `morgan`, vào lịch sử trình duyệt, và vào
+ * header `Referer` của mọi request đi ra từ trang đó.
+ */
+authRouter.post(
+  '/reset-password/verify',
+  authRateLimit('reset-password'),
+  asyncHandler(async (req, res) => {
+    const { token } = verifyResetTokenSchema.parse(req.body);
+    await kiemVe(token);
+    res.status(204).end();
+  }),
+);
+
+/** POST /api/auth/reset-password — đặt mật khẩu mới bằng vé trong email */
+authRouter.post(
+  '/reset-password',
+  authRateLimit('reset-password'),
+  asyncHandler(async (req, res) => {
+    const { token, newPassword } = resetPasswordSchema.parse(req.body);
+
+    await datLaiMatKhau(token, newPassword);
+
+    // KHÔNG tự đăng nhập, cùng lập luận với `/register` ở đầu file: bước đăng
+    // nhập đầu tiên là bước duy nhất chứng minh mật khẩu vừa đặt đúng như người
+    // dùng nghĩ. Gõ nhầm thì họ biết ngay bây giờ.
+    //
+    // ⚠️ Token JWT đã cấp TRƯỚC lần đổi này vẫn sống tới lúc hết hạn — JWT vô
+    // trạng thái, không có gì để thu hồi. Nghĩa là đổi mật khẩu KHÔNG đá được
+    // kẻ đang chiếm phiên ra ngoài. Muốn vậy cần danh sách chặn trên Redis, đã
+    // ghi trong phần nợ kỹ thuật của README.
+    res.status(204).end();
+  }),
+);
 
 /** POST /api/auth/change-password — bắt buộc sau khi được cấp mật khẩu tạm */
 authRouter.post(

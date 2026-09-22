@@ -90,6 +90,36 @@ export const changePasswordSchema = z
   });
 
 /**
+ * Quên mật khẩu — bước 1: xin liên kết.
+ *
+ * Dùng `emailInput` như mọi chỗ khác để `" Ban@Congty.COM "` tra ra đúng dòng
+ * đã lưu chữ thường. Thiếu bước này thì người dán email từ nơi khác sẽ lặng lẽ
+ * không nhận được thư — và vì phản hồi cố ý giống nhau cho mọi trường hợp (xem
+ * `services/auth/passwordReset.ts`), họ sẽ không bao giờ biết vì sao.
+ */
+export const forgotPasswordSchema = z.object({
+  email: emailInput(sharedLoginSchema.shape.email),
+});
+
+/**
+ * Quên mật khẩu — bước 2: đổi mật khẩu bằng vé.
+ *
+ * Vé là 32 byte base64url = 43 ký tự. Không kiểm độ dài chính xác ở đây: một vé
+ * sai độ dài và một vé sai nội dung đều phải nhận cùng một câu trả lời, và để
+ * zod bắt riêng trường hợp đầu sẽ tạo ra hai thông báo khác nhau cho hai loại
+ * sai mà người dùng không phân biệt được.
+ */
+export const resetPasswordSchema = z.object({
+  token: z.string().min(1, 'Thiếu mã đặt lại mật khẩu').max(200),
+  newPassword: newPasswordSchema,
+});
+
+/** Kiểm vé lúc mở trang, trước khi người dùng gõ gì. */
+export const verifyResetTokenSchema = z.object({
+  token: z.string().min(1, 'Thiếu mã đặt lại mật khẩu').max(200),
+});
+
+/**
  * Sửa hồ sơ cá nhân — §4.4.
  *
  * Dùng lại đúng `registerFields` để luật họ tên, điện thoại, chức danh chỉ có

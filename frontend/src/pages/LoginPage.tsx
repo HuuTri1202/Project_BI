@@ -17,6 +17,8 @@ interface LoginLocationState {
   from?: string;
   registered?: boolean;
   email?: string;
+  /** Vừa đặt lại mật khẩu xong qua liên kết trong email. */
+  datLaiXong?: boolean;
 }
 
 export default function LoginPage(): React.ReactElement {
@@ -31,6 +33,7 @@ export default function LoginPage(): React.ReactElement {
   // sửa ô email rồi bấm Quay lại/Tiến sẽ bị ghi đè mất thứ họ vừa gõ.
   const [values, setValues] = useState({ email: incoming?.email ?? '', password: '' });
   const [justRegistered, setJustRegistered] = useState(incoming?.registered === true);
+  const [vuaDatLai, setVuaDatLai] = useState(incoming?.datLaiXong === true);
   const [touched, setTouched] = useState<Record<FieldName, boolean>>({
     email: false,
     password: false,
@@ -59,6 +62,7 @@ export default function LoginPage(): React.ReactElement {
     // lại trong lúc họ đang sửa email hay nhận thông báo lỗi sẽ thành hai tin
     // trái ngược nhau cùng hiện trên một màn hình.
     setJustRegistered(false);
+    setVuaDatLai(false);
     // Chỉ validate lại khi ô ĐÃ chạm. Bắt lỗi ngay từ ký tự đầu tiên là kiểu
     // giao diện quát vào mặt người đang gõ dở.
     if (touched[name]) {
@@ -124,6 +128,15 @@ export default function LoginPage(): React.ReactElement {
             </div>
           )}
 
+          {vuaDatLai && !formError && (
+            <div
+              role="status"
+              className="mb-5 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800"
+            >
+              Đã đặt mật khẩu mới. Đăng nhập bằng mật khẩu vừa đặt.
+            </div>
+          )}
+
           {formError && (
             // role="alert" để trình đọc màn hình đọc ngay khi thông báo xuất
             // hiện, không cần người dùng tự đi tìm.
@@ -171,6 +184,16 @@ export default function LoginPage(): React.ReactElement {
             >
               {submitting ? 'Đang đăng nhập…' : 'Đăng nhập'}
             </button>
+
+            {/* Dưới nút chứ không nằm cạnh ô mật khẩu: người vào đây để đăng
+                nhập, và một lối thoát đặt ngay cạnh ô đang gõ sẽ tranh sự chú ý
+                với việc chính. Người thật sự quên mật khẩu vẫn tìm thấy nó
+                ngay, vì họ đang quét cả trang để tìm đúng thứ này. */}
+            <p className="text-center text-sm">
+              <Link to="/quen-mat-khau" className="font-medium text-slate-500 hover:text-slate-700">
+                Quên mật khẩu?
+              </Link>
+            </p>
           </form>
         </div>
 

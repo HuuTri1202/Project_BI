@@ -2868,4 +2868,61 @@ export const migrations: readonly Migration[] = [
         WHERE slug = 'bi-platform' AND name = 'BI Platform'`,
     ],
   },
+  {
+    id: 36,
+    name: 'password_reset_tokens',
+    statements: [
+      /*
+       * ═══ Vé đặt lại mật khẩu ═════════════════════════════════════════════
+       *
+       * Trước mục này, người quên mật khẩu không có đường nào tự đi: README ghi
+       * "chưa có 'quên mật khẩu' vì chưa có SMTP". Đó là mô tả đúng một nút
+       * thắt hạ tầng, nhưng hệ quả là mọi tài khoản mất mật khẩu đều phải nhờ
+       * quản trị viên cấp lại — kể cả chính quản trị viên đó.
+       *
+       * ─── LƯU BĂM, KHÔNG LƯU VÉ ──────────────────────────────────────────
+       *
+       * `token_hash` là SHA-256 của chuỗi gửi trong email, không phải chuỗi đó.
+       * Vé này đổi thẳng lấy quyền đặt mật khẩu mới mà KHÔNG cần biết mật khẩu
+       * cũ — nó mạnh ngang một phiên đăng nhập. Ai đọc được bảng này (bản sao
+       * lưu, một lỗi SQL injection ở chỗ khác, một lập trình viên mở database
+       * lên xem) mà thấy vé nguyên văn thì chiếm được mọi tài khoản đang có yêu
+       * cầu treo.
+       *
+       * SHA-256 chứ không phải bcrypt, và đây là khác biệt CÓ CHỦ Ý so với cột
+       * `users.password_hash`: vé là 32 byte ngẫu nhiên từ `randomBytes`, không
+       * phải thứ người ta nghĩ ra được, nên không có gì để dò từ điển. Cái
+       * bcrypt mua bằng 300ms mỗi lần so khớp ở đây không mua được gì cả.
+       *
+       * UNIQUE trên `token_hash` là ràng buộc an toàn chứ không phải tối ưu:
+       * hai dòng cùng băm nghĩa là hai người dùng chung một vé.
+       *
+       * ─── Vì sao có `used_at` thay vì XOÁ dòng ────────────────────────────
+       *
+       * Xoá thì "vé đã dùng" và "vé chưa từng tồn tại" trả về cùng một kết quả,
+       * và ta mất khả năng nói với người dùng "liên kết này đã được dùng rồi"
+       * — câu duy nhất giúp họ hiểu vì sao bấm lại lần hai thì hỏng. Nó cũng là
+       * dấu vết để biết một vé bị dùng hai lần.
+       *
+       * ─── ON DELETE CASCADE ──────────────────────────────────────────────
+       *
+       * Xoá tài khoản là mọi vé của họ mất theo. Không có trường hợp nào một vé
+       * còn ý nghĩa khi người nhận đã không còn.
+       */
+      `CREATE TABLE IF NOT EXISTS password_reset_tokens (
+         id          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+         user_id     BIGINT UNSIGNED NOT NULL,
+         token_hash  CHAR(64)        NOT NULL,
+         expires_at  DATETIME(3)     NOT NULL,
+         used_at     DATETIME(3)     NULL,
+         created_at  DATETIME(3)     NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+         PRIMARY KEY (id),
+         UNIQUE KEY uq_password_reset_token_hash (token_hash),
+         KEY ix_password_reset_user (user_id, used_at),
+         KEY ix_password_reset_expiry (expires_at),
+         CONSTRAINT fk_password_reset_user FOREIGN KEY (user_id)
+           REFERENCES users (id) ON DELETE CASCADE
+       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    ],
+  },
 ];
