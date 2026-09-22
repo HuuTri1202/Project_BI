@@ -12,8 +12,9 @@ const jwt = require('jsonwebtoken');
  *
  * ═══ Cube KHÔNG BAO GIỜ lộ ra trình duyệt ═══════════════════════════════════
  *
- * Mọi truy vấn phân tích đi qua `POST /api/v1/query` của Express: Express kiểm
- * quyền, ký một JWT ngắn hạn mang `securityContext`, rồi mới chuyển tiếp. Luật
+ * Mọi truy vấn phân tích đi qua `POST /api/v1/datamodels/:id/query` của Express:
+ * Express kiểm quyền, ký một JWT ngắn hạn mang `securityContext`, rồi mới
+ * chuyển tiếp. Luật
  * này ghi trong README từ đầu và nó không phải hình thức — ClickHouse chỉ có
  * MỘT `bi_user` nhìn thấy bảng của MỌI tổ chức. Cách ly hoàn toàn nằm ở tầng
  * ứng dụng.
@@ -69,8 +70,9 @@ const MAX_ROWS = 5000;
  *
  * ─── Vì sao nới ra KHÔNG phải là hạ tiêu chuẩn an toàn ─────────────────────
  *
- * Token này không bao giờ tới trình duyệt. Trình duyệt gọi `POST /api/v1/query`
- * của Express; Express mới ký token rồi tự gọi Cube trong mạng Docker nội bộ.
+ * Token này không bao giờ tới trình duyệt. Trình duyệt gọi
+ * `POST /api/v1/datamodels/:id/query` của Express; Express mới ký token rồi tự
+ * gọi Cube trong mạng Docker nội bộ.
  * Cửa sổ phơi nhiễm của nó là đúng một lời gọi HTTP giữa hai tiến trình của
  * chính ta — nên chênh lệch giữa 60 giây và 360 giây gần như không đổi gì về
  * rủi ro, trong khi nó là khác biệt giữa "dùng được" và "không dùng được".

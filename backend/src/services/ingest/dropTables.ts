@@ -31,10 +31,11 @@ import { qualified } from './buildDdl';
 /**
  * Tên bảng do §9 sinh ra, và CHỈ những tên đó.
  *
- * Neo hai đầu `^…$` là phần quan trọng nhất của cả file này: `bi_analytics` còn
- * chứa `spike_orders` của spike F1.7 và sẽ chứa các view staging/marts do dbt
- * dựng ở §10. Một janitor chạy nền mà nới lỏng regex này thành `raw_` là đủ để
- * xoá thứ nó không hiểu.
+ * Neo hai đầu `^…$` là phần quan trọng nhất của cả file này. `bi_analytics` là
+ * một database dùng chung: ngoài bảng do §9 nạp, nó còn giữ những bảng người
+ * khác tạo bằng tay để thử nghiệm (máy dev cũ vẫn còn `spike_orders` từ tuần
+ * đầu), và sau này có thể có cả bảng tổng hợp do một tầng khác dựng. Một janitor
+ * chạy nền mà nới regex này thành tiền tố `raw_` là đủ để xoá thứ nó không hiểu.
  */
 const RAW_TABLE_RE = /^raw_t(\d+)_d(\d+)(?:__new)?$/;
 

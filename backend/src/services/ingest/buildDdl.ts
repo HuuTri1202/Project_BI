@@ -28,8 +28,9 @@ import { chTypeFromMysql, chTypeFromSemantic, quoteIdent } from './typeMap';
  * Đổi lại: `raw_t2_d21` không đọc được bằng mắt. Chấp nhận — tra một dòng trong
  * `datasets` là ra, còn một lỗ hổng DDL thì không tra lại được.
  *
- * Tiền tố `raw_` khớp `infrastructure/dbt/dbt_project.yml`, nơi các view staging
- * được dựng trên `raw_*`.
+ * Tiền tố `raw_` nói rằng đây là dữ liệu NGUYÊN BẢN, đúng như tệp người dùng
+ * tải lên. Cube đọc thẳng các bảng này (`cubeSchemaService.ts`); hệ thống chưa
+ * có tầng biến đổi nào đứng giữa.
  */
 
 /** Cột hệ thống, thêm vào cuối mọi bảng. Xem ghi chú ở `buildCreateTable`. */
@@ -132,9 +133,10 @@ export function buildIngestColumns(
  * trước.
  *
  * CỐ Ý không `PARTITION BY`: với vài chục nghìn dòng, phân mảnh theo tháng sinh
- * ra hàng chục part tí hon và chậm hơn hẳn không phân mảnh. Việc chọn khoá sắp
- * xếp và phân mảnh THẬT thuộc về marts của dbt, nơi người ta đã biết truy vấn
- * nào sẽ chạy — đó chính là lý do `dbt_project.yml` tách `staging` khỏi `marts`.
+ * ra hàng chục part tí hon và chậm hơn hẳn không phân mảnh. Chọn khoá sắp xếp
+ * và phân mảnh cho đúng chỉ làm được khi đã biết truy vấn nào sẽ chạy, mà ở
+ * bảng nguyên bản thì chưa ai biết — người dùng còn chưa dựng mô hình. Đó là
+ * việc của một tầng tổng hợp đặt sau, nếu sau này có.
  */
 export function buildCreateTable(
   database: string,

@@ -28,7 +28,13 @@ export function requireRole(...allowed: TenantRole[]): RequestHandler {
   };
 }
 
-/** Chặn theo vai trò cấp NỀN TẢNG — dành cho khu vận hành hệ thống, chưa dùng. */
+/**
+ * Chặn theo vai trò cấp NỀN TẢNG — cổng vào của khu vận hành hệ thống.
+ *
+ * Gắn ở `api/admin/index.ts` cho TOÀN BỘ router `/api/admin`, đứng trước
+ * `requireFreshAdmin`. Nó chỉ đọc claim trong token nên tốn 0 truy vấn; việc
+ * kiểm tài khoản còn sống hay không là của middleware đứng sau.
+ */
 export function requirePlatformRole(...allowed: ('superadmin' | 'user')[]): RequestHandler {
   return (req, _res, next) => {
     if (!req.auth) {

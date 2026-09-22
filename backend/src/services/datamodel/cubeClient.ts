@@ -10,10 +10,10 @@ import { HttpError } from '../../utils/httpError';
  * ─── Cube không bao giờ lộ ra trình duyệt ───────────────────────────────────
  *
  * Đây là nơi DUY NHẤT của backend gọi tới Cube. Trình duyệt gọi
- * `POST /api/v1/query` của Express; Express kiểm quyền, ký một JWT ngắn hạn
- * mang `securityContext`, rồi mới chuyển tiếp. Cổng 4100 không được để lộ ra
- * ngoài, và `CUBEJS_DEV_MODE` phải TẮT ở production — xem ghi chú ở
- * `sign()` bên dưới.
+ * `POST /api/v1/datamodels/:id/query` của Express (và `/query/sql` cho bản dịch
+ * SQL); Express kiểm quyền, ký một JWT ngắn hạn mang `securityContext`, rồi mới
+ * chuyển tiếp. Cổng 4100 không được để lộ ra ngoài, và `CUBEJS_DEV_MODE` phải
+ * TẮT ở production — xem ghi chú ở `sign()` bên dưới.
  */
 
 /**

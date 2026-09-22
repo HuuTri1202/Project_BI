@@ -12,27 +12,20 @@ nếu để mặc định. Mọi thay đổi cổng phải cập nhật file nà
 | Redis | *luôn chạy* | 6379 | 6379 | ✅ | ⚠️ xem cảnh báo bên dưới |
 | MinIO API | `data` | 9000 | 9000 | ✅ | `@aws-sdk/client-s3` gọi vào đây |
 | MinIO Console | `data` | 9001 | 9001 | ✅ | Giao diện web |
-| ClickHouse HTTP | `data` `bi` `tools` | 8123 | 8123 | ✅ | dbt và `@clickhouse/client` dùng cổng này |
-| ClickHouse native | `data` `bi` `tools` | **9002** | 9000 | ✅ | ⚠️ Native mặc định 9000 — **đụng MinIO API** |
+| ClickHouse HTTP | `data` `bi` | 8123 | 8123 | ✅ | `@clickhouse/client` và Cube dùng cổng này |
+| ClickHouse native | `data` `bi` | **9002** | 9000 | ✅ | ⚠️ Native mặc định 9000 — **đụng MinIO API** |
 | Cube.js | `bi` | **4100** | 4000 | ✅ | ⚠️ Cube mặc định 4000 — **đụng Express** |
-| Kafka (host) | `stream` | **29092** | 29092 | ✅ | Listener riêng cho client trên host — xem bên dưới |
-| Kafka (nội bộ) | `stream` | — | 9092 | ✅ | Container khác gọi `kafka:9092` |
-| Kafka Connect | `stream` | 8083 | 8083 | ✅ | Debezium chạy trong đây |
-| Strapi | `bi` | 1337 | 1337 | ⏳ chưa thêm (F4) | |
 
-## Ba vụ đụng cổng phải nhớ
+Cột **Trạng thái** chỉ nhận ✅ khi có mã nguồn thật sự gọi vào cổng đó. Kafka
+(29092), Kafka Connect (8083) và Strapi (1337) từng nằm trong bảng này với dấu ✅
+hoặc ⏳; cả ba đã được gỡ khỏi `docker-compose.yml` vì chưa bao giờ có client.
+Xem mục *Kiến trúc mục tiêu* trong README.
+
+## Hai vụ đụng cổng phải nhớ
 
 1. **Cube.js mặc định 4000 = cổng Express.** Đã map `4100:4000`.
 2. **ClickHouse native mặc định 9000 = cổng MinIO API.** Đã map `9002:9000`.
    Cổng HTTP 8123 không đụng ai nên giữ nguyên.
-3. **Kafka cần HAI listener.** Client trong `bi-network` và client trên máy host
-   nhìn thấy hai địa chỉ khác nhau:
-   - container khác → `kafka:9092`
-   - máy host → `localhost:29092`
-
-   Chỉ khai một listener thì client trên host sẽ nhận advertised address
-   `kafka:9092` và không phân giải được tên đó — triệu chứng là "kết nối được
-   rồi timeout khi gửi", rất khó đoán.
 
 ## ⚠️ Cổng dễ bị service cài sẵn trên máy chiếm
 
@@ -78,5 +71,4 @@ lsof -i :4000
   ra host. Nhờ vậy giao tiếp service-to-service qua `bi-network` không cần biết
   host đã map thế nào.
 - Ví dụ: Cube kết nối ClickHouse bằng `clickhouse:8123` (**không phải**
-  `localhost:8123`), Connect kết nối Kafka bằng `kafka:9092` (**không phải**
-  `localhost:29092`).
+  `localhost:8123`), còn backend chạy trên host thì gọi `localhost:8123`.
