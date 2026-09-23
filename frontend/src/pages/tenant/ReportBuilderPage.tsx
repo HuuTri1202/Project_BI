@@ -969,6 +969,7 @@ function Builder({
                   selectedId={selectedAnnotation?.id ?? selected?.id ?? null}
                   editingId={typingId}
                   modelId={modelId}
+                  tenBaoCao={name}
                   labelOf={labelOf}
                   onSelect={setSelectedId}
                   onChange={patch}

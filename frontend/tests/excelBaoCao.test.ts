@@ -263,3 +263,102 @@ describe('xuatExcel', () => {
     expect(noi).toEqual(['Đang lấy số liệu trang 1/2…', 'Đang lấy số liệu trang 2/2…']);
   });
 });
+
+describe('xuatExcel — chỉ những biểu đồ đã chọn (§10.23)', () => {
+  const BA_O = [
+    trang('p1', 'Quý 1', [
+      { id: 'v1', title: 'Doanh thu' },
+      { id: 'v2', title: 'Số lượng' },
+    ]),
+    trang('p2', 'Quý 2', [{ id: 'v3', title: 'Chi phí' }]),
+  ];
+
+  it('bỏ một ô thì tệp không có sheet của ô đó', async () => {
+    const layCanvas = vi.fn().mockResolvedValue(
+      canvasData([
+        { visualId: 'v1', data: soLieu() },
+        { visualId: 'v2', data: soLieu() },
+        { visualId: 'v3', data: soLieu() },
+      ]),
+    );
+
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(
+      await (
+        await xuatExcel({
+          report: baoCao(BA_O),
+          layCanvas,
+          layDon: vi.fn(),
+          chon: new Set(['p1:v1', 'p2:v3']),
+        })
+      ).arrayBuffer(),
+    );
+
+    expect(wb.worksheets.map((w) => w.name)).toEqual([
+      'Quý 1 · Doanh thu',
+      'Quý 2 · Chi phí',
+      'Thông tin',
+    ]);
+  });
+
+  it('trang không còn ô nào được chọn thì KHÔNG hỏi số liệu trang đó', async () => {
+    const layCanvas = vi.fn().mockResolvedValue(canvasData([{ visualId: 'v1', data: soLieu() }]));
+
+    await xuatExcel({
+      report: baoCao(BA_O),
+      layCanvas,
+      layDon: vi.fn(),
+      chon: new Set(['p1:v1']),
+    });
+
+    // Mỗi trang là một vòng tới Cube. Hỏi rồi vứt đi là bắt người dùng chờ
+    // không lý do.
+    expect(layCanvas.mock.calls.map((c) => c[0])).toEqual([null]);
+  });
+
+  it('tệp rút gọn TỰ NÓI ra là nó rút gọn', async () => {
+    const layCanvas = vi.fn().mockResolvedValue(canvasData([{ visualId: 'v1', data: soLieu() }]));
+
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(
+      await (
+        await xuatExcel({
+          report: baoCao(BA_O),
+          layCanvas,
+          layDon: vi.fn(),
+          chon: new Set(['p1:v1']),
+        })
+      ).arrayBuffer(),
+    );
+
+    const dong: string[] = [];
+    wb.getWorksheet('Thông tin')!.eachRow((r) => dong.push(r.values.slice(1).join(' | ')));
+    expect(dong.some((d) => d.includes('Phạm vi') && d.includes('1/3 biểu đồ'))).toBe(true);
+  });
+
+  it('chọn hết thì KHÔNG có dòng Phạm vi — tệp này là cả báo cáo', async () => {
+    const layCanvas = vi.fn().mockResolvedValue(
+      canvasData([
+        { visualId: 'v1', data: soLieu() },
+        { visualId: 'v2', data: soLieu() },
+        { visualId: 'v3', data: soLieu() },
+      ]),
+    );
+
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(
+      await (
+        await xuatExcel({
+          report: baoCao(BA_O),
+          layCanvas,
+          layDon: vi.fn(),
+          chon: new Set(['p1:v1', 'p1:v2', 'p2:v3']),
+        })
+      ).arrayBuffer(),
+    );
+
+    const dong: string[] = [];
+    wb.getWorksheet('Thông tin')!.eachRow((r) => dong.push(r.values.slice(1).join(' | ')));
+    expect(dong.some((d) => d.includes('Phạm vi'))).toBe(false);
+  });
+});

@@ -1,4 +1,4 @@
-import type { ReportDto, ReportPageDto } from '@bi/shared';
+import type { ReportCanvasDataDto, ReportDto, ReportPageDto } from '@bi/shared';
 import { useEffect, useRef, useState, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
 
@@ -11,11 +11,22 @@ import { fetchReportCanvasData, fetchReportData } from '../../datasets/api';
 import { useReportCanvasData } from '../../datasets/hooks';
 import { datasetKeys } from '../../datasets/keys';
 import { CanvasView } from '../CanvasView';
+import { tieuDeTuSoLieu } from '../nhanO';
+import { ChonBieuDo } from './ChonBieuDo';
+import {
+  chonHet,
+  khoaO,
+  oTrenManHinh,
+  oTrongTam,
+  themNhanThat,
+  type KieuXuat,
+  type OXuat,
+} from './chonO';
 import { xuatExcel } from './excelBaoCao';
 import {
   canvasSangPng,
   canvasSangTrangPdf,
-  chupVung,
+  chupCacVung,
   LoiXuat,
   taiXuong,
   tenTepXuat,
@@ -43,9 +54,17 @@ import { taoPdf, type TrangPdf } from './pdfAnh';
  * từng trang một. Cách khác — lật trang thật trên màn hình rồi chụp — làm màn
  * hình nhảy qua lại trước mắt người dùng, và khi lật về thì mọi biểu đồ đã mất
  * nhóm họ đang xem (ô được dựng lại theo mã trang, xem `CanvasView`).
+ *
+ * ═══ Hỏi "những biểu đồ nào?" — và chỉ khi có gì để hỏi — §10.23 ════════════
+ *
+ * Chọn định dạng xong thì hộp chọn biểu đồ mở ra, đã tích sẵn tất cả. Nó KHÔNG
+ * mở khi trong tầm chỉ có một biểu đồ: hỏi người ta chọn giữa một lựa chọn là
+ * một cú bấm lấy đi mà không trả lại gì.
+ *
+ * Chọn hết thì việc xuất đi đúng đường cũ — chụp cả khung, giữ nguyên bố cục và
+ * chú thích. Bỏ bớt ô mới chuyển sang chụp từng ô rồi xếp dọc (`chupCacVung`),
+ * vì lưới có lỗ trống đọc ra như một báo cáo hỏng.
  */
-
-type Kieu = 'png' | 'pdf' | 'pdf-tat-ca' | 'excel';
 
 export function XuatBaoCao({
   report,
@@ -61,6 +80,8 @@ export function XuatBaoCao({
   const [open, setOpen] = useState(false);
   const [tienDo, setTienDo] = useState<string | null>(null);
   const [loi, setLoi] = useState<string | null>(null);
+  /** Hộp "xuất biểu đồ nào" đang mở, cho định dạng nào. */
+  const [hoi, setHoi] = useState<{ kieu: KieuXuat; danhSach: OXuat[] } | null>(null);
   const [ngoai, setNgoai] = useState<{ page: ReportPageDto; rong: number } | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const qc = useQueryClient();
@@ -106,10 +127,13 @@ export function XuatBaoCao({
   const activePage = pages.find((p) => p.id === activePageId) ?? pages[0];
   const nhieuTrang = pages.length > 1;
 
-  const thongTin = (page: ReportPageDto | undefined): ThongTinAnh => ({
+  const thongTin = (page: ReportPageDto | undefined, phamVi: string | null): ThongTinAnh => ({
     tieuDe: report.name,
     phu: [
       nhieuTrang && page !== undefined ? `Trang: ${page.name}` : null,
+      // Ảnh chỉ có vài biểu đồ phải tự nói ra. Không nói thì người nhận đối
+      // chiếu với báo cáo và kết luận là thiếu — xem thêm `dungSheets`.
+      phamVi,
       `Xuất lúc ${new Date().toLocaleString('vi-VN', {
         hour: '2-digit',
         minute: '2-digit',
@@ -135,16 +159,59 @@ export function XuatBaoCao({
     return vung;
   };
 
-  const xuat = async (kieu: Kieu): Promise<void> => {
+  /**
+   * Các ô của `page` đã được chọn, ĐÚNG thứ tự trong trang, lấy từ DOM `goc`.
+   *
+   * Ném khi không tìm thấy ô nào: thà nói "không thấy" còn hơn giao một tệp chỉ
+   * có dải tiêu đề và một khoảng trắng.
+   */
+  const oDaChon = (
+    goc: HTMLElement,
+    page: ReportPageDto | undefined,
+    chon: ReadonlySet<string>,
+  ): HTMLElement[] => {
+    const ids = (page?.visuals ?? [])
+      .filter((v) => page !== undefined && chon.has(khoaO(page.id, v.id)))
+      .map((v) => v.id);
+    const els = oTrenManHinh(goc, ids);
+    if (els.length === 0) {
+      throw new LoiXuat('Không tìm thấy biểu đồ nào đã chọn trên màn hình, chưa xuất được.');
+    }
+    return els;
+  };
+
+  /**
+   * Nhãn thật của một ô, nếu số liệu trang đó ĐÃ có trong cache.
+   *
+   * `getQueryData` chứ không `fetchQuery`: hộp chọn phải mở ra tức thì. Trang
+   * đang xem bao giờ cũng có sẵn (chính `ReportViewer` vừa nạp), nên những ô
+   * người dùng đang nhìn luôn mang đúng cái tên in trên đầu ô.
+   */
+  const nhanTuCache = (pageId: string, visualId: string): string | null => {
+    const d = qc.getQueryData<ReportCanvasDataDto>(
+      // Trang đầu hỏi bằng `null` — cùng quy ước với `ReportViewer`.
+      datasetKeys.reportCanvasData(report.id, pageId === pages[0]?.id ? null : pageId),
+    );
+    const data = d?.visuals.find((v) => v.visualId === visualId)?.data;
+    return data === undefined || data === null ? null : tieuDeTuSoLieu(data);
+  };
+
+  /** `chon === null` = mọi ô trong tầm — xuất theo đúng đường cũ. */
+  const xuat = async (kieu: KieuXuat, chon: ReadonlySet<string> | null): Promise<void> => {
     setOpen(false);
+    setHoi(null);
     setLoi(null);
     setTienDo('Đang xuất…');
 
     try {
       const tenTrang = nhieuTrang ? (activePage?.name ?? null) : null;
+      const tong = oTrongTam(report, kieu, activePage?.id ?? null).length;
+      const phamVi = chon === null ? null : `${chon.size}/${tong} biểu đồ`;
 
       if (kieu === 'png') {
-        const { canvas } = await chupVung(vungDangXem(), thongTin(activePage));
+        const goc = vungDangXem();
+        const vungs = chon === null ? [goc] : oDaChon(goc, activePage, chon);
+        const { canvas } = await chupCacVung(vungs, thongTin(activePage, phamVi));
         const blob = await canvasSangPng(canvas);
         if (conSong.current) taiXuong(blob, tenTepXuat([report.name, tenTrang], 'png'));
         return;
@@ -156,6 +223,7 @@ export function XuatBaoCao({
         // phải hỏi máy chủ — và không phải dựng khung ngoài màn hình lần nào.
         const blob = await xuatExcel({
           report,
+          ...(chon === null ? {} : { chon }),
           layCanvas: (pageId) =>
             qc.fetchQuery({
               queryKey: datasetKeys.reportCanvasData(report.id, pageId),
@@ -175,7 +243,9 @@ export function XuatBaoCao({
       }
 
       if (kieu === 'pdf') {
-        const { canvas, rongCss, caoCss } = await chupVung(vungDangXem(), thongTin(activePage));
+        const goc = vungDangXem();
+        const vungs = chon === null ? [goc] : oDaChon(goc, activePage, chon);
+        const { canvas, rongCss, caoCss } = await chupCacVung(vungs, thongTin(activePage, phamVi));
         const trang = await canvasSangTrangPdf(canvas, rongCss, caoCss);
         if (conSong.current) {
           taiXuong(taoPdf([trang], report.name), tenTepXuat([report.name, tenTrang], 'pdf'));
@@ -187,14 +257,21 @@ export function XuatBaoCao({
       // ra một báo cáo khác với cái người dùng đang nhìn.
       const rong = vungDangXem().clientWidth;
       const trangs: TrangPdf[] = [];
-      for (const [i, page] of pages.entries()) {
-        setTienDo(`Đang xuất trang ${i + 1}/${pages.length}…`);
+      // Trang không còn ô nào được chọn thì BỎ HẲN, không để lại một trang PDF
+      // trống mang mỗi cái tên trang.
+      const canXuat =
+        chon === null
+          ? pages
+          : pages.filter((p) => p.visuals.some((v) => chon.has(khoaO(p.id, v.id))));
+      for (const [i, page] of canXuat.entries()) {
+        setTienDo(`Đang xuất trang ${i + 1}/${canXuat.length}…`);
         const dangXem = page.id === activePage?.id;
         // Trang đang xem không cần khung ngoài — gỡ khung của trang trước đi
         // thay vì để nó tiếp tục vẽ lại vô ích trong lúc chụp.
         if (dangXem) setNgoai(null);
-        const vung = dangXem ? vungDangXem() : await dungNgoaiManHinh(page, rong);
-        const { canvas, rongCss, caoCss } = await chupVung(vung, thongTin(page));
+        const goc = dangXem ? vungDangXem() : await dungNgoaiManHinh(page, rong);
+        const vungs = chon === null ? [goc] : oDaChon(goc, page, chon);
+        const { canvas, rongCss, caoCss } = await chupCacVung(vungs, thongTin(page, phamVi));
         trangs.push(await canvasSangTrangPdf(canvas, rongCss, caoCss));
         canvas.width = 0;
         canvas.height = 0;
@@ -220,9 +297,27 @@ export function XuatBaoCao({
     }
   };
 
+  /**
+   * Chọn định dạng xong: hỏi biểu đồ nào, trừ khi trong tầm chỉ có một cái.
+   *
+   * Không dùng `pages.length` hay đếm ô của trang đang xem ở đây: tầm của mỗi
+   * định dạng khác nhau (PNG một trang, Excel cả báo cáo) và `oTrongTam` là nơi
+   * DUY NHẤT biết luật đó. Đếm lại ở đây là chép luật ra chỗ thứ hai.
+   */
+  const batDau = (kieu: KieuXuat): void => {
+    setOpen(false);
+    setLoi(null);
+    const danhSach = themNhanThat(oTrongTam(report, kieu, activePage?.id ?? null), nhanTuCache);
+    if (danhSach.length <= 1) {
+      void xuat(kieu, null);
+      return;
+    }
+    setHoi({ kieu, danhSach });
+  };
+
   const dangXuat = tienDo !== null;
 
-  const muc: { kieu: Kieu; nhan: string; goiY: string; icon: string }[] = [
+  const muc: { kieu: KieuXuat; nhan: string; goiY: string; icon: string }[] = [
     {
       kieu: 'png',
       nhan: 'Ảnh PNG',
@@ -299,7 +394,7 @@ export function XuatBaoCao({
               key={m.kieu}
               type="button"
               role="menuitem"
-              onClick={() => void xuat(m.kieu)}
+              onClick={() => batDau(m.kieu)}
               className="flex w-full items-start gap-3 rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-slate-50"
             >
               <svg
@@ -321,6 +416,19 @@ export function XuatBaoCao({
             </button>
           ))}
         </div>
+      )}
+
+      {hoi !== null && (
+        <ChonBieuDo
+          danhSach={hoi.danhSach}
+          moTa={muc.find((m) => m.kieu === hoi.kieu)?.nhan ?? ''}
+          onHuy={() => setHoi(null)}
+          /* Chọn hết thì gửi `null`, KHÔNG gửi một Set đầy đủ: `null` là tín
+             hiệu đi đường cũ (chụp cả khung). Gửi Set đầy đủ sẽ cho ra một ảnh
+             ghép từng ô — khác hẳn thứ người dùng vẫn nhận trước nay, chỉ vì họ
+             không bỏ dấu tích nào. */
+          onXuat={(chon) => void xuat(hoi.kieu, chonHet(hoi.danhSach, chon) ? null : chon)}
+        />
       )}
 
       {loi !== null && (

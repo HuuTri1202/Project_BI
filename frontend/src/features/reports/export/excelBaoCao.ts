@@ -1,5 +1,7 @@
 import type { ReportCanvasDataDto, ReportDataDto, ReportDto } from '@bi/shared';
 
+import { tieuDeTuSoLieu } from '../nhanO';
+import { khoaO } from './chonO';
 import { taoXlsx, type OTinh, type Sheet } from './xlsx';
 
 /**
@@ -68,8 +70,16 @@ export function bangTu(data: ReportDataDto): { cot: string[]; dong: OTinh[][] } 
 
 const KHONG_CO_SO_LIEU = 'Không có số liệu';
 
-/** Gom các bảng thành sheet, kèm một sheet xuất xứ ở cuối. */
-export function dungSheets(tenBaoCao: string, nguon: readonly NguonSheet[]): Sheet[] {
+/**
+ * Gom các bảng thành sheet, kèm một sheet xuất xứ ở cuối.
+ *
+ * `phamVi` nói tệp này có phải cả báo cáo hay không — xem `xuatExcel`.
+ */
+export function dungSheets(
+  tenBaoCao: string,
+  nguon: readonly NguonSheet[],
+  phamVi?: string,
+): Sheet[] {
   const sheets: Sheet[] = [];
   const ghiChu: OTinh[][] = [];
 
@@ -91,6 +101,10 @@ export function dungSheets(tenBaoCao: string, nguon: readonly NguonSheet[]): She
     dong: [
       ['Báo cáo', tenBaoCao],
       ['Xuất lúc', new Date().toLocaleString('vi-VN')],
+      // Tệp chỉ có vài biểu đồ phải TỰ NÓI ra điều đó. Người nhận mở tệp và
+      // thấy ba sheet trong khi báo cáo có mười hai ô sẽ kết luận là xuất hỏng,
+      // và không có gì trong tệp cãi lại được.
+      ...(phamVi === undefined ? [] : [['Phạm vi', phamVi] as OTinh[]]),
       ['Nguồn', 'Open Insight'],
       [null, null],
       ['Bảng', 'Ghi chú'],
@@ -112,12 +126,20 @@ export async function xuatExcel({
   report,
   layCanvas,
   layDon,
+  chon,
   tienDo,
 }: {
   report: ReportDto;
   /** `pageId === null` = trang đầu, đúng quy ước của `ReportViewer`. */
   layCanvas: (pageId: string | null) => Promise<ReportCanvasDataDto>;
   layDon: () => Promise<ReportDataDto>;
+  /**
+   * Khoá của những ô được chọn (`khoaO`) — `undefined` là lấy hết (§10.23).
+   *
+   * Trang không có ô nào được chọn thì KHÔNG hỏi số liệu: mỗi trang là một vòng
+   * tới Cube, và hỏi về rồi vứt đi là bắt người dùng chờ vô ích.
+   */
+  chon?: ReadonlySet<string> | undefined;
   tienDo?: ((noi: string) => void) | undefined;
 }): Promise<Blob> {
   const pages = report.canvas?.pages ?? [];
@@ -132,18 +154,24 @@ export async function xuatExcel({
   const nhieuTrang = pages.length > 1;
   const dauId = pages[0]?.id;
   const nguon: NguonSheet[] = [];
+  const tong = pages.reduce((s, p) => s + p.visuals.length, 0);
+  const canLay = pages.map((page) => ({
+    page,
+    visuals: page.visuals.filter((v) => chon === undefined || chon.has(khoaO(page.id, v.id))),
+  }));
+  const coO = canLay.filter((t) => t.visuals.length > 0);
 
-  for (const [i, page] of pages.entries()) {
-    tienDo?.(`Đang lấy số liệu trang ${i + 1}/${pages.length}…`);
+  for (const [i, { page, visuals }] of coO.entries()) {
+    tienDo?.(`Đang lấy số liệu trang ${i + 1}/${coO.length}…`);
     const canvas = await layCanvas(page.id === dauId ? null : page.id);
     const theoId = new Map(canvas.visuals.map((v) => [v.visualId, v]));
 
-    for (const v of page.visuals) {
+    for (const v of visuals) {
       const o = theoId.get(v.id);
       const data = o?.data ?? null;
       // Tên sheet: tiêu đề người dùng đặt, nếu không thì tiêu đề tự sinh từ
       // chính nhãn của số liệu — cùng câu mà `CanvasView` in trên đầu ô.
-      const tuDong = data === null ? 'Biểu đồ' : `${data.measureLabel} theo ${data.dimensionLabel}`;
+      const tuDong = data === null ? 'Biểu đồ' : tieuDeTuSoLieu(data);
       const ten = (v.title ?? '').trim() || tuDong;
       nguon.push({
         ten: nhieuTrang ? `${page.name} · ${ten}` : ten,
@@ -153,5 +181,12 @@ export async function xuatExcel({
     }
   }
 
-  return taoXlsx(dungSheets(report.name, nguon));
+  const soChon = nguon.length;
+  return taoXlsx(
+    dungSheets(
+      report.name,
+      nguon,
+      soChon === tong ? undefined : `${soChon}/${tong} biểu đồ của báo cáo`,
+    ),
+  );
 }

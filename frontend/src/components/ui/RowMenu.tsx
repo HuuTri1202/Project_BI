@@ -127,11 +127,22 @@ export function RowMenuItem({
   onClick,
   icon,
   danger = false,
+  disabled = false,
+  title,
   children,
 }: {
   onClick: () => void;
   icon: string;
   danger?: boolean;
+  /**
+   * Khoá mục lại thay vì GIẤU nó đi.
+   *
+   * Một mục biến mất để lại câu hỏi "menu này có làm được việc đó không?", và
+   * người dùng đi tìm ở chỗ khác. Mục xám kèm `title` nói luôn vì sao chưa bấm
+   * được và phải làm gì để bấm được.
+   */
+  disabled?: boolean;
+  title?: string | undefined;
   children: ReactNode;
 }): React.ReactElement {
   return (
@@ -139,7 +150,9 @@ export function RowMenuItem({
       type="button"
       role="menuitem"
       onClick={onClick}
-      className={`flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm transition-colors ${
+      disabled={disabled}
+      title={title}
+      className={`flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm transition-colors disabled:cursor-not-allowed disabled:bg-transparent disabled:text-slate-300 ${
         danger ? 'text-red-600 hover:bg-red-50' : 'text-slate-700 hover:bg-slate-50'
       }`}
     >
@@ -166,4 +179,8 @@ export const ROW_MENU_ICONS = {
   edit: 'M4 20h4L18.5 9.5a2.1 2.1 0 0 0-3-3L5 17v3Z',
   open: 'M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5',
   trash: 'M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13',
+  image:
+    'M4 16l4.6-4.6a2 2 0 0 1 2.8 0L16 16m-2-2 1.6-1.6a2 2 0 0 1 2.8 0L20 14M14 8h.01M6 20h12a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2Z',
+  pdf: 'M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8l-5-5Zm0 0v5h5M9 13h6m-6 4h6',
+  sheet: 'M4 6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6Zm0 4h16M10 10v10',
 } as const;
