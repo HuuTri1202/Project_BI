@@ -56,7 +56,11 @@ const CAM = /[:\\/?*[\]]/g;
 export function tenSheetHopLe(ten: string, daDung: Set<string>): string {
   let s = ten.replace(CAM, ' ').replace(/\s+/g, ' ').trim();
   if (s === '') s = 'Sheet';
-  s = s.slice(0, 31);
+  // `.trim()` SAU khi cắt: cắt đúng 31 ký tự hay rơi vào giữa hai từ, để lại một
+  // khoảng trắng lủng lẳng ở cuối tab. Excel nhận, nhưng người đọc thấy một tên
+  // trông như bị lỗi. Đã đo trên tệp thật: "Chi tiết · Doanh thu theo Nhóm ".
+  s = s.slice(0, 31).trim();
+  if (s === '') s = 'Sheet';
 
   // Trùng tên thì Excel cũng từ chối. Thêm hậu tố ' (2)', ' (3)'… và cắt lại cho
   // vừa 31 ký tự — cắt SAU khi nối thì hậu tố mới là thứ bị mất, tức lại trùng.

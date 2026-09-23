@@ -164,6 +164,14 @@ describe('tenSheetHopLe — luật của Excel, không phải luật của ta', 
     expect(tenSheetHopLe('Doanh thu / Quý [1] * ?', d)).toBe('Doanh thu Quý 1');
   });
 
+  it('cắt đúng 31 ký tự thì KHÔNG để lại khoảng trắng lủng lẳng ở cuối', () => {
+    const d = new Set<string>();
+    // Cắt rơi vào giữa hai từ — đo được trên tệp thật: "Chi tiết · Doanh thu theo Nhóm ".
+    const t = tenSheetHopLe('Chi tiết · Doanh thu theo Nhóm hàng', d);
+    expect(t).toBe('Chi tiết · Doanh thu theo Nhóm');
+    expect(t).not.toMatch(/\s$/);
+  });
+
   it('tên rỗng vẫn ra một tên dùng được', () => {
     const d = new Set<string>();
     expect(tenSheetHopLe('   ', d)).toBe('Sheet');
