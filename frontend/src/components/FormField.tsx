@@ -1,5 +1,5 @@
 import type { InputHTMLAttributes } from 'react';
-import { ERROR_CLASS, LABEL_CLASS, inputClass } from './formStyles';
+import { ERROR_CLASS, ERROR_SLOT_CLASS, LABEL_CLASS, inputClass } from './formStyles';
 
 interface FormFieldProps extends Omit<InputHTMLAttributes<HTMLInputElement>, 'id' | 'className'> {
   id: string;
@@ -34,11 +34,15 @@ export function FormField({ id, label, error, ...inputProps }: FormFieldProps): 
         aria-describedby={error ? errorId : undefined}
       />
 
-      {error && (
-        <p id={errorId} className={ERROR_CLASS}>
-          {error}
-        </p>
-      )}
+      {/* Chỗ chừa sẵn: cao một dòng kể cả khi không có lỗi, để dòng lỗi hiện ra
+          KHÔNG đẩy mọi thứ bên dưới xuống — xem ERROR_SLOT_CLASS. */}
+      <div className={ERROR_SLOT_CLASS}>
+        {error && (
+          <p id={errorId} className={ERROR_CLASS}>
+            {error}
+          </p>
+        )}
+      </div>
     </div>
   );
 }

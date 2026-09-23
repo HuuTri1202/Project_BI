@@ -124,7 +124,7 @@ fi
 # `docker compose stop clickhouse` — phần còn lại của hệ thống vẫn chạy bình
 # thường, chỉ mất chức năng nạp.
 #
-# Phần còn lại (Cube, Kafka, dbt) vẫn nằm sau profile — xem cuối script.
+# Phần còn lại (Cube) vẫn nằm sau profile — xem cuối script.
 $DC --profile data up -d mysql redis minio minio-init clickhouse
 
 ok "Đã gửi lệnh khởi động MySQL + Redis + MinIO + ClickHouse."
@@ -254,8 +254,6 @@ echo "    npm run dev:web           # chỉ frontend"
 echo
 echo "  ${BOLD}Bật thêm hạ tầng theo nhu cầu (profile)${NC}"
 echo "    ${DC} --profile bi   up -d      # + Cube.js (kéo theo ClickHouse)"
-echo "    ${DC} --profile stream up -d    # + Kafka, Debezium Connect"
-echo "    ${DC} --profile tools  up -d    # + dbt"
 echo "    (script này chỉ khởi động service lõi - xem README)"
 echo
 echo "  ${BOLD}Lệnh Docker hữu ích${NC}"

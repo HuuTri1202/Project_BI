@@ -4,6 +4,7 @@ import { render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
 import { CanvasView } from '../src/features/reports/CanvasView';
+import { tenTrenManHinh } from '../src/features/reports/export/chonO';
 
 /*
  * Từ §10.11 mỗi ô tự hỏi trang nhóm tiếp theo của mình, nên component cần một
@@ -103,6 +104,36 @@ describe('CanvasView', () => {
     // vốn đã nằm trong thân ô.
     expect(screen.getAllByRole('heading', { level: 3 })).toHaveLength(1);
     expect(screen.getAllByText('Đang tải…')).toHaveLength(3);
+  });
+
+  it('mỗi ô mang mã và TÊN của nó ra DOM, để việc xuất tìm lại được — §10.23', () => {
+    // Đây là mối nối giữa `CanvasView` và hộp "Xuất những biểu đồ nào?": hộp đó
+    // tìm ô bằng `data-visual-id` và gọi tên ô bằng `data-visual-ten`. Bỏ một
+    // trong hai ở đây thì hộp chọn lặng lẽ rơi về "Biểu đồ 1", hoặc tệ hơn, việc
+    // chụp không tìm thấy ô nào — không lỗi, không dấu hiệu.
+    const data: ReportCanvasDataDto = {
+      visuals: [
+        {
+          visualId: 'a',
+          data: {
+            rows: [{ label: 'x', value: 1 }],
+            dimensionLabel: 'Khu vực',
+            measureLabel: 'Doanh thu',
+            grouped: false,
+          },
+        },
+      ],
+    };
+    const { container } = ve(<CanvasView page={page} reportId={7} data={data} />);
+    const oA = container.querySelector('[data-visual-id="a"]');
+    const oB = container.querySelector('[data-visual-id="b"]');
+
+    expect(tenTrenManHinh(container, 'a')).toBe('Doanh thu theo Khu vực');
+    expect(oA?.getAttribute('data-visual-ten')).toBe('Doanh thu theo Khu vực');
+    // Ô B có tên riêng người dùng đặt, và tên đó thắng.
+    expect(oB?.getAttribute('data-visual-ten')).toBe('Tên riêng của ô B');
+    // Ô C chưa có gì để gọi tên -> `null`, nơi gọi giữ tên tạm.
+    expect(tenTrenManHinh(container, 'c')).toBeNull();
   });
 
   it('MỘT ô hỏng chỉ làm hỏng chính nó', () => {

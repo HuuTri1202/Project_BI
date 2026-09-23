@@ -4,9 +4,14 @@ import { env } from './env';
 /**
  * Pool kết nối MySQL dùng chung toàn ứng dụng.
  *
- * MySQL ở đây là OLTP / metadata vận hành của Express (ingest job, casbin_rule,
- * audit log) — KHÔNG phải nơi chứa dữ liệu phân tích (đó là ClickHouse) và cũng
- * không phải nơi Express ghi metadata BI (đó là Strapi).
+ * MySQL ở đây giữ TOÀN BỘ metadata của ứng dụng: người dùng, tổ chức, quyền
+ * (`casbin_rule`), kết nối, dataset, mô hình dữ liệu, báo cáo, job nạp, đơn
+ * thanh toán. KHÔNG phải nơi chứa dữ liệu phân tích — dữ liệu của khách hàng
+ * nằm ở ClickHouse, và MySQL chỉ giữ phần mô tả về nó.
+ *
+ * ⚠️ Bản trước của chú thích này ghi "metadata BI nằm ở Strapi". Sai: không có
+ * Strapi trong hệ thống, chưa bao giờ có. Mọi bảng metadata đều do
+ * `src/db/migrations.ts` tạo ra ngay trong pool này.
  */
 export const mysqlPool = mysql.createPool({
   host: env.MYSQL_HOST,

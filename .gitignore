@@ -69,9 +69,8 @@ infrastructure/**/data/
 docker-compose.override.yml
 
 # Thư mục schema ĐỜI ĐẦU, từ trước khi §10 chuyển sang một thư mục mỗi tổ chức.
-# Không còn gì ghi vào đây (`cube.js` đọc `model/tenants`), nên `.gitkeep` cũng
-# bỏ luôn — giữ một thư mục rỗng cho một đường dẫn đã chết là mời người sau tưởng
-# nó còn được dùng. File còn sót lại trên máy cũ vẫn được bỏ qua.
+# Đã xoá khỏi repo. Dòng này ở lại vì máy nào từng chạy bản cũ vẫn còn file sót
+# trên đĩa, và ta không muốn chúng quay lại Git qua một lần `git add .`.
 infrastructure/cube/model/cubes/
 
 # Cube tự sinh file mẫu này trong container lúc khởi động lần đầu; toàn bộ nội
@@ -82,12 +81,6 @@ infrastructure/cube/model/views/
 # database mỗi lần backend khởi động, nên không có lý do gì để nằm trong Git.
 infrastructure/cube/model/tenants/
 
-# Sản phẩm biên dịch của dbt
-infrastructure/dbt/target/
-infrastructure/dbt/dbt_packages/
-infrastructure/dbt/logs/
-# dbt tự sinh file này chứa id tracking ẩn danh, khác nhau trên mỗi máy
-infrastructure/dbt/.user.yml
 
 # Dump database
 *.sql.gz

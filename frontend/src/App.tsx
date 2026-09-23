@@ -7,7 +7,9 @@ import ChangePasswordPage from './pages/ChangePasswordPage';
 import ForbiddenPage from './pages/ForbiddenPage';
 import HealthPage from './pages/HealthPage';
 import HomePage from './pages/HomePage';
+import ForgotPasswordPage from './pages/ForgotPasswordPage';
 import LoginPage from './pages/LoginPage';
+import ResetPasswordPage from './pages/ResetPasswordPage';
 import NotFoundPage from './pages/NotFoundPage';
 import ProfilePage from './pages/ProfilePage';
 import ReportBuilderPage from './pages/tenant/ReportBuilderPage';
@@ -91,6 +93,10 @@ export default function App(): React.ReactElement {
       {/* Đăng ký cố ý KHÔNG tự đăng nhập: xong thì điều hướng sang /login kèm
           state để trang đó chào đúng người và điền sẵn email (§1.5). */}
       <Route path="/register" element={<RegisterPage />} />
+      {/* Quên mật khẩu: hai trang CÔNG KHAI — người dùng tới đây chính vì không
+          đăng nhập được. Đường dẫn tiếng Việt vì nó hiện trong email gửi đi. */}
+      <Route path="/quen-mat-khau" element={<ForgotPasswordPage />} />
+      <Route path="/dat-lai-mat-khau" element={<ResetPasswordPage />} />
       <Route path="/403" element={<ForbiddenPage />} />
 
       {/* Đã đăng nhập, nhưng ĐƯỢC PHÉP ở lại khi còn cờ mustChangePassword */}

@@ -269,6 +269,7 @@ export function Shelf({
   onAssign,
   onClear,
   describe,
+  duoi,
   disabledReason,
 }: {
   label: string;
@@ -280,6 +281,16 @@ export function Shelf({
   onAssign: (field: DragField) => void;
   onClear: () => void;
   describe?: (field: ExplorerFieldDto) => string | null;
+  /**
+   * Thứ hiện THÊM dưới phần mô tả khi ô đã có trường — hiện chỉ dùng cho bộ chọn
+   * phép tính ở ô Giá trị.
+   *
+   * Nhận vào dưới dạng nút chứ không phải một prop `onDoiPhep`: `Shelf` dùng
+   * chung cho cả ba ô (Trục, Giá trị, Nhóm màu) và chỉ một ô cần chọn phép gộp.
+   * Nhét khái niệm "phép gộp" vào đây là bắt hai ô kia mang một prop chúng không
+   * bao giờ dùng, và mở đường cho ô Trục một ngày nào đó hiện nhầm nó.
+   */
+  duoi?: React.ReactNode;
   /** Có mặt = ô này bị khoá, và đây là câu giải thích vì sao. */
   disabledReason?: string | undefined;
 }): React.ReactElement {
@@ -354,6 +365,7 @@ export function Shelf({
           <span className="block truncate text-xs text-brand-700/70">
             {describe?.(field) ?? shortName(field.datasetName)}
           </span>
+          {duoi}
         </div>
       )}
     </div>

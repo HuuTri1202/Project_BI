@@ -105,38 +105,51 @@ export function tiLeChup(rong: number, cao: number): number {
 
 export interface ThongTinAnh {
   tieuDe: string;
-  /** Dòng nhỏ dưới tiêu đề: tên trang, giờ xuất. */
+  /** Dòng nhỏ dưới tiêu đề: tên trang, phạm vi đã chọn, giờ xuất. */
   phu: string;
 }
 
+/** Khe giữa hai ô khi ảnh ghép nhiều vùng, tính bằng điểm ảnh CSS. */
+const KHE_ANH = 16;
+
 /**
- * Chụp `vung` (đợi nó vẽ xong) rồi đặt vào khung có lề và dải tiêu đề.
+ * Chụp các vùng (đợi chúng vẽ xong), xếp DỌC vào một khung có lề và dải tiêu đề.
+ *
+ * ═══ Vì sao nhận một DANH SÁCH ══════════════════════════════════════════════
+ *
+ * Xuất cả trang thì danh sách có đúng một phần tử — chính khung báo cáo — và
+ * kết quả không khác gì trước: bố cục lưới, chú thích, mọi thứ y như trên màn
+ * hình. Chọn lẻ vài biểu đồ (§10.23) thì không thể chụp cả khung rồi xoá bớt:
+ * ô bị bỏ để lại một lỗ trống đúng bằng chỗ nó chiếm trong lưới, và người nhận
+ * tệp đọc cái lỗ đó là "báo cáo hỏng" chứ không phải "tôi chỉ xin ba biểu đồ".
+ * Nên ở đó từng ô được chụp riêng rồi xếp dọc, sát nhau.
  *
  * Kích thước tính bằng điểm ảnh CSS của KHUNG CUỐI, để tỉ lệ được hạ đúng theo
  * ảnh thật sự sẽ tạo ra chứ không theo riêng phần báo cáo bên trong.
  */
-export async function chupVung(
-  vung: HTMLElement,
+export async function chupCacVung(
+  vungs: readonly HTMLElement[],
   thongTin: ThongTinAnh,
 ): Promise<{ canvas: HTMLCanvasElement; rongCss: number; caoCss: number }> {
+  if (vungs.length === 0) throw new LoiXuat('Không có biểu đồ nào để xuất.');
+
   // Nạp thư viện TRƯỚC khi chờ: để giữa lúc "đã vẽ xong" và lúc chụp không còn
   // một lượt tải mạng nào chen vào.
   const { domToCanvas } = await import('modern-screenshot');
-  await choVeXong(vung);
+  for (const vung of vungs) await choVeXong(vung);
 
-  const rongVung = Math.ceil(vung.scrollWidth);
-  const caoVung = Math.ceil(vung.scrollHeight);
+  const co = vungs.map((el) => ({
+    el,
+    rong: Math.ceil(el.scrollWidth),
+    cao: Math.ceil(el.scrollHeight),
+  }));
+  // Bề ngang theo ô RỘNG NHẤT: ô hẹp hơn để thừa bên phải, còn ép mọi ô về cùng
+  // bề ngang là kéo giãn ảnh và chữ trên trục sẽ nhoè.
+  const rongVung = Math.max(...co.map((c) => c.rong));
+  const caoVung = co.reduce((s, c) => s + c.cao, 0) + KHE_ANH * (co.length - 1);
   const rongCss = rongVung + LE * 2;
   const caoCss = caoVung + LE * 2 + CAO_DAU;
   const tiLe = tiLeChup(rongCss, caoCss);
-
-  const anh = await domToCanvas(vung, {
-    scale: tiLe,
-    width: rongVung,
-    height: caoVung,
-    backgroundColor: NEN,
-    filter: (node) => !(node instanceof Element && node.hasAttribute(THUOC_TINH_KHONG_XUAT)),
-  });
 
   const canvas = document.createElement('canvas');
   canvas.width = Math.round(rongCss * tiLe);
@@ -160,11 +173,22 @@ export async function chupVung(
   ctx.font = `400 12px ${font}`;
   ctx.fillText(catChu(ctx, thongTin.phu, rongChu), LE, LE + CAO_TIEU_DE + KHE_TIEU_DE + 1);
 
-  ctx.drawImage(anh, LE, LE + CAO_DAU, rongVung, caoVung);
-  // Khung vẽ trung gian có thể lên tới hàng chục MB; trả lại ngay thay vì đợi
-  // bộ gom rác, nhất là khi xuất nhiều trang liên tiếp.
-  anh.width = 0;
-  anh.height = 0;
+  let y = LE + CAO_DAU;
+  for (const c of co) {
+    const anh = await domToCanvas(c.el, {
+      scale: tiLe,
+      width: c.rong,
+      height: c.cao,
+      backgroundColor: NEN,
+      filter: (node) => !(node instanceof Element && node.hasAttribute(THUOC_TINH_KHONG_XUAT)),
+    });
+    ctx.drawImage(anh, LE, y, c.rong, c.cao);
+    // Khung vẽ trung gian có thể lên tới hàng chục MB; trả lại NGAY thay vì đợi
+    // bộ gom rác — nhất là khi ghép nhiều ô hoặc xuất nhiều trang liên tiếp.
+    anh.width = 0;
+    anh.height = 0;
+    y += c.cao + KHE_ANH;
+  }
 
   return { canvas, rongCss, caoCss };
 }
@@ -256,7 +280,7 @@ export function rgbaSangRgb(rgba: Uint8ClampedArray): Uint8Array<ArrayBuffer> {
  * đổi chúng thành "_" theo cách của riêng nó, hoặc bỏ luôn tên và lưu thành
  * "download".
  */
-export function tenTepXuat(phan: readonly (string | null)[], duoi: 'png' | 'pdf'): string {
+export function tenTepXuat(phan: readonly (string | null)[], duoi: 'png' | 'pdf' | 'xlsx'): string {
   const ten = phan
     .filter((p): p is string => p !== null && p.trim() !== '')
     .join(' - ')

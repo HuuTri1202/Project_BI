@@ -22,6 +22,46 @@ afterEach(() => {
   document.body.replaceChildren();
 });
 
+/**
+ * Tự cầm nhịp khung hình thay vì chờ theo mili giây.
+ *
+ * ─── Vì sao phải làm thế ────────────────────────────────────────────────────
+ *
+ * `choVeXong` đợi 3 KHUNG HÌNH yên liên tiếp. Bài test nào diễn tả điều đó bằng
+ * `setTimeout` là đang đoán xem rAF của jsdom chạy nhanh bao nhiêu, và lời đoán
+ * đó sai tuỳ máy. Đã trả giá hai lần trong cùng một bài:
+ *
+ *   - Khe hở 50ms cạnh ngưỡng ~48ms (3 khung × 16ms) -> đỏ khoảng một lần
+ *     trong ba, và thông báo lỗi không nói gì về nguyên nhân.
+ *   - Sau khi nới khe hở cho hết đỏ thì bài test hết đỏ THẬT, nhưng cũng hết
+ *     kiểm: đo bằng đột biến (bỏ phép đặt lại bộ đếm) nó vẫn xanh.
+ *
+ * Cầm nhịp thì không còn đồng hồ nào trong bài test nữa: mỗi lần gọi `khung()`
+ * là đúng một khung hình, trên mọi máy.
+ */
+function nhipKhung(): { khung: (n?: number) => Promise<void>; tra: () => void } {
+  const hangDoi: FrameRequestCallback[] = [];
+  const goc = globalThis.requestAnimationFrame;
+
+  globalThis.requestAnimationFrame = ((cb: FrameRequestCallback) =>
+    hangDoi.push(cb)) as typeof requestAnimationFrame;
+
+  return {
+    async khung(n = 1) {
+      for (let i = 0; i < n; i += 1) {
+        // `splice` TRƯỚC khi gọi: mỗi callback lại đăng ký khung kế tiếp, và gọi
+        // ngay cái vừa đăng ký sẽ nuốt nhiều khung vào một lần.
+        for (const cb of hangDoi.splice(0)) cb(0);
+        // Nhả cho vòng chờ chạy nốt phần `await` của nó rồi mới sang khung sau.
+        await new Promise((r) => setTimeout(r, 0));
+      }
+    },
+    tra() {
+      globalThis.requestAnimationFrame = goc;
+    },
+  };
+}
+
 describe('choVeXong', () => {
   function vung(html: string): HTMLElement {
     const el = document.createElement('div');
@@ -46,24 +86,42 @@ describe('choVeXong', () => {
     expect(xong).toBe(true);
   });
 
-  it('dấu bận hiện lại giữa chừng thì đếm lại từ đầu', async () => {
+  it('dấu bận hiện lại giữa chừng thì ĐẾM LẠI TỪ ĐẦU, không đếm tiếp', async () => {
     // Đúng tình huống thật: số liệu về, ô vừa hết "Đang tải…" thì một nhịp sau
     // Vega mới bắt đầu vẽ. Chụp ở khoảng lặng một nhịp đó là chụp ô trống.
-    const el = vung('<p data-dang-tai></p>');
-    let xong = false;
-    const cho = choVeXong(el, 5_000).then(() => (xong = true));
+    //
+    // Bài này canh đúng chữ "TỪ ĐẦU". Dồn bộ đếm lên 2 khung yên, cho dấu bận
+    // hiện lại, rồi thả ra và chờ ĐÚNG MỘT khung:
+    //
+    //   đếm lại từ đầu -> yen = 1, chưa xong   (đúng)
+    //   đếm tiếp       -> yen = 3, đã xong     (sai — và đây là thứ phải đỏ)
+    //
+    // Khác biệt chỉ lộ ra ở đúng một khung đó, nên bài test phải tự cầm nhịp.
+    const nhip = nhipKhung();
+    try {
+      const el = vung('<p data-dang-tai></p>');
+      let xong = false;
+      void choVeXong(el, 5_000).then(() => (xong = true));
 
-    await new Promise((r) => setTimeout(r, 150));
-    el.querySelector('p')?.remove();
-    await new Promise((r) => setTimeout(r, 50));
-    const bieuDo = document.createElement('div');
-    bieuDo.setAttribute('data-dang-ve', '');
-    el.appendChild(bieuDo);
+      await nhip.khung(); // vòng chờ thấy dấu bận -> yen = 0
+      el.querySelector('p')?.remove();
+      await nhip.khung(2); // hai khung yên -> yen = 2, vẫn thiếu một
+      expect(xong, 'hai khung yên là CHƯA đủ ba').toBe(false);
 
-    await new Promise((r) => setTimeout(r, 600));
-    expect(xong).toBe(false);
-    bieuDo.removeAttribute('data-dang-ve');
-    await cho;
+      const bieuDo = document.createElement('div');
+      bieuDo.setAttribute('data-dang-ve', '');
+      el.appendChild(bieuDo);
+      await nhip.khung(); // bận trở lại -> phải đặt bộ đếm về 0
+
+      bieuDo.removeAttribute('data-dang-ve');
+      await nhip.khung(); // yên một khung: 1 nếu đếm lại, 3 nếu đếm tiếp
+      expect(xong, 'đếm TIẾP thay vì đếm LẠI thì ảnh chụp sẽ trống').toBe(false);
+
+      await nhip.khung(2); // đủ ba khung yên
+      expect(xong).toBe(true);
+    } finally {
+      nhip.tra();
+    }
   });
 
   it('vùng đang hiện lỗi thì dừng NGAY, và nói đúng câu lỗi đó', async () => {

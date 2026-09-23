@@ -959,9 +959,9 @@ describe.skipIf(!CH_ENABLED)('nạp thật vào ClickHouse', () => {
   });
 
   it('janitor KHÔNG đụng bảng không do §9 sinh ra', async () => {
-    // `bi_analytics` thật còn chứa `spike_orders` của spike F1.7, và §10 sẽ đổ
-    // vào đây view staging/marts của dbt. Nới `RAW_TABLE_RE` thành tiền tố `raw_`
-    // là đủ để một tác vụ nền xoá mất thứ nó không hiểu.
+    // `bi_analytics` là database dùng chung: máy dev cũ còn `spike_orders` từ
+    // tuần đầu, và người khác vẫn tạo bảng tay ở đây. Nới `RAW_TABLE_RE` thành
+    // tiền tố `raw_` là đủ để một tác vụ nền xoá mất thứ nó không hiểu.
     const nguoiKhac = ['spike_orders', 'raw_orders', 'stg_raw_t1_d1', 'raw_t1_d1_backup'];
     for (const name of nguoiKhac) await createBareTable(name);
 

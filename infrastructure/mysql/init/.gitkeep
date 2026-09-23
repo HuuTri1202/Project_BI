@@ -1,9 +1,10 @@
 # File .sql đặt ở thư mục này sẽ được MySQL chạy MỘT LẦN DUY NHẤT, khi volume
 # mysql_data còn rỗng. Volume đã có dữ liệu thì chúng bị bỏ qua hoàn toàn.
 #
-# Sắp tới sẽ có:
-#   02-create-strapi-db.sql   (F4 — database riêng cho Strapi)
-#   03-create-cdc-user.sql    (F10 — source_db + user cho Debezium)
+# Hiện thư mục này RỖNG và đó là đúng: ứng dụng chỉ cần một database duy nhất,
+# do chính biến MYSQL_DATABASE trong docker-compose tạo ra. Bản trước của ghi
+# chú này hứa hai file cho Strapi và Debezium — cả hai thứ đó đều không có trong
+# hệ thống, nên lời hứa đã được gỡ thay vì để nằm chờ.
 #
 # Vì cơ chế "chỉ chạy khi rỗng" rất dễ gây hiểu nhầm, mọi thao tác tạo
 # database/user nên viết idempotent (CREATE ... IF NOT EXISTS) và gọi lại được

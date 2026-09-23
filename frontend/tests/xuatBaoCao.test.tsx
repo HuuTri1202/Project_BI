@@ -20,7 +20,7 @@ import { XuatBaoCao } from '../src/features/reports/export/XuatBaoCao';
 
 vi.mock('../src/features/reports/export/chupBaoCao', async (importOriginal) => ({
   ...(await importOriginal<typeof chup>()),
-  chupVung: vi.fn(),
+  chupCacVung: vi.fn(),
   canvasSangPng: vi.fn(),
   canvasSangTrangPdf: vi.fn(),
   taiXuong: vi.fn(),
@@ -105,9 +105,17 @@ function ve(report: ReportDto, activePageId: string | null): { vungDangXem: () =
   return { vungDangXem: () => screen.getByTestId('vung-dang-xem') };
 }
 
-function chonMuc(nhan: RegExp): void {
+/**
+ * Chọn một mục trên menu Xuất.
+ *
+ * `xacNhan`: báo cáo có nhiều hơn một biểu đồ trong tầm thì hộp "Xuất những
+ * biểu đồ nào?" mở ra trước (§10.23), và mọi ô đã được tích sẵn — chỉ cần bấm
+ * nút xác nhận là đi đúng đường cũ.
+ */
+function chonMuc(nhan: RegExp, xacNhan = false): void {
   fireEvent.click(screen.getByRole('button', { name: /Xuất/ }));
   fireEvent.click(screen.getByRole('menuitem', { name: nhan }));
+  if (xacNhan) fireEvent.click(screen.getByRole('button', { name: /^Xuất tất cả \d+ biểu đồ$/ }));
 }
 
 afterEach(() => {
@@ -115,12 +123,16 @@ afterEach(() => {
 });
 
 describe('menu Xuất', () => {
-  it('báo cáo một trang: hai mục, cả hai là toàn bộ báo cáo', () => {
+  it('báo cáo một trang: ba mục — PNG, PDF, Excel', () => {
     ve(baoCao([BA_TRANG[0] as ReportPageDto]), null);
     fireEvent.click(screen.getByRole('button', { name: /Xuất/ }));
 
     const muc = screen.getAllByRole('menuitem').map((m) => m.textContent);
-    expect(muc).toEqual(['Ảnh PNGToàn bộ báo cáo', 'Tệp PDFToàn bộ báo cáo']);
+    expect(muc).toEqual([
+      'Ảnh PNGToàn bộ báo cáo',
+      'Tệp PDFToàn bộ báo cáo',
+      'Bảng tính ExcelSố liệu đang vẽ trên biểu đồ',
+    ]);
   });
 
   it('báo cáo nhiều trang: thêm mục PDF cho tất cả các trang', () => {
@@ -128,15 +140,16 @@ describe('menu Xuất', () => {
     fireEvent.click(screen.getByRole('button', { name: /Xuất/ }));
 
     const muc = screen.getAllByRole('menuitem').map((m) => m.textContent);
-    expect(muc).toHaveLength(3);
+    expect(muc).toHaveLength(4);
     expect(muc[0]).toContain('Trang đang xem');
-    expect(muc[2]).toContain('tất cả 3 trang');
+    expect(muc[2]).toContain('mỗi biểu đồ một sheet');
+    expect(muc[3]).toContain('tất cả 3 trang');
   });
 });
 
 describe('xuất trang đang xem', () => {
   it('PNG chụp CHÍNH vùng trên màn hình, tên tệp mang tên trang', async () => {
-    vi.mocked(chup.chupVung).mockResolvedValue({ canvas: CANVAS_GIA, rongCss: 1, caoCss: 1 });
+    vi.mocked(chup.chupCacVung).mockResolvedValue({ canvas: CANVAS_GIA, rongCss: 1, caoCss: 1 });
     const blob = new Blob(['png']);
     vi.mocked(chup.canvasSangPng).mockResolvedValue(blob);
     const { vungDangXem } = ve(baoCao(BA_TRANG), 'p2');
@@ -146,9 +159,10 @@ describe('xuất trang đang xem', () => {
     await waitFor(() =>
       expect(chup.taiXuong).toHaveBeenCalledWith(blob, 'Doanh thu quý IV - Chi tiết.png'),
     );
-    expect(chup.chupVung).toHaveBeenCalledTimes(1);
-    const [vung, thongTin] = vi.mocked(chup.chupVung).mock.calls[0] ?? [];
-    expect(vung).toBe(vungDangXem());
+    expect(chup.chupCacVung).toHaveBeenCalledTimes(1);
+    const [vungs, thongTin] = vi.mocked(chup.chupCacVung).mock.calls[0] ?? [];
+    // Chọn hết = chụp CẢ KHUNG, một vùng duy nhất. Không phải ghép từng ô lại.
+    expect(vungs).toEqual([vungDangXem()]);
     expect(thongTin?.tieuDe).toBe('Doanh thu: quý IV');
     expect(thongTin?.phu).toMatch(/^Trang: Chi tiết · Xuất lúc /);
     // Không dựng trang nào ngoài màn hình cho việc này.
@@ -156,7 +170,7 @@ describe('xuất trang đang xem', () => {
   });
 
   it('báo cáo một biểu đồ (không có khung): không nói "Trang:", tên tệp không có tên trang', async () => {
-    vi.mocked(chup.chupVung).mockResolvedValue({ canvas: CANVAS_GIA, rongCss: 100, caoCss: 50 });
+    vi.mocked(chup.chupCacVung).mockResolvedValue({ canvas: CANVAS_GIA, rongCss: 100, caoCss: 50 });
     vi.mocked(chup.canvasSangTrangPdf).mockResolvedValue({
       rongPt: 75,
       caoPt: 37.5,
@@ -170,7 +184,7 @@ describe('xuất trang đang xem', () => {
     const [blob, ten] = vi.mocked(chup.taiXuong).mock.calls[0] ?? [];
     expect(ten).toBe('Doanh thu quý IV.pdf');
     expect(blob?.type).toBe('application/pdf');
-    expect(vi.mocked(chup.chupVung).mock.calls[0]?.[1].phu).toMatch(/^Xuất lúc /);
+    expect(vi.mocked(chup.chupCacVung).mock.calls[0]?.[1].phu).toMatch(/^Xuất lúc /);
   });
 });
 
@@ -182,7 +196,10 @@ describe('PDF tất cả các trang', () => {
     const daChup: { trangSo: number; laManHinh: boolean; noiDung: string }[] = [];
     const { vungDangXem } = ve(baoCao(BA_TRANG), 'p2');
 
-    vi.mocked(chup.chupVung).mockImplementation(async (vung) => {
+    vi.mocked(chup.chupCacVung).mockImplementation(async (vungs) => {
+      // Chọn hết thì mỗi trang là MỘT vùng — cả khung, không tách ô.
+      expect(vungs).toHaveLength(1);
+      const vung = vungs[0] as HTMLElement;
       const laManHinh = vung === vungDangXem();
       // Trang ngoài màn hình được chụp khi số liệu CỦA NÓ đã về — đợi đúng thứ
       // `choVeXong` thật sẽ đợi, rồi mới đọc nội dung. Trang đang xem ở đây là
@@ -200,7 +217,7 @@ describe('PDF tất cả các trang', () => {
       anh: { rong: 1, cao: 1, duLieu: new Uint8Array([120, 156, 99, 0, 0, 0, 1, 0, 1]) },
     }));
 
-    chonMuc(/tất cả 3 trang/);
+    chonMuc(/tất cả 3 trang/, true);
 
     await waitFor(() => expect(chup.taiXuong).toHaveBeenCalled(), { timeout: 5_000 });
 
@@ -225,12 +242,12 @@ describe('PDF tất cả các trang', () => {
   });
 
   it('một trang lỗi thì báo lỗi, KHÔNG tải về tệp thiếu trang', async () => {
-    vi.mocked(chup.chupVung).mockRejectedValue(
+    vi.mocked(chup.chupCacVung).mockRejectedValue(
       new chup.LoiXuat('Trang "Chi tiết": Kho phân tích tạm thời không trả lời.'),
     );
     ve(baoCao(BA_TRANG), 'p2');
 
-    chonMuc(/tất cả 3 trang/);
+    chonMuc(/tất cả 3 trang/, true);
 
     const bao = await screen.findByRole('alert');
     expect(bao.textContent).toContain('Chưa xuất được báo cáo');
@@ -240,7 +257,7 @@ describe('PDF tất cả các trang', () => {
 
   it('lỗi ngoài dự kiến: câu chung cho người dùng, chi tiết vào console cho người sửa', async () => {
     const loi = new TypeError('drawImage failed');
-    vi.mocked(chup.chupVung).mockRejectedValue(loi);
+    vi.mocked(chup.chupCacVung).mockRejectedValue(loi);
     const console_ = vi.spyOn(console, 'error').mockImplementation(() => {});
     ve(baoCao(BA_TRANG), 'p1');
 

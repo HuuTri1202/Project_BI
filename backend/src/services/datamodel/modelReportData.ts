@@ -1,4 +1,9 @@
-import { MAX_GROUP_PAGE, type ReportDataDto, type ReportModelConfigDto } from '@bi/shared';
+import {
+  MAX_GROUP_PAGE,
+  type MeasureAgg,
+  type ReportDataDto,
+  type ReportModelConfigDto,
+} from '@bi/shared';
 
 import { loadModelContext, runExplorerQuery, type ModelContext } from './explorer';
 
@@ -71,6 +76,22 @@ function pageOf(page: number): number {
  * nào"; cái được là câu "trong đó có gì", và một truy vấn ít hơn cho mỗi ô.
  */
 
+/**
+ * Phép gộp mà biểu đồ này CHỌN LẠI, ở đúng hình dạng `runExplorerQuery` nhận.
+ *
+ * Vắng mặt -> `undefined`, và khi đó `buildQuery` hỏi Cube đúng measure mặc định
+ * của mô hình. Nhờ vậy mọi báo cáo lưu trước §10.22 không đổi một truy vấn nào.
+ *
+ * ⚠️ Phải truyền vào CẢ BỐN lời gọi của một biểu đồ có nhóm màu (xếp hạng nhóm,
+ * xếp hạng chuỗi, và truy vấn cuối). Bỏ sót một chỗ thì bảng xếp hạng được tính
+ * bằng Tổng còn cột vẽ ra là Trung bình — các nhóm hiện lên đúng số nhưng SAI
+ * danh sách, và không có gì trên màn hình tố giác chuyện đó.
+ */
+function aggCua(config: ReportModelConfigDto): { id: number; agg: MeasureAgg }[] | undefined {
+  const agg = config.measureAgg;
+  return agg === undefined || agg === null ? undefined : [{ id: config.measureId, agg }];
+}
+
 export async function aggregateFromModel(
   tenantId: number,
   userId: number,
@@ -112,7 +133,12 @@ export async function aggregateFromModel(
     tenantId,
     userId,
     dataModelId,
-    { dimensionIds: [config.dimensionId], measureIds: [config.measureId], limit: limit + 1 },
+    {
+      dimensionIds: [config.dimensionId],
+      measureIds: [config.measureId],
+      measureAggs: aggCua(config),
+      limit: limit + 1,
+    },
     // `offset` chỉ có mặt từ trang 2 trở đi: `offset: 0` là đúng câu hỏi cũ
     // viết dài hơn, và mọi thứ đi vào truy vấn Cube đều đáng để ngắn.
     {
@@ -238,7 +264,12 @@ async function aggregateWithSeries(
       tenantId,
       userId,
       dataModelId,
-      { dimensionIds: [config.dimensionId], measureIds: [config.measureId], limit: limit + 1 },
+      {
+        dimensionIds: [config.dimensionId],
+        measureIds: [config.measureId],
+        measureAggs: aggCua(config),
+        limit: limit + 1,
+      },
       // Chia trang đi theo chiều CHÍNH. Chuỗi không chia trang: trần chuỗi tồn
       // tại để mắt còn phân biệt được màu, và "xem tiếp mười hai màu nữa" không
       // phải một câu hỏi ai đó hỏi.
@@ -252,7 +283,12 @@ async function aggregateWithSeries(
       tenantId,
       userId,
       dataModelId,
-      { dimensionIds: [seriesId], measureIds: [config.measureId], limit: SERIES_CAP + 1 },
+      {
+        dimensionIds: [seriesId],
+        measureIds: [config.measureId],
+        measureAggs: aggCua(config),
+        limit: SERIES_CAP + 1,
+      },
       { ctx },
     ),
   ]);
@@ -311,6 +347,7 @@ async function aggregateWithSeries(
     {
       dimensionIds: [config.dimensionId, seriesId],
       measureIds: [config.measureId],
+      measureAggs: aggCua(config),
       limit: rowCap + 1,
     },
     {

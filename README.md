@@ -10,20 +10,22 @@ mà **không cần viết SQL**.
 
 ## Trạng thái hiện tại
 
-| Phần                                                                                      | Trạng thái                             |
-| ----------------------------------------------------------------------------------------- | -------------------------------------- |
-| Hạ tầng dev — 8 container (MySQL, Redis, MinIO, ClickHouse, Cube.js, Kafka, Connect, dbt) | ✅ chạy được                           |
-| Backend (Express) + Frontend (React + Vite + Tailwind v4)                                 | ✅ chạy được                           |
-| **Xác thực** — đăng ký, đăng nhập, JWT, đổi mật khẩu                                      | ✅ xong — xem mục _Xác thực_           |
-| **Console vận hành hệ thống** (`/admin`) — nhìn xuyên mọi tổ chức                         | ✅ xong                                |
-| **Khu người dùng** — trang chủ, project, workspace, thành viên, hồ sơ                     | ✅ xong                                |
-| **Phân quyền Casbin** — 8 tài nguyên × 4 hành động, policy trong database                 | ✅ xong                                |
-| **Kết nối CSDL & Kho dữ liệu** (§8) — MySQL, ClickHouse (SSL/TLS, xem trước dữ liệu)      | ✅ xong                                |
-| **Nạp dữ liệu vào ClickHouse** (§9) — bảng `raw_*`, nạp nền, nạp lại nguyên tử            | ✅ xong                                |
-| **Mô hình dữ liệu** (§10) — Cube schema, quan hệ, thước đo, Explorer                      | ✅ xong — xem mục _Mô hình dữ liệu_    |
-| **Trình dựng biểu đồ** (§10.9) — kéo thả chiều/thước đo, 8 loại biểu đồ Vega-Lite         | ✅ xong — xem mục _Trình dựng biểu đồ_ |
-| **Khu Báo cáo & khung nhiều biểu đồ** (§10.10) — mục sidebar riêng, tối đa 12 ô một khung | ✅ xong — xem mục _Khu Báo cáo_        |
-| Bộ lọc dùng chung cả khung, chia sẻ báo cáo ra ngoài                                      | ⏳ chưa làm                            |
+| Phần                                                                                      | Trạng thái                                             |
+| ----------------------------------------------------------------------------------------- | ------------------------------------------------------ |
+| Hạ tầng dev — 6 container (MySQL, Redis, MinIO, ClickHouse, Cube.js, MinIO-init)          | ✅ chạy được                                           |
+| Backend (Express) + Frontend (React + Vite + Tailwind v4)                                 | ✅ chạy được                                           |
+| **Xác thực** — đăng ký, đăng nhập, JWT, đổi & quên mật khẩu, đổi tổ chức                  | ✅ xong — xem mục _Xác thực_                           |
+| **Console vận hành hệ thống** (`/admin`) — nhìn xuyên mọi tổ chức                         | ✅ xong                                                |
+| **Khu người dùng** — trang chủ, project, workspace, thành viên, hồ sơ                     | ✅ xong                                                |
+| **Phân quyền Casbin** — 8 tài nguyên × 4 hành động, policy trong database                 | ✅ xong                                                |
+| **Kết nối CSDL & Kho dữ liệu** (§8) — MySQL, ClickHouse (SSL/TLS, xem trước dữ liệu)      | ✅ xong                                                |
+| **Nạp dữ liệu vào ClickHouse** (§9) — bảng `raw_*`, nạp nền, nạp lại nguyên tử            | ✅ xong                                                |
+| **Mô hình dữ liệu** (§10) — Cube schema, quan hệ, thước đo, Explorer                      | ✅ xong — xem mục _Mô hình dữ liệu_                    |
+| **Trình dựng biểu đồ** (§10.9) — kéo thả chiều/thước đo, 8 loại biểu đồ Vega-Lite         | ✅ xong — xem mục _Trình dựng biểu đồ_                 |
+| **Khu Báo cáo & khung nhiều biểu đồ** (§10.10) — mục sidebar riêng, tối đa 12 ô một khung | ✅ xong — xem mục _Khu Báo cáo_                        |
+| **Xuất báo cáo** — ảnh PNG và tệp PDF, mọi vai trò xuất được                              | ✅ xong                                                |
+| **Gói cước & thanh toán** (§11) — VietQR, đối soát Sepay, hạn mức theo gói                | ✅ xong — xem [docs/thanh-toan.md](docs/thanh-toan.md) |
+| Bộ lọc dùng chung cả khung, chia sẻ báo cáo ra ngoài                                      | ⏳ chưa làm                                            |
 
 Xem lộ trình đầy đủ và phân công theo tính năng trong tài liệu kế hoạch của nhóm.
 
@@ -99,7 +101,7 @@ npm run dev
 
 ### Profile — chỉ bật phần đang cần
 
-8 container không nên cùng chạy suốt ngày. `npm run infra:up` chỉ khởi động
+6 container không nên cùng chạy suốt ngày. `npm run infra:up` chỉ khởi động
 service lõi; phần còn lại chia theo profile:
 
 | Lệnh                    | Thêm gì                         | Bật khi bắt đầu làm                                        |
@@ -107,12 +109,12 @@ service lõi; phần còn lại chia theo profile:
 | `npm run infra:up`      | MySQL, Redis, MinIO, ClickHouse | **luôn luôn** — đăng nhập, tải file, nạp vào kho phân tích |
 | `npm run infra:up:data` | (đã nằm trong lõi)              | không còn thêm gì so với `infra:up`                        |
 | `npm run infra:up:bi`   | Cube.js (+ ClickHouse)          | **tầng ngữ nghĩa**: DataModel, Explore kéo-thả, chart      |
-| `npm run infra:up:all`  | + Kafka, Connect, dbt           | **dbt / CDC realtime**, hoặc demo toàn hệ thống            |
+| `npm run infra:up:all`  | tất cả sáu container            | demo toàn hệ thống                                         |
 
 Tắt lại phần không dùng để trả RAM:
 
 ```bash
-npm run infra:down:extra   # tắt MinIO/ClickHouse/Cube/Kafka/Connect/dbt, giữ MySQL + Redis
+npm run infra:down:extra   # tắt MinIO/ClickHouse/Cube, giữ MySQL + Redis
 npm run infra:down         # tắt tất cả
 ```
 
@@ -171,11 +173,12 @@ bi-flatform/
 │   ├── mysql/init/           # SQL chạy khi volume MySQL còn rỗng
 │   ├── minio/                # script tạo bucket
 │   ├── clickhouse/           # config.d (trần RAM) + users.d (trần mỗi query)
-│   ├── cube/                 # cube.js + model/cubes/ (F7 sinh file vào đây)
-│   ├── dbt/                  # Dockerfile + profiles.yml + dbt_project.yml
-│   └── spike/                # chứng minh Cube ↔ ClickHouse chạy (F1.7)
+│   └── cube/                 # cube.js + model/tenants/ (§10 sinh file vào đây)
 └── docs/
-    └── ports.md              # bản đồ cổng — đọc trước khi thêm service
+    ├── ports.md              # bản đồ cổng — đọc trước khi thêm service
+    ├── thanh-toan.md         # gói cước, VietQR, webhook Sepay, hạn mức (§11)
+    ├── tai-khoan-thu-nghiem.md
+    └── kiem-thu/             # bộ test case + kịch bản trình duyệt
 ```
 
 ---
@@ -193,7 +196,6 @@ Bảng đầy đủ ở [docs/ports.md](docs/ports.md). Những cổng đang dù
 | MinIO console | http://localhost:9001 | `data`      |
 | ClickHouse    | http://localhost:8123 | `data`      |
 | Cube.js       | http://localhost:4100 | `bi`        |
-| Kafka Connect | http://localhost:8083 | `stream`    |
 
 > MySQL dùng **3310** thay vì 3306, ClickHouse native dùng **9002** thay vì 9000
 > (đụng MinIO), Cube dùng **4100** thay vì 4000 (đụng Express). Đều là chủ ý,
@@ -301,10 +303,10 @@ git push -u origin feat/f5-ingest-clickhouse
 
 ### Phân chia sở hữu file
 
-| Vai trò                              | Sở hữu                                                                        |
-| ------------------------------------ | ----------------------------------------------------------------------------- |
-| **Dev A** — Data & Platform          | `infrastructure/`, `cube/`, `dbt/`, `backend/src/services/`                   |
-| **Dev B** — Application & Experience | `backend/src/api/`, `backend/src/middleware/`, `strapi/`, toàn bộ `frontend/` |
+| Vai trò                              | Sở hữu                                                             |
+| ------------------------------------ | ------------------------------------------------------------------ |
+| **Dev A** — Data & Platform          | `infrastructure/`, `infrastructure/cube/`, `backend/src/services/` |
+| **Dev B** — Application & Experience | `backend/src/api/`, `backend/src/middleware/`, toàn bộ `frontend/` |
 
 > **`infrastructure/docker-compose.yml` do Dev A sở hữu ĐỘC QUYỀN.** Đây là file
 > dễ conflict nhất repo. Cần thêm service thì nhắn Dev A, đừng tự sửa.
@@ -342,28 +344,52 @@ git push -u origin feat/f5-ingest-clickhouse
 
 ---
 
-## Kiến trúc mục tiêu
+## Kiến trúc
+
+### Đang chạy thật
+
+Mọi thành phần dưới đây đều có mã nguồn gọi vào, và tắt bất kỳ cái nào cũng làm
+hỏng một chức năng người dùng thấy được.
 
 ```
 React + Vega-Lite  ──►  Express (BFF)  ──►  Cube.js  ──►  ClickHouse
                              │                                 ▲
-                             ├── Casbin  (RBAC theo domain)    │
-                             ├── Strapi  (metadata BI)         │
-                             ├── MySQL   (metadata vận hành)   │
-                             ├── Redis   (cache phân quyền)    │
-                             └── S3/MinIO ──► dbt ─────────────┤
-                                                               │
-                             MySQL binlog ──► Debezium ──► Kafka
+                             ├── Casbin   (RBAC theo domain)   │
+                             ├── MySQL    (toàn bộ metadata)   │
+                             ├── Redis    (chống dò mật khẩu,  │
+                             │             cache phân tích tệp)│
+                             └── S3/MinIO (tệp người dùng tải) ┘
+                                    nạp vào kho bằng backend
 ```
 
 **Ranh giới cần nhớ:**
 
 - **Cube.js không bao giờ lộ ra trình duyệt.** Mọi truy vấn phân tích đi qua
-  `POST /api/v1/query`: Express kiểm quyền, ký một JWT Cube ngắn hạn mang
-  `securityContext`, rồi mới forward. Secret ký nằm ở `CUBEJS_API_SECRET`.
-- **Strapi là nơi ghi metadata BI duy nhất.** Express chỉ gọi REST và cache đọc
-  vào Redis; database `bi_platform` của Express chỉ chứa dữ liệu vận hành
-  (ingest job, `casbin_rule`, audit log).
+  `POST /api/v1/datamodels/:id/query` của Express: Express kiểm quyền, ký một
+  JWT Cube ngắn hạn mang `securityContext`, rồi mới forward. Secret ký nằm ở
+  `CUBEJS_API_SECRET`.
+- **MySQL giữ toàn bộ metadata.** Người dùng, tổ chức, quyền, kết nối, dataset,
+  mô hình dữ liệu, báo cáo, job nạp, đơn thanh toán — tất cả do
+  `backend/src/db/migrations.ts` tạo. Không có CMS nào đứng ngoài giữ hộ.
+- **ClickHouse chỉ giữ dữ liệu phân tích**, ở các bảng `raw_t{tổ chức}_d{dataset}`
+  do §9 nạp vào. Cube đọc thẳng các bảng này.
+
+### Kiến trúc mục tiêu — CHƯA có trong mã nguồn
+
+Những thứ dưới đây **không tồn tại** trong hệ thống hiện tại. Chúng từng có
+container trong `docker-compose.yml` nhưng chưa bao giờ có client, nên đã được gỡ
+để khỏi tạo ấn tượng sai; cấu hình cũ nằm trong lịch sử git.
+
+```
+MySQL binlog ──► Debezium ──► Kafka   (nạp dữ liệu thời gian thực)
+S3/MinIO ─────► dbt ──► ClickHouse    (tầng staging / marts)
+Strapi                                (CMS quản lý metadata BI)
+```
+
+Hai lý do khiến chúng chưa cần thiết ở quy mô hiện tại: dữ liệu vào hệ thống
+theo lô (người dùng tải tệp lên), nên CDC không có nguồn để bắt; và mô hình dữ
+liệu đã có tầng ngữ nghĩa riêng là Cube, nên `staging`/`marts` của dbt sẽ là tầng
+thứ hai làm cùng một việc.
 
 ---
 
@@ -500,19 +526,35 @@ Giới hạn, ghi ra chứ không giấu:
   **tự** vào tài khoản, không phải việc token bị trộm từ ổ cứng; cái đó cần thu
   hồi token phía server (mục dưới).
 
+### Đã có, và đáng nói
+
+- **Tự đăng ký** — `POST /api/auth/register` dựng một lượt: tổ chức + tài khoản
+  - tư cách thành viên + workspace, và người đăng ký làm quản trị tổ chức mình
+    vừa lập. Cố ý KHÔNG tự đăng nhập sau đó: lần đăng nhập đầu tiên là lần duy
+    nhất chứng minh mật khẩu vừa đặt đúng như người dùng nghĩ.
+- **Quên mật khẩu** — `POST /api/auth/forgot-password` gửi liên kết đặt lại;
+  `/reset-password/verify` kiểm liên kết lúc mở trang, `/reset-password` đổi mật
+  khẩu. Ba điều đáng nhớ:
+  - Endpoint xin liên kết LUÔN trả 202 với cùng một câu, kể cả email không tồn
+    tại. Phân biệt ở đó là biến nó thành máy dò xem ai có tài khoản.
+  - Database chỉ giữ SHA-256 của vé, không giữ vé.
+  - Chưa cấu hình SMTP thì thư được IN RA LOG của backend (chỉ ngoài
+    production) — luồng vẫn chạy trọn vẹn trên máy dev. Xem
+    `backend/src/services/mail/mailer.ts` và khối SMTP trong `backend/.env.example`.
+- **Đổi tổ chức trên giao diện** — `POST /api/auth/switch-tenant` cấp token mới
+  mang `tenantId` mới. Vai trò lấy từ membership MỚI, không mang vai trò cũ
+  sang; `tenantId` gửi lên không được tin, `findByUserAndTenant` đọc lại từ
+  database. Người thuộc một tổ chức vào thẳng tổ chức đó.
+
 ### Những gì CHƯA có
 
-- **Chưa có form/API đăng ký.** Tài khoản đầu tiên từ `seed:admin`; các tài
-  khoản sau sẽ do Admin tạo. Cột `users.role` đã `DEFAULT 'viewer'`.
 - **Chưa có refresh token** — hết hạn thì đăng nhập lại.
 - **Đăng xuất chưa thu hồi token phía server.** JWT vô trạng thái nên token bị
   lộ vẫn dùng được tới lúc hết hạn. Muốn thu hồi thật cần danh sách chặn trên
-  Redis (Redis đang chạy sẵn).
-- **Chưa có "quên mật khẩu"** vì chưa có SMTP.
-- **Chưa đổi được tổ chức trên giao diện.** Người thuộc nhiều tổ chức sẽ vào tổ
-  chức cũ nhất (`ORDER BY memberships.id ASC`) — quy tắc ổn định, không tự đổi
-  sau lưng người dùng. API đã trả sẵn mảng `memberships`, nên thêm menu đổi tổ
-  chức về sau chỉ là việc của frontend + một endpoint cấp token mới.
+  Redis (Redis đang chạy sẵn). ⚠️ Kéo theo: ĐỔI MẬT KHẨU cũng không đá được kẻ
+  đang chiếm phiên ra ngoài — token cấp trước đó vẫn sống tới lúc hết hạn.
+- **Chưa xác thực email** khi đăng ký. Cột `users.email_verified_at` đã có sẵn
+  nhưng chưa ai ghi vào.
 - **`users.email` duy nhất toàn cục** vì form đăng nhập không có ô chọn tổ chức.
   Không cản trở việc một người thuộc nhiều tổ chức — đó là việc của `memberships`.
 - **Token lưu `localStorage`** nên XSS đọc được. Đánh đổi có ý thức; muốn chắc
@@ -523,8 +565,10 @@ Giới hạn, ghi ra chứ không giấu:
 
 `AdminRoute` ở frontend **không phải là bảo mật** — nó chỉ giúp người dùng khỏi
 lạc vào trang không dùng được. Thực thi thật là `authenticate` →
-`requireRole('admin')` gắn cho router `/api/admin`; hai middleware đó đã có
-nhưng chưa có endpoint `/api/admin` nào để gắn vào.
+`requirePlatformRole('superadmin')` → `requireFreshAdmin`, gắn cho TOÀN BỘ
+router `/api/admin` ở `app.ts`. Router đó đã có đầy đủ endpoint (tổ chức,
+workspace, thành viên, đơn thanh toán, phương thức thanh toán) — xem
+`backend/src/api/admin/index.ts`.
 
 Casbin và query proxy giờ đã có `sub` để làm việc: `req.auth` mang
 `{ userId, role, tenantId }`.
@@ -854,9 +898,10 @@ Janitor đi chung `tick()` với việc nạp thay vì có bộ đếm giờ ri�
 quét không bao giờ chạy song song với một lần nạp trong cùng tiến trình — nó
 không thể drop trúng bảng tạm `__new` đang được ghi dở.
 
-⚠️ Regex `^raw_t(\d+)_d(\d+)(?:__new)?$` neo **cả hai đầu**. `bi_analytics` còn
-chứa `spike_orders` của spike F1.7 và sẽ chứa view của dbt ở §10; nới nó thành
-tiền tố `raw_` là đủ để một tác vụ nền xoá mất thứ nó không hiểu.
+⚠️ Regex `^raw_t(\d+)_d(\d+)(?:__new)?$` neo **cả hai đầu**. `bi_analytics` là
+database dùng chung — máy dev cũ còn `spike_orders` từ tuần đầu, và người khác
+vẫn tạo bảng tay ở đây; nới nó thành tiền tố `raw_` là đủ để một tác vụ nền xoá
+mất thứ nó không hiểu.
 
 ### Vào thẳng ClickHouse để tự xem
 
@@ -2945,7 +2990,6 @@ hạ tầng.
 | ClickHouse báo `Directory for table data already exists`                                     | Thiếu `SYNC` sau `DROP TABLE`. Database engine `Atomic` hoãn xoá thật 480 giây, nên nạp lại trong vòng 8 phút sẽ đâm vào thư mục cũ. Mọi câu `DROP` trong `loadDataset.ts` đều có `SYNC`                                                                                                       |
 | Cube báo `ECONNREFUSED` tới ClickHouse                                                       | Mount cả thư mục `config.d` dạng `:ro` chặn image ghi `docker_related_config.xml`, ClickHouse chỉ nghe `127.0.0.1`. Compose đã mount từng file — đừng đổi lại                                                                                                                                  |
 | Explorer báo _Đồng hồ … lệch nhau quá 60 giây_ — **mọi** truy vấn hỏng, kể cả trong một bảng | Đồng hồ máy thật lệch đồng hồ container. Token Express ký cho Cube sống 60s nên nó "hết hạn" ngay khi tới nơi. So bằng `date -u` và `docker exec bi-cube date -u`; Windows hay chậm giờ (`w32tm /query /status` báo `Local CMOS Clock`) — mở PowerShell **quyền quản trị** rồi `w32tm /resync` |
-| Kafka client trên host timeout                                                               | Phải dùng `localhost:29092` (listener `PLAINTEXT_HOST`), không phải 9092                                                                                                                                                                                                                       |
 | `port is already allocated` khi `docker compose up`                                          | Máy đã có service giữ cổng đó (hay gặp: Redis/Memurai giữ 6379). Xem [docs/ports.md](docs/ports.md)                                                                                                                                                                                            |
 | `Duplicate column name …` / `Table … already exists` lúc backend khởi động                   | Migration bị hai tiến trình chạy chồng, hoặc bị giết giữa chừng. Runner nay tự chặn và tự nói ra cách gỡ — xem mục _Migration nửa vời_ bên dưới                                                                                                                                                |
 | `EADDRINUSE :::4000`                                                                         | Còn tiến trình backend cũ chưa chết hẳn. `npm run ports:free` — xem mục _Cổng bị chiếm_ bên dưới                                                                                                                                                                                               |

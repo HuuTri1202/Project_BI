@@ -1,12 +1,22 @@
-import { CANVAS_COLUMNS, CANVAS_MIN_H, CANVAS_MIN_W, type ReportAnnotationDto } from '@bi/shared';
+import {
+  CANVAS_COLUMNS,
+  CANVAS_MIN_H,
+  CANVAS_MIN_W,
+  type ReportAnnotationDto,
+  type ReportDataDto,
+} from '@bi/shared';
 import { useEffect, useRef, useState } from 'react';
-import { flushSync } from 'react-dom';
+import { createPortal, flushSync } from 'react-dom';
 
 import { useModelReportPreview } from '../../datamodels/hooks';
 import { getApiError } from '../../../services/apiClient';
+import { ROW_MENU_ICONS, RowMenu, RowMenuItem, RowMenuSub } from '../../../components/ui/RowMenu';
+import { DANG_TAI, KHONG_XUAT } from '../../../services/danhDauXuat';
 import { CANVAS_LAYER_Z } from '../annotations/annotationStyle';
 import { CanvasGrid } from '../CanvasGrid';
 import { cellStyle, rowsNeeded } from '../canvasLayout';
+import { LoiXuat } from '../export/chupBaoCao';
+import { xuatMotO, type KieuMotO } from '../export/xuatMotO';
 import { ReportChart } from '../ReportChart';
 import { ANNOTATION_MIN, type AnnotationPatch } from './annotation';
 import { AnnotationBox } from './AnnotationBox';
@@ -119,12 +129,23 @@ interface Grabbable {
 
 const boxOf = ({ x, y, w, h }: Box): Box => ({ x, y, w, h });
 
+/**
+ * Ba định dạng xuất một ô — cùng thứ tự và cùng chữ với menu "Xuất" của trang
+ * xem. Không lặp lại chữ "Xuất" ở đây: mục cha đã nói rồi.
+ */
+const MUC_XUAT: { kieu: KieuMotO; nhan: string; icon: string }[] = [
+  { kieu: 'png', nhan: 'Ảnh PNG', icon: ROW_MENU_ICONS.image },
+  { kieu: 'pdf', nhan: 'Tệp PDF', icon: ROW_MENU_ICONS.pdf },
+  { kieu: 'excel', nhan: 'Bảng tính Excel', icon: ROW_MENU_ICONS.sheet },
+];
+
 export function CanvasBoard({
   drafts,
   annotations,
   selectedId,
   editingId,
   modelId,
+  tenBaoCao,
   labelOf,
   onSelect,
   onChange,
@@ -140,6 +161,8 @@ export function CanvasBoard({
   /** Hộp văn bản đang ở chế độ gõ chữ, nếu có. */
   editingId: string | null;
   modelId: number;
+  /** Tên báo cáo đang dựng — vào dải tiêu đề và tên tệp khi xuất một ô. */
+  tenBaoCao: string;
   /** Tiêu đề để hiện trên đầu ô — trang tự dựng từ nhãn chiều và thước đo. */
   labelOf: (draft: VisualDraft) => string;
   onSelect: (id: string) => void;
@@ -153,16 +176,54 @@ export function CanvasBoard({
   const ghostRef = useRef<HTMLDivElement>(null);
   const drag = useRef<DragState | null>(null);
 
+  const conSong = useRef(true);
+  /** Ô đang được xuất, và câu lỗi của lần xuất gần nhất — xem `xuatO`. */
+  const [dangXuat, setDangXuat] = useState<string | null>(null);
+  const [loiXuat, setLoiXuat] = useState<string | null>(null);
+
   // Rời trang giữa một cú kéo (đổi trang báo cáo bằng bàn phím, hoàn tác…) thì
   // khung hình đã hẹn không được chạy trên một phần tử đã gỡ.
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    conSong.current = true;
+    return () => {
+      conSong.current = false;
       const state = drag.current;
       if (state?.frame != null) cancelAnimationFrame(state.frame);
       state?.scroller?.removeEventListener('scroll', state.onScroll);
-    },
-    [],
-  );
+    };
+  }, []);
+
+  /**
+   * Xuất MỘT ô — menu "⋮" trên đầu ô, §10.23.
+   *
+   * Trạng thái để ở ĐÂY chứ không trong từng ô: một cái toast ở giữa màn hình
+   * đọc được câu lỗi đầy đủ, còn nhét nó vào tiêu đề ô rộng 200px thì câu lỗi
+   * bị cắt ngay chữ thứ tư. Và hai ô không bao giờ xuất cùng lúc, nên một chỗ
+   * là đủ.
+   */
+  const xuatO = (
+    kieu: KieuMotO,
+    el: HTMLElement | null,
+    ten: string,
+    data: ReportDataDto | undefined,
+  ): void => {
+    setLoiXuat(null);
+    setDangXuat(ten);
+    void xuatMotO({ kieu, el, ten, tenBaoCao, data })
+      .catch((e: unknown) => {
+        if (!conSong.current) return;
+        setLoiXuat(
+          e instanceof LoiXuat
+            ? e.message
+            : 'Không xuất được biểu đồ. Hãy thử lại, hoặc dùng trình duyệt Chrome/Edge bản mới.',
+        );
+        // Lỗi không phải của ta thì vẫn phải để lại dấu vết cho người sửa.
+        if (!(e instanceof LoiXuat)) console.error(e);
+      })
+      .finally(() => {
+        if (conSong.current) setDangXuat(null);
+      });
+  };
 
   const visualTarget = (draft: VisualDraft): Grabbable => ({
     box: draft,
@@ -408,18 +469,60 @@ export function CanvasBoard({
    */
   return (
     <div ref={boardRef}>
+      {/* Toast dựng qua PORTAL, không đặt trong khung.
+          `boardRef` được dùng làm gốc toạ độ của mọi cú kéo (`begin`) và làm bề
+          ngang lưới, nên chèn bất cứ thứ gì vào trong nó là dời gốc ấy đi —
+          biểu đồ sẽ nhảy lệch khỏi con trỏ đúng bằng chiều cao cái toast. Đặt
+          ngoài `ZoomViewport` luôn: nằm trong thì chữ co theo mức thu phóng, và
+          ở 50% thì đọc không ra. */}
+      {(dangXuat !== null || loiXuat !== null) &&
+        createPortal(
+          <div className="fixed inset-x-0 bottom-6 z-50 flex justify-center px-4">
+            <div
+              role={loiXuat === null ? 'status' : 'alert'}
+              className={`flex max-w-lg items-start gap-3 rounded-xl border px-4 py-3 text-sm shadow-lg ${
+                loiXuat === null
+                  ? 'border-slate-200 bg-white text-slate-700'
+                  : 'border-red-200 bg-white'
+              }`}
+            >
+              {loiXuat === null ? (
+                <span>Đang xuất “{dangXuat}”…</span>
+              ) : (
+                <>
+                  <span className="min-w-0">
+                    <span className="block font-medium text-red-700">Chưa xuất được biểu đồ</span>
+                    <span className="mt-0.5 block text-slate-600">{loiXuat}</span>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setLoiXuat(null)}
+                    aria-label="Đóng thông báo"
+                    className="-mt-1 shrink-0 rounded px-1.5 py-0.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                  >
+                    ✕
+                  </button>
+                </>
+              )}
+            </div>
+          </div>,
+          document.body,
+        )}
+
       <CanvasGrid minRows={rowsNeeded([...drafts, ...annotations])}>
         {drafts.map((draft) => {
           const target = visualTarget(draft);
+          const ten = labelOf(draft);
           return (
             <Card
               key={draft.id}
               draft={draft}
-              title={labelOf(draft)}
+              title={ten}
               selected={draft.id === selectedId}
               modelId={modelId}
               onSelect={target.select}
               onRemove={target.remove}
+              onXuat={(kieu, el, data) => xuatO(kieu, el, ten, data)}
               onGrabMove={(e) => begin('move', target, e)}
               onGrabResize={(e) => begin('resize', target, e)}
               onPointerMove={move}
@@ -452,6 +555,7 @@ function Card({
   modelId,
   onSelect,
   onRemove,
+  onXuat,
   onGrabMove,
   onGrabResize,
   onPointerMove,
@@ -464,6 +568,8 @@ function Card({
   modelId: number;
   onSelect: () => void;
   onRemove: () => void;
+  /** Xuất riêng ô này — `el` là thẻ của ô, `data` là số liệu nó đang vẽ. */
+  onXuat: (kieu: KieuMotO, el: HTMLElement | null, data: ReportDataDto | undefined) => void;
   onGrabMove: (event: React.PointerEvent<HTMLElement>) => void;
   onGrabResize: (event: React.PointerEvent<HTMLElement>) => void;
   onPointerMove: (event: React.PointerEvent<HTMLElement>) => void;
@@ -533,8 +639,11 @@ function Card({
    */
   const refreshing = shown !== undefined && preview.isFetching;
 
+  const secRef = useRef<HTMLElement>(null);
+
   return (
     <section
+      ref={secRef}
       style={{ ...cellStyle(draft), zIndex: CANVAS_LAYER_Z.visual }}
       tabIndex={0}
       aria-label={`Ô biểu đồ: ${title}`}
@@ -549,9 +658,13 @@ function Card({
           : 'border-slate-200 hover:border-slate-300'
       }`}
     >
+      {/* `h-[29px]` khai CỨNG, đúng con số `CanvasView` khai — §10.13.
+          Để chiều cao tự tính theo nội dung thì thêm một cái nút vào đây là dải
+          tiêu đề cao thêm vài pixel, và ô người dùng vừa xếp ở trình dựng mở ra
+          ở trang xem lại cao khác. Đo trên Chromium: 31px ở đây, 29px ở kia. */}
       <header
         onPointerDown={onGrabMove}
-        className="flex shrink-0 cursor-grab items-center gap-2 border-b border-slate-100 px-3 py-1.5 select-none active:cursor-grabbing"
+        className="flex h-[29px] shrink-0 cursor-grab items-center gap-2 border-b border-slate-100 px-3 py-1.5 select-none active:cursor-grabbing"
       >
         <span
           className="min-w-0 flex-1 truncate text-xs font-semibold text-slate-700"
@@ -559,22 +672,59 @@ function Card({
         >
           {title}
         </span>
+        {/* `DANG_TAI`: xuất một ô phải đợi con số MỚI, không chụp con số cũ
+            đang mờ trên màn hình — xem `choVeXong`. */}
         {refreshing && (
-          <span className="shrink-0 text-[10px] whitespace-nowrap text-slate-400">
+          <span className="shrink-0 text-[10px] whitespace-nowrap text-slate-400" {...DANG_TAI}>
             đang cập nhật…
           </span>
         )}
-        <button
-          type="button"
-          onClick={onRemove}
-          // `onPointerDown` phải dừng ở đây: nếu không, bấm nút Xoá cũng khởi
-          // động một cú kéo trên tiêu đề bên dưới.
-          onPointerDown={(e) => e.stopPropagation()}
-          aria-label={`Xoá ô ${title}`}
-          className="shrink-0 rounded px-1 text-xs text-slate-400 hover:bg-red-50 hover:text-red-600"
-        >
-          ✕
-        </button>
+        {/*
+          Menu "⋮" thay cho nút ✕ cũ — §10.23.
+          - `onPointerDown` phải dừng ở đây: nếu không, bấm vào menu cũng khởi
+            động một cú kéo trên tiêu đề bên dưới.
+          - Nút cao hơn dòng chữ, nên dải tiêu đề phải khai cứng chiều cao —
+            xem chú thích ở thẻ <header>.
+          - `KHONG_XUAT` để chính cái menu này không lọt vào ảnh vừa chụp.
+        */}
+        <span {...KHONG_XUAT} onPointerDown={(e) => e.stopPropagation()} className="shrink-0">
+          <RowMenu label={`Thao tác trên biểu đồ ${title}`}>
+            {(close) => (
+              <>
+                {/* Ba định dạng nằm trong MỘT mục: menu này chỉ có hai việc —
+                    xuất và xoá — và bày bốn mục ngang hàng làm mất cấu trúc đó.
+                    Xem `RowMenuSub`. */}
+                <RowMenuSub label="Xuất biểu đồ" icon={ROW_MENU_ICONS.export}>
+                  {MUC_XUAT.map((m) => (
+                    <RowMenuItem
+                      key={m.kieu}
+                      icon={m.icon}
+                      disabled={shown === undefined}
+                      title={shown === undefined ? 'Biểu đồ chưa có số liệu để xuất.' : undefined}
+                      onClick={() => {
+                        close();
+                        onXuat(m.kieu, secRef.current, shown);
+                      }}
+                    >
+                      {m.nhan}
+                    </RowMenuItem>
+                  ))}
+                </RowMenuSub>
+                <div className="my-1 border-t border-slate-100" role="separator" />
+                <RowMenuItem
+                  icon={ROW_MENU_ICONS.trash}
+                  danger
+                  onClick={() => {
+                    close();
+                    onRemove();
+                  }}
+                >
+                  Xoá biểu đồ
+                </RowMenuItem>
+              </>
+            )}
+          </RowMenu>
+        </span>
       </header>
 
       <div className="min-h-0 flex-1 overflow-hidden p-2" aria-busy={preview.isFetching}>
@@ -587,7 +737,10 @@ function Card({
             {getApiError(preview.error).message}
           </p>
         ) : shown === undefined ? (
-          <p className="flex h-full items-center justify-center text-xs text-slate-400">
+          <p
+            className="flex h-full items-center justify-center text-xs text-slate-400"
+            {...DANG_TAI}
+          >
             Đang tính…
           </p>
         ) : (
@@ -612,6 +765,7 @@ function Card({
       <span
         onPointerDown={onGrabResize}
         aria-hidden="true"
+        {...KHONG_XUAT}
         className="absolute right-0 bottom-0 h-4 w-4 cursor-nwse-resize rounded-tl border-t border-l border-slate-300 bg-white/80"
       />
     </section>

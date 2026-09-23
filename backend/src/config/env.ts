@@ -224,6 +224,40 @@ const envSchema = z.object({
    */
   SEPAY_API_TOKEN: z.string().min(16).optional(),
 
+  /**
+   * --- Gửi email (hiện chỉ dùng cho "quên mật khẩu") ---
+   *
+   * TẤT CẢ đều tuỳ chọn, và đó là quyết định quan trọng nhất ở khối này.
+   *
+   * Không khai `SMTP_HOST` -> hệ thống KHÔNG tắt chức năng quên mật khẩu; nó
+   * chuyển sang in thư ra log (xem `services/mail/mailer.ts`). Lý do: bắt buộc
+   * SMTP nghĩa là máy dev nào chưa có tài khoản mail sẽ không chạy nổi luồng
+   * này, nên nó sẽ không được thử, và thứ không ai thử thì hỏng lúc nào không
+   * hay. Ở chế độ log, toàn bộ luồng — sinh vé, hết hạn, dùng một lần, đổi mật
+   * khẩu — vẫn chạy thật và test được đầu-cuối.
+   *
+   * ⚠️ Chế độ log CHỈ dành cho dev. `isProduction` mà thiếu SMTP_HOST thì
+   * `mailer.ts` từ chối gửi thay vì in vé ra log — log production hay được gom
+   * về một nơi nhiều người đọc, và một cái vé đặt lại mật khẩu nằm trong đó thì
+   * ai đọc log cũng chiếm được tài khoản.
+   */
+  SMTP_HOST: z.string().min(1).optional(),
+  SMTP_PORT: portFromEnv.optional(),
+  SMTP_USER: z.string().min(1).optional(),
+  SMTP_PASSWORD: z.string().min(1).optional(),
+  /** `true` cho cổng 465 (TLS ngay từ đầu); để trống cho 587 (STARTTLS). */
+  SMTP_SECURE: z.enum(['true', 'false']).optional(),
+  /** Người gửi hiện trong hộp thư. Thiếu thì lấy `SMTP_USER`. */
+  MAIL_FROM: z.string().min(1).optional(),
+
+  /**
+   * Vé đặt lại mật khẩu sống bao lâu.
+   *
+   * 60 phút: đủ dài cho người đọc mail trên điện thoại rồi mới về máy tính, đủ
+   * ngắn để một hộp thư bị xem trộm ngày hôm sau không còn dùng được vé cũ.
+   */
+  PASSWORD_RESET_TTL_MINUTES: z.coerce.number().int().positive().max(1440).default(60),
+
   // --- Seed tài khoản quản trị đầu tiên (§2.7) ---
   // Đều có giá trị mặc định nên KHÔNG bắt buộc khai trong .env; chỉ script
   // seed đọc tới.

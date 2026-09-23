@@ -1,6 +1,6 @@
 import type { ReportAnnotationDto } from './annotation';
 import type { DatasetSource } from './data';
-import type { MeasureFormat } from './datamodel';
+import type { MeasureAgg, MeasureFormat } from './datamodel';
 
 /**
  * Hợp đồng dữ liệu của báo cáo và biểu đồ (§7.6, mở rộng ở §10.8).
@@ -406,14 +406,42 @@ export const REPORT_SOURCE_LABELS: Record<ReportSource, string> = {
  * không làm mồ côi báo cáo, và chuỗi trong cấu hình không bao giờ đi vào câu
  * lệnh — Cube nhận tên do backend dựng từ chính hai ID này.
  *
- * KHÔNG có `aggregate`: phép gộp đã nằm trong định nghĩa của thước đo (tab
- * Schemas, hoặc công thức ở §10.6). Cho phép chọn lại ở đây nghĩa là cùng một
- * thước đo cho hai con số khác nhau tuỳ báo cáo — đúng thứ tầng ngữ nghĩa sinh
- * ra để dẹp.
+ * ⚠️ Bản trước của chú thích này viết: "KHÔNG có `aggregate`: cho phép chọn lại
+ * ở đây nghĩa là cùng một thước đo cho hai con số khác nhau tuỳ báo cáo — đúng
+ * thứ tầng ngữ nghĩa sinh ra để dẹp." Nỗi lo đó ĐÚNG, nhưng kết luận thì không,
+ * và thực tế đã chỉ ra:
+ *
+ *   - Tab Explorer của mô hình dữ liệu ĐÃ cho đổi phép gộp (`measureAggs`), nên
+ *     "một thước đo một con số" vốn đã không còn đúng trong hệ thống. Cấm ở
+ *     trình dựng chỉ khiến người dùng phải sang Explorer, tự tính, rồi quay lại
+ *     — hoặc bắt quản trị viên đẻ thêm một thước đo "Trung bình Quantity" nằm
+ *     cạnh "Tổng Quantity", đúng cái rác mà tầng ngữ nghĩa muốn tránh.
+ *   - Cube đã sinh sẵn một measure cho MỖI phép gộp cho phép (`altAggs`), nên
+ *     đây không phải mở một cánh cửa mới; cánh cửa đã mở, chỉ là trình dựng
+ *     không với tới.
+ *
+ * Cái phải giữ là điều kiện đi kèm: **con số không bao giờ được xuất hiện mà
+ * không nói nó là phép tính gì**. `explorer.ts` gắn hậu tố vào nhãn khi có đổi
+ * ("Sales (Trung bình)"), nhãn đó chảy vào tiêu đề trục, chú giải, tooltip và
+ * bảng số liệu; trình dựng gắn đúng hậu tố ấy để hai bên không lệch nhau. Mở
+ * quyền chọn mà bỏ phần nhãn thì mới đúng là thứ đáng cấm.
  */
 export interface ReportModelConfigDto {
   dimensionId: number;
   measureId: number;
+  /**
+   * Đổi phép gộp của thước đo CHO RIÊNG biểu đồ này.
+   *
+   * Vắng mặt = dùng phép gộp mà mô hình khai (`ExplorerFieldDto.agg`), tức đúng
+   * hành vi từ §10.8 — nên mọi báo cáo đã lưu đọc ra không đổi một con số nào,
+   * và không cần migrate dữ liệu.
+   *
+   * Chỉ nhận giá trị nằm trong `availableAggs` của chính thước đo đó; backend
+   * từ chối 400 chứ không âm thầm rơi về mặc định (xem `explorer.ts`). Thước đo
+   * công thức và thước đo đếm dòng có `availableAggs` rỗng — chúng đã gộp sẵn,
+   * gộp lần nữa là sai — nên với chúng trường này không bao giờ được đặt.
+   */
+  measureAgg?: MeasureAgg | null | undefined;
   /**
    * Số nhóm MỖI TRANG — §10.15.
    *

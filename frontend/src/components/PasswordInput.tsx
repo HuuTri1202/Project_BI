@@ -1,5 +1,5 @@
 import { useState, type InputHTMLAttributes } from 'react';
-import { ERROR_CLASS, LABEL_CLASS, inputClass } from './formStyles';
+import { ERROR_CLASS, ERROR_SLOT_CLASS, LABEL_CLASS, inputClass } from './formStyles';
 
 interface PasswordInputProps extends Omit<
   InputHTMLAttributes<HTMLInputElement>,
@@ -76,11 +76,14 @@ export function PasswordInput({
         </button>
       </div>
 
-      {error && (
-        <p id={errorId} className={ERROR_CLASS}>
-          {error}
-        </p>
-      )}
+      {/* Chỗ chừa sẵn, cùng lý do với `FormField` — xem ERROR_SLOT_CLASS. */}
+      <div className={ERROR_SLOT_CLASS}>
+        {error && (
+          <p id={errorId} className={ERROR_CLASS}>
+            {error}
+          </p>
+        )}
+      </div>
     </div>
   );
 }

@@ -14,6 +14,7 @@ import { AnnotationView } from './annotations/AnnotationView';
 import { CANVAS_LAYER_Z } from './annotations/annotationStyle';
 import { CanvasGrid } from './CanvasGrid';
 import { cellStyle, rowsNeeded } from './canvasLayout';
+import { tieuDeTuSoLieu } from './nhanO';
 import { ReportChart } from './ReportChart';
 
 /**
@@ -163,12 +164,20 @@ function ViewCard({
    * Không điền "Đang tải…" vào chỗ này: thân ô đã nói đúng câu đó rồi, và lặp
    * lại nó ở tiêu đề chỉ làm một ô đang chờ trông như hai ô đang chờ.
    */
-  const title =
-    visual.title ?? (rows !== null ? `${rows.measureLabel} theo ${rows.dimensionLabel}` : '');
+  const title = visual.title ?? (rows !== null ? tieuDeTuSoLieu(rows) : '');
 
   return (
     <section
       style={{ ...cellStyle(visual), zIndex: CANVAS_LAYER_Z.visual }}
+      /* Chọn lẻ vài biểu đồ để xuất (§10.23) thì việc chụp phải tìm lại ĐÚNG ô
+         này trong DOM. Qua thuộc tính chứ không qua ref: vùng được chụp có thể
+         là trang đang hiển thị hoặc một trang dựng ngoài màn hình, và một
+         `querySelector` trả lời được cho cả hai — cùng lý do với `danhDauXuat`. */
+      data-visual-id={visual.id}
+      /* Chữ ĐANG in trên đầu ô, để hộp chọn trước khi xuất gọi ô đúng cái tên
+         người dùng đang đọc. Qua thuộc tính chứ không moi `h3` ra khỏi DOM: đổi
+         cấu trúc thẻ bên trong không được làm hộp chọn lặng lẽ mất tên. */
+      data-visual-ten={title}
       className="flex flex-col overflow-hidden rounded-xl border border-slate-200 bg-white"
     >
       {/* Header luôn có mặt kể cả khi trống — mất nó thì ô nhảy cao lên một
