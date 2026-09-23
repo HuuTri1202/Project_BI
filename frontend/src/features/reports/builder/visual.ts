@@ -6,10 +6,12 @@ import {
   CANVAS_MIN_W,
   CHART_SERIES_SUPPORT,
   CHART_TYPE_LABELS,
+  MEASURE_AGG_LABELS,
   DEFAULT_CHART_PALETTE,
   distinctFieldLabels,
   normalizePalette,
   PAGE_NAME_MAX,
+  type MeasureAgg,
   type ChartType,
   type ExplorerFieldDto,
   type ReportAnnotationDto,
@@ -43,6 +45,15 @@ export interface VisualDraft {
   dimensionId: number | null;
   measureId: number | null;
   seriesId: number | null;
+  /**
+   * Phép gộp chọn lại cho ô này — `null` = dùng phép mà mô hình khai.
+   *
+   * ⚠️ Phải được XOÁ khi người dùng thả một thước đo khác vào ô Giá trị: `avg`
+   * hợp lệ với một cột số nhưng vô nghĩa với một thước đo đếm dòng, và giữ lại
+   * thì lần lưu kế tiếp nhận 400 cho một thứ người dùng không hề chọn. Xem
+   * `assignField`.
+   */
+  measureAgg: MeasureAgg | null;
   /** Số nhóm MỖI TRANG — xem `ReportModelConfigDto.limit`. */
   limit: number;
   /*
@@ -146,6 +157,7 @@ export function emptyVisual(at: { x: number; y: number }): VisualDraft {
     dimensionId: null,
     measureId: null,
     seriesId: null,
+    measureAgg: null,
     limit: 20,
     options: { ...DEFAULT_OPTIONS },
     title: '',
@@ -163,6 +175,7 @@ export function fromDto(visual: ReportVisualDto): VisualDraft {
     dimensionId: visual.config.dimensionId,
     measureId: visual.config.measureId,
     seriesId: visual.config.seriesDimensionId ?? null,
+    measureAgg: visual.config.measureAgg ?? null,
     limit: visual.config.limit,
     /*
      * `normalizePalette` SAU phép trải, không phải trước.
@@ -229,6 +242,13 @@ export interface PreviewConfig {
    */
   pick: GroupPick;
   seriesDimensionId: number | null;
+  /**
+   * PHẢI có mặt, cùng lý do với `pick`: nó đổi measure mà Cube được hỏi.
+   *
+   * Bỏ quên thì đổi từ Tổng sang Trung bình là một lần trúng cache — biểu đồ
+   * đứng yên, không request, không lỗi, và ô chọn trông như bị hỏng.
+   */
+  measureAgg: MeasureAgg | null;
 }
 
 /** Từ một ô đang soạn. `null` khi ô chưa đủ chiều và thước đo để hỏi. */
@@ -240,6 +260,7 @@ export function previewConfigOfDraft(draft: VisualDraft): PreviewConfig | null {
     limit: draft.limit,
     pick: pickOf(draft),
     seriesDimensionId: seriesUsed(draft),
+    measureAgg: draft.measureAgg,
   };
 }
 
@@ -256,6 +277,7 @@ export function previewConfigOfDto(config: ReportModelConfigDto): PreviewConfig 
     limit: config.limit,
     pick: config.pick ?? 'top',
     seriesDimensionId: config.seriesDimensionId ?? null,
+    measureAgg: config.measureAgg ?? null,
   };
 }
 
@@ -276,6 +298,7 @@ export function toDto(draft: VisualDraft): ReportVisualDto | null {
     config: {
       dimensionId: draft.dimensionId,
       measureId: draft.measureId,
+      measureAgg: draft.measureAgg,
       limit: draft.limit,
       pick: pickOf(draft),
       seriesDimensionId: seriesUsed(draft),
@@ -483,7 +506,10 @@ export function assignField(
   field: DragField,
 ): Partial<VisualDraft> | null {
   if (slot === 'measure') {
-    return field.kind === 'measure' ? { measureId: field.id } : null;
+    // `measureAgg: null` đi kèm BẮT BUỘC: phép gộp đang chọn thuộc về thước đo
+    // CŨ. Giữ lại khi thả thước đo khác vào là mang một phép có thể vô nghĩa
+    // sang một trường khác — xem ghi chú ở `VisualDraft.measureAgg`.
+    return field.kind === 'measure' ? { measureId: field.id, measureAgg: null } : null;
   }
   if (field.kind === 'measure') return null;
 
@@ -593,8 +619,25 @@ export function fieldLabelsOf(
     series === undefined ? [dimension, measure] : [dimension, series, measure],
   );
 
+  const tenThuocDo = labels[labels.length - 1] ?? measure.label;
+
   return {
     dimension: labels[0] ?? dimension.label,
-    measure: labels[labels.length - 1] ?? measure.label,
+    /*
+     * Hậu tố phép gộp phải khớp CHÍNH XÁC thứ backend gắn.
+     *
+     * `explorer.ts` trả về `"Sales (Trung bình)"` khi truy vấn có đổi phép gộp,
+     * và nhãn đó chảy vào tiêu đề trục, chú giải, tooltip và bảng số liệu ở
+     * trang xem. Trình dựng dựng nhãn từ bảng trường nên phải tự gắn — thiếu nó
+     * thì cùng một ô mang tiêu đề "Sales" trong trình dựng và "Sales (Trung
+     * bình)" ở trang xem, đúng loại lệch mà §10.21 sinh ra để dẹp.
+     *
+     * Chỉ gắn khi THẬT SỰ đổi: chọn lại đúng phép mà mô hình đang khai thì
+     * backend coi như không đổi và không gắn gì.
+     */
+    measure:
+      draft.measureAgg !== null && draft.measureAgg !== measure.agg
+        ? `${tenThuocDo} (${MEASURE_AGG_LABELS[draft.measureAgg]})`
+        : tenThuocDo,
   };
 }

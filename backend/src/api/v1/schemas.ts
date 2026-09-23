@@ -281,6 +281,19 @@ export const reportModelConfigSchema = z.object({
    * xoá khỏi thân request — cùng ý nghĩa nhưng hai hình dạng, nên nhận cả hai.
    */
   seriesDimensionId: z.coerce.number().int().positive().nullish(),
+  /**
+   * Đổi phép gộp riêng cho biểu đồ này — cùng cơ chế `measureAggs` của Explorer.
+   *
+   * Ở TRONG `config` chứ không trong `options`, cùng lý do với `pick`: nó đổi
+   * SỐ LIỆU. Nhầm sang `options` thì nó không vào khoá cache và đổi phép tính sẽ
+   * trả về đúng câu trả lời cũ.
+   *
+   * zod chỉ lo hình dạng. Việc phép này có hợp lệ với thước đo đó không do
+   * `assertChartConfigAgainst` kiểm, vì chỉ ở đó mới biết `availableAggs`.
+   *
+   * `.nullish()` vì trình dựng gửi `null` khi người dùng chọn lại "theo mô hình".
+   */
+  measureAgg: z.enum(MEASURE_AGGS).nullish(),
   options: reportChartOptionsSchema.optional(),
 });
 

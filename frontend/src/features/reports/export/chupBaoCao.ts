@@ -256,7 +256,7 @@ export function rgbaSangRgb(rgba: Uint8ClampedArray): Uint8Array<ArrayBuffer> {
  * đổi chúng thành "_" theo cách của riêng nó, hoặc bỏ luôn tên và lưu thành
  * "download".
  */
-export function tenTepXuat(phan: readonly (string | null)[], duoi: 'png' | 'pdf'): string {
+export function tenTepXuat(phan: readonly (string | null)[], duoi: 'png' | 'pdf' | 'xlsx'): string {
   const ten = phan
     .filter((p): p is string => p !== null && p.trim() !== '')
     .join(' - ')

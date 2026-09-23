@@ -7,6 +7,7 @@ import {
   CHART_TYPE_LABELS,
   DATAMODEL_ERROR_CODES,
   DATASET_ERROR_CODES,
+  MEASURE_AGG_LABELS,
   ORDER_STATUS_LABELS,
   REPORT_ERROR_CODES,
   WORKSPACE_ERROR_CODES,
@@ -735,8 +736,28 @@ function assertChartConfigAgainst(
   if (!fields.dimensions.some((f) => f.id === config.dimensionId)) {
     throw fieldGone('Chiều đã chọn');
   }
-  if (!fields.measures.some((f) => f.id === config.measureId)) {
+  const measure = fields.measures.find((f) => f.id === config.measureId);
+  if (measure === undefined) {
     throw fieldGone('Thước đo đã chọn');
+  }
+
+  /*
+   * Phép gộp chọn lại phải nằm trong `availableAggs` của CHÍNH thước đo đó.
+   *
+   * Không kiểm ở đây thì lỗi vẫn nổ, nhưng nổ ở tận Cube với câu "member not
+   * found" — một câu chỉ có nghĩa với người biết cơ chế sinh schema, và nó tới
+   * lúc XEM chứ không lúc LƯU. Tức là báo cáo lưu được, rồi hỏng.
+   *
+   * Bằng chính phép mà mô hình khai thì luôn hợp lệ, kể cả khi `availableAggs`
+   * rỗng (thước đo công thức, thước đo đếm dòng): khi đó nó không phải một phép
+   * CHỌN LẠI mà chỉ là viết lại thứ đã có.
+   */
+  const agg = config.measureAgg ?? null;
+  if (agg !== null && agg !== measure.agg && !(measure.availableAggs ?? []).includes(agg)) {
+    throw badRequest(
+      `Thước đo "${measure.label}" không nhận phép gộp "${MEASURE_AGG_LABELS[agg]}". ` +
+        'Hãy chọn lại phép tính cho ô Giá trị.',
+    );
   }
 
   const series = config.seriesDimensionId ?? null;

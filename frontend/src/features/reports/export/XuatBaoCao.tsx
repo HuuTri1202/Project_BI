@@ -2,11 +2,16 @@ import type { ReportDto, ReportPageDto } from '@bi/shared';
 import { useEffect, useRef, useState, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
 
+import { useQueryClient } from '@tanstack/react-query';
+
 import { Button } from '../../../components/ui/Button';
 import { getApiError } from '../../../services/apiClient';
 import { loiXuat } from '../../../services/danhDauXuat';
+import { fetchReportCanvasData, fetchReportData } from '../../datasets/api';
 import { useReportCanvasData } from '../../datasets/hooks';
+import { datasetKeys } from '../../datasets/keys';
 import { CanvasView } from '../CanvasView';
+import { xuatExcel } from './excelBaoCao';
 import {
   canvasSangPng,
   canvasSangTrangPdf,
@@ -40,7 +45,7 @@ import { taoPdf, type TrangPdf } from './pdfAnh';
  * nhóm họ đang xem (ô được dựng lại theo mã trang, xem `CanvasView`).
  */
 
-type Kieu = 'png' | 'pdf' | 'pdf-tat-ca';
+type Kieu = 'png' | 'pdf' | 'pdf-tat-ca' | 'excel';
 
 export function XuatBaoCao({
   report,
@@ -58,6 +63,7 @@ export function XuatBaoCao({
   const [loi, setLoi] = useState<string | null>(null);
   const [ngoai, setNgoai] = useState<{ page: ReportPageDto; rong: number } | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
+  const qc = useQueryClient();
   /**
    * Người đang chờ khung ngoài màn hình của MỘT trang gắn vào DOM — xem
    * `dungNgoaiManHinh`.
@@ -144,6 +150,30 @@ export function XuatBaoCao({
         return;
       }
 
+      if (kieu === 'excel') {
+        // KHÔNG chụp màn hình: Excel cần số, không cần điểm ảnh. Đi qua
+        // `fetchQuery` để trang đã xem là một lần đọc cache, trang chưa xem mới
+        // phải hỏi máy chủ — và không phải dựng khung ngoài màn hình lần nào.
+        const blob = await xuatExcel({
+          report,
+          layCanvas: (pageId) =>
+            qc.fetchQuery({
+              queryKey: datasetKeys.reportCanvasData(report.id, pageId),
+              queryFn: () => fetchReportCanvasData(report.id, pageId),
+            }),
+          layDon: () =>
+            qc.fetchQuery({
+              queryKey: datasetKeys.reportData(report.id),
+              queryFn: () => fetchReportData(report.id),
+            }),
+          tienDo: (noi) => {
+            if (conSong.current) setTienDo(noi);
+          },
+        });
+        if (conSong.current) taiXuong(blob, tenTepXuat([report.name], 'xlsx'));
+        return;
+      }
+
       if (kieu === 'pdf') {
         const { canvas, rongCss, caoCss } = await chupVung(vungDangXem(), thongTin(activePage));
         const trang = await canvasSangTrangPdf(canvas, rongCss, caoCss);
@@ -204,6 +234,15 @@ export function XuatBaoCao({
       nhan: 'Tệp PDF',
       goiY: nhieuTrang ? 'Trang đang xem' : 'Toàn bộ báo cáo',
       icon: 'M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8l-5-5Zm0 0v5h5M9 13h6m-6 4h6',
+    },
+    {
+      kieu: 'excel',
+      nhan: 'Bảng tính Excel',
+      goiY:
+        pages.length > 1
+          ? `Số liệu mọi biểu đồ, mỗi biểu đồ một sheet`
+          : 'Số liệu đang vẽ trên biểu đồ',
+      icon: 'M4 6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6Zm0 4h16M10 10v10',
     },
     ...(nhieuTrang
       ? [

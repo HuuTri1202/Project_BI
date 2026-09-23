@@ -115,12 +115,16 @@ afterEach(() => {
 });
 
 describe('menu Xuất', () => {
-  it('báo cáo một trang: hai mục, cả hai là toàn bộ báo cáo', () => {
+  it('báo cáo một trang: ba mục — PNG, PDF, Excel', () => {
     ve(baoCao([BA_TRANG[0] as ReportPageDto]), null);
     fireEvent.click(screen.getByRole('button', { name: /Xuất/ }));
 
     const muc = screen.getAllByRole('menuitem').map((m) => m.textContent);
-    expect(muc).toEqual(['Ảnh PNGToàn bộ báo cáo', 'Tệp PDFToàn bộ báo cáo']);
+    expect(muc).toEqual([
+      'Ảnh PNGToàn bộ báo cáo',
+      'Tệp PDFToàn bộ báo cáo',
+      'Bảng tính ExcelSố liệu đang vẽ trên biểu đồ',
+    ]);
   });
 
   it('báo cáo nhiều trang: thêm mục PDF cho tất cả các trang', () => {
@@ -128,9 +132,10 @@ describe('menu Xuất', () => {
     fireEvent.click(screen.getByRole('button', { name: /Xuất/ }));
 
     const muc = screen.getAllByRole('menuitem').map((m) => m.textContent);
-    expect(muc).toHaveLength(3);
+    expect(muc).toHaveLength(4);
     expect(muc[0]).toContain('Trang đang xem');
-    expect(muc[2]).toContain('tất cả 3 trang');
+    expect(muc[2]).toContain('mỗi biểu đồ một sheet');
+    expect(muc[3]).toContain('tất cả 3 trang');
   });
 });
 

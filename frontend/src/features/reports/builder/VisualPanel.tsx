@@ -6,9 +6,12 @@ import {
   CHART_TYPE_HINTS,
   CHART_TYPE_LABELS,
   CHART_VALUE_LABELS,
+  MEASURE_AGG_HINTS,
+  MEASURE_AGG_LABELS,
   VISUAL_TITLE_MAX,
   type ChartSort,
   type ExplorerFieldDto,
+  type MeasureAgg,
 } from '@bi/shared';
 
 import { CHART_CHOICES } from '../chartCatalog';
@@ -121,7 +124,16 @@ export function VisualPanel({
           dragging={dragging}
           onAssign={(f) => drop('measure', f)}
           onClear={() => onChange({ measureId: null })}
-          describe={moTaCua}
+          describe={(f) => moTaCua(f, draft.measureAgg)}
+          duoi={
+            chosenMeasure === null ? null : (
+              <ChonPhepTinh
+                field={chosenMeasure}
+                value={draft.measureAgg}
+                onPick={(agg) => onChange({ measureAgg: agg })}
+              />
+            )
+          }
         />
         <Shelf
           label="Nhóm màu"
@@ -268,4 +280,70 @@ function sapXepHint(
   if (sort === 'value-asc') return `Trang 1 là ${limit} nhóm NHỎ NHẤT theo ${thuocDo}.`;
   if (sort === 'value') return undefined;
   return `Xếp theo tên trong phạm vi trang này; các trang vẫn đi theo thứ hạng của ${thuocDo}.`;
+}
+
+/**
+ * Chọn phép tính cho thước đo đang nằm ở ô Giá trị.
+ *
+ * ═══ Vì sao là một ô xổ, còn Explorer lại là một dãy nút ════════════════════
+ *
+ * `ExplorerTab` cố ý KHÔNG dùng ô xổ, và lập luận ở đó đúng: một ô xổ giấu mọi
+ * lựa chọn sau một cú bấm, nên người dùng không biết là mình đổi được phép tính.
+ * Ở đây thì ngược lại vì chỗ đứng khác hẳn:
+ *
+ *   - Bảng bên Explorer rộng cả một cột và mỗi trường có riêng một dòng cho dãy
+ *     nút. Ô thả ở đây rộng khoảng 260px và đã mang sẵn tên trường cùng câu mô
+ *     tả. Bảy nút "Tổng / Trung bình / Đếm ô có dữ liệu / Đếm giá trị khác
+ *     nhau / …" sẽ xuống bốn dòng và đẩy hai ô thả kia ra khỏi tầm nhìn.
+ *   - Explorer là chỗ người ta THỬ; trình dựng là chỗ người ta CHỐT. Ở đây phép
+ *     tính đang dùng phải đọc được trong nửa giây, còn danh sách đầy đủ chỉ cần
+ *     khi thật sự muốn đổi.
+ *
+ * Ô xổ hiện đúng phép đang dùng ngay trên mặt, nên vế "đọc được trong nửa giây"
+ * được giữ; vế "biết là đổi được" do mũi tên và nhãn "Phép tính" gánh.
+ *
+ * ═══ Không hiện với thước đo đã gộp sẵn ═════════════════════════════════════
+ *
+ * Thước đo công thức và thước đo đếm dòng có `availableAggs` rỗng — hai toán
+ * hạng của chúng đã gộp rồi, gộp lần nữa là sai. Với chúng ô này biến mất hẳn
+ * thay vì hiện ra rồi báo lỗi khi bấm.
+ */
+function ChonPhepTinh({
+  field,
+  value,
+  onPick,
+}: {
+  field: ExplorerFieldDto;
+  value: MeasureAgg | null;
+  onPick: (agg: MeasureAgg | null) => void;
+}): React.ReactElement | null {
+  const chon = field.availableAggs ?? [];
+  if (chon.length === 0 || field.agg === undefined) return null;
+
+  const dangDung = value ?? field.agg;
+
+  return (
+    <label className="mt-1 flex items-center gap-1.5">
+      <span className="shrink-0 text-[11px] text-brand-700/70">Phép tính</span>
+      <select
+        value={dangDung}
+        onChange={(e) => {
+          const agg = e.target.value as MeasureAgg;
+          // Chọn lại đúng phép mô hình khai thì GỠ hẳn trường này khỏi cấu hình
+          // thay vì lưu một giá trị trùng. Nhờ vậy báo cáo không mang một phép
+          // "chọn lại" vô nghĩa, và nhãn không bị gắn hậu tố "(Tổng)" thừa.
+          onPick(agg === field.agg ? null : agg);
+        }}
+        title={MEASURE_AGG_HINTS[dangDung]}
+        aria-label={`Phép tính cho ${field.label}`}
+        className="min-w-0 flex-1 rounded border border-brand-200 bg-white px-1 py-0.5 text-xs text-brand-900"
+      >
+        {chon.map((a) => (
+          <option key={a} value={a}>
+            {MEASURE_AGG_LABELS[a]}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
 }
