@@ -174,6 +174,10 @@ function ViewCard({
          là trang đang hiển thị hoặc một trang dựng ngoài màn hình, và một
          `querySelector` trả lời được cho cả hai — cùng lý do với `danhDauXuat`. */
       data-visual-id={visual.id}
+      /* Chữ ĐANG in trên đầu ô, để hộp chọn trước khi xuất gọi ô đúng cái tên
+         người dùng đang đọc. Qua thuộc tính chứ không moi `h3` ra khỏi DOM: đổi
+         cấu trúc thẻ bên trong không được làm hộp chọn lặng lẽ mất tên. */
+      data-visual-ten={title}
       className="flex flex-col overflow-hidden rounded-xl border border-slate-200 bg-white"
     >
       {/* Header luôn có mặt kể cả khi trống — mất nó thì ô nhảy cao lên một

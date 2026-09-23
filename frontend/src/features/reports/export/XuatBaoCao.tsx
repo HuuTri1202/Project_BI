@@ -18,6 +18,7 @@ import {
   khoaO,
   oTrenManHinh,
   oTrongTam,
+  tenTrenManHinh,
   themNhanThat,
   type KieuXuat,
   type OXuat,
@@ -181,13 +182,21 @@ export function XuatBaoCao({
   };
 
   /**
-   * Nhãn thật của một ô, nếu số liệu trang đó ĐÃ có trong cache.
+   * Nhãn thật của một ô — MÀN HÌNH trước, cache sau.
    *
-   * `getQueryData` chứ không `fetchQuery`: hộp chọn phải mở ra tức thì. Trang
-   * đang xem bao giờ cũng có sẵn (chính `ReportViewer` vừa nạp), nên những ô
-   * người dùng đang nhìn luôn mang đúng cái tên in trên đầu ô.
+   * Màn hình là nguồn đúng theo định nghĩa: hộp chọn phải gọi ô bằng đúng cái
+   * tên người dùng đang đọc trên đầu ô. Cache chỉ đỡ cho những TRANG KHÁC, nơi
+   * không có gì trên màn hình để đọc — và ở đó nó thường có sẵn nếu người dùng
+   * đã lật qua trang ấy.
+   *
+   * `getQueryData` chứ không `fetchQuery`: hộp chọn phải mở ra tức thì, không
+   * đợi một vòng mạng. Ô nào không tra được thì giữ tên tạm.
    */
-  const nhanTuCache = (pageId: string, visualId: string): string | null => {
+  const nhanThat = (pageId: string, visualId: string): string | null => {
+    const vung = vungRef.current;
+    const tren = vung === null ? null : tenTrenManHinh(vung, visualId);
+    if (tren !== null) return tren;
+
     const d = qc.getQueryData<ReportCanvasDataDto>(
       // Trang đầu hỏi bằng `null` — cùng quy ước với `ReportViewer`.
       datasetKeys.reportCanvasData(report.id, pageId === pages[0]?.id ? null : pageId),
@@ -307,7 +316,7 @@ export function XuatBaoCao({
   const batDau = (kieu: KieuXuat): void => {
     setOpen(false);
     setLoi(null);
-    const danhSach = themNhanThat(oTrongTam(report, kieu, activePage?.id ?? null), nhanTuCache);
+    const danhSach = themNhanThat(oTrongTam(report, kieu, activePage?.id ?? null), nhanThat);
     if (danhSach.length <= 1) {
       void xuat(kieu, null);
       return;

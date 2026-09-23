@@ -11,6 +11,7 @@ import {
   oTrenManHinh,
   oTrongTam,
   tenO,
+  tenTrenManHinh,
   themNhanThat,
 } from '../src/features/reports/export/chonO';
 import * as chup from '../src/features/reports/export/chupBaoCao';
@@ -90,6 +91,8 @@ function ve(
   activePageId: string | null,
   /** Số liệu đã có sẵn trong cache, như sau khi `ReportViewer` vừa nạp trang. */
   cache?: { pageId: string | null; visuals: { visualId: string; measureLabel: string }[] },
+  /** Chữ đang in trên đầu từng ô — `CanvasView` gắn nó vào `data-visual-ten`. */
+  tenTren: Record<string, string> = {},
 ): { oTren: (id: string) => HTMLElement } {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   if (cache !== undefined) {
@@ -115,7 +118,12 @@ function ve(
         <XuatBaoCao report={report} activePageId={activePageId} vungRef={ref} />
         <div ref={ref} data-testid="vung">
           {(page?.visuals ?? []).map((v) => (
-            <div key={v.id} data-visual-id={v.id} data-testid={`o-${v.id}`}>
+            <div
+              key={v.id}
+              data-visual-id={v.id}
+              {...(tenTren[v.id] === undefined ? {} : { 'data-visual-ten': tenTren[v.id] })}
+              data-testid={`o-${v.id}`}
+            >
               ô {v.id}
             </div>
           ))}
@@ -318,7 +326,37 @@ describe('tên ô lấy nhãn thật khi đã có số liệu', () => {
     expect(sau[2]?.ten).toBe('Nhãn từ số liệu');
   });
 
-  it('hộp chọn gọi ô đúng cái tên đang in trên đầu ô', () => {
+  it('tenTrenManHinh đọc đúng chữ đang in trên đầu ô', () => {
+    const goc = document.createElement('div');
+    goc.innerHTML =
+      '<div data-visual-id="a" data-visual-ten="Doanh thu theo Nhóm"></div>' +
+      '<div data-visual-id="b"></div>' +
+      '<div data-visual-id="c" data-visual-ten="   "></div>';
+
+    expect(tenTrenManHinh(goc, 'a')).toBe('Doanh thu theo Nhóm');
+    // Ô chưa có gì để gọi tên: trả `null` để nơi gọi giữ tên tạm, chứ không
+    // giao một chuỗi rỗng rồi hộp chọn hiện một dòng trống.
+    expect(tenTrenManHinh(goc, 'b')).toBeNull();
+    expect(tenTrenManHinh(goc, 'c')).toBeNull();
+    expect(tenTrenManHinh(goc, 'khong-co')).toBeNull();
+  });
+
+  it('MÀN HÌNH thắng cache — cái tên người dùng đang đọc là cái tên đúng', () => {
+    // Cache có thể trượt khoá, chưa về, hay rỗng vì ô đang lỗi. Màn hình thì
+    // không: chữ trên đầu ô chính là thứ người dùng đối chiếu khi bỏ tích.
+    ve(
+      baoCao([BA_O]),
+      null,
+      { pageId: null, visuals: [{ visualId: 'o3', measureLabel: 'Nhãn cũ trong cache' }] },
+      { o3: 'Doanh thu v3 theo Nhóm hàng' },
+    );
+    moMenu(/Ảnh PNG/);
+
+    expect(within(hop()).getByText('Doanh thu v3 theo Nhóm hàng')).toBeInTheDocument();
+    expect(within(hop()).queryByText(/Nhãn cũ trong cache/)).toBeNull();
+  });
+
+  it('ô ở trang KHÁC không có trên màn hình thì lấy từ cache', () => {
     // Lỗi đo được trên Chromium: thẻ ghi "Doanh thu v3 theo Nhóm hàng" còn hộp
     // chọn ghi "Biểu đồ 3 · Bảng số liệu" — hai cái tên cho cùng một ô.
     ve(baoCao([BA_O]), null, {

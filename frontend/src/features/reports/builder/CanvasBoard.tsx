@@ -10,7 +10,7 @@ import { createPortal, flushSync } from 'react-dom';
 
 import { useModelReportPreview } from '../../datamodels/hooks';
 import { getApiError } from '../../../services/apiClient';
-import { ROW_MENU_ICONS, RowMenu, RowMenuItem } from '../../../components/ui/RowMenu';
+import { ROW_MENU_ICONS, RowMenu, RowMenuItem, RowMenuSub } from '../../../components/ui/RowMenu';
 import { DANG_TAI, KHONG_XUAT } from '../../../services/danhDauXuat';
 import { CANVAS_LAYER_Z } from '../annotations/annotationStyle';
 import { CanvasGrid } from '../CanvasGrid';
@@ -129,11 +129,14 @@ interface Grabbable {
 
 const boxOf = ({ x, y, w, h }: Box): Box => ({ x, y, w, h });
 
-/** Ba định dạng xuất một ô — cùng thứ tự và cùng chữ với menu của trang xem. */
+/**
+ * Ba định dạng xuất một ô — cùng thứ tự và cùng chữ với menu "Xuất" của trang
+ * xem. Không lặp lại chữ "Xuất" ở đây: mục cha đã nói rồi.
+ */
 const MUC_XUAT: { kieu: KieuMotO; nhan: string; icon: string }[] = [
-  { kieu: 'png', nhan: 'Xuất ảnh PNG', icon: ROW_MENU_ICONS.image },
-  { kieu: 'pdf', nhan: 'Xuất tệp PDF', icon: ROW_MENU_ICONS.pdf },
-  { kieu: 'excel', nhan: 'Xuất bảng tính Excel', icon: ROW_MENU_ICONS.sheet },
+  { kieu: 'png', nhan: 'Ảnh PNG', icon: ROW_MENU_ICONS.image },
+  { kieu: 'pdf', nhan: 'Tệp PDF', icon: ROW_MENU_ICONS.pdf },
+  { kieu: 'excel', nhan: 'Bảng tính Excel', icon: ROW_MENU_ICONS.sheet },
 ];
 
 export function CanvasBoard({
@@ -685,23 +688,28 @@ function Card({
           - `KHONG_XUAT` để chính cái menu này không lọt vào ảnh vừa chụp.
         */}
         <span {...KHONG_XUAT} onPointerDown={(e) => e.stopPropagation()} className="shrink-0">
-          <RowMenu label={`Thao tác trên ô ${title}`}>
+          <RowMenu label={`Thao tác trên biểu đồ ${title}`}>
             {(close) => (
               <>
-                {MUC_XUAT.map((m) => (
-                  <RowMenuItem
-                    key={m.kieu}
-                    icon={m.icon}
-                    disabled={shown === undefined}
-                    title={shown === undefined ? 'Biểu đồ chưa có số liệu để xuất.' : undefined}
-                    onClick={() => {
-                      close();
-                      onXuat(m.kieu, secRef.current, shown);
-                    }}
-                  >
-                    {m.nhan}
-                  </RowMenuItem>
-                ))}
+                {/* Ba định dạng nằm trong MỘT mục: menu này chỉ có hai việc —
+                    xuất và xoá — và bày bốn mục ngang hàng làm mất cấu trúc đó.
+                    Xem `RowMenuSub`. */}
+                <RowMenuSub label="Xuất biểu đồ" icon={ROW_MENU_ICONS.export}>
+                  {MUC_XUAT.map((m) => (
+                    <RowMenuItem
+                      key={m.kieu}
+                      icon={m.icon}
+                      disabled={shown === undefined}
+                      title={shown === undefined ? 'Biểu đồ chưa có số liệu để xuất.' : undefined}
+                      onClick={() => {
+                        close();
+                        onXuat(m.kieu, secRef.current, shown);
+                      }}
+                    >
+                      {m.nhan}
+                    </RowMenuItem>
+                  ))}
+                </RowMenuSub>
                 <div className="my-1 border-t border-slate-100" role="separator" />
                 <RowMenuItem
                   icon={ROW_MENU_ICONS.trash}
@@ -711,7 +719,7 @@ function Card({
                     onRemove();
                   }}
                 >
-                  Xoá ô
+                  Xoá biểu đồ
                 </RowMenuItem>
               </>
             )}

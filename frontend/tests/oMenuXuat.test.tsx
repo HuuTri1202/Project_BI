@@ -15,10 +15,13 @@ import { useModelReportPreview } from '../src/features/datamodels/hooks';
  * Nút ✕ cũ xoá ngay khi bấm. Giờ nó nằm trong một menu cùng với ba mục xuất, và
  * hai chỗ hỏng được canh ở đây:
  *
- *   1. Xoá phải vẫn xoá. Một thao tác huỷ hoại bị chuyển chỗ mà không ai kiểm
- *      lại là cách mất nó êm ru nhất.
+ *   1. Xoá phải vẫn xoá. Một thao tác huỷ hoại bị chuyển chỗ — hai lần, vì ba
+ *      mục xuất sau đó lại gom vào một menu con — mà không ai kiểm lại là cách
+ *      mất nó êm ru nhất.
  *   2. Xuất một ô chưa có số liệu. Menu mở được từ lúc ô còn trống, và để bấm
  *      được thì tệp tải về là một khung trắng — không báo lỗi, không nói gì.
+ *   3. Menu con chỉ mở bằng rê chuột. Bàn phím và màn hình cảm ứng không có
+ *      "rê vào", nên với họ tính năng coi như không tồn tại.
  */
 
 vi.mock('../src/features/datamodels/hooks', () => ({
@@ -77,7 +80,15 @@ function ve(data: ReportDataDto | undefined, tenBaoCao = 'Báo cáo quý IV'): v
 }
 
 const moMenu = (): void =>
-  fireEvent.click(screen.getByRole('button', { name: 'Thao tác trên ô Doanh thu theo Nhóm' }));
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Thao tác trên biểu đồ Doanh thu theo Nhóm' }),
+  );
+
+/** Mở menu rồi mở tiếp menu con "Xuất biểu đồ" — ba định dạng nằm trong đó. */
+const moMucXuat = (): void => {
+  moMenu();
+  fireEvent.click(screen.getByRole('menuitem', { name: 'Xuất biểu đồ' }));
+};
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -90,19 +101,44 @@ afterEach(() => {
 describe('menu thay cho nút ✕', () => {
   it('không còn nút ✕ trần trên đầu ô', () => {
     ve(SO_LIEU);
-    expect(screen.queryByRole('button', { name: /^Xoá ô/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /^Xoá/ })).toBeNull();
   });
 
-  it('menu có ba mục xuất rồi mới tới Xoá ô', () => {
+  it('menu chỉ có HAI việc: xuất và xoá', () => {
     ve(SO_LIEU);
     moMenu();
 
+    // Ba định dạng nằm trong menu con. Bày cả bốn ngang hàng thì menu đọc như
+    // bốn việc ngang nhau, trong khi thật ra chỉ có hai.
     expect(screen.getAllByRole('menuitem').map((m) => m.textContent)).toEqual([
-      'Xuất ảnh PNG',
-      'Xuất tệp PDF',
-      'Xuất bảng tính Excel',
-      'Xoá ô',
+      'Xuất biểu đồ',
+      'Xoá biểu đồ',
     ]);
+  });
+
+  it('mở mục "Xuất biểu đồ" mới thấy ba định dạng', () => {
+    ve(SO_LIEU);
+    moMucXuat();
+
+    expect(screen.getAllByRole('menuitem').map((m) => m.textContent)).toEqual([
+      'Xuất biểu đồ',
+      'Ảnh PNG',
+      'Tệp PDF',
+      'Bảng tính Excel',
+      'Xoá biểu đồ',
+    ]);
+  });
+
+  it('rê chuột vào mục xuất cũng mở menu con — không bắt phải bấm', () => {
+    ve(SO_LIEU);
+    moMenu();
+    const muc = screen.getByRole('menuitem', { name: 'Xuất biểu đồ' });
+    expect(muc).toHaveAttribute('aria-expanded', 'false');
+
+    fireEvent.mouseEnter(muc.parentElement as HTMLElement);
+
+    expect(muc).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByRole('menuitem', { name: 'Ảnh PNG' })).toBeInTheDocument();
   });
 
   it('nút ⋮ và tay nắm co giãn KHÔNG lọt vào ảnh xuất', () => {
@@ -111,15 +147,15 @@ describe('menu thay cho nút ✕', () => {
 
     // `chupCacVung` lọc theo đúng thuộc tính này. Thiếu nó thì ảnh một biểu đồ
     // mang theo cái nút menu và cái tay nắm — hai thứ của trình dựng.
-    const menu = screen.getByRole('button', { name: /^Thao tác trên ô/ });
+    const menu = screen.getByRole('button', { name: /^Thao tác trên biểu đồ/ });
     expect(menu.closest('[data-khong-xuat]')).not.toBeNull();
     expect(o.querySelector('.cursor-nwse-resize')).toHaveAttribute('data-khong-xuat');
   });
 
-  it('Xoá ô vẫn xoá', () => {
+  it('Xoá biểu đồ vẫn xoá', () => {
     ve(SO_LIEU);
     moMenu();
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Xoá ô' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Xoá biểu đồ' }));
 
     expect(onRemove).toHaveBeenCalledTimes(1);
   });
@@ -128,8 +164,8 @@ describe('menu thay cho nút ✕', () => {
 describe('xuất một ô', () => {
   it('gửi đi đúng kiểu, đúng tên, đúng số liệu ô đang vẽ, và CHÍNH thẻ của ô', async () => {
     ve(SO_LIEU);
-    moMenu();
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Xuất bảng tính Excel' }));
+    moMucXuat();
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Bảng tính Excel' }));
 
     await waitFor(() => expect(xuat.xuatMotO).toHaveBeenCalled());
     const [arg] = vi.mocked(xuat.xuatMotO).mock.calls[0] ?? [];
@@ -143,21 +179,21 @@ describe('xuất một ô', () => {
 
   it('ô chưa có số liệu: mục xuất bị khoá, và nói vì sao', () => {
     ve(undefined);
-    moMenu();
+    moMucXuat();
 
-    const png = screen.getByRole('menuitem', { name: 'Xuất ảnh PNG' });
+    const png = screen.getByRole('menuitem', { name: 'Ảnh PNG' });
     expect(png).toBeDisabled();
     expect(png).toHaveAttribute('title', 'Biểu đồ chưa có số liệu để xuất.');
     // Xoá thì vẫn xoá được — ô trống là thứ người ta muốn xoá nhất.
-    expect(screen.getByRole('menuitem', { name: 'Xoá ô' })).toBeEnabled();
+    expect(screen.getByRole('menuitem', { name: 'Xoá biểu đồ' })).toBeEnabled();
   });
 
   it('lỗi khi xuất thì nói ra chứ không im lặng', async () => {
     const { LoiXuat } = await import('../src/features/reports/export/chupBaoCao');
     vi.mocked(xuat.xuatMotO).mockRejectedValueOnce(new LoiXuat('Báo cáo vẫn chưa vẽ xong.'));
     ve(SO_LIEU);
-    moMenu();
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Xuất ảnh PNG' }));
+    moMucXuat();
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Ảnh PNG' }));
 
     const bao = await screen.findByRole('alert');
     expect(bao.textContent).toContain('Chưa xuất được biểu đồ');
@@ -172,8 +208,8 @@ describe('xuất một ô', () => {
     vi.mocked(xuat.xuatMotO).mockRejectedValueOnce(loi);
     const console_ = vi.spyOn(console, 'error').mockImplementation(() => {});
     ve(SO_LIEU);
-    moMenu();
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Xuất tệp PDF' }));
+    moMucXuat();
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Tệp PDF' }));
 
     const bao = await screen.findByRole('alert');
     expect(bao.textContent).toContain('Không xuất được biểu đồ');

@@ -83,6 +83,22 @@ export function oTrongTam(report: ReportDto, kieu: KieuXuat, activePageId: strin
 }
 
 /**
+ * Tên ĐANG in trên đầu ô, đọc thẳng từ màn hình — `null` nếu ô không ở đó.
+ *
+ * Nguồn chắc chắn nhất, vì nó đúng bằng định nghĩa: cái tên hộp chọn đưa ra là
+ * cái tên người dùng đang nhìn. Cache có thể trượt khoá, có thể chưa về, có thể
+ * rỗng vì ô đang lỗi — màn hình thì không.
+ */
+export function tenTrenManHinh(goc: HTMLElement, visualId: string): string | null {
+  for (const el of goc.querySelectorAll<HTMLElement>('[data-visual-id]')) {
+    if (el.getAttribute('data-visual-id') !== visualId) continue;
+    const ten = (el.getAttribute('data-visual-ten') ?? '').trim();
+    return ten === '' ? null : ten;
+  }
+  return null;
+}
+
+/**
  * Thay tên tạm bằng nhãn thật, ở những ô mà `nhan` trả lời được.
  *
  * Nơi gọi tra trong cache của react-query chứ không gọi mạng: hộp chọn phải mở

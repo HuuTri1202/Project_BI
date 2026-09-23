@@ -113,7 +113,10 @@ export function RowMenu({
             ref={menuRef}
             role="menu"
             style={{ position: 'fixed', top: at.top, left: at.left, width: MENU_W }}
-            className="z-50 overflow-hidden rounded-xl border border-slate-200 bg-white p-1 shadow-lg"
+            /* KHÔNG `overflow-hidden`: menu con của `RowMenuSub` bung ra NGOÀI
+               hộp này, và cắt theo hộp là nó biến mất hoàn toàn. Góc bo không
+               cần tới nó — mỗi mục tự bo `rounded-lg` của riêng mình. */
+            className="z-50 rounded-xl border border-slate-200 bg-white p-1 shadow-lg"
           >
             {children(() => setAt(null))}
           </div>,
@@ -173,6 +176,101 @@ export function RowMenuItem({
   );
 }
 
+/**
+ * Một mục MỞ RA menu con — rê chuột vào là ba lựa chọn hiện ra bên cạnh.
+ *
+ * ─── Vì sao gộp lại thay vì bày ba mục ngang hàng ───────────────────────────
+ *
+ * Ba mục "Xuất ảnh PNG / Xuất tệp PDF / Xuất bảng tính Excel" đứng cạnh "Xoá
+ * biểu đồ" làm menu đọc như bốn việc ngang nhau, trong khi thật ra chỉ có HAI:
+ * xuất và xoá. Gộp lại thì mắt đọc được cấu trúc đó ngay, và chọn định dạng chỉ
+ * tốn thêm một quãng rê chuột chứ không tốn thêm cú bấm nào.
+ *
+ * ─── Mở bằng cả rê chuột lẫn bấm ────────────────────────────────────────────
+ *
+ * Rê chuột là đường của chuột. Bấm (và Enter, vì đây là một `<button>`) là
+ * đường của bàn phím và của màn hình cảm ứng, nơi không có "rê vào" — chỉ mở
+ * bằng hover là khoá hẳn tính năng này với họ.
+ *
+ * Đóng theo `onMouseLeave` của CẢ cụm chứ không của riêng nút: giữa nút và menu
+ * con có một khe, và đóng ngay khi chuột rời nút thì menu con biến mất đúng lúc
+ * người dùng đang đi tới nó.
+ */
+export function RowMenuSub({
+  label,
+  icon,
+  children,
+}: {
+  label: string;
+  icon: string;
+  children: ReactNode;
+}): React.ReactElement {
+  const [mo, setMo] = useState(false);
+  const [ben, setBen] = useState<'trai' | 'phai'>('trai');
+  const btnRef = useRef<HTMLButtonElement>(null);
+
+  const bat = (): void => {
+    // Menu cha đã canh mép PHẢI của nút "⋮", nên nó thường nằm sát rìa phải và
+    // menu con mở tiếp sang trái. Chỉ khi bên trái không còn chỗ mới lật.
+    const rect = btnRef.current?.getBoundingClientRect();
+    if (rect !== undefined) setBen(rect.left >= MENU_W + 8 ? 'trai' : 'phai');
+    setMo(true);
+  };
+
+  return (
+    <div className="relative" onMouseEnter={bat} onMouseLeave={() => setMo(false)} role="none">
+      <button
+        ref={btnRef}
+        type="button"
+        role="menuitem"
+        aria-haspopup="menu"
+        aria-expanded={mo}
+        onClick={() => (mo ? setMo(false) : bat())}
+        className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm text-slate-700 transition-colors hover:bg-slate-50"
+      >
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.7"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          className="h-4 w-4 shrink-0"
+          aria-hidden="true"
+        >
+          <path d={icon} />
+        </svg>
+        <span className="min-w-0 flex-1">{label}</span>
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.7"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          className="h-3.5 w-3.5 shrink-0 text-slate-400"
+          aria-hidden="true"
+        >
+          <path d={ben === 'trai' ? 'M15 6l-6 6 6 6' : 'M9 6l6 6-6 6'} />
+        </svg>
+      </button>
+
+      {mo && (
+        <div
+          role="menu"
+          aria-label={label}
+          style={{ width: MENU_W }}
+          className={`absolute top-0 z-10 rounded-xl border border-slate-200 bg-white p-1 shadow-lg ${
+            ben === 'trai' ? 'right-full mr-1' : 'left-full ml-1'
+          }`}
+        >
+          {children}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** Đường vẽ sẵn — để nơi gọi khỏi rải chuỗi `d` khắp nơi. */
 export const ROW_MENU_ICONS = {
   key: 'M15 7a4 4 0 1 1-3.9 5H8v2H6v2H3v-3l5.1-5.1A4 4 0 0 1 15 7Z',
@@ -183,4 +281,5 @@ export const ROW_MENU_ICONS = {
     'M4 16l4.6-4.6a2 2 0 0 1 2.8 0L16 16m-2-2 1.6-1.6a2 2 0 0 1 2.8 0L20 14M14 8h.01M6 20h12a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2Z',
   pdf: 'M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8l-5-5Zm0 0v5h5M9 13h6m-6 4h6',
   sheet: 'M4 6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6Zm0 4h16M10 10v10',
+  export: 'M12 4v11m0 0-4-4m4 4 4-4M5 19h14',
 } as const;
