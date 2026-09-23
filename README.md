@@ -10,20 +10,22 @@ mà **không cần viết SQL**.
 
 ## Trạng thái hiện tại
 
-| Phần                                                                                      | Trạng thái                             |
-| ----------------------------------------------------------------------------------------- | -------------------------------------- |
-| Hạ tầng dev — 6 container (MySQL, Redis, MinIO, ClickHouse, Cube.js, MinIO-init)          | ✅ chạy được                           |
-| Backend (Express) + Frontend (React + Vite + Tailwind v4)                                 | ✅ chạy được                           |
-| **Xác thực** — đăng ký, đăng nhập, JWT, đổi mật khẩu                                      | ✅ xong — xem mục _Xác thực_           |
-| **Console vận hành hệ thống** (`/admin`) — nhìn xuyên mọi tổ chức                         | ✅ xong                                |
-| **Khu người dùng** — trang chủ, project, workspace, thành viên, hồ sơ                     | ✅ xong                                |
-| **Phân quyền Casbin** — 8 tài nguyên × 4 hành động, policy trong database                 | ✅ xong                                |
-| **Kết nối CSDL & Kho dữ liệu** (§8) — MySQL, ClickHouse (SSL/TLS, xem trước dữ liệu)      | ✅ xong                                |
-| **Nạp dữ liệu vào ClickHouse** (§9) — bảng `raw_*`, nạp nền, nạp lại nguyên tử            | ✅ xong                                |
-| **Mô hình dữ liệu** (§10) — Cube schema, quan hệ, thước đo, Explorer                      | ✅ xong — xem mục _Mô hình dữ liệu_    |
-| **Trình dựng biểu đồ** (§10.9) — kéo thả chiều/thước đo, 8 loại biểu đồ Vega-Lite         | ✅ xong — xem mục _Trình dựng biểu đồ_ |
-| **Khu Báo cáo & khung nhiều biểu đồ** (§10.10) — mục sidebar riêng, tối đa 12 ô một khung | ✅ xong — xem mục _Khu Báo cáo_        |
-| Bộ lọc dùng chung cả khung, chia sẻ báo cáo ra ngoài                                      | ⏳ chưa làm                            |
+| Phần                                                                                      | Trạng thái                                             |
+| ----------------------------------------------------------------------------------------- | ------------------------------------------------------ |
+| Hạ tầng dev — 6 container (MySQL, Redis, MinIO, ClickHouse, Cube.js, MinIO-init)          | ✅ chạy được                                           |
+| Backend (Express) + Frontend (React + Vite + Tailwind v4)                                 | ✅ chạy được                                           |
+| **Xác thực** — đăng ký, đăng nhập, JWT, đổi & quên mật khẩu, đổi tổ chức                  | ✅ xong — xem mục _Xác thực_                           |
+| **Console vận hành hệ thống** (`/admin`) — nhìn xuyên mọi tổ chức                         | ✅ xong                                                |
+| **Khu người dùng** — trang chủ, project, workspace, thành viên, hồ sơ                     | ✅ xong                                                |
+| **Phân quyền Casbin** — 8 tài nguyên × 4 hành động, policy trong database                 | ✅ xong                                                |
+| **Kết nối CSDL & Kho dữ liệu** (§8) — MySQL, ClickHouse (SSL/TLS, xem trước dữ liệu)      | ✅ xong                                                |
+| **Nạp dữ liệu vào ClickHouse** (§9) — bảng `raw_*`, nạp nền, nạp lại nguyên tử            | ✅ xong                                                |
+| **Mô hình dữ liệu** (§10) — Cube schema, quan hệ, thước đo, Explorer                      | ✅ xong — xem mục _Mô hình dữ liệu_                    |
+| **Trình dựng biểu đồ** (§10.9) — kéo thả chiều/thước đo, 8 loại biểu đồ Vega-Lite         | ✅ xong — xem mục _Trình dựng biểu đồ_                 |
+| **Khu Báo cáo & khung nhiều biểu đồ** (§10.10) — mục sidebar riêng, tối đa 12 ô một khung | ✅ xong — xem mục _Khu Báo cáo_                        |
+| **Xuất báo cáo** — ảnh PNG và tệp PDF, mọi vai trò xuất được                              | ✅ xong                                                |
+| **Gói cước & thanh toán** (§11) — VietQR, đối soát Sepay, hạn mức theo gói                | ✅ xong — xem [docs/thanh-toan.md](docs/thanh-toan.md) |
+| Bộ lọc dùng chung cả khung, chia sẻ báo cáo ra ngoài                                      | ⏳ chưa làm                                            |
 
 Xem lộ trình đầy đủ và phân công theo tính năng trong tài liệu kế hoạch của nhóm.
 
@@ -173,7 +175,10 @@ bi-flatform/
 │   ├── clickhouse/           # config.d (trần RAM) + users.d (trần mỗi query)
 │   └── cube/                 # cube.js + model/tenants/ (§10 sinh file vào đây)
 └── docs/
-    └── ports.md              # bản đồ cổng — đọc trước khi thêm service
+    ├── ports.md              # bản đồ cổng — đọc trước khi thêm service
+    ├── thanh-toan.md         # gói cước, VietQR, webhook Sepay, hạn mức (§11)
+    ├── tai-khoan-thu-nghiem.md
+    └── kiem-thu/             # bộ test case + kịch bản trình duyệt
 ```
 
 ---
@@ -521,19 +526,35 @@ Giới hạn, ghi ra chứ không giấu:
   **tự** vào tài khoản, không phải việc token bị trộm từ ổ cứng; cái đó cần thu
   hồi token phía server (mục dưới).
 
+### Đã có, và đáng nói
+
+- **Tự đăng ký** — `POST /api/auth/register` dựng một lượt: tổ chức + tài khoản
+  - tư cách thành viên + workspace, và người đăng ký làm quản trị tổ chức mình
+    vừa lập. Cố ý KHÔNG tự đăng nhập sau đó: lần đăng nhập đầu tiên là lần duy
+    nhất chứng minh mật khẩu vừa đặt đúng như người dùng nghĩ.
+- **Quên mật khẩu** — `POST /api/auth/forgot-password` gửi liên kết đặt lại;
+  `/reset-password/verify` kiểm liên kết lúc mở trang, `/reset-password` đổi mật
+  khẩu. Ba điều đáng nhớ:
+  - Endpoint xin liên kết LUÔN trả 202 với cùng một câu, kể cả email không tồn
+    tại. Phân biệt ở đó là biến nó thành máy dò xem ai có tài khoản.
+  - Database chỉ giữ SHA-256 của vé, không giữ vé.
+  - Chưa cấu hình SMTP thì thư được IN RA LOG của backend (chỉ ngoài
+    production) — luồng vẫn chạy trọn vẹn trên máy dev. Xem
+    `backend/src/services/mail/mailer.ts` và khối SMTP trong `backend/.env.example`.
+- **Đổi tổ chức trên giao diện** — `POST /api/auth/switch-tenant` cấp token mới
+  mang `tenantId` mới. Vai trò lấy từ membership MỚI, không mang vai trò cũ
+  sang; `tenantId` gửi lên không được tin, `findByUserAndTenant` đọc lại từ
+  database. Người thuộc một tổ chức vào thẳng tổ chức đó.
+
 ### Những gì CHƯA có
 
-- **Chưa có form/API đăng ký.** Tài khoản đầu tiên từ `seed:admin`; các tài
-  khoản sau sẽ do Admin tạo. Cột `users.role` đã `DEFAULT 'viewer'`.
 - **Chưa có refresh token** — hết hạn thì đăng nhập lại.
 - **Đăng xuất chưa thu hồi token phía server.** JWT vô trạng thái nên token bị
   lộ vẫn dùng được tới lúc hết hạn. Muốn thu hồi thật cần danh sách chặn trên
-  Redis (Redis đang chạy sẵn).
-- **Chưa có "quên mật khẩu"** vì chưa có SMTP.
-- **Chưa đổi được tổ chức trên giao diện.** Người thuộc nhiều tổ chức sẽ vào tổ
-  chức cũ nhất (`ORDER BY memberships.id ASC`) — quy tắc ổn định, không tự đổi
-  sau lưng người dùng. API đã trả sẵn mảng `memberships`, nên thêm menu đổi tổ
-  chức về sau chỉ là việc của frontend + một endpoint cấp token mới.
+  Redis (Redis đang chạy sẵn). ⚠️ Kéo theo: ĐỔI MẬT KHẨU cũng không đá được kẻ
+  đang chiếm phiên ra ngoài — token cấp trước đó vẫn sống tới lúc hết hạn.
+- **Chưa xác thực email** khi đăng ký. Cột `users.email_verified_at` đã có sẵn
+  nhưng chưa ai ghi vào.
 - **`users.email` duy nhất toàn cục** vì form đăng nhập không có ô chọn tổ chức.
   Không cản trở việc một người thuộc nhiều tổ chức — đó là việc của `memberships`.
 - **Token lưu `localStorage`** nên XSS đọc được. Đánh đổi có ý thức; muốn chắc
@@ -544,8 +565,10 @@ Giới hạn, ghi ra chứ không giấu:
 
 `AdminRoute` ở frontend **không phải là bảo mật** — nó chỉ giúp người dùng khỏi
 lạc vào trang không dùng được. Thực thi thật là `authenticate` →
-`requireRole('admin')` gắn cho router `/api/admin`; hai middleware đó đã có
-nhưng chưa có endpoint `/api/admin` nào để gắn vào.
+`requirePlatformRole('superadmin')` → `requireFreshAdmin`, gắn cho TOÀN BỘ
+router `/api/admin` ở `app.ts`. Router đó đã có đầy đủ endpoint (tổ chức,
+workspace, thành viên, đơn thanh toán, phương thức thanh toán) — xem
+`backend/src/api/admin/index.ts`.
 
 Casbin và query proxy giờ đã có `sub` để làm việc: `req.auth` mang
 `{ userId, role, tenantId }`.
