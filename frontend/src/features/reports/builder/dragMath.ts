@@ -1,5 +1,6 @@
 import { CANVAS_COLUMNS, CANVAS_ROW_HEIGHT } from '@bi/shared';
 
+import { CANVAS_GAP } from '../canvasLayout';
 import { clampBox } from './visual';
 
 /**
@@ -12,9 +13,6 @@ import { clampBox } from './visual';
  */
 
 export type Box = { x: number; y: number; w: number; h: number };
-
-/** Phải khớp `gap` của `CanvasGrid` — hai số lệch nhau thì ô trôi dần khi kéo. */
-export const CANVAS_GAP = 12;
 
 /**
  * Bước lưới tính bằng pixel MÀN HÌNH — tức là đã nhân với mức thu phóng.
@@ -59,6 +57,42 @@ export function snapBox(
     h: Math.max(start.h + rows, min.h),
   };
 }
+
+/**
+ * Chỗ hộp sẽ nằm nếu thả tay ngay bây giờ, KHÔNG quy về lưới — §10.24.
+ *
+ * Cùng phép tính với `snapBox`, chỉ bỏ đúng hai lời `Math.round`. Chú thích
+ * dùng đường này: nó tồn tại để CHỈ vào một chỗ cụ thể, mà chỗ cụ thể thì hiếm
+ * khi rơi đúng đường kẻ lưới.
+ *
+ * Làm tròn tới ba chữ số thập phân trước khi trả về. Một bước cột khoảng 83px
+ * nên 0,001 cột là 0,08px — mịn hơn mức mắt và màn hình phân biệt được — trong
+ * khi số nguyên vẹn giữ cho JSON lưu xuống đọc được bằng mắt thay vì đầy những
+ * `3.4285714285714284`.
+ */
+export function freeBox(
+  mode: 'move' | 'resize',
+  start: Box,
+  min: { w: number; h: number },
+  dx: number,
+  dy: number,
+  pitch: { x: number; y: number },
+): Box {
+  const cols = dx / pitch.x;
+  const rows = dy / pitch.y;
+
+  if (mode === 'move') {
+    const b = clampBox({ ...start, x: start.x + cols, y: start.y + rows }, min);
+    return { x: tron(b.x), y: tron(b.y), w: b.w, h: b.h };
+  }
+  return {
+    ...start,
+    w: tron(Math.min(Math.max(start.w + cols, min.w), CANVAS_COLUMNS - start.x)),
+    h: tron(Math.max(start.h + rows, min.h)),
+  };
+}
+
+const tron = (n: number): number => Math.round(n * 1000) / 1000;
 
 export function sameBox(a: Box, b: Box): boolean {
   return a.x === b.x && a.y === b.y && a.w === b.w && a.h === b.h;

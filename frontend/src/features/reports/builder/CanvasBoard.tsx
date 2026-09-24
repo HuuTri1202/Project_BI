@@ -20,7 +20,15 @@ import { xuatMotO, type KieuMotO } from '../export/xuatMotO';
 import { ReportChart } from '../ReportChart';
 import { ANNOTATION_MIN, type AnnotationPatch } from './annotation';
 import { AnnotationBox } from './AnnotationBox';
-import { DRAG_DEAD_ZONE_PX, gridPitch, sameBox, snapBox, spanPx, type Box } from './dragMath';
+import {
+  DRAG_DEAD_ZONE_PX,
+  freeBox,
+  gridPitch,
+  sameBox,
+  snapBox,
+  spanPx,
+  type Box,
+} from './dragMath';
 import { glide, scaleOf } from './glide';
 import { blockerOf, clampBox, previewConfigOfDraft, type VisualDraft } from './visual';
 
@@ -121,6 +129,17 @@ interface DragState {
 interface Grabbable {
   box: Box;
   min: { w: number; h: number };
+  /**
+   * Đặt ở đâu cũng được, không quy về ô lưới — §10.24.
+   *
+   * Biểu đồ thì KHÔNG: lưới là thứ làm chúng thẳng hàng với nhau, và một báo
+   * cáo có mười hai biểu đồ lệch nhau vài pixel đọc như một bàn giấy bừa. Chú
+   * thích thì ngược lại — nó tồn tại để chỉ vào một chỗ cụ thể, và chỗ cụ thể
+   * hiếm khi rơi đúng đường kẻ lưới.
+   */
+  tuDo: boolean;
+  /** Quãng một lần bấm mũi tên, tính bằng ô lưới. */
+  buoc: number;
   /** `merge`: gộp với thay đổi cùng loại ngay trước vào một bước hoàn tác. */
   apply: (patch: Partial<Box>, merge: boolean) => void;
   select: () => void;
@@ -228,6 +247,8 @@ export function CanvasBoard({
   const visualTarget = (draft: VisualDraft): Grabbable => ({
     box: draft,
     min: { w: CANVAS_MIN_W, h: CANVAS_MIN_H },
+    tuDo: false,
+    buoc: 1,
     apply: (patch, merge) => onChange(draft.id, patch, merge),
     select: () => onSelect(draft.id),
     remove: () => onRemove(draft.id),
@@ -236,6 +257,11 @@ export function CanvasBoard({
   const annotationTarget = (a: ReportAnnotationDto): Grabbable => ({
     box: a,
     min: ANNOTATION_MIN,
+    tuDo: true,
+    // Một phần tư ô ≈ 21px ngang, 14px dọc. Mũi tên ở đây là để CHỈNH cho khít
+    // sau khi đã kéo bằng chuột, nên nhảy nguyên một ô lưới như biểu đồ thì vô
+    // dụng — nó đưa hộp về đúng cái lưới người dùng vừa thoát ra.
+    buoc: 0.25,
     apply: (patch, merge) => onChangeAnnotation(a.id, patch, merge),
     select: () => onSelect(a.id),
     remove: () => onRemoveAnnotation(a.id),
@@ -314,8 +340,13 @@ export function CanvasBoard({
       state.moved = true;
       el.style.zIndex = DRAGGING_Z;
       el.style.willChange = state.mode === 'move' ? 'transform' : 'width, height';
-      Object.assign(ghost.style, cellStyle(state.snapped));
-      ghost.hidden = false;
+      // Khung nét đứt chỉ có nghĩa khi hộp sẽ NHẢY về một ô khác chỗ tay thả.
+      // Kéo tự do thì chỗ tay thả chính là chỗ hộp nằm, và một khung nét đứt
+      // trùng khít lên hộp chỉ là một đường viền thừa đi theo con trỏ.
+      if (!target.tuDo) {
+        Object.assign(ghost.style, cellStyle(state.snapped));
+        ghost.hidden = false;
+      }
     }
 
     const lx = dx / scale;
@@ -333,10 +364,12 @@ export function CanvasBoard({
       el.style.height = `${Math.max(state.height + ly, minH)}px`;
     }
 
-    const snapped = snapBox(state.mode, boxOf(target.box), target.min, dx, dy, state.pitch);
-    if (!sameBox(snapped, state.snapped)) {
-      state.snapped = snapped;
-      Object.assign(ghost.style, cellStyle(snapped));
+    const dich = target.tuDo
+      ? freeBox(state.mode, boxOf(target.box), target.min, dx, dy, state.pitch)
+      : snapBox(state.mode, boxOf(target.box), target.min, dx, dy, state.pitch);
+    if (!sameBox(dich, state.snapped)) {
+      state.snapped = dich;
+      if (!target.tuDo) Object.assign(ghost.style, cellStyle(dich));
     }
 
     // Giữ con trỏ sát mép trên/dưới thì khung tự cuộn — không có nó thì không
@@ -419,14 +452,14 @@ export function CanvasBoard({
     event.preventDefault();
 
     const [dx, dy] = delta;
-    const { box, min } = target;
+    const { box, min, buoc } = target;
     const next: Box = event.shiftKey
       ? {
           ...boxOf(box),
-          w: Math.min(Math.max(box.w + dx, min.w), CANVAS_COLUMNS - box.x),
-          h: Math.max(box.h + dy, min.h),
+          w: Math.min(Math.max(box.w + dx * buoc, min.w), CANVAS_COLUMNS - box.x),
+          h: Math.max(box.h + dy * buoc, min.h),
         }
-      : clampBox({ ...boxOf(box), x: box.x + dx, y: box.y + dy }, min);
+      : clampBox({ ...boxOf(box), x: box.x + dx * buoc, y: box.y + dy * buoc }, min);
     if (sameBox(next, boxOf(box))) return;
 
     const el = event.currentTarget;

@@ -13,7 +13,7 @@ import { DANG_TAI } from '../../services/danhDauXuat';
 import { AnnotationView } from './annotations/AnnotationView';
 import { CANVAS_LAYER_Z } from './annotations/annotationStyle';
 import { CanvasGrid } from './CanvasGrid';
-import { cellStyle, rowsNeeded } from './canvasLayout';
+import { annotationStyle, cellStyle, rowsNeeded } from './canvasLayout';
 import { tieuDeTuSoLieu } from './nhanO';
 import { ReportChart } from './ReportChart';
 
@@ -116,7 +116,10 @@ export function CanvasView({
 function AnnotationCell({ annotation }: { annotation: ReportAnnotationDto }): React.ReactElement {
   return (
     <div
-      style={{ ...cellStyle(annotation), zIndex: CANVAS_LAYER_Z[annotation.layer] }}
+      style={{ ...annotationStyle(annotation), zIndex: CANVAS_LAYER_Z[annotation.layer] }}
+      /* Cùng lý do với `data-visual-id` trên ô biểu đồ: một chú thích cần tìm
+         lại được trong DOM, và một đường kẻ thì không có chữ nào để tìm theo. */
+      data-annotation-id={annotation.id}
       className={annotation.kind === 'text' ? undefined : 'pointer-events-none'}
     >
       <AnnotationView annotation={annotation} />

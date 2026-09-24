@@ -119,6 +119,34 @@ describe('§10.18 luật của một chú thích', () => {
   it('bề rộng bị KẸP vào mép phải, không bị từ chối', () => {
     expect(reportAnnotationSchema.parse(text({ x: 9, w: 6 })).w).toBe(3);
   });
+
+  /**
+   * Toạ độ THỰC — §10.24.
+   *
+   * Trước đây bốn trường này là `int()`, và đó chính là thứ làm một đường kẻ dọc
+   * không đặt được vào khe giữa hai biểu đồ: kéo 40px thì nó đứng yên, kéo 60px
+   * thì nhảy 83px. Nếu ai đó thêm `.int()` lại vào schema, trình dựng vẫn kéo
+   * mượt trên màn hình nhưng bản lưu xuống bị TỪ CHỐI — và người dùng chỉ thấy
+   * "Lưu không được" mà không biết vì sao.
+   */
+  it('nhận toạ độ THỰC, không bắt tròn về ô lưới', () => {
+    expect(ok(line({ x: 3.42, y: 2.15 }))).toBe(true);
+    expect(reportAnnotationSchema.parse(line({ x: 3.42, y: 2.15 })).x).toBe(3.42);
+    expect(ok(shape({ w: 2.5, h: 1.75 }))).toBe(true);
+  });
+
+  it('nhưng vẫn phải là SỐ, và vẫn nằm trong khung', () => {
+    expect(ok(line({ x: -0.5 }))).toBe(false);
+    expect(ok(line({ x: 11.5 }))).toBe(false);
+    expect(ok(line({ w: 0.5 }))).toBe(false);
+    expect(ok(line({ y: Number.POSITIVE_INFINITY }))).toBe(false);
+    expect(ok(line({ y: Number.NaN }))).toBe(false);
+  });
+
+  it('bản ghi CŨ toạ độ nguyên đọc ra y nguyên — không cần migrate', () => {
+    const cu = reportAnnotationSchema.parse(line({ x: 3, y: 2, w: 6, h: 1 }));
+    expect([cu.x, cu.y, cu.w, cu.h]).toEqual([3, 2, 6, 1]);
+  });
 });
 
 describe('§10.18 đọc khoan dung', () => {

@@ -4,6 +4,7 @@ import { render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
 import { CanvasView } from '../src/features/reports/CanvasView';
+import { CANVAS_GAP } from '../src/features/reports/canvasLayout';
 import { tenTrenManHinh } from '../src/features/reports/export/chonO';
 
 /*
@@ -86,12 +87,15 @@ describe('CanvasView', () => {
     expect((cells[2] as HTMLElement).style.gridRow).toBe('8 / span 5');
   });
 
-  it('chiều cao lưới tính theo ô THẤP NHẤT', () => {
+  it('chiều cao lưới tính theo ô THẤP NHẤT, kể cả khoảng hở giữa các hàng', () => {
     const { container } = ve(<CanvasView page={page} reportId={7} data={undefined} />);
     const grid = container.firstElementChild as HTMLElement;
 
     // Ô cuối kết thúc ở hàng 12, nên khung phải cao 12 hàng — không phải sàn 8.
-    expect(grid.style.minHeight).toBe(`${12 * CANVAS_ROW_HEIGHT}px`);
+    // Mười hai hàng là 12 chiều cao hàng CỘNG 11 khoảng hở: từ §10.24 chú thích
+    // định vị tuyệt đối nên không còn tự kéo dài lưới, và sàn này là thứ duy
+    // nhất chừa chỗ cho một mũi tên nằm dưới ô thấp nhất.
+    expect(grid.style.minHeight).toBe(`${12 * (CANVAS_ROW_HEIGHT + CANVAS_GAP) - CANVAS_GAP}px`);
   });
 
   it('chưa có số liệu: tên riêng hiện ngay, tên tự sinh thì chưa', () => {
