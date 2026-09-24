@@ -14,7 +14,7 @@ import { ROW_MENU_ICONS, RowMenu, RowMenuItem, RowMenuSub } from '../../../compo
 import { DANG_TAI, KHONG_XUAT } from '../../../services/danhDauXuat';
 import { CANVAS_LAYER_Z } from '../annotations/annotationStyle';
 import { CanvasGrid } from '../CanvasGrid';
-import { cellStyle, rowsNeeded } from '../canvasLayout';
+import { annotationStyle, cellStyle, rowsNeeded } from '../canvasLayout';
 import { LoiXuat } from '../export/chupBaoCao';
 import { xuatMotO, type KieuMotO } from '../export/xuatMotO';
 import { ReportChart } from '../ReportChart';
@@ -67,10 +67,15 @@ import { blockerOf, clampBox, previewConfigOfDraft, type VisualDraft } from './v
  * Thả tay mới ghi vào state, ĐÚNG MỘT LẦN, rồi hộp trượt từ chỗ tay thả về ô
  * lưới (`glide`). Một lần ghi cũng là một bước hoàn tác.
  *
- * ⚠️ Mọi thứ ghi vào `el.style` trong lúc kéo phải được xoá trước khi React đặt
- * hộp vào ô mới. Sót `width` là hộp giữ cỡ của khoảnh khắc thả tay mãi mãi, dù ô
- * lưới đã đổi. React không tự dọn: những thuộc tính đó chưa bao giờ nằm trong
- * prop `style` của nó.
+ * ⚠️ Cú kéo MƯỢN `el.style`, và thả tay ra thì phải trả. Sót `width` là hộp giữ
+ * cỡ của khoảnh khắc thả tay mãi mãi, dù ô lưới đã đổi.
+ *
+ * "Trả" không phải lúc nào cũng là xoá trắng, và chỗ này đã sai một lần. Với ô
+ * biểu đồ thì đúng: `width`/`height` chưa bao giờ nằm trong prop `style` của
+ * React, nên xoá đi là lưới nhận lại quyền định cỡ. Với CHÚ THÍCH thì ngược —
+ * từ §10.24 hai thuộc tính đó là của React, và React không ghi lại một giá trị
+ * không đổi, nên xoá trắng là không ai trả lại. Xem `Grabbable.layout` và khối
+ * ghi chú trong `end`.
  *
  * ═══ Bàn phím là đường đi ĐẦY ĐỦ, không phải lối phụ ════════════════════════
  *
@@ -140,6 +145,15 @@ interface Grabbable {
   tuDo: boolean;
   /** Quãng một lần bấm mũi tên, tính bằng ô lưới. */
   buoc: number;
+  /**
+   * Style bố cục mà REACT đang khai cho phần tử này — `cellStyle` cho ô biểu
+   * đồ, `annotationStyle` cho chú thích.
+   *
+   * Ở đây chứ không đọc thẳng từ component: `end` phải TRẢ LẠI những thuộc
+   * tính mà cú kéo mượn của `el.style`, và "trả lại" chỉ có nghĩa khi biết
+   * React đang khai gì. Xem khối ghi chú trong `end`.
+   */
+  layout: (box: Box) => React.CSSProperties;
   /** `merge`: gộp với thay đổi cùng loại ngay trước vào một bước hoàn tác. */
   apply: (patch: Partial<Box>, merge: boolean) => void;
   select: () => void;
@@ -249,6 +263,7 @@ export function CanvasBoard({
     min: { w: CANVAS_MIN_W, h: CANVAS_MIN_H },
     tuDo: false,
     buoc: 1,
+    layout: cellStyle,
     apply: (patch, merge) => onChange(draft.id, patch, merge),
     select: () => onSelect(draft.id),
     remove: () => onRemove(draft.id),
@@ -262,6 +277,7 @@ export function CanvasBoard({
     // sau khi đã kéo bằng chuột, nên nhảy nguyên một ô lưới như biểu đồ thì vô
     // dụng — nó đưa hộp về đúng cái lưới người dùng vừa thoát ra.
     buoc: 0.25,
+    layout: annotationStyle,
     apply: (patch, merge) => onChangeAnnotation(a.id, patch, merge),
     select: () => onSelect(a.id),
     remove: () => onRemoveAnnotation(a.id),
@@ -416,9 +432,29 @@ export function CanvasBoard({
     const { el, ghost, target, snapped } = state;
     const from = el.getBoundingClientRect();
 
+    /*
+     * TRẢ LẠI `width`/`height` — không xoá trắng chúng. §10.24.
+     *
+     * Cú co giãn ghi thẳng hai thuộc tính này vào `el.style`, nên thả tay ra là
+     * phải dọn. Với ô BIỂU ĐỒ, dọn nghĩa là trả về rỗng: `cellStyle` chỉ khai
+     * `gridColumn`/`gridRow`, bề rộng do lưới định, và React chưa bao giờ đặt
+     * `width` lên phần tử này.
+     *
+     * Chú thích thì ngược hẳn. Từ §10.24 nó định vị TUYỆT ĐỐI, và `width` /
+     * `height` là do chính React khai (`annotationStyle`). Mà React chỉ ghi lại
+     * một thuộc tính style khi giá trị của nó ĐỔI giữa hai lượt vẽ — còn một cú
+     * dời chỗ chỉ đổi `left`/`top`. Nên xoá trắng ở đây là hộp mất luôn bề
+     * rộng, không ai trả lại, và nó co về bằng nội dung.
+     *
+     * Đo trên Chromium, đúng thao tác người dùng báo: một đường kẻ ngang phủ
+     * hết khung (988px) tụt còn 304px và dính vào mép trái, ngay sau cú kéo đầu
+     * tiên. Số đã lưu vẫn đúng, nên tải lại trang là nó dài trở lại — kiểu hỏng
+     * khó tin nhất, vì nó tự lành mỗi lần người dùng đi kiểm chứng.
+     */
+    const traLai = target.layout(snapped);
     el.style.transform = '';
-    el.style.width = '';
-    el.style.height = '';
+    el.style.width = traLai.width === undefined ? '' : String(traLai.width);
+    el.style.height = traLai.height === undefined ? '' : String(traLai.height);
     el.style.willChange = '';
     el.style.zIndex = state.zIndex;
     ghost.hidden = true;

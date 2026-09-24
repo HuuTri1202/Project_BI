@@ -187,3 +187,46 @@ describe('biểu đồ — vẫn bám lưới', () => {
     expect(patch.x).toBe(1);
   });
 });
+
+/**
+ * ═══ Cú kéo MƯỢN `el.style` — và phải trả lại ══════════════════════════════
+ *
+ * Bài trên canh chú thích đi ĐÚNG CHỖ. Nó không canh chú thích còn nguyên HÌNH
+ * DẠNG khi tới nơi, và đó là chỗ §10.24 hỏng lần thứ hai: `end` xoá trắng
+ * `width`/`height` sau mỗi cú kéo, vốn đúng khi hai thuộc tính đó thuộc về lưới,
+ * nhưng từ §10.24 chúng là của React. React không ghi lại một giá trị không
+ * đổi, mà dời chỗ thì chỉ đổi `left`/`top` — nên không ai trả lại, và hộp co về
+ * bằng nội dung.
+ *
+ * Đo trên Chromium: đường kẻ ngang phủ hết khung 988px tụt còn 304px, dính mép
+ * trái, ngay sau cú kéo đầu tiên. Số ĐÃ LƯU vẫn đúng, nên tải lại trang là nó
+ * dài trở lại — hỏng ở lớp vẽ, không ở dữ liệu.
+ */
+describe('kéo xong, hộp còn nguyên hình dạng', () => {
+  it('chú thích giữ BỀ RỘNG và CHIỀU CAO sau khi dời chỗ', async () => {
+    ve();
+    const el = screen.getByRole('region', { name: 'Đường kẻ' });
+    const rong = el.style.width;
+    const cao = el.style.height;
+    // Nếu hai dòng này rỗng thì cả bài không canh gì: `annotationStyle` phải
+    // thật sự đặt được `width`/`height` lên phần tử thì mới có gì để mất.
+    expect(rong).not.toBe('');
+    expect(cao).not.toBe('');
+
+    await keo(el, 20, 15);
+
+    expect(el.style.width).toBe(rong);
+    expect(el.style.height).toBe(cao);
+  });
+
+  it('ô biểu đồ thì KHÔNG được nhận `width` — lưới định cỡ nó', async () => {
+    ve();
+    const o = screen.getByRole('region', { name: /Ô biểu đồ/ });
+    await keo(o.querySelector('header') as HTMLElement, BUOC_COT * 0.6, 0);
+
+    // `cellStyle` không khai hai thuộc tính này. Trả lại một con số pixel ở đây
+    // là ô đóng băng bề rộng của khoảnh khắc thả tay, và thôi co theo lưới.
+    expect(o.style.width).toBe('');
+    expect(o.style.height).toBe('');
+  });
+});
