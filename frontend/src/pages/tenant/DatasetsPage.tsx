@@ -109,11 +109,27 @@ export default function DatasetsPage(): React.ReactElement {
   const navigate = useNavigate();
   const { query, update } = useListQueryState<DatasetListQuery>({ ...DEFAULTS }, ALLOWED);
 
+  /*
+   * `?? null`: một `?folder=` gõ sai hay link cũ rơi về CHUNG, không rơi về
+   * "mọi thư mục". Nhờ vậy cột bên trái luôn có đúng một dòng đang mở.
+   */
+  const dangMo = parseFolderFilter(query.folder) ?? null;
+
   const { data, isPending, isError, error, isPlaceholderData } = useDatasets({
     ...query,
     order: query.order as 'asc' | 'desc',
     source: query.source as DatasetListQuery['source'],
     connectionId: query.connectionId === '' ? '' : Number(query.connectionId),
+    /*
+     * Gửi đi giá trị ĐÃ CHUẨN HOÁ, không phải chuỗi thô trên URL.
+     *
+     * `dangMo` quy mọi thứ lạ (`?folder=`, `?folder=abc`, mã thư mục đã xoá) về
+     * Chung, và cột bên trái sáng theo nó. Nếu chuỗi thô vẫn đi thẳng xuống API
+     * thì backend đọc `folder=` là "mọi thư mục" — cột bên trái báo Chung trong
+     * khi danh sách bày cả kho. Nhờ chỗ này mà danh sách LUÔN đúng một thư mục,
+     * và cũng nhờ vậy mà dòng "Chung" dưới mỗi tên mới bỏ đi được.
+     */
+    folder: folderFilterValue(dangMo),
   });
   const { data: connections } = useConnections();
 
@@ -124,11 +140,6 @@ export default function DatasetsPage(): React.ReactElement {
   const xoaThuMuc = useDeleteDatasetFolder();
   const chuyenThuMuc = useMoveDataset();
 
-  /*
-   * `?? null`: một `?folder=` gõ sai hay link cũ rơi về CHUNG, không rơi về
-   * "mọi thư mục". Nhờ vậy cột bên trái luôn có đúng một dòng đang mở.
-   */
-  const dangMo = parseFolderFilter(query.folder) ?? null;
   const danhSachThuMuc = folders.data?.items ?? [];
 
   /** `undefined` = đóng; `null` = đang tạo mới; có giá trị = đang đổi tên. */
@@ -378,12 +389,38 @@ export default function DatasetsPage(): React.ReactElement {
                 {/*
                  * Đệm ô hẹp hơn mặc định, và CHỈ ở bảng này.
                  *
-                 * Mười cột × 32px đệm ngang là 320px — bằng ba cột dữ liệu. Bảng
+                 * Chín cột × 32px đệm ngang là 288px — bằng ba cột dữ liệu. Bảng
                  * bốn cột ở những trang khác không có vấn đề đó, nên siết đệm
                  * trong `Td`/`Th` dùng chung là làm chật mọi bảng để cứu một cái.
                  * `TableWrap` vốn đã nhận `className`, nên không cần thêm API nào.
                  */}
-                <TableWrap fill className="[&_td]:px-3 [&_th]:px-3">
+                <TableWrap fill fixed className="[&_td]:px-3 [&_th]:px-3">
+                  {/*
+                   * Bề rộng từng cột khai TẠI ĐÂY, và đó là cách bảng này nằm
+                   * gọn trong khung.
+                   *
+                   * Đo trên Chromium ở đúng khung người dùng đang có (893px):
+                   * chín cột cộng lại đòi 1036px. Khi trình duyệt tự chia
+                   * (`table-auto`), thiếu 143px nghĩa là nó bóp mọi cột về tối
+                   * thiểu — ô "file gốc" gãy năm dòng, dòng cao 83px — rồi VẪN
+                   * tràn, nên cột cuối rơi ra ngoài khung.
+                   *
+                   * Mỗi con số dưới đây là chỗ cột ấy cần để không gãy dòng,
+                   * lấy max(bề ngang tiêu đề, bề ngang nội dung dài nhất). Cột
+                   * TÊN cố ý không khai: nó nhận hết phần còn lại, nên màn hình
+                   * càng rộng thì tên càng dài ra — đúng thứ đáng được thêm chỗ.
+                   */}
+                  <colgroup>
+                    {chonDuoc && <col className="w-9" />}
+                    <col />
+                    <col className="w-40" />
+                    <col className="w-17" />
+                    <col className="w-20" />
+                    <col className="w-26" />
+                    <col className="w-26" />
+                    <col className="w-30" />
+                    <col className="w-13" />
+                  </colgroup>
                   <THead>
                     <Tr>
                       {chonDuoc && (
@@ -402,9 +439,17 @@ export default function DatasetsPage(): React.ReactElement {
                       <SortableTh sortKey="name" activeKey={query.sort} order={query.order} onSort={onSort}>
                         Tên
                       </SortableTh>
-                      <Th>Nguồn</Th>
+                      {/*
+                       * MỘT cột nguồn, không phải hai.
+                       *
+                       * Trước đây "Nguồn" (Từ file · XLSX) và "Bảng / File gốc"
+                       * (`database (1).xlsx` · Sheet: Orders) đứng riêng, và
+                       * chúng nói cùng một chuyện: đuôi XLSX đã nằm sẵn trong
+                       * tên file, còn tên kết nối đã nằm sẵn dưới `schema.table`.
+                       * Hai cột đó lấy 225px của một bảng đang thiếu 143px.
+                       */}
                       <SortableTh sortKey="sourceTable" activeKey={query.sort} order={query.order} onSort={onSort}>
-                        Bảng / File gốc
+                        Nguồn
                       </SortableTh>
                       {/*
                        * Nhãn NGẮN, và đây là chuyện chỗ chứ không phải thẩm mỹ.
@@ -470,19 +515,31 @@ export default function DatasetsPage(): React.ReactElement {
                               giờ dẫn tới một trang thật, nên nó phải mở được bằng
                               chuột giữa, chép được địa chỉ, và hiện đích ở thanh
                               trạng thái như mọi liên kết khác. */}
+                          {/* Tên được phép xuống dòng, TỐI ĐA hai dòng.
+                              Đây là cột duy nhất như vậy: tên là thứ người dùng
+                              dò để tìm ra dòng của mình, nên cắt cụt nó ở giữa
+                              là lấy đi đúng cái họ đang cần. Hai dòng đủ cho
+                              "database (1) · Orders_detail"; dài hơn nữa thì
+                              `line-clamp` mới thêm dấu "…" — và `break-words`
+                              lo cho những cái tên một từ dài không ngắt được,
+                              vì chúng sẽ tràn sang ô bên cạnh. */}
                           <Link
                             to={`/datasets/${dataset.id}`}
-                            className="font-medium text-brand-700 hover:underline"
+                            title={dataset.name}
+                            className="line-clamp-2 font-medium break-words text-brand-700 hover:underline"
                           >
                             {dataset.name}
                           </Link>
-                          {/* Thư mục in ngay dưới tên, KHÔNG thành một cột riêng:
-                              bảng đã có chín cột, và câu hỏi "nó nằm ở đâu" chỉ đáng
-                              một dòng nhạt. Hiện cả khi đang mở đúng thư mục đó —
-                              bỏ đi thì dòng chữ nhảy ra nhảy vào theo bộ lọc. */}
-                          <div className="mt-0.5 text-xs text-slate-400">
-                            {dataset.folderName ?? CHUNG}
-                          </div>
+                          {/*
+                           * KHÔNG in tên thư mục dưới mỗi dòng nữa.
+                           *
+                           * Danh sách LUÔN lọc theo đúng một thư mục (xem chỗ
+                           * gọi `useDatasets`), nên dòng chữ đó in đúng một từ
+                           * giống hệt nhau trên cả hai mươi dòng — và từ ấy
+                           * đang sáng ngay bên trái, trong cột thư mục. Đổi lại
+                           * là 18px chiều cao mỗi dòng, tức thêm hai dòng dữ
+                           * liệu nhìn thấy được trên một màn hình.
+                           */}
                           {dataset.status === 'failed' && (
                             <div className="mt-0.5 text-xs text-red-600">
                               {dataset.errorMessage ?? 'Nhập không thành công'}
@@ -490,33 +547,7 @@ export default function DatasetsPage(): React.ReactElement {
                           )}
                         </Td>
                         <Td>
-                          <span className="whitespace-nowrap text-slate-700">
-                            {DATASET_SOURCE_LABELS[dataset.source]}
-                          </span>
-                          <div className="text-xs text-slate-500">
-                            {dataset.source === 'connection'
-                              ? [
-                                  dataset.connectionName,
-                                  dataset.connectionKind
-                                    ? CONNECTION_KIND_LABELS[dataset.connectionKind]
-                                    : null,
-                                ]
-                                  .filter(Boolean)
-                                  .join(' · ')
-                              : (dataset.fileExt?.toUpperCase() ?? '')}
-                          </div>
-                        </Td>
-                        <Td>
-                          <code className="rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-600">
-                            {dataset.source === 'connection'
-                              ? `${dataset.sourceSchema}.${dataset.sourceTable}`
-                              : dataset.originalFilename}
-                          </code>
-                          {/* Một file nhiều sheet sinh ra nhiều bộ dữ liệu cùng tên
-                              file, nên tên sheet là thứ phân biệt chúng. */}
-                          {dataset.sheetName !== null && (
-                            <div className="text-xs text-slate-500">Sheet: {dataset.sheetName}</div>
-                          )}
+                          <ONguon dataset={dataset} />
                         </Td>
                         <Td>{dataset.columnCount}</Td>
                         <Td>
@@ -800,6 +831,56 @@ export default function DatasetsPage(): React.ReactElement {
         </ConfirmDialog>
       </PageBody>
     </Page>
+  );
+}
+
+/**
+ * Ô "Nguồn" — bộ dữ liệu này lấy từ đâu ra.
+ *
+ * Hai dòng thay cho hai cột cũ:
+ *   chính  tên file, hoặc `schema.bảng` bên CSDL — thứ định danh chỗ lấy về
+ *   phụ    loại nguồn, cộng thứ chỉ có nghĩa với loại đó (sheet nào của file,
+ *          kết nối nào của CSDL)
+ *
+ * Bỏ đi so với bản hai cột: đuôi file ("XLSX") — nó đã nằm cuối tên file, in
+ * lại lần nữa là lấy chỗ mà không nói thêm gì.
+ */
+function ONguon({ dataset }: { dataset: DatasetDto }): React.ReactElement {
+  const noiVoiDau = (...phan: (string | null | undefined)[]): string =>
+    phan.filter((x) => x != null && x !== '').join(' · ');
+
+  const laCsdl = dataset.source === 'connection';
+  const chinh = laCsdl
+    ? `${dataset.sourceSchema}.${dataset.sourceTable}`
+    : (dataset.originalFilename ?? '');
+  const phu = laCsdl
+    ? noiVoiDau(
+        DATASET_SOURCE_LABELS.connection,
+        dataset.connectionName,
+        dataset.connectionKind ? CONNECTION_KIND_LABELS[dataset.connectionKind] : null,
+      )
+    : noiVoiDau(
+        DATASET_SOURCE_LABELS.file,
+        // Một file nhiều sheet sinh ra nhiều bộ dữ liệu cùng tên file, nên tên
+        // sheet là thứ phân biệt chúng.
+        dataset.sheetName === null ? null : `Sheet: ${dataset.sheetName}`,
+      );
+
+  return (
+    <>
+      {/* `truncate` + `title`: với `table-fixed`, ô nào dài quá phải TỰ cắt bớt
+          — không cắt thì chữ tràn sang ô bên cạnh và đè lên nó. Chuỗi đầy đủ
+          vẫn đọc được khi rê chuột. */}
+      <code
+        title={chinh}
+        className="block truncate rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-600"
+      >
+        {chinh}
+      </code>
+      <div title={phu} className="mt-0.5 truncate text-xs text-slate-500">
+        {phu}
+      </div>
+    </>
   );
 }
 

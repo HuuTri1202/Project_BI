@@ -37,6 +37,22 @@ export function TableWrap({
    */
   grow = false,
   /**
+   * Bề rộng cột do `<colgroup>` quyết định, không do nội dung (`table-fixed`).
+   *
+   * Mặc định (`table-auto`) trình duyệt đo nội dung rồi chia — cách đó đúng cho
+   * bảng bốn cột, và hỏng cho bảng mười cột: ở Kho dữ liệu, chỗ thật sự có là
+   * 893px trong khi mười cột cộng lại ĐÒI 1036px. Không đủ thì trình duyệt tự
+   * xử, và nó xử theo cách tệ nhất — bóp mọi cột về tối thiểu (ô "file gốc" gãy
+   * NĂM dòng) rồi vẫn tràn, nên cột cuối nằm ngoài khung và không bấm được.
+   *
+   * `table-fixed` đảo lại thứ tự quyết định: bảng lấy đúng bề rộng khung, mỗi
+   * cột lấy đúng con số đã khai, và chữ nào dài quá thì CHÍNH NÓ cắt bớt (thêm
+   * `truncate` cho ô đó). Không còn ô nào tự ý nở ra lấn chỗ của cột khác.
+   *
+   * Cần đi kèm `<colgroup>` — thiếu nó thì mọi cột chia đều nhau.
+   */
+  fixed = false,
+  /**
    * Lớp phụ — dành cho TRẦN chiều cao (`max-h-60`).
    *
    * Có `fill` rồi vẫn cần cái này: `fill` để bảng nhường chỗ còn lại, còn ở tab
@@ -48,6 +64,7 @@ export function TableWrap({
   children: ReactNode;
   fill?: boolean;
   grow?: boolean;
+  fixed?: boolean;
   className?: string;
 }): React.ReactElement {
   return (
@@ -58,7 +75,11 @@ export function TableWrap({
         fill || grow ? 'min-h-0' : ''
       } ${grow ? 'flex-1' : ''} ${className}`}
     >
-      <table className="w-full min-w-[52rem] border-collapse text-sm">{children}</table>
+      <table
+        className={`w-full min-w-[52rem] border-collapse text-sm ${fixed ? 'table-fixed' : ''}`}
+      >
+        {children}
+      </table>
     </div>
   );
 }
