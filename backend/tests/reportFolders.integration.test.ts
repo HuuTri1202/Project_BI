@@ -220,6 +220,91 @@ describe('Chung là folder_id IS NULL', () => {
   });
 });
 
+describe('Số đếm phải KHỚP danh sách', () => {
+  /*
+   * ═══ Lỗi người dùng báo, đo được trên dữ liệu thật ═══════════════════════
+   *
+   *   workspace "Không gian mặc định": danh sách hiện 4, cột thư mục đếm 12
+   *   workspace "ABC":                 danh sách hiện 0, cột thư mục đếm 5
+   *
+   * Danh sách báo cáo GIẤU những báo cáo có nguồn (bộ dữ liệu / mô hình) đã bị
+   * xoá mềm — chúng không vẽ được nữa nên không hiện. Nhưng câu đếm của cột thư
+   * mục lại không giấu, vì nó đếm thẳng trên bảng `reports` mà không nối sang
+   * nguồn. Hai bên dùng HAI định nghĩa khác nhau về "một báo cáo còn tồn tại".
+   *
+   * Cách sửa là một định nghĩa DUY NHẤT (`LIVE_REPORTS_SQL`), không phải sửa
+   * riêng từng câu đếm — sửa riêng thì lần thêm một điều kiện nữa vào danh sách
+   * sẽ lại lệch đúng như vậy.
+   */
+  async function xoaMemNguon(reportId: number): Promise<void> {
+    await mysqlPool.query(
+      `UPDATE datasets d
+         JOIN reports r ON r.dataset_id = d.id
+          SET d.deleted_at = NOW(3)
+        WHERE r.id = ?`,
+      [reportId],
+    );
+  }
+
+  it('báo cáo có NGUỒN đã xoá không được tính vào Chung', async () => {
+    await makeReport(fx.tenantA, fx.wsA1, 'Còn nguồn');
+    const mocoi = await makeReport(fx.tenantA, fx.wsA1, 'Mất nguồn');
+    await xoaMemNguon(mocoi);
+
+    const ds = await request(app)
+      .get('/api/v1/reports')
+      .query({ workspaceId: fx.wsA1 })
+      .set(bearer(fx.tokenA));
+    const tm = await request(app)
+      .get('/api/v1/report-folders')
+      .query({ workspaceId: fx.wsA1 })
+      .set(bearer(fx.tokenA));
+
+    expect(ds.body.total).toBe(1);
+    // Đây là con số in ngay cạnh chữ "Chung" trên cột bên trái. Lệch với danh
+    // sách bên phải là người dùng đếm tay ra một con số khác con số hệ thống in.
+    expect(tm.body.chungCount).toBe(ds.body.total);
+  });
+
+  it('báo cáo có NGUỒN đã xoá không được tính vào thư mục', async () => {
+    const id = await taoThuMuc(fx.tokenA, fx.wsA1, 'Bán hàng');
+    const song = await makeReport(fx.tenantA, fx.wsA1, 'Còn nguồn');
+    const mocoi = await makeReport(fx.tenantA, fx.wsA1, 'Mất nguồn');
+    await chuyen(fx.tokenA, song, id);
+    await chuyen(fx.tokenA, mocoi, id);
+    await xoaMemNguon(mocoi);
+
+    const ds = await request(app)
+      .get('/api/v1/reports')
+      .query({ workspaceId: fx.wsA1, folder: String(id) })
+      .set(bearer(fx.tokenA));
+    const tm = await request(app)
+      .get('/api/v1/report-folders')
+      .query({ workspaceId: fx.wsA1 })
+      .set(bearer(fx.tokenA));
+
+    expect(ds.body.total).toBe(1);
+    expect(tm.body.items[0].reportCount).toBe(ds.body.total);
+  });
+
+  it('thư mục mà MỌI báo cáo đều mất nguồn vẫn hiện ra, đếm 0', async () => {
+    // Bẫy LEFT JOIN: nhét điều kiện "nguồn còn sống" vào WHERE thay vì vào phép
+    // nối sẽ làm chính THƯ MỤC biến mất khỏi danh sách, không chỉ con số.
+    const id = await taoThuMuc(fx.tokenA, fx.wsA1, 'Toàn mồ côi');
+    const mocoi = await makeReport(fx.tenantA, fx.wsA1, 'Mất nguồn');
+    await chuyen(fx.tokenA, mocoi, id);
+    await xoaMemNguon(mocoi);
+
+    const tm = await request(app)
+      .get('/api/v1/report-folders')
+      .query({ workspaceId: fx.wsA1 })
+      .set(bearer(fx.tokenA));
+
+    expect(tm.body.items).toHaveLength(1);
+    expect(tm.body.items[0]).toMatchObject({ name: 'Toàn mồ côi', reportCount: 0 });
+  });
+});
+
 describe('DELETE /report-folders/:id', () => {
   it('xoá thư mục KHÔNG xoá báo cáo — chúng quay về Chung', async () => {
     const baoCao = await makeReport(fx.tenantA, fx.wsA1, 'Doanh thu quý 1');

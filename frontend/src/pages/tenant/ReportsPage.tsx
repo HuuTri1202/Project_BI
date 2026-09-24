@@ -2,6 +2,7 @@ import {
   allVisuals,
   CHART_TYPE_LABELS,
   CHUNG,
+  FOLDER_FILTER_CHUNG,
   folderFilterValue,
   parseFolderFilter,
   REPORT_SOURCE_LABELS,
@@ -36,7 +37,6 @@ import { MoveReportDialog } from '../../features/reports/folders/MoveReportDialo
 import { CreateReportMenu } from '../../features/tenant/CreateReportMenu';
 import { useListQueryState } from '../../hooks/useListQueryState';
 import { getApiError } from '../../services/apiClient';
-import { useWorkspace } from '../../workspace/useWorkspace';
 
 /**
  * Danh sách báo cáo — §10.10.
@@ -67,12 +67,22 @@ interface ListQuery {
   folder: string;
 }
 
-const DEFAULTS: ListQuery = { page: 1, pageSize: 20, q: '', folder: '' };
+/*
+ * Mặc định mở CHUNG, không phải "mọi thư mục".
+ *
+ * Từ khi cột bên trái bỏ dòng "Tất cả báo cáo", mọi báo cáo đều nằm trong đúng
+ * một chỗ đứng — Chung hoặc một thư mục — nên trạng thái "không lọc gì" không
+ * còn dòng nào để tô sáng. Để nó làm mặc định thì trang mở ra với cột bên trái
+ * không có dòng nào đang mở, và người dùng không đọc được mình đang xem gì.
+ *
+ * `GET /reports` vẫn hiểu "không truyền `folder`" là mọi thư mục; chỉ màn hình
+ * này là không dùng tới nữa.
+ */
+const DEFAULTS: ListQuery = { page: 1, pageSize: 20, q: '', folder: FOLDER_FILTER_CHUNG };
 
 export default function ReportsPage(): React.ReactElement {
   const permissions = usePermissions();
   const navigate = useNavigate();
-  const { current } = useWorkspace();
   const { query, update } = useListQueryState<ListQuery>({ ...DEFAULTS });
 
   const canEdit = permissions.can('report', 'modify');
@@ -88,7 +98,11 @@ export default function ReportsPage(): React.ReactElement {
   const xoaThuMuc = useDeleteReportFolder();
   const chuyenThuMuc = useMoveReport();
 
-  const dangMo = parseFolderFilter(query.folder);
+  /*
+   * `?? null`: một `?folder=` gõ sai hay link cũ rơi về CHUNG, không rơi về
+   * "mọi thư mục". Nhờ vậy cột bên trái luôn có đúng một dòng đang mở.
+   */
+  const dangMo = parseFolderFilter(query.folder) ?? null;
   const danhSachThuMuc = folders.data?.items ?? [];
 
   const [deleting, setDeleting] = useState<ReportDto | null>(null);
@@ -109,7 +123,7 @@ export default function ReportsPage(): React.ReactElement {
   const isEmpty = data !== undefined && data.items.length === 0;
 
   /** Đổi thư mục là VỀ TRANG 1: trang 3 của thư mục cũ thường không tồn tại. */
-  const chonThuMuc = (folderId: number | null | undefined): void => {
+  const chonThuMuc = (folderId: number | null): void => {
     update({ folder: folderFilterValue(folderId), page: 1 });
   };
 
@@ -118,8 +132,8 @@ export default function ReportsPage(): React.ReactElement {
    *
    * `reset` của `useListQueryState` dọn sạch mọi tham số trên URL, kể cả
    * `folder` — nên dùng thẳng nó ở đây thì người đang đứng trong "Bán hàng" gõ
-   * một từ khoá, không thấy gì, bấm "Xoá lọc", và bị ném về Tất cả. Thư mục là
-   * CHỖ ĐỨNG chứ không phải một bộ lọc vừa gõ vào.
+   * một từ khoá, không thấy gì, bấm "Xoá lọc", và bị ném sang chỗ khác. Thư mục
+   * là CHỖ ĐỨNG chứ không phải một bộ lọc vừa gõ vào.
    */
   const xoaTimKiem = (): void => update({ q: '', page: 1 });
 
@@ -175,15 +189,13 @@ export default function ReportsPage(): React.ReactElement {
                 title={
                   hasFilter
                     ? 'Không có báo cáo nào khớp'
-                    : dangMo === undefined
-                      ? `Workspace "${current?.name ?? '—'}" chưa có báo cáo nào`
-                      : `${tenThuMuc(dangMo, danhSachThuMuc)} chưa có báo cáo nào`
+                    : `${tenThuMuc(dangMo, danhSachThuMuc)} chưa có báo cáo nào`
                 }
                 hint={
                   hasFilter
                     ? 'Thử đổi từ khoá.'
-                    : dangMo === undefined
-                      ? 'Hai đường: tải một file Excel/CSV lên để vào thẳng trình dựng, hoặc chọn một mô hình dữ liệu đã có.'
+                    : dangMo === null
+                      ? 'Báo cáo mới mặc định vào đây. Hai đường: tải một file Excel/CSV lên để vào thẳng trình dựng, hoặc chọn một mô hình dữ liệu đã có.'
                       : 'Tạo báo cáo mới ở đây, hoặc chuyển một báo cáo có sẵn vào bằng mục “Chuyển tới thư mục”.'
                 }
                 action={
@@ -372,9 +384,10 @@ export default function ReportsPage(): React.ReactElement {
           if (xoaThuMucNao === null) return;
           xoaThuMuc.mutate(xoaThuMucNao.id, {
             onSuccess: () => {
-              // Đang đứng trong chính thư mục vừa xoá thì về "Tất cả" — không
-              // thì danh sách lọc theo một mã không còn tồn tại và trống trơn.
-              if (dangMo === xoaThuMucNao.id) chonThuMuc(undefined);
+              // Đang đứng trong chính thư mục vừa xoá thì về Chung — cũng là
+              // nơi những báo cáo bên trong nó vừa quay về. Không dời đi thì
+              // danh sách lọc theo một mã không còn tồn tại và trống trơn.
+              if (dangMo === xoaThuMucNao.id) chonThuMuc(null);
               setXoaThuMucNao(null);
             },
             onError,
@@ -411,7 +424,7 @@ export default function ReportsPage(): React.ReactElement {
   );
 }
 
-/** Tên thư mục đang mở, để câu chữ của màn hình trống gọi đúng chỗ. */
+/** Tên chỗ đang mở, để câu chữ của màn hình trống gọi đúng chỗ. */
 function tenThuMuc(id: number | null, folders: readonly ReportFolderDto[]): string {
   if (id === null) return CHUNG;
   return folders.find((f) => f.id === id)?.name ?? 'Thư mục này';

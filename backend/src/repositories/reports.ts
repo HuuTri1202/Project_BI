@@ -47,6 +47,46 @@ interface ReportRow extends RowDataPacket {
   updated_at: Date;
 }
 
+/**
+ * "Báo cáo CÒN HIỆN RA ĐƯỢC" — định nghĩa DUY NHẤT, dùng chung cho mọi câu đếm.
+ *
+ * Một báo cáo bị giấu đi khi chính nó bị xoá mềm, HOẶC khi nguồn số liệu của nó
+ * (bộ dữ liệu / mô hình) bị xoá mềm: không có nguồn thì không vẽ được gì, nên
+ * hiện nó ra chỉ là mời người dùng bấm vào một trang lỗi.
+ *
+ * ═══ Vì sao nó phải là MỘT hằng, không phải ba câu WHERE chép tay ══════════
+ *
+ * Lỗi đo được trên dữ liệu thật của người dùng: cột thư mục đếm 12 trong khi
+ * danh sách bên cạnh hiện 4, và một workspace khác đếm 5 trong khi danh sách
+ * trống trơn. Nguyên nhân là hai bên có hai định nghĩa: danh sách nối sang
+ * `datasets`/`datamodels` rồi lọc, còn câu đếm của cột thư mục đếm thẳng trên
+ * bảng `reports`.
+ *
+ * Sửa riêng từng câu đếm thì hết lệch hôm nay, và lệch lại đúng như vậy vào lần
+ * ai đó thêm một điều kiện thứ tư vào danh sách. Nên chúng dùng chung đúng một
+ * chuỗi này.
+ *
+ * ⚠️ Chỉ dùng được ở nơi bảng `reports` mang bí danh `r`, `datasets` là `d`, và
+ * `datamodels` là `dm` — xem `SELECT_COLUMNS` và `LIVE_REPORTS_SQL`.
+ */
+const LIVE_WHERE = 'r.deleted_at IS NULL AND d.deleted_at IS NULL AND dm.deleted_at IS NULL';
+
+/**
+ * Cũng đúng định nghĩa đó, đóng gói thành một bảng con để `reportFolders.ts`
+ * nối vào mà đếm.
+ *
+ * Bảng con chứ không phải một chuỗi điều kiện rời: câu đếm bên kia là một LEFT
+ * JOIN từ `report_folders`, và nhét điều kiện "nguồn còn sống" vào WHERE của nó
+ * sẽ làm chính THƯ MỤC biến mất khỏi danh sách khi mọi báo cáo bên trong đều
+ * mất nguồn — không chỉ con số sai, mà cả dòng không còn. Bảng con lọc TRƯỚC
+ * khi nối nên không có cái bẫy đó.
+ */
+export const LIVE_REPORTS_SQL = `SELECT r.id, r.tenant_id, r.workspace_id, r.folder_id
+       FROM reports r
+       LEFT JOIN datasets d ON d.id = r.dataset_id
+       LEFT JOIN datamodels dm ON dm.id = r.datamodel_id
+      WHERE ${LIVE_WHERE}`;
+
 /*
  * ⚠️ LEFT JOIN cho cả hai nguồn, không phải JOIN.
  *
@@ -322,21 +362,14 @@ function buildWhere(
   sql: string;
   params: (string | number)[];
 } {
-  // Nguồn bị xoá mềm thì báo cáo dựa trên nó không vẽ được nữa, nên đừng hiện.
-  // Khoá ngoại là RESTRICT nên tình huống này chỉ xảy ra qua xoá mềm, và xoá
-  // mềm không kích hoạt ràng buộc nào.
+  // `LIVE_WHERE` giấu báo cáo có nguồn đã xoá mềm — xem ghi chú ở chính nó, và
+  // nhớ rằng CỘT THƯ MỤC cũng đếm bằng đúng định nghĩa đó.
   //
-  // Hai điều kiện này CHỈ đúng nhờ LEFT JOIN: với báo cáo dựng trên mô hình thì
-  // không có dòng `datasets` nào, `d.deleted_at` ra NULL, và `IS NULL` cho TRUE
-  // — tức là điều kiện tự bỏ qua đúng vế không liên quan. Đổi sang `JOIN` hay
-  // viết thành `d.deleted_at IS NULL OR ...` đều làm hỏng tính chất đó.
-  const conditions = [
-    'r.tenant_id = ?',
-    'r.workspace_id = ?',
-    'r.deleted_at IS NULL',
-    'd.deleted_at IS NULL',
-    'dm.deleted_at IS NULL',
-  ];
+  // Hai vế nguồn trong đó CHỈ đúng nhờ LEFT JOIN: với báo cáo dựng trên mô hình
+  // thì không có dòng `datasets` nào, `d.deleted_at` ra NULL, và `IS NULL` cho
+  // TRUE — tức là điều kiện tự bỏ qua đúng vế không liên quan. Đổi sang `JOIN`
+  // hay viết thành `d.deleted_at IS NULL OR ...` đều làm hỏng tính chất đó.
+  const conditions = ['r.tenant_id = ?', 'r.workspace_id = ?', LIVE_WHERE];
   const params: (string | number)[] = [tenantId, filter.workspaceId];
 
   if (filter.search) {
@@ -409,8 +442,7 @@ export async function listRecent(
 ): Promise<ReportDto[]> {
   const [rows] = await db.query<ReportRow[]>(
     `SELECT ${SELECT_COLUMNS}
-      WHERE r.tenant_id = ? AND r.workspace_id = ?
-        AND r.deleted_at IS NULL AND d.deleted_at IS NULL AND dm.deleted_at IS NULL
+      WHERE r.tenant_id = ? AND r.workspace_id = ? AND ${LIVE_WHERE}
       ORDER BY r.updated_at DESC, r.id DESC
       LIMIT ?`,
     [tenantId, workspaceId, limit],

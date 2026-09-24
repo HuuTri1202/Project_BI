@@ -1,5 +1,5 @@
 import { CHUNG, folderFilterValue, parseFolderFilter, type ReportFolderDto } from '@bi/shared';
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
 import { FolderRail } from '../src/features/reports/folders/FolderRail';
@@ -28,7 +28,7 @@ const THU_MUC: ReportFolderDto[] = [
 ];
 
 function ve(
-  dang: number | null | undefined,
+  dang: number | null,
   onChon = vi.fn(),
   onThemMoi = vi.fn(),
   folders: readonly ReportFolderDto[] = THU_MUC,
@@ -81,56 +81,62 @@ describe('parseFolderFilter — ba trạng thái, không phải hai', () => {
 });
 
 describe('FolderRail', () => {
-  it('bày đủ Tất cả, Chung và từng thư mục, kèm số đếm', () => {
-    ve(undefined);
+  it('KHÔNG còn dòng "tất cả" — cộng mọi dòng lại đã là tất cả', () => {
+    ve(null);
+    expect(screen.queryByRole('button', { name: /Tất cả/ })).toBeNull();
+  });
 
-    expect(dong('Tất cả')).toBeTruthy();
-    expect(dong(CHUNG)).toBeTruthy();
+  it('bày Chung và từng thư mục, kèm số đếm', () => {
+    ve(null);
+
+    expect(dong(CHUNG).textContent).toContain('3');
     // Thư mục RỖNG vẫn phải hiện — nếu không, người vừa tạo nó đi tìm không ra
     // rồi bấm tạo lần nữa, và lần đó đâm vào UNIQUE.
     expect(dong('Nhân sự').textContent).toContain('0');
     expect(dong('Bán hàng').textContent).toContain('2');
   });
 
-  it('tổng của "Tất cả" gồm cả Chung lẫn mọi thư mục', () => {
-    ve(undefined);
-    // 3 ở Chung + 2 + 0. Quên vế Chung là con số này nhỏ hơn danh sách bên cạnh,
-    // và người dùng đếm tay ra một con số khác.
-    expect(dong('Tất cả').textContent).toContain('5');
+  it('Chung được GHIM ở ĐẦU, không xếp theo bảng chữ cái cùng các thư mục', () => {
+    /*
+     * "Bán hàng" và "Nhân sự" đứng sau Chung dù B < C trong bảng chữ cái. Chung
+     * là chỗ hay phải mở nhất; một chỗ hay mở mà mỗi lần lại nằm một vị trí khác
+     * — tuỳ tên thư mục người dùng vừa tạo — thì phải đọc lại cả danh sách.
+     */
+    ve(null);
+    const ten = within(screen.getByRole('navigation', { name: 'Thư mục báo cáo' }))
+      .getAllByRole('button')
+      .map((b) => b.textContent?.trim() ?? '')
+      .filter((t) => t !== '');
+
+    expect(ten[0]).toContain(CHUNG);
+    expect(ten[1]).toContain('Bán hàng');
   });
 
-  it('bấm Chung báo về `null`, bấm Tất cả báo về `undefined`', () => {
-    const { onChon } = ve(undefined);
+  it('bấm Chung báo về `null`, bấm một thư mục báo về mã của nó', () => {
+    const { onChon } = ve(11);
 
     fireEvent.click(dong(CHUNG));
     expect(onChon).toHaveBeenLastCalledWith(null);
 
     fireEvent.click(dong('Bán hàng'));
     expect(onChon).toHaveBeenLastCalledWith(11);
-
-    fireEvent.click(dong('Tất cả'));
-    expect(onChon).toHaveBeenLastCalledWith(undefined);
   });
 
   it('chỉ MỘT dòng được đánh dấu đang mở, và đúng dòng đó', () => {
     ve(null);
     expect(dong(CHUNG).getAttribute('aria-current')).toBe('true');
-    expect(dong('Tất cả').getAttribute('aria-current')).toBeNull();
     expect(dong('Bán hàng').getAttribute('aria-current')).toBeNull();
-  });
 
-  it('đang mở "Tất cả" thì Chung KHÔNG được đánh dấu theo', () => {
-    // Ca riêng cho `undefined`, và nó tồn tại vì bản đầu của bài test này thiếu
-    // đúng nó: viết `chon={!dang}` cho dòng Chung vẫn xanh hết, vì `null` và
-    // `undefined` chỉ khác nhau ở nhánh này. Hai dòng cùng sáng thì người dùng
-    // không đọc được mình đang xem gì.
-    ve(undefined);
-    expect(dong('Tất cả').getAttribute('aria-current')).toBe('true');
+    cleanup();
+    ve(11);
+    // `chon={!dang}` cho dòng Chung — một phản xạ dễ mắc — làm dòng này cũng
+    // sáng, và hai dòng cùng sáng thì không đọc được mình đang xem gì.
+    expect(dong('Bán hàng').getAttribute('aria-current')).toBe('true');
     expect(dong(CHUNG).getAttribute('aria-current')).toBeNull();
   });
 
-  it('Tất cả và Chung KHÔNG có menu ⋮ — đổi tên hay xoá chúng là việc không có', () => {
-    ve(undefined);
+  it('đúng HAI menu ⋮, cho đúng hai thư mục thật', () => {
+    ve(null);
     const nav = screen.getByRole('navigation', { name: 'Thư mục báo cáo' });
     const menus = within(nav).getAllByRole('button', { name: /Thao tác trên thư mục/ });
     // Đúng hai cái, cho hai thư mục thật.
@@ -146,7 +152,7 @@ describe('FolderRail', () => {
       <FolderRail
         folders={THU_MUC}
         chungCount={3}
-        dang={undefined}
+        dang={null}
         onChon={vi.fn()}
         canEdit={false}
         onThemMoi={vi.fn()}
@@ -159,24 +165,24 @@ describe('FolderRail', () => {
     expect(screen.queryByRole('button', { name: 'Thêm thư mục' })).toBeNull();
   });
 
+  it('Chung KHÔNG có menu ⋮ — đổi tên hay xoá nó là thao tác không tồn tại', () => {
+    ve(null);
+    expect(screen.queryByRole('button', { name: `Thao tác trên thư mục ${CHUNG}` })).toBeNull();
+  });
+
   it('nút "+" nằm NGAY TRONG cột, và còn đó cả khi chưa có thư mục nào', () => {
     /*
      * Đây là chỗ DUY NHẤT tạo được thư mục từ khi nút trên thanh tiêu đề bị bỏ
      * đi. Ẩn nó lúc danh sách rỗng — một phản xạ dễ mắc khi viết nhánh "trống" —
      * là khoá hẳn tính năng đúng vào lúc người dùng cần nó nhất: lần đầu.
      */
-    const { onThemMoi } = ve(undefined, vi.fn(), vi.fn(), []);
+    const { onThemMoi } = ve(null, vi.fn(), vi.fn(), []);
 
     const them = screen.getByRole('button', { name: 'Thêm thư mục' });
     fireEvent.click(them);
     expect(onThemMoi).toHaveBeenCalledTimes(1);
 
-    // Và cột trống vẫn nói ra mình dùng để làm gì.
-    expect(screen.getByText(/Chưa có thư mục nào/)).toBeTruthy();
-  });
-
-  it('dòng đầu gọi đúng tên thứ nó lọc: BÁO CÁO, không phải bộ dữ liệu', () => {
-    ve(undefined);
-    expect(dong('Tất cả').textContent).toContain('Tất cả báo cáo');
+    // Và cột chưa có thư mục nào vẫn nói ra mình dùng để làm gì.
+    expect(screen.getByText(/Bấm \+ ở trên để tạo thư mục/)).toBeTruthy();
   });
 });

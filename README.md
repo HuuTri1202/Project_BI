@@ -1243,9 +1243,16 @@ Xem mục _Xem trước, sửa sau_ bên dưới.
 
 Một workspace dùng được vài tháng có vài chục báo cáo, và tới trước bản này tab
 Báo cáo là một danh sách phẳng đúng bấy nhiêu dòng — cách duy nhất để tìm là gõ
-đúng tên. Bản này thêm một cột thư mục bên trái: **Tất cả báo cáo**, **Chung**,
-rồi tiêu đề **THƯ MỤC** kèm nút **+**, và dưới đó là từng thư mục người dùng tự
-tạo, mỗi dòng có icon và số báo cáo.
+đúng tên. Bản này thêm một cột bên trái: tiêu đề **THƯ MỤC** kèm nút **+**, rồi
+**Chung** được ghim ở đầu, rồi từng thư mục người dùng tự tạo, mỗi dòng có icon
+và số báo cáo.
+
+**Không có dòng "tất cả"**: mọi báo cáo nằm trong đúng một chỗ, nên cộng mọi
+dòng lại đã là tất cả. Chung cũng là chỗ mở mặc định khi vào trang.
+
+Chung được **ghim ở đầu**, không xếp theo bảng chữ cái cùng các thư mục khác: nó
+là chỗ hay phải mở nhất, và một chỗ hay mở mà mỗi lần lại nằm một vị trí khác —
+tuỳ tên thư mục người dùng vừa tạo — thì phải đọc lại cả danh sách mỗi lần.
 
 Nút **+** nằm trong chính cột đó, không ở thanh tiêu đề trang: nó đứng ngay cạnh
 thứ nó tạo ra. Bản đầu đặt một nút "Thư mục mới" cạnh nút "Tạo báo cáo" trên
@@ -1276,6 +1283,27 @@ Hệ quả cho người đọc mã: `folderId` có **ba** trạng thái, không 
 `if (folderId)` ở bất kỳ mắt xích nào là bấm vào Chung nhận nguyên cả danh sách.
 Phép dịch sang chuỗi trên URL nằm ở `parseFolderFilter`/`folderFilterValue` bên
 `@bi/shared`, dùng chung cho cả hai đầu.
+
+#### Số đếm và danh sách phải dùng CHUNG một định nghĩa
+
+Bản đầu đếm sai, và sai lớn — đo trên dữ liệu thật: cột thư mục đếm **12** trong
+khi danh sách bên cạnh hiện **4**, và một workspace khác đếm **5** trong khi danh
+sách trống trơn.
+
+Nguyên nhân là hai định nghĩa khác nhau về "một báo cáo còn tồn tại". Danh sách
+nối sang `datasets`/`datamodels` rồi bỏ những báo cáo có nguồn đã xoá mềm — chúng
+không vẽ được nữa nên không hiện. Câu đếm của cột thư mục thì đếm thẳng trên bảng
+`reports`, nên nó tính cả những báo cáo đó.
+
+Cách sửa là **một định nghĩa duy nhất** — `LIVE_REPORTS_SQL` trong
+`repositories/reports.ts` — mà cả danh sách, `chungCount` lẫn `reportCount` của
+từng thư mục đều dùng. Sửa riêng từng câu đếm thì hết lệch hôm nay và lệch lại
+đúng như vậy vào lần ai đó thêm một điều kiện thứ tư vào danh sách.
+
+⚠️ Nó là một **bảng con**, không phải một chuỗi điều kiện rời, và đó là chủ ý:
+câu đếm của thư mục là một `LEFT JOIN` từ `report_folders`, nên nhét điều kiện
+"nguồn còn sống" vào `WHERE` sẽ làm chính **thư mục** biến mất khỏi danh sách khi
+mọi báo cáo bên trong đều mất nguồn — không chỉ sai con số, mà mất cả dòng.
 
 #### Xoá thư mục KHÔNG xoá báo cáo
 

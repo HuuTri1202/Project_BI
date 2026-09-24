@@ -1,6 +1,7 @@
 import { type ReportFolderDto } from '@bi/shared';
 import type { ResultSetHeader, RowDataPacket } from 'mysql2';
 import type { Db } from './db';
+import { LIVE_REPORTS_SQL } from './reports';
 
 /**
  * Thư mục báo cáo — §10.25. Cùng khuôn tenant-scoped với `reports.ts`.
@@ -37,13 +38,16 @@ function toDto(row: FolderRow): ReportFolderDto {
 /**
  * Mọi thư mục của một workspace, kèm số báo cáo đang nằm trong.
  *
- * ⚠️ `LEFT JOIN` chứ không phải `JOIN`: một thư mục RỖNG vẫn phải hiện ra —
- * người dùng vừa bấm "Thư mục mới" xong mà nó không xuất hiện thì họ bấm lần
- * nữa, và lần đó đâm vào UNIQUE.
+ * ⚠️ Con số này phải KHỚP từng đơn vị với danh sách báo cáo bên cạnh, nên nó
+ * đếm trên `LIVE_REPORTS_SQL` — đúng định nghĩa mà danh sách dùng. Đếm thẳng
+ * trên bảng `reports` là cách bản đầu làm, và nó cho ra 12 trong khi danh sách
+ * hiện 4: chênh lệch chính là những báo cáo có nguồn đã bị xoá mềm.
  *
- * Điều kiện lọc báo cáo nằm trong mệnh đề `ON`, KHÔNG phải `WHERE`. Chuyển nó
- * xuống `WHERE` là biến LEFT JOIN thành JOIN thường — mọi thư mục rỗng biến mất
- * khỏi danh sách, âm thầm, và chỉ lộ ra với đúng thư mục chưa có báo cáo nào.
+ * ⚠️ `LEFT JOIN` chứ không phải `JOIN`: một thư mục RỖNG vẫn phải hiện ra —
+ * người dùng vừa tạo thư mục xong mà nó không xuất hiện thì họ tạo lần nữa, và
+ * lần đó đâm vào UNIQUE. Vì bảng con đã lọc sẵn, không có điều kiện nào phải
+ * nhét vào `WHERE` — mà nhét vào đó thì thư mục toàn báo cáo mất nguồn sẽ biến
+ * mất khỏi danh sách, không chỉ sai con số.
  */
 export async function listFolders(
   db: Db,
@@ -52,9 +56,9 @@ export async function listFolders(
 ): Promise<ReportFolderDto[]> {
   const [rows] = await db.query<FolderRow[]>(
     `SELECT f.id, f.workspace_id, f.name, f.created_at, f.updated_at,
-            COUNT(r.id) AS report_count
+            COUNT(live.id) AS report_count
        FROM report_folders f
-       LEFT JOIN reports r ON r.folder_id = f.id AND r.deleted_at IS NULL
+       LEFT JOIN (${LIVE_REPORTS_SQL}) live ON live.folder_id = f.id
       WHERE f.tenant_id = ? AND f.workspace_id = ?
       GROUP BY f.id
       ORDER BY f.name ASC`,
@@ -63,11 +67,17 @@ export async function listFolders(
   return rows.map(toDto);
 }
 
-/** Số báo cáo CHƯA xếp thư mục — con số của "Chung" trên cột bên trái. */
+/**
+ * Số báo cáo CHƯA xếp thư mục — con số in cạnh chữ "Chung".
+ *
+ * Cùng `LIVE_REPORTS_SQL` với `listFolders` và với danh sách báo cáo. Xem ghi
+ * chú ở đó: ba chỗ này phải nói cùng một con số, nếu không người dùng đếm tay
+ * ra một kết quả khác kết quả hệ thống in ra.
+ */
 export async function countChung(db: Db, tenantId: number, workspaceId: number): Promise<number> {
   const [rows] = await db.query<RowDataPacket[]>(
-    `SELECT COUNT(*) AS total FROM reports
-      WHERE tenant_id = ? AND workspace_id = ? AND folder_id IS NULL AND deleted_at IS NULL`,
+    `SELECT COUNT(*) AS total FROM (${LIVE_REPORTS_SQL}) live
+      WHERE live.tenant_id = ? AND live.workspace_id = ? AND live.folder_id IS NULL`,
     [tenantId, workspaceId],
   );
   return Number(rows[0]?.['total'] ?? 0);

@@ -5,13 +5,20 @@ import { ROW_MENU_ICONS, RowMenu, RowMenuItem } from '../../../components/ui/Row
 /**
  * Cột thư mục bên trái tab Báo cáo — §10.25.
  *
- * ═══ Ba nhóm dòng, và chúng KHÔNG cùng loại với nhau ═══════════════════════
+ * ═══ MỘT danh sách, và "Chung" luôn đứng đầu ═══════════════════════════════
  *
- * "Tất cả báo cáo" là một BỘ LỌC TẮT, "Chung" là chỗ chứa mặc định, còn dưới
- * tiêu đề "THƯ MỤC" mới là thư mục thật. Người dùng bấm vào cả ba với cùng một
- * ý định, nên chúng cùng hình dạng — nhưng chỉ nhóm cuối có menu ⋮, vì đổi tên
- * hay xoá hai dòng trên là thao tác không tồn tại, và bày ra một cái menu chỉ
- * để mọi mục trong đó đều mờ thì tệ hơn không bày gì.
+ * Mọi báo cáo đều nằm trong đúng một chỗ: Chung, hoặc một thư mục. Nên cột này
+ * là một danh sách phẳng chứ không phải hai khu, và không có dòng "tất cả" —
+ * cộng mọi dòng lại đã là tất cả.
+ *
+ * Chung được GHIM ở đầu, không xếp theo bảng chữ cái cùng các thư mục khác: nó
+ * là chỗ báo cáo mới rơi vào khi người dùng chưa xếp gì, tức chỗ hay phải mở
+ * nhất, và một chỗ hay mở mà mỗi lần lại nằm một vị trí khác (hôm nay thứ hai,
+ * mai thứ năm, tuỳ tên thư mục mới) thì phải đọc lại danh sách mỗi lần.
+ *
+ * Nó cũng là dòng DUY NHẤT không có menu ⋮ — đổi tên hay xoá Chung là thao tác
+ * không tồn tại (xem `reportFolder.ts`), và bày ra một cái menu chỉ để mọi mục
+ * trong đó đều mờ thì tệ hơn không bày gì.
  *
  * ═══ Nút "+" nằm ở ĐÂY, không ở thanh trên cùng ════════════════════════════
  *
@@ -21,9 +28,8 @@ import { ROW_MENU_ICONS, RowMenu, RowMenuItem } from '../../../components/ui/Row
  * màn hình và nằm cạnh nút "Tạo báo cáo" — hai nút khác hẳn nhau về hậu quả,
  * đứng sát nhau, chữ na ná nhau.
  *
- * ⚠️ `null` và `undefined` ở `dang` là HAI trạng thái khác nhau, không phải một
- * cách viết cho "chưa chọn": `undefined` là Tất cả, `null` là Chung. Xem
- * `reportFolder.ts`. Gộp chúng lại là bấm vào Chung mà nhận nguyên danh sách.
+ * ⚠️ `dang === null` là CHUNG, không phải "chưa chọn gì". Cột này luôn có đúng
+ * một dòng đang mở — trang gọi nó đã quy mọi giá trị lạ về Chung.
  */
 export function FolderRail({
   folders,
@@ -38,41 +44,23 @@ export function FolderRail({
   folders: readonly ReportFolderDto[];
   /** Số báo cáo chưa xếp thư mục. */
   chungCount: number;
-  /** `undefined` = Tất cả, `null` = Chung, số = mã thư mục. */
-  dang: number | null | undefined;
-  onChon: (folderId: number | null | undefined) => void;
+  /** `null` = Chung, số = mã thư mục. Luôn có đúng một dòng đang mở. */
+  dang: number | null;
+  onChon: (folderId: number | null) => void;
   canEdit: boolean;
   onThemMoi: () => void;
   onDoiTen: (folder: ReportFolderDto) => void;
   onXoa: (folder: ReportFolderDto) => void;
 }): React.ReactElement {
-  const tong = chungCount + folders.reduce((sum, f) => sum + f.reportCount, 0);
-
   return (
     <nav
       aria-label="Thư mục báo cáo"
       className="flex w-60 shrink-0 flex-col gap-0.5 overflow-y-auto pr-3"
     >
-      <Dong
-        nhan="Tất cả báo cáo"
-        icon={ICON.tapHo}
-        so={tong}
-        chon={dang === undefined}
-        onClick={() => onChon(undefined)}
-      />
-      <Dong
-        nhan={CHUNG}
-        hint={CHUNG_HINT}
-        icon={ICON.thuMuc}
-        so={chungCount}
-        chon={dang === null}
-        onClick={() => onChon(null)}
-      />
-
       {/* Tiêu đề nhóm + nút thêm. Luôn có mặt kể cả khi chưa có thư mục nào:
           đây là chỗ DUY NHẤT tạo được thư mục, nên ẩn nó đi lúc danh sách rỗng
           là khoá hẳn tính năng đúng vào lúc người dùng cần nó nhất. */}
-      <div className="mt-4 flex items-center gap-2 px-2 pb-1">
+      <div className="flex items-center gap-2 px-2 pb-1">
         <span className="flex-1 text-[11px] font-semibold tracking-wide text-slate-400 uppercase">
           Thư mục
         </span>
@@ -100,62 +88,70 @@ export function FolderRail({
         )}
       </div>
 
-      {folders.length === 0 ? (
-        /* Một cột trống không nói được gì về việc mình dùng để làm gì. Câu này
-           thay cho khoảng trắng, và nó chỉ thẳng vào cái nút vừa đứng bên trên. */
-        <p className="px-2 text-xs leading-relaxed text-slate-400">
-          {canEdit
-            ? 'Chưa có thư mục nào. Bấm + để gom báo cáo theo chủ đề.'
-            : 'Chưa có thư mục nào.'}
-        </p>
-      ) : (
-        folders.map((folder) => (
-          <Dong
-            key={folder.id}
-            nhan={folder.name}
-            icon={ICON.thuMuc}
-            so={folder.reportCount}
-            chon={dang === folder.id}
-            onClick={() => onChon(folder.id)}
-            menu={
-              canEdit ? (
-                <RowMenu label={`Thao tác trên thư mục ${folder.name}`}>
-                  {(close) => (
-                    <>
-                      <RowMenuItem
-                        icon={ROW_MENU_ICONS.edit}
-                        onClick={() => {
-                          close();
-                          onDoiTen(folder);
-                        }}
-                      >
-                        Đổi tên
-                      </RowMenuItem>
-                      <RowMenuItem
-                        icon={ROW_MENU_ICONS.trash}
-                        danger
-                        onClick={() => {
-                          close();
-                          onXoa(folder);
-                        }}
-                      >
-                        Xoá thư mục
-                      </RowMenuItem>
-                    </>
-                  )}
-                </RowMenu>
-              ) : undefined
-            }
-          />
-        ))
-      )}
+      {/* Chung: GHIM ở đầu, trước mọi thư mục người dùng tạo — xem ghi chú đầu
+          file. Không có menu ⋮ vì không có gì để đổi tên hay xoá. */}
+      <Dong
+        nhan={CHUNG}
+        hint={CHUNG_HINT}
+        icon={ICON.thuMuc}
+        so={chungCount}
+        chon={dang === null}
+        onClick={() => onChon(null)}
+      />
+
+      {folders.length === 0
+        ? /* Câu này thay cho khoảng trắng, và nó chỉ thẳng vào cái nút bên trên.
+             Một cột chỉ có mỗi dòng Chung không nói được gì về việc nó dùng để
+             làm gì. */
+          canEdit && (
+            <p className="mt-2 px-2 text-xs leading-relaxed text-slate-400">
+              Bấm + ở trên để tạo thư mục và gom báo cáo theo chủ đề.
+            </p>
+          )
+        : folders.map((folder) => (
+            <Dong
+              key={folder.id}
+              nhan={folder.name}
+              icon={ICON.thuMuc}
+              so={folder.reportCount}
+              chon={dang === folder.id}
+              onClick={() => onChon(folder.id)}
+              menu={
+                canEdit ? (
+                  <RowMenu label={`Thao tác trên thư mục ${folder.name}`}>
+                    {(close) => (
+                      <>
+                        <RowMenuItem
+                          icon={ROW_MENU_ICONS.edit}
+                          onClick={() => {
+                            close();
+                            onDoiTen(folder);
+                          }}
+                        >
+                          Đổi tên
+                        </RowMenuItem>
+                        <RowMenuItem
+                          icon={ROW_MENU_ICONS.trash}
+                          danger
+                          onClick={() => {
+                            close();
+                            onXoa(folder);
+                          }}
+                        >
+                          Xoá thư mục
+                        </RowMenuItem>
+                      </>
+                    )}
+                  </RowMenu>
+                ) : undefined
+              }
+            />
+          ))}
     </nav>
   );
 }
 
 const ICON = {
-  /** Chồng tài liệu — "mọi báo cáo", không phải một thư mục cụ thể nào. */
-  tapHo: 'M4 7.5 12 4l8 3.5-8 3.5-8-3.5Zm0 4.5 8 3.5 8-3.5M4 16.5 12 20l8-3.5',
   thuMuc: 'M4 7a2 2 0 0 1 2-2h3l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7Z',
   themThuMuc:
     'M4 7a2 2 0 0 1 2-2h3l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7Zm8 4v6m-3-3h6',
