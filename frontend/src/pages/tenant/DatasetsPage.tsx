@@ -10,7 +10,7 @@ import {
   type FolderDto,
 } from '@bi/shared';
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { usePermissions } from '../../auth/usePermissions';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
@@ -18,6 +18,7 @@ import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
 import { FilterSelect, ListToolbar } from '../../components/ui/ListToolbar';
 import { Page, PageBody, PageHeader } from '../../components/ui/Page';
 import { Pagination } from '../../components/ui/Pagination';
+import { ROW_MENU_ICONS, RowMenu, RowMenuItem } from '../../components/ui/RowMenu';
 import { SortableTh, TBody, Td, Th, THead, TableWrap, Tr } from '../../components/ui/Table';
 import { EmptyState, ErrorState, TableSkeleton } from '../../components/ui/states';
 import { CreateDataModelModal } from '../../features/datamodels/CreateDataModelModal';
@@ -105,6 +106,7 @@ const SOURCE_OPTIONS = DATASET_SOURCES.map((value) => ({
 
 export default function DatasetsPage(): React.ReactElement {
   const permissions = usePermissions();
+  const navigate = useNavigate();
   const { query, update } = useListQueryState<DatasetListQuery>({ ...DEFAULTS }, ALLOWED);
 
   const { data, isPending, isError, error, isPlaceholderData } = useDatasets({
@@ -293,7 +295,20 @@ export default function DatasetsPage(): React.ReactElement {
             onXoa={setXoaThuMucNao}
           />
 
-          <div className="flex min-h-0 flex-1 flex-col border-l border-slate-200 pl-4">
+          {/*
+           * `min-w-0` — thiếu nó là cột này KHÔNG chịu co lại.
+           *
+           * Một flex item mặc định có `min-width: auto`, nghĩa là nó không hẹp
+           * hơn bề rộng nội tại của nội dung. Bảng bên trong khai
+           * `min-w-[52rem]`, nên cột này bám theo và đẩy mình rộng hơn cả hàng
+           * flex. Đo được trên Kho dữ liệu: khung bảng thò ra 202px NGOÀI cửa
+           * sổ, mà trang thì không cuộn ngang — nên hai cột cuối biến mất hẳn,
+           * không có thanh cuộn nào để đi tới.
+           *
+           * Có `min-w-0` thì cột co đúng chỗ còn lại, và `overflow-auto` của
+           * `TableWrap` mới có việc để làm: bảng chật thì CHÍNH NÓ cuộn ngang.
+           */}
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col border-l border-slate-200 pl-4">
             {isError && <ErrorState message={getApiError(error).message} />}
             {isPending && <TableSkeleton />}
 
@@ -360,7 +375,15 @@ export default function DatasetsPage(): React.ReactElement {
                   </div>
                 )}
 
-                <TableWrap fill>
+                {/*
+                 * Đệm ô hẹp hơn mặc định, và CHỈ ở bảng này.
+                 *
+                 * Mười cột × 32px đệm ngang là 320px — bằng ba cột dữ liệu. Bảng
+                 * bốn cột ở những trang khác không có vấn đề đó, nên siết đệm
+                 * trong `Td`/`Th` dùng chung là làm chật mọi bảng để cứu một cái.
+                 * `TableWrap` vốn đã nhận `className`, nên không cần thêm API nào.
+                 */}
+                <TableWrap fill className="[&_td]:px-3 [&_th]:px-3">
                   <THead>
                     <Tr>
                       {chonDuoc && (
@@ -383,22 +406,40 @@ export default function DatasetsPage(): React.ReactElement {
                       <SortableTh sortKey="sourceTable" activeKey={query.sort} order={query.order} onSort={onSort}>
                         Bảng / File gốc
                       </SortableTh>
+                      {/*
+                       * Nhãn NGẮN, và đây là chuyện chỗ chứ không phải thẩm mỹ.
+                       *
+                       * Từ khi tiêu đề không được xuống dòng nữa (xem `Th`),
+                       * chính cái nhãn quyết định bề rộng tối thiểu của cột:
+                       * "Số cột" chiếm 92px để hiện một con số một chữ số, "Mô
+                       * hình dữ liệu" chiếm 138px cho một liên kết "Mở mô hình".
+                       * Bốn nhãn dưới đây rút lại trả về khoảng 180px cho phần
+                       * dữ liệu — mà không mất nghĩa nào: cột nằm ngay dưới
+                       * tiêu đề đã nói rõ nó là gì.
+                       */}
                       <SortableTh sortKey="columnCount" activeKey={query.sort} order={query.order} onSort={onSort}>
-                        Số cột
+                        Cột
                       </SortableTh>
                       <SortableTh sortKey="rowCount" activeKey={query.sort} order={query.order} onSort={onSort}>
-                        Số dòng
+                        Dòng
                       </SortableTh>
-                      <Th>Mô hình dữ liệu</Th>
+                      <Th>Mô hình</Th>
                       <SortableTh sortKey="syncedAt" activeKey={query.sort} order={query.order} onSort={onSort}>
-                        Cập nhật lần cuối
+                        Cập nhật
                       </SortableTh>
                       {/* KHÔNG sắp xếp được: `load_status` là ENUM nên thứ tự sắp
                           xếp của nó là thứ tự khai báo, không phải thứ tự có nghĩa
                           với người đọc. Muốn lọc theo trạng thái nạp thì thêm một bộ
                           lọc thật, đừng mượn cột sắp xếp. */}
                       <Th>Kho phân tích</Th>
-                      <Th align="right">Thao tác</Th>
+                      {/* Nhãn CHỈ CHO trình đọc màn hình: cột này chỉ chứa một
+                          nút "⋮" rộng 28px, nhưng chữ "THAO TÁC" bắt nó rộng
+                          91px — và ở một bảng đang thiếu chỗ thì đó là 40px lấy
+                          của cột khác. Bỏ hẳn nhãn thì người dùng trình đọc màn
+                          hình nghe một cột không tên. */}
+                      <Th align="right">
+                        <span className="sr-only">Thao tác</span>
+                      </Th>
                     </Tr>
                   </THead>
                   <TBody>
@@ -449,7 +490,7 @@ export default function DatasetsPage(): React.ReactElement {
                           )}
                         </Td>
                         <Td>
-                          <span className="text-slate-700">
+                          <span className="whitespace-nowrap text-slate-700">
                             {DATASET_SOURCE_LABELS[dataset.source]}
                           </span>
                           <div className="text-xs text-slate-500">
@@ -542,11 +583,22 @@ export default function DatasetsPage(): React.ReactElement {
                           )}
                         </Td>
                         <Td>
-                          <span className="text-slate-500">
-                            {dataset.syncedAt
-                              ? new Date(dataset.syncedAt).toLocaleString('vi-VN')
-                              : '—'}
-                          </span>
+                          {/* Ngày trên, giờ dưới — cùng khuôn "chính + phụ" với
+                              các ô khác trong bảng. Một dòng thì chuỗi
+                              "11:52:38 15/9/2026" tự mình đòi 120px, và ở một
+                              bảng mười cột thì đó là chỗ của một cột khác. */}
+                          {dataset.syncedAt === null ? (
+                            <span className="text-slate-400">—</span>
+                          ) : (
+                            <>
+                              <span className="whitespace-nowrap text-slate-600 tabular-nums">
+                                {new Date(dataset.syncedAt).toLocaleDateString('vi-VN')}
+                              </span>
+                              <div className="text-xs whitespace-nowrap text-slate-400 tabular-nums">
+                                {new Date(dataset.syncedAt).toLocaleTimeString('vi-VN')}
+                              </div>
+                            </>
+                          )}
                         </Td>
                         <Td>
                           <LoadStatusBadge status={dataset.loadStatus} />
@@ -558,38 +610,68 @@ export default function DatasetsPage(): React.ReactElement {
                         </Td>
                         <Td align="right">
                           <div className="flex justify-end gap-1">
-                            <Link
-                              to={`/datasets/${dataset.id}`}
-                              className="rounded-lg px-2.5 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900"
-                            >
-                              Xem cột
-                            </Link>
-                            {permissions.can('dataset', 'modify') && (
-                              <Button size="sm" variant="ghost" onClick={() => setRenaming(dataset)}>
-                                Đổi tên
-                              </Button>
-                            )}
-                            {/* Gác bằng `modify`, không phải `delete`: chuyển thư
-                                mục không làm mất gì — cùng luật với route
-                                `PATCH /datasets/:id/folder`. */}
-                            {permissions.can('dataset', 'modify') && (
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                onClick={() => setChuyenBo(dataset)}
-                              >
-                                Chuyển thư mục
-                              </Button>
-                            )}
-                            {permissions.can('dataset', 'delete') && (
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                onClick={() => setDeleting(dataset)}
-                              >
-                                <span className="text-red-600">Xoá</span>
-                              </Button>
-                            )}
+                            {/*
+                             * Menu "⋮", KHÔNG phải bốn nút bày ngang — cùng khuôn
+                             * với tab Báo cáo.
+                             *
+                             * Bốn nút thường trực ngốn ~250px của một khung chỉ
+                             * còn 1046px sau khi cột thư mục nhận 260px, và ô
+                             * thao tác bị ép gãy thành BẢY dòng, kéo cả hàng cao
+                             * 97px. Đo được trước khi đổi; xem `Th` về phần tiêu
+                             * đề gãy bốn dòng của cùng một nguyên nhân.
+                             */}
+                            <RowMenu label={`Thao tác trên ${dataset.name}`}>
+                              {(close) => (
+                                <>
+                                  <RowMenuItem
+                                    icon={ROW_MENU_ICONS.open}
+                                    onClick={() => {
+                                      close();
+                                      void navigate(`/datasets/${String(dataset.id)}`);
+                                    }}
+                                  >
+                                    Xem cột
+                                  </RowMenuItem>
+                                  {permissions.can('dataset', 'modify') && (
+                                    <RowMenuItem
+                                      icon={ROW_MENU_ICONS.edit}
+                                      onClick={() => {
+                                        close();
+                                        setRenaming(dataset);
+                                      }}
+                                    >
+                                      Đổi tên
+                                    </RowMenuItem>
+                                  )}
+                                  {/* Gác bằng `modify`, không phải `delete`:
+                                      chuyển thư mục không làm mất gì — cùng luật
+                                      với route `PATCH /datasets/:id/folder`. */}
+                                  {permissions.can('dataset', 'modify') && (
+                                    <RowMenuItem
+                                      icon={ROW_MENU_ICONS.folder}
+                                      onClick={() => {
+                                        close();
+                                        setChuyenBo(dataset);
+                                      }}
+                                    >
+                                      Chuyển tới thư mục
+                                    </RowMenuItem>
+                                  )}
+                                  {permissions.can('dataset', 'delete') && (
+                                    <RowMenuItem
+                                      icon={ROW_MENU_ICONS.trash}
+                                      danger
+                                      onClick={() => {
+                                        close();
+                                        setDeleting(dataset);
+                                      }}
+                                    >
+                                      Xoá bộ dữ liệu
+                                    </RowMenuItem>
+                                  )}
+                                </>
+                              )}
+                            </RowMenu>
                           </div>
                         </Td>
                       </Tr>

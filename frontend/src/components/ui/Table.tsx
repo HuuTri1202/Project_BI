@@ -84,6 +84,19 @@ export function Tr({ children }: { children: ReactNode }): React.ReactElement {
   return <tr className="hover:bg-slate-50/60">{children}</tr>;
 }
 
+/**
+ * ⚠️ `whitespace-nowrap` — tên cột KHÔNG bao giờ được xuống dòng.
+ *
+ * Đây là chỗ hỏng đã đo được ở tab Kho dữ liệu sau khi cột thư mục ăn mất 260px:
+ * "MÔ HÌNH DỮ LIỆU" và "CẬP NHẬT LẦN CUỐI" gãy thành BỐN dòng, "KHO PHÂN TÍCH"
+ * ba dòng, và hàng tiêu đề cao 89px thay vì 41px. Chữ HOA có giãn chữ
+ * (`tracking-wide`) gãy dòng thì gần như không đọc được — mắt phải ghép từng
+ * mảnh chữ lại để đoán ra tên cột.
+ *
+ * Hệ quả cố ý: bảng chật thì nó TRÀN NGANG và `TableWrap` cho cuộn, thay vì tự
+ * bóp chữ lại. Một thanh cuộn ngang là thứ người dùng hiểu ngay; một hàng tiêu
+ * đề bốn dòng thì họ tưởng trang bị lỗi — đúng như báo cáo nhận được.
+ */
 export function Th({
   children,
   align = 'left',
@@ -92,7 +105,7 @@ export function Th({
   return (
     <th
       scope="col"
-      className={`px-4 py-3 text-xs font-semibold tracking-wide text-slate-500 uppercase ${
+      className={`px-4 py-3 text-xs font-semibold tracking-wide whitespace-nowrap text-slate-500 uppercase ${
         align === 'right' ? 'text-right' : 'text-left'
       }`}
       {...rest}

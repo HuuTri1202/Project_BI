@@ -74,7 +74,11 @@ export function FolderRail({
   return (
     <nav
       aria-label={`Thư mục ${danhTu}`}
-      className="flex w-60 shrink-0 flex-col gap-0.5 overflow-y-auto pr-3"
+      // `w-56` chứ không `w-60`: 16px trả lại cho bảng bên phải, và cột này
+      // không mất gì — tên thư mục vốn đã `truncate`, và 224px vẫn thừa cho
+      // những cái tên người ta thật sự đặt. Bảng Kho dữ liệu có mười cột và
+      // thiếu đúng chừng đó chỗ để nút "⋮" của dòng không bị cắt.
+      className="flex w-56 shrink-0 flex-col gap-0.5 overflow-y-auto pr-3"
     >
       {/* Tiêu đề nhóm + nút thêm. Luôn có mặt kể cả khi chưa có thư mục nào:
           đây là chỗ DUY NHẤT tạo được thư mục, nên ẩn nó đi lúc danh sách rỗng

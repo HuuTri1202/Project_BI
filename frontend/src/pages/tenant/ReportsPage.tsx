@@ -184,7 +184,20 @@ export default function ReportsPage(): React.ReactElement {
             onXoa={setXoaThuMucNao}
           />
 
-          <div className="flex min-h-0 flex-1 flex-col border-l border-slate-200 pl-4">
+          {/*
+           * `min-w-0` — thiếu nó là cột này KHÔNG chịu co lại.
+           *
+           * Một flex item mặc định có `min-width: auto`, nghĩa là nó không hẹp
+           * hơn bề rộng nội tại của nội dung. Bảng bên trong khai
+           * `min-w-[52rem]`, nên cột này bám theo và đẩy mình rộng hơn cả hàng
+           * flex. Đo được trên Kho dữ liệu: khung bảng thò ra 202px NGOÀI cửa
+           * sổ, mà trang thì không cuộn ngang — nên hai cột cuối biến mất hẳn,
+           * không có thanh cuộn nào để đi tới.
+           *
+           * Có `min-w-0` thì cột co đúng chỗ còn lại, và `overflow-auto` của
+           * `TableWrap` mới có việc để làm: bảng chật thì CHÍNH NÓ cuộn ngang.
+           */}
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col border-l border-slate-200 pl-4">
             {isError && <ErrorState message={getApiError(error).message} />}
             {isPending && <TableSkeleton />}
 
