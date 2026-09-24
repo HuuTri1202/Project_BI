@@ -25,7 +25,11 @@ import { CreateDataModelModal } from '../../features/datamodels/CreateDataModelM
 import { UploadWizard } from '../../features/datasets/wizard/UploadWizard';
 import { FolderDialog } from '../../features/folders/FolderDialog';
 import { FolderRail } from '../../features/folders/FolderRail';
-import { MoveToFolderDialog } from '../../features/folders/MoveToFolderDialog';
+import {
+  CHUA_BIET,
+  MoveToFolderDialog,
+  type MucDangChuyen,
+} from '../../features/folders/MoveToFolderDialog';
 import type { DatasetListQuery } from '../../features/tenant/api';
 import { LoadStatusBadge } from '../../features/tenant/datasets/LoadPanel';
 import { RenameDatasetModal } from '../../features/tenant/datasets/RenameDatasetModal';
@@ -37,7 +41,7 @@ import {
   useDatasets,
   useDeleteDataset,
   useDeleteDatasetFolder,
-  useMoveDataset,
+  useMoveDatasets,
   useRenameDatasetFolder,
 } from '../../features/tenant/hooks';
 import { useListQueryState } from '../../hooks/useListQueryState';
@@ -138,14 +142,21 @@ export default function DatasetsPage(): React.ReactElement {
   const taoThuMuc = useCreateDatasetFolder();
   const doiTenThuMuc = useRenameDatasetFolder();
   const xoaThuMuc = useDeleteDatasetFolder();
-  const chuyenThuMuc = useMoveDataset();
+  const chuyenThuMuc = useMoveDatasets();
 
   const danhSachThuMuc = folders.data?.items ?? [];
 
   /** `undefined` = đóng; `null` = đang tạo mới; có giá trị = đang đổi tên. */
   const [suaThuMuc, setSuaThuMuc] = useState<FolderDto | null | undefined>(undefined);
   const [xoaThuMucNao, setXoaThuMucNao] = useState<FolderDto | null>(null);
-  const [chuyenBo, setChuyenBo] = useState<DatasetDto | null>(null);
+  /**
+   * Đang chuyển thư mục cho những bộ nào — `null` = hộp thoại đóng.
+   *
+   * MỘT ô trạng thái cho cả hai lối vào: menu "⋮" của một dòng, và thanh thao
+   * tác của nhóm đã tích. Hai ô riêng nghĩa là hai hộp thoại cùng khai báo, và
+   * đủ để hai cái cùng mở một lúc khi một nhánh quên đóng nhánh kia.
+   */
+  const [chuyenBo, setChuyenBo] = useState<{ ids: number[]; muc: MucDangChuyen } | null>(null);
 
   /** Đổi thư mục là VỀ TRANG 1: trang 3 của thư mục cũ thường không tồn tại. */
   const chonThuMuc = (folderId: number | null): void => {
@@ -379,6 +390,36 @@ export default function DatasetsPage(): React.ReactElement {
                     )}
                     <div className="ml-auto flex gap-2">
                       <Button onClick={() => setChon(new Set())}>Bỏ chọn</Button>
+                      {/*
+                       * Xếp cả nhóm vào một thư mục — cùng hộp thoại với mục
+                       * "Chuyển tới thư mục" trong menu "⋮" của từng dòng, chỉ
+                       * khác là chỗ đang đứng để `CHUA_BIET`.
+                       *
+                       * Lựa chọn sống qua việc đổi thư mục, nên nhóm này có thể
+                       * đang nằm rải ở nhiều chỗ và KHÔNG có một "đang ở đâu"
+                       * nào để in ra. Hộp thoại hiểu `CHUA_BIET` là "đừng đánh
+                       * dấu, đừng khoá mục nào".
+                       *
+                       * Gác riêng bằng `dataset:modify`: thanh này hiện theo
+                       * `datamodel:modify` (quyền dựng mô hình), mà hai ô quyền
+                       * đó là hai thứ khác nhau trong `rbac.ts`.
+                       */}
+                      {permissions.can('dataset', 'modify') && (
+                        <Button
+                          onClick={() => {
+                            setChuyenBo({
+                              ids: [...chon],
+                              muc: {
+                                name: `${String(chon.size)} ${DANH_TU}`,
+                                folderId: CHUA_BIET,
+                                folderName: null,
+                              },
+                            });
+                          }}
+                        >
+                          Chuyển tới thư mục
+                        </Button>
+                      )}
                       <Button variant="primary" onClick={() => setTaoMoHinh(true)}>
                         Tạo mô hình từ {chon.size} bộ dữ liệu
                       </Button>
@@ -682,7 +723,14 @@ export default function DatasetsPage(): React.ReactElement {
                                       icon={ROW_MENU_ICONS.folder}
                                       onClick={() => {
                                         close();
-                                        setChuyenBo(dataset);
+                                        setChuyenBo({
+                                          ids: [dataset.id],
+                                          muc: {
+                                            name: dataset.name,
+                                            folderId: dataset.folderId,
+                                            folderName: dataset.folderName,
+                                          },
+                                        });
                                       }}
                                     >
                                       Chuyển tới thư mục
@@ -758,13 +806,22 @@ export default function DatasetsPage(): React.ReactElement {
         />
 
         <MoveToFolderDialog
-          muc={chuyenBo}
+          muc={chuyenBo?.muc ?? null}
           folders={danhSachThuMuc}
           onClose={() => setChuyenBo(null)}
           loading={chuyenThuMuc.isPending}
           onMove={async (folderId) => {
             if (chuyenBo === null) return;
-            await chuyenThuMuc.mutateAsync({ id: chuyenBo.id, folderId });
+            await chuyenThuMuc.mutateAsync({ ids: chuyenBo.ids, folderId });
+            /*
+             * Xếp xong cả nhóm thì BỎ TÍCH.
+             *
+             * Giữ lại thì người dùng đứng ở thư mục cũ nhìn thanh "Đã chọn 4 bộ
+             * dữ liệu" mà không dòng nào sáng — bốn bộ vừa đi sang chỗ khác và
+             * danh sách này chỉ bày một thư mục. Một dòng lẻ đi từ menu "⋮"
+             * không đụng tới lựa chọn, vì nó không phải lựa chọn.
+             */
+            if (chuyenBo.ids.length > 1) setChon(new Set());
           }}
         />
 

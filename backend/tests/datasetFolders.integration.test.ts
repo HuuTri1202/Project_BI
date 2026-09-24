@@ -364,6 +364,201 @@ describe('Chỗ đứng của một bộ dữ liệu', () => {
   });
 });
 
+describe('Xếp CẢ MỘT NHÓM vào một thư mục', () => {
+  /** Chỗ đứng hiện tại của từng bộ, đọc thẳng từ bảng — không qua bộ lọc nào. */
+  async function choDung(ids: number[]): Promise<(number | null)[]> {
+    const [rows] = await mysqlPool.query<RowDataPacket[]>(
+      `SELECT id, folder_id FROM datasets WHERE id IN (${ids.map(() => '?').join(', ')})`,
+      ids,
+    );
+    return ids.map((id) => {
+      const r = rows.find((x) => Number(x['id']) === id);
+      if (r === undefined || r['folder_id'] === null) return null;
+      return Number(r['folder_id']);
+    });
+  }
+
+  it('một lượt chuyển cả nhóm, và con số cạnh thư mục theo kịp', async () => {
+    /*
+     * Cũng là ca canh THỨ TỰ KHAI ROUTE: `PATCH /datasets/folder` phải đứng
+     * trước `PATCH /datasets/:id`, nếu không Express đọc "folder" thành một mã
+     * và `idParamSchema` trả 400 cho mọi lượt chuyển nhóm.
+     */
+    const id = await taoThuMuc('Bán hàng');
+    const a = await moBoDuLieu({ name: 'A' });
+    const b = await moBoDuLieu({ name: 'B' });
+    const c = await moBoDuLieu({ name: 'C' });
+
+    const res = await request(app)
+      .patch('/api/v1/datasets/folder')
+      .set(bearer(f.tokenAlice))
+      .send({ ids: [a, b, c], folderId: id })
+      .expect(200);
+    expect(res.body).toEqual({ moved: 3 });
+
+    expect(await choDung([a, b, c])).toEqual([id, id, id]);
+
+    const tm = await docThuMuc();
+    expect(tm.items[0]).toMatchObject({ id, itemCount: 3 });
+    expect(tm.chungCount).toBe(0);
+  });
+
+  it('chuyển cả nhóm về Chung', async () => {
+    const id = await taoThuMuc('Bán hàng');
+    const a = await moBoDuLieu({ name: 'A', folderId: id });
+    const b = await moBoDuLieu({ name: 'B', folderId: id });
+
+    await request(app)
+      .patch('/api/v1/datasets/folder')
+      .set(bearer(f.tokenAlice))
+      .send({ ids: [a, b], folderId: null })
+      .expect(200);
+
+    expect(await choDung([a, b])).toEqual([null, null]);
+  });
+
+  it('bộ đã nằm sẵn trong thư mục đích vẫn tính là đã ở đúng chỗ', async () => {
+    // `affectedRows` chứ không phải `changedRows`: MySQL không đụng dòng có giá
+    // trị y nguyên, nên đếm dòng ĐỔI sẽ báo thiếu và màn hình kết luận sai rằng
+    // một bộ không chuyển được.
+    const id = await taoThuMuc('Bán hàng');
+    const a = await moBoDuLieu({ name: 'A', folderId: id });
+    const b = await moBoDuLieu({ name: 'B' });
+
+    const res = await request(app)
+      .patch('/api/v1/datasets/folder')
+      .set(bearer(f.tokenAlice))
+      .send({ ids: [a, b], folderId: id })
+      .expect(200);
+    expect(res.body).toEqual({ moved: 2 });
+  });
+
+  it('một mã lạ trong nhóm -> 404, và KHÔNG bộ nào nhúc nhích', async () => {
+    /*
+     * Đây là lý do đường này tồn tại thay vì gọi đường một bộ nhiều lượt: hỏng
+     * ở giữa thì kho còn nửa cũ nửa mới, và người dùng không có cách nào biết
+     * bộ nào đã đi. Một câu UPDATE thì chỉ có hai kết cục.
+     */
+    const id = await taoThuMuc('Bán hàng');
+    const a = await moBoDuLieu({ name: 'A' });
+    const b = await moBoDuLieu({ name: 'B' });
+    const daXoa = await moBoDuLieu({ name: 'Đã xoá', deleted: true });
+
+    const res = await request(app)
+      .patch('/api/v1/datasets/folder')
+      .set(bearer(f.tokenAlice))
+      .send({ ids: [a, b, daXoa, 999999], folderId: id })
+      .expect(404);
+    // Câu chữ nói ra CON SỐ: lựa chọn ở Kho dữ liệu sống qua việc đổi trang,
+    // nên "không tìm thấy bộ dữ liệu này" (số ít) sẽ khiến người dùng đi tìm
+    // nhầm một dòng đang nằm ngay trước mắt.
+    expect(res.body.message).toContain('2');
+
+    expect(await choDung([a, b])).toEqual([null, null]);
+  });
+
+  it('nhóm trải trên hai workspace -> 400, không ai nhúc nhích', async () => {
+    const id = await taoThuMuc('Bán hàng', f.workspaceA);
+    const a = await moBoDuLieu({ name: 'A', workspaceId: f.workspaceA });
+    const khac = await moBoDuLieu({ name: 'Khác', workspaceId: f.workspaceA2 });
+
+    await request(app)
+      .patch('/api/v1/datasets/folder')
+      .set(bearer(f.tokenAlice))
+      .send({ ids: [a, khac], folderId: id })
+      .expect(400);
+
+    expect(await choDung([a, khac])).toEqual([null, null]);
+  });
+
+  it('thư mục của WORKSPACE KHÁC -> 404 — cùng cái bẫy với đường một bộ', async () => {
+    const cuaWsKhac = await taoThuMuc('Kho vận', f.workspaceA2);
+    const a = await moBoDuLieu({ name: 'A', workspaceId: f.workspaceA });
+    const b = await moBoDuLieu({ name: 'B', workspaceId: f.workspaceA });
+
+    await request(app)
+      .patch('/api/v1/datasets/folder')
+      .set(bearer(f.tokenAlice))
+      .send({ ids: [a, b], folderId: cuaWsKhac })
+      .expect(404);
+
+    expect(await choDung([a, b])).toEqual([null, null]);
+  });
+
+  it('bộ dữ liệu của TỔ CHỨC KHÁC -> 404, không rò qua biên tổ chức', async () => {
+    const id = await taoThuMuc('Bán hàng');
+    const a = await moBoDuLieu({ name: 'A' });
+
+    const [r] = await mysqlPool.query<ResultSetHeader>(
+      `INSERT INTO datasets (tenant_id, workspace_id, folder_id, source, name, status)
+       VALUES (?, ?, NULL, 'file', 'Của Beta', 'ready')`,
+      [f.tenantB, f.workspaceB],
+    );
+
+    await request(app)
+      .patch('/api/v1/datasets/folder')
+      .set(bearer(f.tokenAlice))
+      .send({ ids: [a, r.insertId], folderId: id })
+      .expect(404);
+
+    expect(await choDung([a, r.insertId])).toEqual([null, null]);
+  });
+
+  it('danh sách rỗng -> 400, không phải một lệnh không làm gì', async () => {
+    await request(app)
+      .patch('/api/v1/datasets/folder')
+      .set(bearer(f.tokenAlice))
+      .send({ ids: [], folderId: null })
+      .expect(400);
+  });
+
+  it('gửi trùng mã vẫn chuyển được — phép so "thiếu bộ nào" không bị đánh lừa', async () => {
+    const id = await taoThuMuc('Bán hàng');
+    const a = await moBoDuLieu({ name: 'A' });
+
+    const res = await request(app)
+      .patch('/api/v1/datasets/folder')
+      .set(bearer(f.tokenAlice))
+      .send({ ids: [a, a, a], folderId: id })
+      .expect(200);
+    expect(res.body).toEqual({ moved: 1 });
+  });
+
+  it('viewer -> 403', async () => {
+    const id = await taoThuMuc('Bán hàng');
+    const a = await moBoDuLieu({ name: 'A' });
+
+    await request(app)
+      .patch('/api/v1/datasets/folder')
+      .set(bearer(f.tokenDave))
+      .send({ ids: [a], folderId: id })
+      .expect(403);
+  });
+
+  it('chuyển cả nhóm KHÔNG dập mốc "Cập nhật lần cuối"', async () => {
+    const id = await taoThuMuc('Bán hàng');
+    const a = await moBoDuLieu({ name: 'A' });
+    const b = await moBoDuLieu({ name: 'B' });
+    await mysqlPool.query('UPDATE datasets SET updated_at = ? WHERE id IN (?, ?)', [
+      '2020-01-01 00:00:00.000',
+      a,
+      b,
+    ]);
+
+    await request(app)
+      .patch('/api/v1/datasets/folder')
+      .set(bearer(f.tokenAlice))
+      .send({ ids: [a, b], folderId: id })
+      .expect(200);
+
+    const [rows] = await mysqlPool.query<RowDataPacket[]>(
+      "SELECT DATE_FORMAT(updated_at, '%Y') AS y FROM datasets WHERE id IN (?, ?)",
+      [a, b],
+    );
+    expect(rows.map((r) => r['y'])).toEqual(['2020', '2020']);
+  });
+});
+
 describe('Bộ lọc thư mục — BA trạng thái, không phải hai', () => {
   it('vắng mặt = mọi thư mục; `chung` = chưa xếp; số = đúng thư mục đó', async () => {
     // `null` và `undefined` đều falsy, nên `if (folderId)` gộp "Chung" thành

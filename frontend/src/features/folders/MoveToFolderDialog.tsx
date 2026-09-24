@@ -24,10 +24,27 @@ import { getApiError } from '../../services/apiClient';
  * mất luôn câu trả lời cho "nó đang nằm ở đâu?".
  */
 export interface MucDangChuyen {
+  /** Tên in trong câu mô tả — một cái tên thật, hoặc "4 bộ dữ liệu" cho cả nhóm. */
   name: string;
-  folderId: number | null;
+  /**
+   * Chỗ đang đứng. `CHUA_BIET` khi đang chuyển CẢ MỘT NHÓM — xem dưới.
+   */
+  folderId: number | null | typeof CHUA_BIET;
   folderName: string | null;
 }
+
+/**
+ * Chỗ đang đứng KHÔNG BIẾT — không mục nào bị đánh dấu, không mục nào bị khoá.
+ *
+ * Ở Kho dữ liệu, lựa chọn sống qua việc đổi thư mục và đổi trang, nên một nhóm
+ * đã tích hoàn toàn có thể đang nằm rải ở nhiều chỗ. Lúc đó "đang ở đâu" không
+ * có một câu trả lời, và đoán bừa lấy thư mục đang mở là in ra một điều sai.
+ *
+ * Không khoá mục nào cũng là chủ ý: dồn cả nhóm về đúng cái thư mục mà một nửa
+ * trong số chúng đã nằm sẵn vẫn là việc người dùng muốn làm, và khoá nó lại là
+ * chặn đúng thao tác đó, để lại một nửa nhóm ở chỗ cũ.
+ */
+export const CHUA_BIET = 'chua-biet';
 
 export function MoveToFolderDialog({
   muc,
@@ -61,6 +78,11 @@ export function MoveToFolderDialog({
     }
   }
 
+  /*
+   * `CHUA_BIET` không phải nullish, nên nó đi qua `??` nguyên vẹn và không bằng
+   * `null` cũng không bằng mã nào — tức là không mục nào bị đánh dấu, đúng
+   * điều ta muốn cho cả nhóm.
+   */
   const dangO = muc?.folderId ?? null;
 
   return (
@@ -68,7 +90,13 @@ export function MoveToFolderDialog({
       open={muc !== null}
       onClose={onClose}
       title="Chuyển tới thư mục"
-      description={muc === null ? undefined : `“${muc.name}” đang ở ${muc.folderName ?? CHUNG}.`}
+      description={
+        muc === null
+          ? undefined
+          : muc.folderId === CHUA_BIET
+            ? `Đang chuyển ${muc.name}.`
+            : `“${muc.name}” đang ở ${muc.folderName ?? CHUNG}.`
+      }
       footer={<Button onClick={onClose}>Đóng</Button>}
     >
       <div className="space-y-2">

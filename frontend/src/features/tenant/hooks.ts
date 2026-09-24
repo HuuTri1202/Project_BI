@@ -465,9 +465,10 @@ export function useDeleteDatasetFolder() {
   return useMutation({ mutationFn: api.deleteDatasetFolder, onSuccess: invalidate });
 }
 
-export function useMoveDataset() {
+/** Chuyển một hay nhiều bộ dữ liệu — MỘT đường cho cả hai, xem `api.moveDatasets`. */
+export function useMoveDatasets() {
   const invalidate = useInvalidateDatasets();
-  return useMutation({ mutationFn: api.moveDataset, onSuccess: invalidate });
+  return useMutation({ mutationFn: api.moveDatasets, onSuccess: invalidate });
 }
 
 // ─── Workspace (§4.5) ────────────────────────────────────────────────────────

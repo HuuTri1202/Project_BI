@@ -573,6 +573,64 @@ export async function moveDataset(
   return result.affectedRows;
 }
 
+/**
+ * Workspace của một NHÓM bộ dữ liệu — đường chuyển hàng loạt hỏi trước khi ghi.
+ *
+ * Trả về đúng những mã CÒN SỐNG trong tổ chức này, nên người gọi so số lượng là
+ * biết ngay có mã nào lạ hay đã bị xoá lẫn vào danh sách hay không. Trả kèm
+ * `workspaceId` vì thư mục đích phải cùng workspace với bộ dữ liệu — cùng luật
+ * với đường chuyển một bộ, chỉ khác là ở đây cả nhóm phải cùng một chỗ thì câu
+ * hỏi "cùng workspace hay không" mới có một câu trả lời.
+ *
+ * `ids` rỗng đi nhánh riêng: `IN ()` không phải SQL hợp lệ.
+ */
+export async function findWorkspaceOfMany(
+  db: Db,
+  tenantId: number,
+  ids: readonly number[],
+): Promise<{ id: number; workspaceId: number }[]> {
+  if (ids.length === 0) return [];
+
+  const [rows] = await db.query<RowDataPacket[]>(
+    `SELECT id, workspace_id FROM datasets
+      WHERE tenant_id = ? AND deleted_at IS NULL AND id IN (${ids.map(() => '?').join(', ')})`,
+    [tenantId, ...ids],
+  );
+  return rows.map((r) => ({ id: Number(r['id']), workspaceId: Number(r['workspace_id']) }));
+}
+
+/**
+ * Chuyển CẢ NHÓM bộ dữ liệu sang cùng một thư mục — một câu UPDATE, không phải
+ * N câu.
+ *
+ * Đó là cả lý do hàm này tồn tại bên cạnh `moveDataset`: gọi hàm kia hai mươi
+ * lượt mà hỏng ở lượt thứ bảy để lại một kho nửa cũ nửa mới, và người dùng
+ * không có cách nào biết sáu bộ nào đã đi. Một câu thì hoặc cả nhóm sang chỗ
+ * mới, hoặc không bộ nào nhúc nhích.
+ *
+ * `updated_at = updated_at` giữ nguyên mốc sửa đổi, cùng lý do đã ghi ở
+ * `moveDataset`: xếp lại chỗ đứng không phải là làm mới dữ liệu.
+ *
+ * Trả về số dòng KHỚP điều kiện (`affectedRows`), không phải số dòng đổi giá
+ * trị — bộ vốn đã nằm sẵn trong thư mục đích vẫn là một bộ đã ở đúng chỗ, và
+ * báo nó "không chuyển được" là nói sai.
+ */
+export async function moveDatasets(
+  db: Db,
+  tenantId: number,
+  ids: readonly number[],
+  folderId: number | null,
+): Promise<number> {
+  if (ids.length === 0) return 0;
+
+  const [result] = await db.query<ResultSetHeader>(
+    `UPDATE datasets SET folder_id = ?, updated_at = updated_at
+      WHERE tenant_id = ? AND deleted_at IS NULL AND id IN (${ids.map(() => '?').join(', ')})`,
+    [folderId, tenantId, ...ids],
+  );
+  return result.affectedRows;
+}
+
 /** Bản ghi `pending` sinh ra lúc xin presigned URL, trước khi file lên tới nơi. */
 export async function createFileDataset(
   db: Db,

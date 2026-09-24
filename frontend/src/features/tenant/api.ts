@@ -292,12 +292,23 @@ export async function deleteDatasetFolder(id: number): Promise<void> {
   await apiClient.delete(`/v1/dataset-folders/${id}`);
 }
 
-/** Chuyển một bộ dữ liệu sang thư mục khác. `null` = đưa về Chung. */
-export async function moveDataset(input: {
-  id: number;
+/**
+ * Chuyển một NHÓM bộ dữ liệu sang cùng một thư mục. `null` = đưa về Chung.
+ *
+ * Một request cho cả nhóm, kể cả nhóm một phần tử — backend gói cả nhóm vào
+ * MỘT câu UPDATE (xem `PATCH /datasets/folder`). Gọi đường của từng bộ nhiều
+ * lượt thì một lượt hỏng ở giữa để lại kho nửa cũ nửa mới, và hộp thoại chỉ
+ * hiện được lỗi của lượt hỏng — không nói được bộ nào đã đi.
+ *
+ * Vì vậy màn hình chỉ có MỘT đường chuyển, dùng chung cho menu "⋮" của một dòng
+ * và cho thanh thao tác nhiều dòng.
+ */
+export async function moveDatasets(input: {
+  ids: readonly number[];
   folderId: number | null;
-}): Promise<DatasetDto> {
-  const { data } = await apiClient.patch<DatasetDto>(`/v1/datasets/${input.id}/folder`, {
+}): Promise<{ moved: number }> {
+  const { data } = await apiClient.patch<{ moved: number }>('/v1/datasets/folder', {
+    ids: input.ids,
     folderId: input.folderId,
   });
   return data;

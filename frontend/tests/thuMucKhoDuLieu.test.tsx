@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen, within } from '@testing-library/rea
 import { describe, expect, it, vi } from 'vitest';
 
 import { FolderRail } from '../src/features/folders/FolderRail';
-import { MoveToFolderDialog } from '../src/features/folders/MoveToFolderDialog';
+import { CHUA_BIET, MoveToFolderDialog } from '../src/features/folders/MoveToFolderDialog';
 
 /**
  * Thư mục Kho dữ liệu — §7.9.
@@ -135,6 +135,40 @@ describe('Hộp "Chuyển tới thư mục" không biết mình đang chuyển c
 
     fireEvent.click(screen.getByRole('button', { name: new RegExp(CHUNG) }));
     expect(onMove).toHaveBeenCalledWith(null);
+  });
+
+  it('chuyển CẢ NHÓM thì không mục nào bị đánh dấu, cũng không mục nào bị khoá', async () => {
+    /*
+     * Ở Kho dữ liệu, lựa chọn sống qua việc đổi thư mục và đổi trang, nên một
+     * nhóm đã tích có thể đang nằm rải nhiều chỗ — "đang ở đâu" không có một
+     * câu trả lời. Lấy đại thư mục đang mở thì hộp này in ra một điều sai VÀ
+     * khoá đúng cái nút người dùng định bấm, để lại một nửa nhóm ở chỗ cũ.
+     */
+    cleanup();
+    const onMove = vi.fn().mockResolvedValue(undefined);
+    render(
+      <MoveToFolderDialog
+        muc={{ name: `4 ${DANH_TU}`, folderId: CHUA_BIET, folderName: null }}
+        folders={THU_MUC}
+        onClose={vi.fn()}
+        onMove={onMove}
+        loading={false}
+      />,
+    );
+
+    expect(screen.queryByText(/đang ở/)).toBeNull();
+    expect(screen.queryByText('Đang ở đây')).toBeNull();
+    expect(screen.getByText(`Đang chuyển 4 ${DANH_TU}.`)).toBeTruthy();
+
+    // Kể cả Chung — nhóm không chắc đang ở Chung, nên khoá nó là chặn một
+    // thao tác hợp lệ.
+    for (const nhan of [CHUNG, 'Bán hàng', 'Nhân sự']) {
+      const nut = screen.getByRole('button', { name: new RegExp(nhan) });
+      expect(nut.hasAttribute('disabled'), nhan).toBe(false);
+    }
+
+    fireEvent.click(screen.getByRole('button', { name: /Bán hàng/ }));
+    expect(onMove).toHaveBeenCalledWith(21);
   });
 
   it('chưa có thư mục nào thì chỉ đường tạo, không bỏ người dùng ở một hộp trống', () => {
