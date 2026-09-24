@@ -131,59 +131,55 @@ export async function demThanhVien(db: Db, tenantId: number): Promise<number> {
 }
 
 /**
- * Dung lượng đang chiếm, đơn vị byte.
+ * Dung lượng đang chiếm, đơn vị byte — chỗ trong KHO, không phải kích thước FILE.
  *
- * ⚠️ KHÔNG được `SUM(file_size_bytes)` thẳng.
+ * ═══ Đo cái gì, và vì sao đổi ══════════════════════════════════════════════
  *
- * Một file Excel nhiều sheet sinh ra NHIỀU dòng `datasets` dùng CHUNG một object
- * trên MinIO — `s3_key` cố ý không UNIQUE, xem migration 8. Cộng thẳng thì một
- * file 50MB ba sheet được tính thành 150MB, và khách bị báo vượt hạn mức vì một
- * phép cộng chứ không vì dữ liệu của họ.
+ * Tới migration 38 câu này cộng `file_size_bytes`. Đo trên máy dev thì không tổ
+ * chức nào được tính đúng: bộ dữ liệu nguồn `connection` không có file nên tiêu
+ * đúng 0 byte hạn mức dù đồng bộ bao nhiêu dòng cũng được, còn file thì bị tính
+ * cả phần sẽ được nén đi (7,82 MB tính cho 4,65 MB thật). Hạn mức của gói nói về
+ * chỗ dữ liệu CHIẾM, nên nó đo đúng chỗ đó — xem
+ * `services/ingest/warehouseSize.ts`.
  *
- * Nên gom theo OBJECT LƯU TRỮ trước rồi mới cộng.
+ * ═══ Cộng THẲNG, và cái bẫy cũ biến mất ════════════════════════════════════
  *
- * `COALESCE(s3_key, CONCAT('ds:', id))` xử lý bộ dữ liệu nguồn `connection`:
- * chúng không có `s3_key` và `file_size_bytes = 0` (nền tảng không giữ dòng nào
- * trên S3). Không có COALESCE thì mọi dataset nguồn connection gộp chung vào một
- * nhóm NULL — vô hại vì chúng đều bằng 0, nhưng chỉ đúng do may mắn, và sẽ sai
- * ngay ngày cột đó mang giá trị khác.
+ * Bản cũ phải gom theo `s3_key` trước khi cộng, vì một file Excel nhiều sheet
+ * sinh nhiều dòng `datasets` dùng chung một object trên MinIO (migration 8) —
+ * cộng thẳng là tính một file 50MB ba sheet thành 150MB.
  *
- * `MAX` chứ không `AVG` hay lấy dòng đầu: ba sheet của cùng một file đều ghi
- * đúng kích thước file, nhưng MAX vẫn ra đúng nếu có dòng ghi 0.
+ * Trong kho thì mỗi bộ dữ liệu có bảng `raw_t{tenant}_d{dataset}` của RIÊNG nó,
+ * không bộ nào dùng chung với bộ nào. Nên phép cộng ở đây không có gì để tính
+ * đôi, và cái bẫy ấy biến mất thay vì phải canh bằng một câu GROUP BY.
+ *
+ * ⚠️ `deleted_at IS NULL` — bộ đã xoá mềm KHÔNG tính, dù bảng của nó còn nằm
+ * trên đĩa. Lý do đầy đủ ở `warehouseSize.ts`: "xoá bớt bộ dữ liệu cũ" là lối
+ * thoát duy nhất khỏi hạn mức, nên nó phải làm con số giảm thật.
  */
 export async function demDungLuong(db: Db, tenantId: number): Promise<number> {
   const [rows] = await db.query<RowDataPacket[]>(
-    `SELECT COALESCE(SUM(t.sz), 0) AS n
-       FROM (
-         SELECT COALESCE(s3_key, CONCAT('ds:', id)) AS k,
-                MAX(file_size_bytes) AS sz
-           FROM datasets
-          WHERE tenant_id = ? AND deleted_at IS NULL
-          GROUP BY k
-       ) t`,
+    `SELECT COALESCE(SUM(warehouse_bytes), 0) AS n
+       FROM datasets
+      WHERE tenant_id = ? AND deleted_at IS NULL`,
     [tenantId],
   );
   return toNumber(rows[0]?.['n']);
 }
 
 /**
- * Dung lượng ĐÃ ghi nhận cho một object lưu trữ.
+ * Dung lượng ĐÃ ghi nhận cho một bộ dữ liệu.
  *
- * Dùng để tính phần THÊM THẬT khi commit: `demDungLuong` gom theo `s3_key`, nên
- * nếu khoá này đã có số byte thì số đó ĐÃ nằm trong tổng. Cộng thẳng kích thước
- * file vào lần commit thứ hai là tính đôi, và khách bị báo vượt hạn mức vì một
- * phép cộng chứ không vì dữ liệu của họ — đúng loại lỗi mà `demDungLuong` đã
- * cảnh báo một lần rồi.
- *
- * `MAX` chứ không `SUM`: nhiều sheet cùng một khoá đều ghi đúng kích thước file,
- * nên cộng chúng lại là dựng lại chính cái bẫy đó.
+ * Dùng để tính phần THÊM THẬT khi nạp lại: bảng mới THAY bảng cũ (`EXCHANGE
+ * TABLES` ở `loadDataset`), nên chỗ cũ được trả lại. Cộng nguyên kích thước bảng
+ * mới vào tổng đang có là tính đôi chính bộ dữ liệu ấy, và một lần nạp lại
+ * không đổi gì cũng đủ đẩy tổ chức "vượt" hạn mức.
  */
-export async function dungLuongDaGhi(db: Db, tenantId: number, s3Key: string): Promise<number> {
+export async function dungLuongDaGhi(db: Db, tenantId: number, datasetId: number): Promise<number> {
   const [rows] = await db.query<RowDataPacket[]>(
-    `SELECT COALESCE(MAX(file_size_bytes), 0) AS n
+    `SELECT COALESCE(warehouse_bytes, 0) AS n
        FROM datasets
-      WHERE tenant_id = ? AND s3_key = ? AND deleted_at IS NULL`,
-    [tenantId, s3Key],
+      WHERE tenant_id = ? AND id = ? AND deleted_at IS NULL`,
+    [tenantId, datasetId],
   );
   return toNumber(rows[0]?.['n']);
 }

@@ -3001,4 +3001,57 @@ export const migrations: readonly Migration[] = [
          ADD KEY ix_reports_folder (workspace_id, folder_id, deleted_at)`,
     ],
   },
+  {
+    id: 38,
+    name: 'dataset_warehouse_bytes',
+    statements: [
+      /*
+       * ═══ Hạn mức dung lượng đo KHO DỮ LIỆU, không đo FILE ════════════════
+       *
+       * Tới đây "dung lượng" của một tổ chức là tổng kích thước các FILE họ đã
+       * tải lên (`SUM(file_size_bytes)` gom theo `s3_key`). Đo trên máy dev, hai
+       * tổ chức có dữ liệu thật đều bị tính sai, cùng một chiều:
+       *
+       *   tổ chức   hạn mức đang tính   kho thật đang giữ
+       *   4         32,61 MB            19,57 MB
+       *   18        7,82 MB             4,65 MB
+       *
+       * Hai nguyên nhân, và cái thứ nhất nặng hơn hẳn:
+       *
+       *   1. Bộ dữ liệu nguồn `connection` KHÔNG có file nào, nên
+       *      `file_size_bytes` của nó là 0 — mặc định của cột, không đường nào
+       *      ghi khác đi. Đồng bộ một bảng bao nhiêu dòng từ CSDL khách cũng
+       *      tiêu đúng 0 byte hạn mức, kể cả ở gói Miễn phí. Trên máy dev cả 11
+       *      bộ nguồn `connection` cộng lại mới 156 dòng nên con số chưa lộ ra,
+       *      nhưng luật thì vô điều kiện: đây là một lỗ, không phải sai số.
+       *   2. File nén lại khi vào kho — đo trên toàn bộ dữ liệu dev: 519 MB file
+       *      nằm vừa trong 43 MB kho. Tổ chức 18 bị tính 7,82 MB cho 4,65 MB
+       *      thật, tức trả tiền cho phần đã được nén đi.
+       *
+       * Nên cột này giữ số byte ĐO ĐƯỢC của bảng `raw_t*_d*` trong ClickHouse,
+       * ghi lại sau mỗi lần nạp. Một dataset = một bảng, nên không còn phải gom
+       * theo `s3_key` để tránh tính đôi nhiều sheet: cái bẫy đó biến mất thay vì
+       * được canh.
+       *
+       * ─── Vì sao GHI LẠI vào MySQL chứ không hỏi ClickHouse mỗi lần ───────
+       *
+       * `kiemHanMuc` chạy BÊN TRONG transaction đang giữ khoá `FOR UPDATE` trên
+       * dòng `tenants` — `limits.ts` đã dặn thẳng: không gọi ra dịch vụ ngoài
+       * khi đang giữ khoá đó, vì chờ mạng dưới khoá là chặn mọi thao tác tạo
+       * của cả tổ chức. Một cột trong MySQL giữ nguyên câu đếm là một câu SQL
+       * thuần, và trang Billing cũng không sập theo khi ClickHouse tắt.
+       *
+       * Giá trị chỉ đổi khi bảng được nạp lại, nên nó không "cũ" theo thời gian.
+       * Phần trôi duy nhất là merge nền của ClickHouse làm bảng nhỏ đi; janitor
+       * mỗi giờ đồng bộ lại (`dongBoDungLuongKho`), và lượt đó cũng chính là
+       * backfill cho mọi dòng đang có.
+       *
+       * DEFAULT 0 chứ không NULL: `SUM` của một cột có NULL vẫn đúng, nhưng
+       * "chưa đo" và "rỗng" phải phân biệt được thì mới có chỗ dùng NULL — ở đây
+       * không có, vì bảng chưa nạp thì đúng là chưa chiếm byte nào.
+       */
+      `ALTER TABLE datasets
+         ADD COLUMN warehouse_bytes BIGINT UNSIGNED NOT NULL DEFAULT 0 AFTER loaded_row_count`,
+    ],
+  },
 ];

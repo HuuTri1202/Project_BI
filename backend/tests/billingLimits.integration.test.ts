@@ -654,3 +654,148 @@ describe('Thành viên dùng chung gói của tổ chức', () => {
     expect(res.body.usage.reports).toEqual({ used: 0, limit: 3 });
   });
 });
+
+/**
+ * Hạn mức dung lượng đo KHO, không đo FILE — migration 38.
+ *
+ * ═══ Vì sao bộ này cần tồn tại ═════════════════════════════════════════════
+ *
+ * Cách tính cũ (`SUM(file_size_bytes)` gom theo `s3_key`) sai theo kiểu KHÔNG
+ * bao giờ ném lỗi: nó trả về một con số, con số ấy hiện lên thanh tiến trình ở
+ * trang Billing, và nó chặn người ta khi chạm ngưỡng. Chỉ là nó không nói về
+ * thứ nó tự nhận là đang nói.
+ *
+ * Bốn ca đầu đóng đinh bốn đường mà một bản viết lại rất dễ đi lại vào — nhất
+ * là ca `connection`, vốn là một LỖ chứ không phải sai số.
+ */
+describe('Hạn mức dung lượng đo KHO, không đo FILE', () => {
+  const MB = 1_048_576;
+
+  /** Một bộ dữ liệu với đúng hai con số đang được đem ra so. */
+  async function moBoDuLieu(
+    workspaceId: number,
+    opts: {
+      source?: 'file' | 'connection';
+      fileBytes?: number;
+      warehouseBytes: number;
+      s3Key?: string | null;
+      deleted?: boolean;
+    },
+  ): Promise<number> {
+    const [r] = await mysqlPool.query<ResultSetHeader>(
+      `INSERT INTO datasets
+         (tenant_id, workspace_id, source, name, file_size_bytes, warehouse_bytes, s3_key,
+          status, deleted_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'ready', ${opts.deleted === true ? 'NOW(3)' : 'NULL'})`,
+      [
+        f.tenantA,
+        workspaceId,
+        opts.source ?? 'file',
+        'Bộ dữ liệu thử',
+        opts.fileBytes ?? 0,
+        opts.warehouseBytes,
+        opts.s3Key ?? null,
+      ],
+    );
+    return r.insertId;
+  }
+
+  /** Con số hạn mức NHÌN THẤY — đi qua đúng route trang Billing đọc. */
+  async function dungLuongHienThi(): Promise<number> {
+    const res = await request(app)
+      .get('/api/v1/billing/plan')
+      .set(bearer(f.tokenAdminA))
+      .expect(200);
+    return res.body.usage.storageBytes.used;
+  }
+
+  it('cộng chỗ trong KHO, không cộng kích thước FILE', async () => {
+    const ws = await makeWorkspace(f.tenantA, 'Kho', 'kho');
+    // 100MB file nằm vừa trong 1MB kho — tỉ lệ nén đo được trên dữ liệu thật
+    // còn cao hơn (519MB file / 43MB kho trên máy dev).
+    await moBoDuLieu(ws, { fileBytes: 100 * MB, warehouseBytes: 1 * MB, s3Key: 'a.csv' });
+
+    expect(await dungLuongHienThi()).toBe(1 * MB);
+  });
+
+  it('bộ nguồn `connection` KHÔNG còn tiêu 0 byte — đây là cái lỗ chính', async () => {
+    /*
+     * Bộ nguồn `connection` không có file nào, nên `file_size_bytes` của nó là
+     * 0 và KHÔNG đường nào ghi khác đi. Theo cách tính cũ, đồng bộ một bảng bao
+     * nhiêu dòng từ CSDL khách cũng tiêu đúng 0 byte hạn mức — kể cả ở gói Miễn
+     * phí. Không phải sai số: một lỗ, và vô điều kiện.
+     */
+    const ws = await makeWorkspace(f.tenantA, 'Kho', 'kho');
+    await moBoDuLieu(ws, { source: 'connection', fileBytes: 0, warehouseBytes: 5 * MB });
+
+    expect(await dungLuongHienThi()).toBe(5 * MB);
+  });
+
+  it('bộ đã XOÁ MỀM không tính, dù bảng của nó còn nằm trên đĩa', async () => {
+    /*
+     * Xoá mềm KHÔNG drop bảng trong kho (`dropTables.ts` nói vì sao). Nhưng
+     * "xoá bớt bộ dữ liệu cũ" là lối thoát DUY NHẤT khỏi hạn mức mà thông báo
+     * chỉ ra, nên nó phải làm con số giảm thật — nếu không thì người dùng xoá
+     * sạch dữ liệu của mình rồi vẫn không tạo được gì, và không có gì trên màn
+     * hình giải thích tại sao.
+     */
+    const ws = await makeWorkspace(f.tenantA, 'Kho', 'kho');
+    await moBoDuLieu(ws, { warehouseBytes: 3 * MB });
+    await moBoDuLieu(ws, { warehouseBytes: 9 * MB, deleted: true });
+
+    expect(await dungLuongHienThi()).toBe(3 * MB);
+  });
+
+  it('nhiều sheet cùng một file: mỗi sheet một bảng, nên cộng cả hai', async () => {
+    /*
+     * Cách tính cũ phải gom theo `s3_key` rồi lấy MAX, vì N sheet sinh N dòng
+     * `datasets` dùng chung MỘT object trên MinIO — cộng thẳng là tính một file
+     * 50MB ba sheet thành 150MB.
+     *
+     * Trong kho thì không có gì dùng chung: mỗi bộ dữ liệu có bảng
+     * `raw_t{tenant}_d{dataset}` của riêng nó. Nên phép cộng ở đây KHÔNG được
+     * khử trùng theo `s3_key` — làm vậy là bỏ quên hẳn chỗ của sheet thứ hai.
+     */
+    const ws = await makeWorkspace(f.tenantA, 'Kho', 'kho');
+    await moBoDuLieu(ws, { fileBytes: 50 * MB, warehouseBytes: 2 * MB, s3Key: 'chung.xlsx' });
+    await moBoDuLieu(ws, { fileBytes: 50 * MB, warehouseBytes: 3 * MB, s3Key: 'chung.xlsx' });
+
+    expect(await dungLuongHienThi()).toBe(5 * MB);
+  });
+
+  it('con số CHẶN và con số HIỂN THỊ là một', async () => {
+    // Gói 10MB, đang dùng 9MB. Cùng một `demDungLuong` đứng sau cả hai, nên ca
+    // này đỏ ngay khi ai đó thêm một đường tính thứ hai.
+    const ws = await makeWorkspace(f.tenantA, 'Kho', 'kho');
+    await moBoDuLieu(ws, { fileBytes: 500 * MB, warehouseBytes: 9 * MB });
+    await ganGoi(f.tenantA, f.planPro, { storageBytes: 10 * MB }, f.adminA);
+
+    expect(await dungLuongHienThi()).toBe(9 * MB);
+
+    const res = await request(app)
+      .post('/api/v1/datasets/uploads')
+      .set(bearer(f.tokenAdminA))
+      .send({ workspaceId: ws, filename: 'them.csv', fileSize: 1024 })
+      .expect(201);
+    // 9MB < 10MB nên vẫn tải lên được: `them = 0` ở bước này, kích thước file
+    // KHÔNG còn là thứ bị đem ra cộng. Chặn thật nằm ở lúc nạp.
+    expect(res.body).toHaveProperty('datasetId');
+  });
+
+  it('đã đầy kho thì chặn ngay từ bước xin chỗ tải lên', async () => {
+    const ws = await makeWorkspace(f.tenantA, 'Kho', 'kho');
+    await moBoDuLieu(ws, { warehouseBytes: 11 * MB });
+    await ganGoi(f.tenantA, f.planPro, { storageBytes: 10 * MB }, f.adminA);
+
+    const res = await request(app)
+      .post('/api/v1/datasets/uploads')
+      .set(bearer(f.tokenAdminA))
+      .send({ workspaceId: ws, filename: 'them.csv', fileSize: 1024 })
+      .expect(409);
+    // Thông báo phải nói cả ba: hạn mức, đang dùng, và lối ra.
+    expect(res.body.error).toBe('LimitExceeded');
+    expect(res.body.message).toContain('10 MB');
+    expect(res.body.message).toContain('11 MB');
+    expect(res.body.message).toContain('xoá bớt');
+  });
+});

@@ -702,15 +702,15 @@ export async function markLoadStatus(
   db: Db,
   datasetId: number,
   status: 'idle' | 'queued' | 'running' | 'loaded' | 'failed',
-  loaded?: { chTable: string; rowCount: number },
+  loaded?: { chTable: string; rowCount: number; warehouseBytes: number },
 ): Promise<void> {
   if (loaded) {
     await db.query<ResultSetHeader>(
       `UPDATE datasets
           SET load_status = ?, ch_table = ?, loaded_row_count = ?,
-              loaded_at = CURRENT_TIMESTAMP(3)
+              warehouse_bytes = ?, loaded_at = CURRENT_TIMESTAMP(3)
         WHERE id = ?`,
-      [status, loaded.chTable, loaded.rowCount, datasetId],
+      [status, loaded.chTable, loaded.rowCount, loaded.warehouseBytes, datasetId],
     );
     return;
   }
@@ -718,6 +718,59 @@ export async function markLoadStatus(
     status,
     datasetId,
   ]);
+}
+
+/**
+ * Ghi lại dung lượng kho đo được cho nhiều bộ dữ liệu một lượt — §11.2.
+ *
+ * Nhận `theoDataset` = kết quả quét toàn kho: id → số byte. Bộ dữ liệu KHÔNG có
+ * trong map là bộ không còn bảng nào trong kho, và phải về 0 — nếu không thì một
+ * bảng bị drop để lại con số cũ tính vào hạn mức mãi mãi.
+ *
+ * ⚠️ `updated_at = updated_at` ở cả hai câu. Không có nó, `ON UPDATE
+ * CURRENT_TIMESTAMP(3)` biến mỗi lượt quét hàng giờ thành một lần "sửa" MỌI bộ
+ * dữ liệu, và cột "Cập nhật lúc" trên màn hình Kho dữ liệu chỉ còn nói lên janitor
+ * chạy lúc mấy giờ. Đo lại kích thước không phải là sửa dữ liệu.
+ *
+ * Trả về số dòng THẬT SỰ đổi giá trị — MySQL không đụng dòng nào có giá trị y
+ * nguyên, nên con số này là 0 ở những giờ không ai nạp gì, đúng như mong đợi.
+ */
+export async function capNhatDungLuongKho(
+  db: Db,
+  theoDataset: ReadonlyMap<number, number>,
+): Promise<number> {
+  let doi = 0;
+
+  // Chia lô để câu SQL không phình vô hạn theo số bảng trong kho. 500 cặp
+  // `WHEN … THEN …` là vài chục KB — thoải mái dưới `max_allowed_packet`.
+  const ids = [...theoDataset.keys()];
+  for (let i = 0; i < ids.length; i += 500) {
+    const lo = ids.slice(i, i + 500);
+    const khi = lo.map(() => 'WHEN ? THEN ?').join(' ');
+    const params: number[] = [];
+    for (const id of lo) params.push(id, theoDataset.get(id) ?? 0);
+
+    const [res] = await db.query<ResultSetHeader>(
+      `UPDATE datasets
+          SET warehouse_bytes = CASE id ${khi} ELSE warehouse_bytes END,
+              updated_at = updated_at
+        WHERE id IN (${lo.map(() => '?').join(', ')})`,
+      [...params, ...lo],
+    );
+    doi += res.changedRows;
+  }
+
+  // Những bộ còn giữ con số cũ mà kho không còn bảng. `NOT IN ()` là SQL không
+  // hợp lệ, nên map rỗng đi nhánh riêng — và nhánh đó đúng nghĩa: kho trống thì
+  // mọi con số phải về 0.
+  const [res] = await db.query<ResultSetHeader>(
+    ids.length === 0
+      ? 'UPDATE datasets SET warehouse_bytes = 0, updated_at = updated_at WHERE warehouse_bytes <> 0'
+      : `UPDATE datasets SET warehouse_bytes = 0, updated_at = updated_at
+          WHERE warehouse_bytes <> 0 AND id NOT IN (${ids.map(() => '?').join(', ')})`,
+    ids,
+  );
+  return doi + res.changedRows;
 }
 
 

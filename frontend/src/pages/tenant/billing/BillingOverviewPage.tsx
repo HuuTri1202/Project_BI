@@ -129,7 +129,15 @@ export default function BillingOverviewPage(): React.ReactElement {
           {/* Thành viên đếm theo CHỖ: người bị khoá tạm vẫn tính, người đã gỡ thì
               không — bằng đúng số dòng ở màn hình Thành viên. */}
           <UsageBar label="Thành viên" item={usage.members} />
-          <UsageBar label="Dung lượng" item={usage.storageBytes} storage />
+          {/* Đo chỗ trong KHO, không đo file — migration 38. Câu hint ở đây vì
+              không có nó, người tải lên một file 100MB rồi thấy hiện 20MB sẽ
+              kết luận hệ thống đếm sai. */}
+          <UsageBar
+            label="Dung lượng"
+            item={usage.storageBytes}
+            storage
+            hint="Chỗ dữ liệu chiếm trong kho sau khi nén, không phải kích thước file đã tải lên."
+          />
         </div>
       </section>
 

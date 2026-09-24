@@ -1028,6 +1028,7 @@ describe.skipIf(process.env['INGEST_CH_TESTS'] !== '1')('§7.6 số liệu từ 
     await datasetsRepo.markLoadStatus(mysqlPool, datasetId, 'loaded', {
       chTable: outcome.chTable,
       rowCount: outcome.rowsLoaded,
+      warehouseBytes: outcome.warehouseBytes,
     });
 
     const reportId = await createReport(f.tokenAdminA, datasetId);

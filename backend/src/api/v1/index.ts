@@ -410,11 +410,13 @@ v1Router.post(
      * Hạn mức DUNG LƯỢNG của gói — §11.2. Cùng chỗ, cùng khuôn, cùng mục đích
      * với khối 413 ngay trên: từ chối trước khi khách tải file lên.
      *
-     * `?? 0` khi client không khai kích thước — khi đó câu kiểm chỉ chặn tổ chức
-     * ĐÃ đầy kho, thay vì đoán bừa một con số. Lớp chặn thật nằm ở `commit`, nơi
-     * có kích thước đo được từ `headObject`.
+     * `them = 0` — chỉ chặn tổ chức ĐÃ đầy kho. Từ migration 38 hạn mức đo chỗ
+     * dữ liệu chiếm trong KHO, mà kích thước file không nói lên được chỗ ấy: kho
+     * nén lại 2–5 lần trên dữ liệu thật. Lấy `body.fileSize` làm phần thêm là từ
+     * chối những file thật ra vẫn vừa — và nó lại còn là con số do CLIENT khai.
+     * Lớp chặn thật nằm ở `loadDataset`, nơi bảng đã nạp xong và đo được.
      */
-    await kiemHanMuc(mysqlPool, auth.tenantId, 'storageBytes', new Date(), body.fileSize ?? 0);
+    await kiemHanMuc(mysqlPool, auth.tenantId, 'storageBytes', new Date(), 0);
 
     const workspace = await resolveWorkspace(mysqlPool, auth.tenantId, body.workspaceId);
     const s3Key = buildStorageKey(auth.tenantId, workspace.id, ext);

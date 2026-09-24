@@ -16,6 +16,7 @@ import { memoryStorage } from '../src/storage/memoryStorage';
 import { chTableName } from '../src/services/ingest/buildDdl';
 import { sweepOrphanTables } from '../src/services/ingest/dropTables';
 import { loadDataset } from '../src/services/ingest/loadDataset';
+import { dongBoDungLuongKho } from '../src/services/ingest/warehouseSize';
 import { readFileRows } from '../src/services/ingest/readFileRows';
 import { resetDatabase } from './helpers/db';
 import {
@@ -482,6 +483,7 @@ describe('dọn kho: xoá dataset KHÔNG đụng tới ClickHouse', () => {
     await datasetsRepo.markLoadStatus(mysqlPool, f.datasetA, 'loaded', {
       chTable: 'raw_t1_d1',
       rowCount: 50_000,
+      warehouseBytes: 4_096,
     });
 
     await deleteDataset(f.tenantA, f.datasetA);
@@ -688,6 +690,7 @@ describe.skipIf(!CH_ENABLED)('nạp thật vào ClickHouse', () => {
     await datasetsRepo.markLoadStatus(mysqlPool, f.datasetA, 'loaded', {
       chTable: outcome.chTable,
       rowCount: outcome.rowsLoaded,
+      warehouseBytes: outcome.warehouseBytes,
     });
   }
 
@@ -775,6 +778,7 @@ describe.skipIf(!CH_ENABLED)('nạp thật vào ClickHouse', () => {
     await datasetsRepo.markLoadStatus(mysqlPool, f.datasetA, 'loaded', {
       chTable: outcome.chTable,
       rowCount: outcome.rowsLoaded,
+      warehouseBytes: outcome.warehouseBytes,
     });
 
     const res = await request(app)
@@ -973,6 +977,120 @@ describe.skipIf(!CH_ENABLED)('nạp thật vào ClickHouse', () => {
         query: `DROP TABLE IF EXISTS ${env.CLICKHOUSE_DATABASE}.\`${name}\` SYNC`,
       });
     }
+  });
+
+  /*
+   * ═══ Hạn mức dung lượng đo KHO — migration 38 ══════════════════════════
+   *
+   * Ba ca dưới đây là phần DUY NHẤT không giả lập được: chúng cần một bảng
+   * ClickHouse thật, có kích thước thật, để so. Phần logic thuần MySQL
+   * (`demDungLuong` cộng gì, bỏ gì) nằm ở `billingLimits.integration`.
+   */
+
+  /** Số byte `system.tables` đang báo cho một bảng. */
+  async function bytesTrongKho(name: string): Promise<number> {
+    const rs = await warehouse.query({
+      query: `SELECT total_bytes AS b FROM system.tables
+               WHERE database = {db:String} AND name = {name:String}`,
+      query_params: { db: env.CLICKHOUSE_DATABASE, name },
+      format: 'JSONEachRow',
+    });
+    const rows = await rs.json<{ b: string | number | null }>();
+    return Number(rows[0]?.b ?? 0);
+  }
+
+  async function bytesTrongMysql(datasetId: number): Promise<number> {
+    const [rows] = await mysqlPool.query<RowDataPacket[]>(
+      'SELECT warehouse_bytes AS b FROM datasets WHERE id = ?',
+      [datasetId],
+    );
+    return Number(rows[0]?.['b'] ?? 0);
+  }
+
+  it('nạp xong thì `warehouse_bytes` ghi đúng con số ClickHouse báo', async () => {
+    await seedRows(f.datasetA, [
+      { 'Khu vực': 'Hà Nội', 'Ngày bán': '31/12/2026', 'Doanh thu': 1500 },
+      { 'Khu vực': 'Đà Nẵng', 'Ngày bán': '2026-01-05', 'Doanh thu': 2500 },
+    ]);
+    await loadAndMark();
+
+    const bang = chTableName(f.tenantA, f.datasetA);
+    const kho = await bytesTrongKho(bang);
+
+    // Khác 0 là phần quan trọng nhất: một bản viết lại quên ghi cột này vẫn
+    // chạy trơn, chỉ có điều mọi tổ chức đều hiện "đang dùng 0 byte".
+    expect(kho).toBeGreaterThan(0);
+    expect(await bytesTrongMysql(f.datasetA)).toBe(kho);
+  });
+
+  it('vượt hạn mức khi nạp: lần nạp HỎNG, dữ liệu đang phục vụ còn nguyên', async () => {
+    /*
+     * Đây là chỗ cưỡng chế THẬT của hạn mức dung lượng từ migration 38 — kích
+     * thước file không nói lên được bộ dữ liệu sẽ chiếm bao nhiêu, nên câu kiểm
+     * phải đứng sau khi dữ liệu đã nạp xong và đo được.
+     *
+     * Phần dễ làm sai nhất không phải câu kiểm, mà là thứ còn lại sau khi nó
+     * ném: nếu tráo bảng TRƯỚC rồi mới kiểm, một lần nạp bị chặn sẽ thay mất dữ
+     * liệu cũ bằng dữ liệu mới — tức là vừa chặn vừa phá.
+     */
+    await seedRows(f.datasetA, [
+      { 'Khu vực': 'Hà Nội', 'Ngày bán': '31/12/2026', 'Doanh thu': 1500 },
+    ]);
+    await loadAndMark();
+
+    const bang = chTableName(f.tenantA, f.datasetA);
+    const truoc = await count(bang);
+    expect(truoc).toBe(1);
+
+    // Siết hạn mức xuống dưới chỗ đang dùng, rồi nạp lại với dữ liệu KHÁC.
+    await mysqlPool.query('UPDATE subscriptions SET max_storage_bytes = 1 WHERE tenant_id = ?', [
+      f.tenantA,
+    ]);
+    await seedRows(f.datasetA, [
+      { 'Khu vực': 'Cần Thơ', 'Ngày bán': '01/01/2027', 'Doanh thu': 10 },
+      { 'Khu vực': 'Huế', 'Ngày bán': '02/01/2027', 'Doanh thu': 20 },
+    ]);
+
+    const runId = await loadsRepo.enqueue(mysqlPool, f.tenantA, f.datasetA, f.alice);
+    await expect(loadDataset(runId, f.tenantA, f.datasetA)).rejects.toThrow(/dung lượng/);
+
+    // Bảng đang phục vụ KHÔNG bị đụng: vẫn đúng một dòng của lần nạp trước.
+    expect(await count(bang)).toBe(1);
+    // Và bảng tạm được dọn, không nằm lại chiếm đĩa.
+    expect(await tableExists(`${bang}__new`)).toBe(false);
+  });
+
+  it('janitor đồng bộ lại dung lượng — và KHÔNG chạm `updated_at`', async () => {
+    /*
+     * Lượt này vừa là backfill cho mọi dòng có từ trước migration 38, vừa là
+     * chỗ bắt phần trôi khi ClickHouse merge part ở nền.
+     *
+     * `updated_at` là phần dễ hỏng nhất và hỏng im lặng: cột đó có `ON UPDATE
+     * CURRENT_TIMESTAMP`, nên một lượt quét mỗi giờ sẽ "sửa" MỌI bộ dữ liệu, và
+     * cột "Cập nhật lúc" trên màn hình Kho dữ liệu chỉ còn nói lên janitor chạy
+     * lúc mấy giờ.
+     */
+    await seedRows(f.datasetA, [
+      { 'Khu vực': 'Hà Nội', 'Ngày bán': '31/12/2026', 'Doanh thu': 1500 },
+    ]);
+    await loadAndMark();
+
+    const that = await bytesTrongMysql(f.datasetA);
+    expect(that).toBeGreaterThan(0);
+
+    await mysqlPool.query('UPDATE datasets SET warehouse_bytes = 0, updated_at = ? WHERE id = ?', [
+      '2020-01-01 00:00:00.000',
+      f.datasetA,
+    ]);
+
+    await dongBoDungLuongKho();
+
+    expect(await bytesTrongMysql(f.datasetA)).toBe(that);
+    const [rows] = await mysqlPool.query<RowDataPacket[]>(
+      "SELECT DATE_FORMAT(updated_at, '%Y') AS y FROM datasets WHERE id = ?",
+      [f.datasetA],
+    );
+    expect(rows[0]?.['y']).toBe('2020');
   });
 
   afterAll(async () => {
