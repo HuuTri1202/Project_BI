@@ -606,6 +606,30 @@ export const moveDatasetBodySchema = z.object({
   folderId: z.coerce.number().int().positive().nullable(),
 });
 
+/**
+ * Chuyển CẢ MỘT NHÓM bộ dữ liệu sang cùng một thư mục — §7.9.
+ *
+ * `ids` phải có ít nhất một phần tử: một danh sách rỗng là một lệnh không làm
+ * gì, và client duy nhất gọi đường này chỉ mở hộp thoại khi đã tích ít nhất một
+ * dòng. Nhận rỗng rồi trả 200 là biến một lỗi ở client thành một cái im lặng.
+ *
+ * Bỏ trùng ngay tại đây, vì phía dưới đường này so "số mã gửi lên" với "số bản
+ * ghi tìm được" để phát hiện mã lạ — gửi cùng một mã hai lần sẽ làm phép so đó
+ * báo thiếu một bộ không hề thiếu.
+ *
+ * Trần 500 không phải một giới hạn nghiệp vụ mà là chặn trên của câu `IN (...)`.
+ * Kho dữ liệu lớn nhất đo được có vài chục bộ, nên không ai chạm tới nó; để mở
+ * thì một thân request bịa ra sẽ dựng một câu SQL dài tuỳ ý.
+ */
+export const moveDatasetsBodySchema = z.object({
+  ids: z
+    .array(z.coerce.number().int().positive())
+    .min(1, 'Chưa chọn bộ dữ liệu nào để chuyển.')
+    .max(500, 'Mỗi lượt chuyển tối đa 500 bộ dữ liệu.')
+    .transform((ids) => [...new Set(ids)]),
+  folderId: z.coerce.number().int().positive().nullable(),
+});
+
 export const workspaceScopeQuerySchema = z.object({
   workspaceId: z.coerce.number().int().positive(),
 });

@@ -124,6 +124,7 @@ import {
   commitDatasetsBodySchema,
   createDatasetFolderBodySchema,
   moveDatasetBodySchema,
+  moveDatasetsBodySchema,
   renameDatasetFolderBodySchema,
   createConnectionBodySchema,
   createDataModelBodySchema,
@@ -2162,6 +2163,76 @@ v1Router.patch(
 
     await datasetsRepo.moveDataset(mysqlPool, tenantId, id, folderId);
     res.json(await datasetsRepo.findOne(mysqlPool, tenantId, id));
+  }),
+);
+
+/**
+ * Chuyển CẢ MỘT NHÓM bộ dữ liệu sang cùng một thư mục — §7.9.
+ *
+ * ─── Vì sao một đường riêng chứ không phải gọi đường trên nhiều lượt ────────
+ *
+ * Kho dữ liệu cho tích nhiều dòng rồi xếp một lượt. Làm việc đó bằng hai mươi
+ * request là chấp nhận trước một trạng thái nửa vời: lượt thứ bảy hỏng thì sáu
+ * bộ đã sang chỗ mới, mười ba bộ còn ở chỗ cũ, và người dùng nhìn một hộp lỗi
+ * không nói được bộ nào là bộ nào — trong khi danh sách vừa sắp xếp lại ngay
+ * dưới mắt họ. Ở đây tất cả nằm trong MỘT câu UPDATE, nên chỉ có hai kết cục và
+ * cả hai đều đọc ra được từ màn hình.
+ *
+ * ⚠️ Đường này phải đứng TRƯỚC `PATCH /datasets/:id` (khai phía dưới trong
+ * file), nếu không Express đọc "folder" thành một mã và `idParamSchema` trả 400
+ * cho mọi lượt chuyển nhóm. `datasetFolders.integration.test.ts` canh đúng chỗ
+ * này, nên đảo thứ tự sẽ làm test đỏ chứ không lặng lẽ hỏng.
+ *
+ * Gác bằng `dataset:modify`, cùng ô quyền với đường chuyển một bộ: xếp lại chỗ
+ * đứng không làm mất gì.
+ */
+v1Router.patch(
+  '/datasets/folder',
+  authorize('dataset', 'modify'),
+  asyncHandler(async (req, res) => {
+    const { tenantId } = requireAuth(req);
+    const body = moveDatasetsBodySchema.parse(req.body);
+
+    /*
+     * Đọc TRƯỚC, và đọc cả nhóm bằng một câu.
+     *
+     * Hai việc cần câu này: chặn mã của tổ chức khác (hoặc mã đã xoá) lọt vào
+     * câu UPDATE, và biết workspace để kiểm thư mục đích. Thiếu vế thứ hai thì
+     * cả nhóm lọt vào thư mục của workspace khác và BIẾN MẤT khỏi mọi màn hình,
+     * kể cả Chung — đúng cái bẫy `thuMucDichDataset` được viết ra để chặn.
+     */
+    const rows = await datasetsRepo.findWorkspaceOfMany(mysqlPool, tenantId, body.ids);
+    if (rows.length !== body.ids.length) {
+      // Nói ra CON SỐ. Lựa chọn ở Kho dữ liệu sống qua việc đổi trang và đổi bộ
+      // lọc, nên một bộ bị người khác xoá trong lúc đó là chuyện thật — và
+      // "không tìm thấy bộ dữ liệu này" (số ít) sẽ khiến người dùng đi tìm
+      // nhầm một dòng đang nằm ngay trước mắt.
+      throw notFound(
+        `Có ${String(body.ids.length - rows.length)} bộ dữ liệu không còn tồn tại. Bỏ chọn rồi chọn lại.`,
+      );
+    }
+
+    // `ids` tối thiểu một phần tử và số bản ghi vừa khớp với nó, nên `rows`
+    // không rỗng — nhánh `undefined` chỉ có mặt để khỏi phải ép kiểu.
+    const workspaceId = rows[0]?.workspaceId;
+    if (workspaceId === undefined) throw notFound('Không tìm thấy bộ dữ liệu nào.');
+
+    if (rows.some((r) => r.workspaceId !== workspaceId)) {
+      /*
+       * Không gộp được: thư mục thuộc về đúng một workspace, nên "chuyển cả
+       * nhóm vào thư mục X" không có nghĩa khi nhóm trải trên nhiều workspace.
+       * Màn hình chỉ bày ra bộ dữ liệu của workspace đang mở, nên tới được đây
+       * nghĩa là lựa chọn còn sót lại từ trước lúc đổi workspace.
+       */
+      throw badRequest(
+        'Nhóm đang chọn nằm ở nhiều không gian làm việc khác nhau. Bỏ chọn rồi chọn lại trong một không gian.',
+      );
+    }
+
+    const folderId = await thuMucDichDataset(tenantId, workspaceId, body.folderId);
+
+    const moved = await datasetsRepo.moveDatasets(mysqlPool, tenantId, body.ids, folderId);
+    res.json({ moved });
   }),
 );
 
