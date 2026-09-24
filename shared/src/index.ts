@@ -27,4 +27,5 @@ export * from './dto';
 export * from './platform';
 export * from './rbac';
 export * from './report';
+export * from './reportFolder';
 export * from './workspace';

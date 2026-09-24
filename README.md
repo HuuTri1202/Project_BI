@@ -24,6 +24,7 @@ mà **không cần viết SQL**.
 | **Trình dựng biểu đồ** (§10.9) — kéo thả chiều/thước đo, 8 loại biểu đồ Vega-Lite         | ✅ xong — xem mục _Trình dựng biểu đồ_                 |
 | **Khu Báo cáo & khung nhiều biểu đồ** (§10.10) — mục sidebar riêng, tối đa 12 ô một khung | ✅ xong — xem mục _Khu Báo cáo_                        |
 | **Xuất báo cáo** — ảnh PNG và tệp PDF, mọi vai trò xuất được                              | ✅ xong                                                |
+| **Thư mục báo cáo** (§10.25) — gom báo cáo theo chủ đề, mặc định nằm ở Chung              | ✅ xong — xem mục _Thư mục báo cáo_                    |
 | **Gói cước & thanh toán** (§11) — VietQR, đối soát Sepay, hạn mức theo gói                | ✅ xong — xem [docs/thanh-toan.md](docs/thanh-toan.md) |
 | Bộ lọc dùng chung cả khung, chia sẻ báo cáo ra ngoài                                      | ⏳ chưa làm                                            |
 
@@ -1237,6 +1238,73 @@ sách, không phải một dòng nằm cuối sau ba dòng bị ẩn.
 | `/reports/new` — dựng mới            | `readDataModels` **và** `editContent` |
 
 Xem mục _Xem trước, sửa sau_ bên dưới.
+
+### Thư mục báo cáo (§10.25)
+
+Một workspace dùng được vài tháng có vài chục báo cáo, và tới trước bản này tab
+Báo cáo là một danh sách phẳng đúng bấy nhiêu dòng — cách duy nhất để tìm là gõ
+đúng tên. Bản này thêm một cột thư mục bên trái: **Tất cả**, **Chung**, rồi từng
+thư mục người dùng tự tạo, mỗi dòng kèm số báo cáo.
+
+⚠️ Bản này có **migration 37** (`report_folders` + `reports.folder_id`). Kéo code
+về xong phải chạy `npm --workspace backend run migrate`, và chạy thêm một lần nữa
+với `MYSQL_DATABASE=bi_platform_test` nếu bạn chạy test tích hợp.
+
+#### "Chung" KHÔNG phải một dòng trong bảng
+
+Thư mục mặc định là `reports.folder_id IS NULL`, không phải một bản ghi tên
+"Chung" gieo sẵn cho mỗi workspace. Ba thứ đổi lấy được:
+
+1. **Không phải migrate dữ liệu cũ.** Mọi báo cáo đang có đã ở đúng chỗ của nó
+   ngay khi cột được thêm vào.
+2. **Không có đường nào tạo ra một workspace thiếu thư mục mặc định.** Gieo một
+   dòng thì mọi đường tạo workspace — kể cả đăng ký tổ chức mới và `seed:admin` —
+   đều phải nhớ gieo theo, và cái quên ấy chỉ lộ ra với người dùng đầu tiên.
+3. **Không xoá được thư mục mặc định**, vì nó không tồn tại để mà xoá.
+
+Đổi lại: "Chung" không đổi tên được, và zod chặn người dùng đặt một thư mục thật
+trùng tên với nó (UNIQUE của database không thấy va chạm nào ở đây).
+
+Hệ quả cho người đọc mã: `folderId` có **ba** trạng thái, không phải hai —
+`undefined` là "mọi thư mục", `null` là Chung, số là một thư mục. Viết
+`if (folderId)` ở bất kỳ mắt xích nào là bấm vào Chung nhận nguyên cả danh sách.
+Phép dịch sang chuỗi trên URL nằm ở `parseFolderFilter`/`folderFilterValue` bên
+`@bi/shared`, dùng chung cho cả hai đầu.
+
+#### Xoá thư mục KHÔNG xoá báo cáo
+
+Khoá ngoại là `ON DELETE SET NULL`, nên báo cáo bên trong quay về Chung — và luật
+đó nằm ở **database**, không ở tầng service, để nó còn đúng với mọi đường xoá
+được thêm về sau. `CASCADE` thì xoá một thư mục là mất trắng công việc bên trong;
+`RESTRICT` thì bắt người dùng tự dọn rỗng trước, một bước thủ công không mua được
+gì. Hộp thoại xác nhận nói thẳng ra con số: "3 báo cáo bên trong KHÔNG bị xoá".
+
+#### Hai chi tiết nhỏ, cả hai đều cố ý
+
+- **Báo cáo mới rơi vào thư mục ĐANG MỞ**, không phải luôn luôn Chung. Thư mục đi
+  theo `?folder=` trên URL của trình dựng chứ không qua `navigate(state)`: state
+  của history mất khi F5, và một người dựng dở rồi tải lại trang sẽ lặng lẽ lưu
+  vào nhầm chỗ.
+- **Chuyển thư mục không dập `updated_at`** (`SET folder_id = ?, updated_at =
+updated_at`). Cột đó hiện ra với cái tên "Cập nhật lần cuối" và người đọc hiểu
+  là "lần cuối ai đó SỬA báo cáo"; xếp lại mười báo cáo vào thư mục không phải là
+  sửa mười báo cáo, và để mặc thì một buổi dọn dẹp xoá sạch lịch sử sửa thật.
+
+| Đường                        | Quyền                        |
+| ---------------------------- | ---------------------------- |
+| `GET /report-folders`        | `report:read`                |
+| `POST /report-folders`       | `report:modify`              |
+| `PATCH /report-folders/:id`  | `report:modify` — đổi tên    |
+| `DELETE /report-folders/:id` | `report:modify` — xem trên   |
+| `PATCH /reports/:id/folder`  | `report:modify` — chuyển chỗ |
+
+Không có tài nguyên RBAC mới: thư mục là cách sắp xếp **báo cáo**, nên nó dùng
+lại đúng ô quyền của báo cáo — một tài nguyên mới sẽ kéo theo một migration
+policy và một dòng nữa trong `DEFAULT_POLICY` mà không ai được lợi gì.
+
+Chuyển chỗ đi đường riêng chứ không nhồi `folderId` vào `PATCH /reports/:id`, vì
+đường đó **từ chối thẳng** báo cáo dựng trên mô hình — mà đó là loại người dùng
+tạo nhiều nhất từ §10.10.
 
 `/reports/new` gác **cả hai** ô, lồng nhau, chứ không chọn một: trình dựng vừa
 đọc danh sách chiều/thước đo (`datamodel:read`) vừa ghi một báo cáo

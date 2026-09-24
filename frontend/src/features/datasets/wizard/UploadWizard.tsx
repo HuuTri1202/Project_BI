@@ -73,9 +73,19 @@ interface Props {
   onClose: () => void;
   /** Mặc định `'dataset'` — giữ nguyên hành vi của mọi nơi gọi cũ. */
   goal?: UploadGoal;
+  /**
+   * Thư mục đích của báo cáo sắp dựng — §10.25. Chỉ có nghĩa với
+   * `goal === 'report'`; chuỗi rỗng = Chung.
+   */
+  folder?: string;
 }
 
-export function UploadWizard({ open, onClose, goal = 'dataset' }: Props): React.ReactElement {
+export function UploadWizard({
+  open,
+  onClose,
+  goal = 'dataset',
+  folder = '',
+}: Props): React.ReactElement {
   const navigate = useNavigate();
   const { current, options, select } = useWorkspace();
   const dialogRef = useRef<HTMLDialogElement>(null);
@@ -351,7 +361,9 @@ export function UploadWizard({ open, onClose, goal = 'dataset' }: Props): React.
         datasetIds: datasets.map((d) => d.id),
       });
       onClose();
-      navigate(`/datamodels/${model.id}/report/new`);
+      navigate(
+        `/datamodels/${model.id}/report/new${folder === '' ? '' : `?folder=${encodeURIComponent(folder)}`}`,
+      );
     } catch (err) {
       setError(`Đã nạp xong dữ liệu, nhưng chưa dựng được báo cáo: ${getApiError(err).message}`);
       // Về 'pending' để câu lỗi HIỆN RA: nhánh 'done' của `StepProgress` không

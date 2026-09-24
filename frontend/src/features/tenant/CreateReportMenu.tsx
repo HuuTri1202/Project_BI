@@ -70,10 +70,20 @@ const ITEMS = [
 
 export function CreateReportMenu({
   datamodelId,
+  folder = '',
 }: {
   /** Có mặt = đang đứng trong một mô hình; nút không hỏi nguồn nữa. */
   datamodelId?: number | undefined;
+  /**
+   * Thư mục người dùng đang mở ở tab Báo cáo — §10.25. Chuỗi rỗng = Chung.
+   *
+   * Báo cáo mới rơi vào ĐÚNG thư mục đang mở, không phải luôn luôn Chung: người
+   * đang đứng trong "Bán hàng" và bấm Tạo báo cáo đang làm một báo cáo bán hàng.
+   * Chuyển bằng `?folder=` trên URL của trình dựng — xem `ReportBuilderPage`.
+   */
+  folder?: string;
 } = {}): React.ReactElement {
+  const duoiThuMuc = folder === '' ? '' : `?folder=${encodeURIComponent(folder)}`;
   const [open, setOpen] = useState(false);
   const [wizardOpen, setWizardOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -158,7 +168,7 @@ export function CreateReportMenu({
               onClick={() => {
                 setOpen(false);
                 if (item.key === 'file') setWizardOpen(true);
-                else void navigate('/reports/new');
+                else void navigate(`/reports/new${duoiThuMuc}`);
               }}
               className="flex w-full items-start gap-3 rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-slate-50"
             >
@@ -186,7 +196,12 @@ export function CreateReportMenu({
       {/* `goal="report"` là toàn bộ điểm khác của nhánh này: wizard nạp file
           như thường, rồi dựng hộ một mô hình ẩn trên đúng các sheet vừa tích và
           đi thẳng vào trình dựng. Xem `UploadWizard`. */}
-      <UploadWizard open={wizardOpen} onClose={() => setWizardOpen(false)} goal="report" />
+      <UploadWizard
+        open={wizardOpen}
+        onClose={() => setWizardOpen(false)}
+        goal="report"
+        folder={folder}
+      />
     </div>
   );
 }

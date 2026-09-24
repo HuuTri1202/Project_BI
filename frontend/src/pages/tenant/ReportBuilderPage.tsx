@@ -6,11 +6,12 @@ import {
   CANVAS_MAX_ANNOTATIONS,
   CANVAS_MAX_PAGES,
   CANVAS_MAX_VISUALS,
+  parseFolderFilter,
   REPORT_NAME_MAX,
   type ReportDto,
 } from '@bi/shared';
 import { useEffect, useRef, useState } from 'react';
-import { Navigate, useNavigate, useParams } from 'react-router-dom';
+import { Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 
 import { usePermissions } from '../../auth/usePermissions';
 import { Button } from '../../components/ui/Button';
@@ -288,6 +289,18 @@ function Builder({
   const [saveError, setSaveError] = useState<{ message: string; code: string } | null>(null);
   /** Tổ chức đã dùng hết số báo cáo của gói — chỉ đáng nói khi đang dựng MỚI. */
   const hetHanMuc = useHetHanMuc('reports');
+  /*
+   * `?folder=` — thư mục người dùng đang đứng khi bấm "Tạo báo cáo" (§10.25).
+   *
+   * Qua URL chứ không qua `navigate(state)`: state của history biến mất khi F5,
+   * và một người dựng báo cáo nửa chừng rồi tải lại trang sẽ lặng lẽ lưu nó vào
+   * Chung thay vì thư mục họ đang mở. Vắng mặt = Chung, đúng mặc định.
+   *
+   * Chỉ có nghĩa khi TẠO MỚI: sửa một báo cáo đã có thì thư mục của nó là thứ
+   * đã lưu, và đường lưu (`updateCanvasReport`) không đụng tới cột đó.
+   */
+  const [searchParams] = useSearchParams();
+  const folderMoi = parseFolderFilter(searchParams.get('folder') ?? undefined) ?? null;
   /**
    * Yêu cầu đổi mô hình đang chờ xác nhận.
    *
@@ -695,7 +708,12 @@ function Builder({
     }
 
     create.mutate(
-      { datamodelId: modelId, name: effectiveName.trim(), canvas: { pages: ready } },
+      {
+        datamodelId: modelId,
+        name: effectiveName.trim(),
+        canvas: { pages: ready },
+        folderId: folderMoi,
+      },
       {
         onSuccess: (created) => {
           /*

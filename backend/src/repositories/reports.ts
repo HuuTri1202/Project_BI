@@ -31,6 +31,8 @@ import type { Db } from './db';
 interface ReportRow extends RowDataPacket {
   id: number;
   workspace_id: number;
+  folder_id: number | null;
+  folder_name: string | null;
   dataset_id: number | null;
   dataset_name: string | null;
   dataset_source: DatasetSource | null;
@@ -56,6 +58,7 @@ interface ReportRow extends RowDataPacket {
  * trong hai vế có dữ liệu, nên `COALESCE` dưới đây luôn lấy được một cái tên.
  */
 const SELECT_COLUMNS = `r.id, r.workspace_id,
+            r.folder_id, f.name AS folder_name,
             r.dataset_id, d.name AS dataset_name, d.source AS dataset_source,
             r.datamodel_id, dm.name AS datamodel_name,
             r.name, r.chart_type, r.config, r.canvas, u.full_name AS creator_name,
@@ -63,6 +66,7 @@ const SELECT_COLUMNS = `r.id, r.workspace_id,
        FROM reports r
        LEFT JOIN datasets d ON d.id = r.dataset_id
        LEFT JOIN datamodels dm ON dm.id = r.datamodel_id
+       LEFT JOIN report_folders f ON f.id = r.folder_id
        LEFT JOIN users u ON u.id = r.created_by`;
 
 /**
@@ -270,6 +274,9 @@ function toDto(row: ReportRow): ReportDto {
   return {
     id: Number(row.id),
     workspaceId: Number(row.workspace_id),
+    // `null` = Chung, và đó là một câu trả lời ĐỦ — xem `reportFolder.ts`.
+    folderId: row.folder_id === null ? null : Number(row.folder_id),
+    folderName: row.folder_name,
     source: onModel ? 'datamodel' : 'dataset',
     // Nguồn đã bị xoá CỨNG là chuyện khoá ngoại RESTRICT không cho xảy ra. Vẫn
     // đỡ ở đây để một bản ghi lệch cho ra một cái tên xấu, không phải `null`
@@ -292,6 +299,18 @@ function toDto(row: ReportRow): ReportDto {
 export interface ListReportsFilter {
   workspaceId: number;
   search?: string | undefined;
+  /**
+   * Lọc theo thư mục — §10.25. BA trạng thái, và chúng khác nhau thật sự:
+   *
+   *   `undefined` → mọi thư mục
+   *   `null`      → chỉ Chung (`folder_id IS NULL`)
+   *   số          → đúng thư mục đó
+   *
+   * Vì `null` ở đây là một lựa chọn CÓ NGHĨA, chỗ đọc nó không được viết theo
+   * lối quen tay `if (filter.folderId)`: phép kiểm chân trị gộp `null` vào với
+   * "không lọc", và người bấm vào Chung sẽ nhận nguyên cả danh sách.
+   */
+  folderId?: number | null | undefined;
   page: number;
   pageSize: number;
 }
@@ -323,6 +342,16 @@ function buildWhere(
   if (filter.search) {
     conditions.push(`r.name LIKE ? ESCAPE '\\\\'`);
     params.push(`%${escapeLikeTerm(filter.search)}%`);
+  }
+
+  // `!== undefined`, không phải phép kiểm chân trị — xem `ListReportsFilter`.
+  if (filter.folderId !== undefined) {
+    if (filter.folderId === null) {
+      conditions.push('r.folder_id IS NULL');
+    } else {
+      conditions.push('r.folder_id = ?');
+      params.push(filter.folderId);
+    }
   }
 
   return { sql: conditions.join(' AND '), params };
@@ -393,6 +422,8 @@ export interface CreateReportInput {
   workspaceId: number;
   datasetId: number;
   name: string;
+  /** Thư mục đích — §10.25. `null` = Chung. */
+  folderId: number | null;
   createdBy: number;
 }
 
@@ -408,9 +439,9 @@ export async function createReport(
   input: CreateReportInput,
 ): Promise<number> {
   const [result] = await db.query<ResultSetHeader>(
-    `INSERT INTO reports (tenant_id, workspace_id, dataset_id, name, created_by)
-     VALUES (?, ?, ?, ?, ?)`,
-    [tenantId, input.workspaceId, input.datasetId, input.name, input.createdBy],
+    `INSERT INTO reports (tenant_id, workspace_id, folder_id, dataset_id, name, created_by)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+    [tenantId, input.workspaceId, input.folderId, input.datasetId, input.name, input.createdBy],
   );
   return result.insertId;
 }
@@ -421,6 +452,8 @@ export interface CreateModelReportRow {
   name: string;
   chartType: ChartType;
   config: ReportModelConfigDto;
+  /** Thư mục đích — §10.25. `null` = Chung. */
+  folderId: number | null;
   createdBy: number;
 }
 
@@ -438,11 +471,12 @@ export async function createModelReport(
 ): Promise<number> {
   const [result] = await db.query<ResultSetHeader>(
     `INSERT INTO reports
-       (tenant_id, workspace_id, datamodel_id, name, chart_type, config, created_by)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+       (tenant_id, workspace_id, folder_id, datamodel_id, name, chart_type, config, created_by)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       tenantId,
       input.workspaceId,
+      input.folderId,
       input.datamodelId,
       input.name,
       input.chartType,
@@ -499,6 +533,8 @@ export interface CanvasReportRow {
   datamodelId: number;
   name: string;
   canvas: ReportCanvasDto;
+  /** Thư mục đích — §10.25. `null` = Chung. */
+  folderId: number | null;
   createdBy: number;
 }
 
@@ -535,11 +571,13 @@ export async function createCanvasReport(
   const mirror = mirrorOfFirst(input.canvas);
   const [result] = await db.query<ResultSetHeader>(
     `INSERT INTO reports
-       (tenant_id, workspace_id, datamodel_id, name, chart_type, config, canvas, created_by)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+       (tenant_id, workspace_id, folder_id, datamodel_id, name, chart_type, config, canvas,
+        created_by)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       tenantId,
       input.workspaceId,
+      input.folderId,
       input.datamodelId,
       input.name,
       mirror.chartType,
@@ -567,6 +605,45 @@ export async function updateCanvasReport(
     `UPDATE reports SET name = ?, chart_type = ?, config = ?, canvas = ?
       WHERE tenant_id = ? AND id = ? AND deleted_at IS NULL AND datamodel_id IS NOT NULL`,
     [input.name, mirror.chartType, mirror.config, JSON.stringify(input.canvas), tenantId, id],
+  );
+  return result.affectedRows;
+}
+
+/**
+ * Chuyển một báo cáo sang thư mục khác — §10.25. `folderId = null` là về Chung.
+ *
+ * Trả về số dòng ĐỤNG TỚI, và nơi gọi phải đọc con số đó: 0 nghĩa là báo cáo
+ * không thuộc tổ chức này hoặc đã bị xoá mềm, và cả hai đều phải ra 404 chứ
+ * không phải một câu "đã chuyển" cho một việc chưa xảy ra.
+ *
+ * ⚠️ Câu này KHÔNG tự kiểm thư mục đích có cùng workspace với báo cáo hay
+ * không — khoá ngoại chỉ buộc thư mục tồn tại, không buộc nó đúng chỗ. Việc đó
+ * do route làm trước khi gọi, vì chỉ ở đó mới có đủ ngữ cảnh để trả về một câu
+ * lỗi đọc được. Thiếu bước ấy thì một báo cáo biến mất khỏi mọi danh sách: nó
+ * nằm trong một thư mục thuộc workspace mà người dùng đang không mở.
+ */
+export async function moveReport(
+  db: Db,
+  tenantId: number,
+  id: number,
+  folderId: number | null,
+): Promise<number> {
+  /*
+   * `updated_at = updated_at` GIỮ NGUYÊN mốc sửa đổi, và đó là chủ ý.
+   *
+   * Cột này khai `ON UPDATE CURRENT_TIMESTAMP(3)`, nên một câu UPDATE bình
+   * thường sẽ dập mốc cũ. Nhưng cột hiện ra ở tab Báo cáo tên là "Cập nhật lần
+   * cuối" và người đọc hiểu nó là "lần cuối ai đó SỬA báo cáo này" — xếp lại
+   * mười báo cáo vào thư mục không phải là sửa mười báo cáo. Để mặc thì danh
+   * sách (sắp theo `updated_at DESC`) xáo tung ngay sau một buổi dọn dẹp, và
+   * lịch sử sửa thật bị xoá mà không ai đổi lấy được gì.
+   *
+   * Gán tường minh chính nó là cách MySQL cho phép chặn `ON UPDATE`.
+   */
+  const [result] = await db.query<ResultSetHeader>(
+    `UPDATE reports SET folder_id = ?, updated_at = updated_at
+      WHERE tenant_id = ? AND id = ? AND deleted_at IS NULL`,
+    [folderId, tenantId, id],
   );
   return result.affectedRows;
 }

@@ -1,6 +1,8 @@
 import {
   ADMIN_ERROR_CODES,
   allVisuals,
+  MAX_REPORT_FOLDERS,
+  parseFolderFilter,
   APP_NAME,
   BILLING_ERROR_CODES,
   CHART_SERIES_SUPPORT,
@@ -51,6 +53,7 @@ import * as datamodelsRepo from '../../repositories/datamodels';
 import * as datasetsRepo from '../../repositories/datasets';
 import type { Db } from '../../repositories/db';
 import * as membershipsRepo from '../../repositories/memberships';
+import * as reportFoldersRepo from '../../repositories/reportFolders';
 import * as reportsRepo from '../../repositories/reports';
 import * as tenantsRepo from '../../repositories/tenants';
 import { createMember } from '../../services/admin/createMember';
@@ -128,6 +131,7 @@ import {
   createOrderBodySchema,
   createRelationshipBodySchema,
   createReportBodySchema,
+  createReportFolderBodySchema,
   createUploadBodySchema,
   createWorkspaceBodySchema,
   explorerQueryBodySchema,
@@ -139,6 +143,9 @@ import {
   listMembersQuerySchema,
   listOrdersQuerySchema,
   listReportsQuerySchema,
+  moveReportBodySchema,
+  renameReportFolderBodySchema,
+  workspaceScopeQuerySchema,
   orderCodeParamSchema,
   renameDatasetBodySchema,
   saveLayoutBodySchema,
@@ -625,6 +632,33 @@ function validateConfig(columns: readonly DatasetColumnDto[], config: ReportConf
  * bừa trông y hệt một cấu hình người dùng đã chọn, nên không ai biết cái nào là
  * cái nào.
  */
+/**
+ * Thư mục đích của một báo cáo — §10.25. Trả về `null` nghĩa là Chung.
+ *
+ * ⚠️ Kiểm CẢ hai điều, và điều thứ hai mới là điều dễ quên: thư mục có tồn tại
+ * trong tổ chức này không, và nó có nằm đúng WORKSPACE của báo cáo không. Khoá
+ * ngoại chỉ buộc được vế thứ nhất. Thiếu vế thứ hai thì báo cáo lọt vào một thư
+ * mục của workspace khác và BIẾN MẤT khỏi mọi danh sách — tab Báo cáo lọc theo
+ * workspace đang mở, nên không màn hình nào còn hiện nó ra, kể cả Chung.
+ *
+ * `undefined` và `null` cùng cho ra `null`: lúc tạo, "không nói gì" và "chọn
+ * Chung" là một. Đường CHUYỂN thì không nhận `undefined` — xem
+ * `moveReportBodySchema`.
+ */
+async function thuMucDich(
+  tenantId: number,
+  workspaceId: number,
+  folderId: number | null | undefined,
+): Promise<number | null> {
+  if (folderId === undefined || folderId === null) return null;
+
+  const folder = await reportFoldersRepo.findFolder(mysqlPool, tenantId, folderId);
+  if (folder === null || folder.workspaceId !== workspaceId) {
+    throw notFound('Không tìm thấy thư mục này.');
+  }
+  return folder.id;
+}
+
 v1Router.post(
   '/reports',
   authorize('report', 'modify'),
@@ -651,9 +685,12 @@ v1Router.post(
     // Hạn mức gói — §11.2. Kiểm và ghi trong CÙNG một khoá, xem `trongHanMuc`.
     // Gắn ở ROUTE vì không có tầng service ở giữa: repository thuần không mang
     // luật nghiệp vụ.
+    const folderId = await thuMucDich(auth.tenantId, workspaceId, body.folderId);
+
     const id = await trongHanMuc(auth.tenantId, 'reports', (conn) =>
       reportsRepo.createReport(conn, auth.tenantId, {
         workspaceId,
+        folderId,
         datasetId: body.datasetId,
         name: body.name,
         createdBy: auth.userId,
@@ -802,12 +839,15 @@ v1Router.post(
     // Hạn mức gói — §11.2. Đặt SAU hai câu kiểm chiều/thước đo: lỗi cụ thể hơn
     // thì nói trước, và người chọn nhầm trường không nên nhận thông báo "hết hạn
     // mức" cho một việc họ chưa làm sai. Kiểm và ghi trong cùng một khoá.
+    const folderId = await thuMucDich(auth.tenantId, model.workspaceId, body.folderId);
+
     const id = await trongHanMuc(auth.tenantId, 'reports', (conn) =>
       reportsRepo.createModelReport(conn, auth.tenantId, {
         // Báo cáo nằm cùng workspace với mô hình. Khác nhánh bộ dữ liệu — ở đó
         // bộ dữ liệu §8 có thể chưa thuộc workspace nào nên phải rơi về workspace
         // đang mở; mô hình thì luôn có.
         workspaceId: model.workspaceId,
+        folderId,
         datamodelId: model.id,
         name: body.name,
         chartType: body.chartType,
@@ -849,9 +889,12 @@ v1Router.post(
     // Hạn mức gói — §11.2. Tới bản này đường này KHÔNG kiểm gì, mà nó lại là
     // đường duy nhất trình dựng gọi: gói Miễn phí tạo được báo cáo thứ tư qua
     // giao diện. Cùng khoá với hai đường kia — xem `trongHanMuc`.
+    const folderId = await thuMucDich(auth.tenantId, model.workspaceId, body.folderId);
+
     const id = await trongHanMuc(auth.tenantId, 'reports', (conn) =>
       reportsRepo.createCanvasReport(conn, auth.tenantId, {
         workspaceId: model.workspaceId,
+        folderId,
         datamodelId: model.id,
         name: body.name,
         canvas: body.canvas,
@@ -884,6 +927,8 @@ v1Router.get(
     const filter: reportsRepo.ListReportsFilter = {
       workspaceId: workspace.id,
       search: query.q,
+      // `parseFolderFilter` dùng CHUNG với frontend — xem `listReportsQuerySchema`.
+      folderId: parseFolderFilter(query.folder),
       page: query.page,
       pageSize: query.pageSize,
     };
@@ -1260,6 +1305,160 @@ v1Router.delete(
 
     const affected = await reportsRepo.softDeleteReport(mysqlPool, tenantId, id);
     if (affected === 0) throw notFound('Không tìm thấy báo cáo này.');
+
+    res.status(204).end();
+  }),
+);
+
+/**
+ * Chuyển một báo cáo sang thư mục khác — §10.25.
+ *
+ * ĐƯỜNG RIÊNG, không nhồi `folderId` vào `PATCH /reports/:id`, và lý do rất cụ
+ * thể: đường đó TỪ CHỐI thẳng báo cáo dựng trên mô hình ("sửa ở đường riêng:
+ * PATCH /reports/:id/from-datamodel"). Mà báo cáo trên mô hình là loại người
+ * dùng tạo nhiều nhất từ §10.10. Nhét vào đó nghĩa là xếp thư mục được cho
+ * đúng loại báo cáo cũ, còn loại mới thì không.
+ *
+ * Gác bằng `report:modify` chứ không phải `delete`: xếp lại chỗ đứng không làm
+ * mất gì, và viewer thì vẫn không được đụng.
+ */
+v1Router.patch(
+  '/reports/:id/folder',
+  authorize('report', 'modify'),
+  asyncHandler(async (req, res) => {
+    const { tenantId } = requireAuth(req);
+    const { id } = idParamSchema.parse(req.params);
+    const body = moveReportBodySchema.parse(req.body);
+
+    // Đọc báo cáo TRƯỚC: cần workspace của nó để kiểm thư mục đích cùng chỗ, và
+    // cũng là chỗ trả 404 cho một mã của tổ chức khác.
+    const report = await reportsRepo.findById(mysqlPool, tenantId, id);
+    if (report === null) throw notFound('Không tìm thấy báo cáo này.');
+
+    const folderId = await thuMucDich(tenantId, report.workspaceId, body.folderId);
+
+    await reportsRepo.moveReport(mysqlPool, tenantId, id, folderId);
+    res.json(await reportsRepo.findById(mysqlPool, tenantId, id));
+  }),
+);
+
+/* ─── Thư mục báo cáo — §10.25 ─────────────────────────────────────────────── */
+
+/**
+ * Danh sách thư mục của một workspace, kèm số báo cáo trong từng cái.
+ *
+ * KHÔNG trả về "Chung" như một phần tử: nó không phải một bản ghi (xem
+ * `reportFolder.ts`), và bịa ra một phần tử mã `0` ở đây là mời client đối xử
+ * với nó như một thư mục thật rồi gửi `folderId: 0` lên đường chuyển. Số báo
+ * cáo của Chung đi riêng ở `chungCount`, đúng như bản chất của nó.
+ */
+v1Router.get(
+  '/report-folders',
+  authorize('report', 'read'),
+  asyncHandler(async (req, res) => {
+    const { tenantId } = requireAuth(req);
+    const query = workspaceScopeQuerySchema.parse(req.query);
+    const workspace = await resolveWorkspace(mysqlPool, tenantId, query.workspaceId);
+
+    const [items, chungCount] = await Promise.all([
+      reportFoldersRepo.listFolders(mysqlPool, tenantId, workspace.id),
+      reportFoldersRepo.countChung(mysqlPool, tenantId, workspace.id),
+    ]);
+
+    res.json({ items, chungCount });
+  }),
+);
+
+v1Router.post(
+  '/report-folders',
+  authorize('report', 'modify'),
+  asyncHandler(async (req, res) => {
+    const auth = requireAuth(req);
+    const query = workspaceScopeQuerySchema.parse(req.query);
+    const body = createReportFolderBodySchema.parse(req.body);
+    const workspace = await resolveWorkspace(mysqlPool, auth.tenantId, query.workspaceId);
+
+    const dang = await reportFoldersRepo.countFolders(mysqlPool, auth.tenantId, workspace.id);
+    if (dang >= MAX_REPORT_FOLDERS) {
+      throw new HttpError(
+        409,
+        'TooManyFolders',
+        `Mỗi workspace tối đa ${String(MAX_REPORT_FOLDERS)} thư mục.`,
+      );
+    }
+
+    /*
+     * Bắt ER_DUP_ENTRY thay vì SELECT kiểm trước — cùng lập luận với
+     * `asDuplicateMeasureName`: giữa một câu SELECT và câu INSERT luôn có khe
+     * hở cho hai request đồng thời, và người dùng bấm hai lần vì lần đầu chưa
+     * thấy gì xảy ra là chuyện thường.
+     */
+    let id: number;
+    try {
+      id = await reportFoldersRepo.createFolder(mysqlPool, auth.tenantId, {
+        workspaceId: workspace.id,
+        name: body.name,
+        createdBy: auth.userId,
+      });
+    } catch (err) {
+      if (reportFoldersRepo.isDuplicateFolderName(err)) {
+        throw new HttpError(409, 'DuplicateName', 'Workspace đã có một thư mục trùng tên.', {
+          name: 'Tên này đã được dùng',
+        });
+      }
+      throw err;
+    }
+
+    const items = await reportFoldersRepo.listFolders(mysqlPool, auth.tenantId, workspace.id);
+    const created = items.find((f) => f.id === id);
+    res.status(201).json(created ?? { id, workspaceId: workspace.id, name: body.name });
+  }),
+);
+
+v1Router.patch(
+  '/report-folders/:id',
+  authorize('report', 'modify'),
+  asyncHandler(async (req, res) => {
+    const { tenantId } = requireAuth(req);
+    const { id } = idParamSchema.parse(req.params);
+    const body = renameReportFolderBodySchema.parse(req.body);
+
+    const folder = await reportFoldersRepo.findFolder(mysqlPool, tenantId, id);
+    if (folder === null) throw notFound('Không tìm thấy thư mục này.');
+
+    try {
+      await reportFoldersRepo.renameFolder(mysqlPool, tenantId, id, body.name);
+    } catch (err) {
+      if (reportFoldersRepo.isDuplicateFolderName(err)) {
+        throw new HttpError(409, 'DuplicateName', 'Workspace đã có một thư mục trùng tên.', {
+          name: 'Tên này đã được dùng',
+        });
+      }
+      throw err;
+    }
+
+    const items = await reportFoldersRepo.listFolders(mysqlPool, tenantId, folder.workspaceId);
+    res.json(items.find((f) => f.id === id));
+  }),
+);
+
+/**
+ * Xoá một thư mục. Báo cáo bên trong KHÔNG mất — chúng về Chung.
+ *
+ * `report:modify` chứ không phải `report:delete`, và đó không phải sơ suất:
+ * không một báo cáo nào bị xoá ở đây. Khoá ngoại `ON DELETE SET NULL` của
+ * migration 37 là thứ bảo đảm điều đó, chứ không phải một câu UPDATE viết thêm
+ * ở chỗ này — luật nằm dưới database thì nó còn đúng với mọi đường xoá về sau.
+ */
+v1Router.delete(
+  '/report-folders/:id',
+  authorize('report', 'modify'),
+  asyncHandler(async (req, res) => {
+    const { tenantId } = requireAuth(req);
+    const { id } = idParamSchema.parse(req.params);
+
+    const affected = await reportFoldersRepo.deleteFolder(mysqlPool, tenantId, id);
+    if (affected === 0) throw notFound('Không tìm thấy thư mục này.');
 
     res.status(204).end();
   }),

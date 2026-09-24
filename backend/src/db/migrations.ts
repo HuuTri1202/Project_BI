@@ -2925,4 +2925,80 @@ export const migrations: readonly Migration[] = [
        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
     ],
   },
+  {
+    id: 37,
+    name: 'report_folders',
+    statements: [
+      /*
+       * ═══ Thư mục báo cáo — §10.25 ════════════════════════════════════════
+       *
+       * Tới đây một workspace có bao nhiêu báo cáo thì tab Báo cáo là một danh
+       * sách phẳng bấy nhiêu dòng, và cách duy nhất để tìm là gõ đúng tên. Với
+       * mười báo cáo thì được; đó không phải con số của một tổ chức đã dùng
+       * sản phẩm vài tháng.
+       *
+       * ─── "Chung" KHÔNG phải một dòng trong bảng này ─────────────────────
+       *
+       * Thư mục mặc định là `reports.folder_id IS NULL`, không phải một bản ghi
+       * tên "Chung" gieo sẵn cho mỗi workspace. Ba thứ đổi lấy được:
+       *
+       *   1. KHÔNG phải migrate dữ liệu cũ. Mọi báo cáo đang có đã ở đúng chỗ
+       *      của nó ngay khi cột được thêm vào.
+       *   2. KHÔNG có đường nào tạo ra một workspace thiếu thư mục mặc định.
+       *      Gieo một dòng thì mọi đường tạo workspace — kể cả đường đăng ký
+       *      tổ chức mới và seed — đều phải nhớ gieo theo, và cái quên ấy chỉ
+       *      lộ ra khi người dùng đầu tiên của tổ chức đó bấm Tạo báo cáo.
+       *   3. KHÔNG xoá được thư mục mặc định, vì nó không tồn tại để mà xoá.
+       *
+       * Đổi lại, "Chung" không đổi tên được. Đó là cái giá đúng: nó là chỗ
+       * chứa mặc định chứ không phải một thư mục người dùng dựng ra.
+       *
+       * ─── Không có `deleted_at` ──────────────────────────────────────────
+       *
+       * Thư mục không mang dữ liệu nào của riêng nó — xoá nó không mất một báo
+       * cáo nào, chúng chỉ quay về Chung. Nên xoá mềm ở đây chỉ để lại một cái
+       * tên vô hình mà UNIQUE bên dưới vẫn chặn người dùng đặt lại. Xoá cứng.
+       */
+      `CREATE TABLE IF NOT EXISTS report_folders (
+         id           BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+         tenant_id    BIGINT UNSIGNED NOT NULL,
+         workspace_id BIGINT UNSIGNED NOT NULL,
+         name         VARCHAR(120) NOT NULL,
+         created_by   BIGINT UNSIGNED NULL,
+         created_at   DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+         updated_at   DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3)
+                                  ON UPDATE CURRENT_TIMESTAMP(3),
+         PRIMARY KEY (id),
+         -- Trùng tên trong cùng một workspace là hai cái thẻ không phân biệt
+         -- được; khác workspace thì không liên quan gì tới nhau.
+         UNIQUE KEY uq_report_folders_name (workspace_id, name),
+         KEY ix_report_folders_workspace (workspace_id),
+         CONSTRAINT fk_report_folders_workspace FOREIGN KEY (tenant_id, workspace_id)
+           REFERENCES workspaces (tenant_id, id) ON DELETE CASCADE,
+         CONSTRAINT fk_report_folders_creator FOREIGN KEY (created_by)
+           REFERENCES users (id) ON DELETE SET NULL
+       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+
+      `ALTER TABLE reports
+         ADD COLUMN folder_id BIGINT UNSIGNED NULL AFTER workspace_id`,
+
+      /*
+       * ON DELETE SET NULL — xoá thư mục là báo cáo QUAY VỀ Chung.
+       *
+       * Luật này ở tầng database chứ không ở tầng service, và đó là chủ ý: nó
+       * là thứ giữ cho "xoá thư mục không làm mất báo cáo" đúng kể cả khi ai đó
+       * sau này thêm một đường xoá thứ hai và quên dọn. RESTRICT thì người dùng
+       * phải tự dọn rỗng thư mục trước khi xoá — một bước thủ công không mua
+       * được gì; CASCADE thì xoá một thư mục là mất trắng công việc bên trong.
+       */
+      `ALTER TABLE reports
+         ADD CONSTRAINT fk_reports_folder FOREIGN KEY (folder_id)
+           REFERENCES report_folders (id) ON DELETE SET NULL`,
+
+      // Câu truy vấn của tab Báo cáo luôn lọc theo workspace + thư mục và luôn
+      // bỏ bản đã xoá mềm, nên ba cột đi cùng nhau trong một index.
+      `ALTER TABLE reports
+         ADD KEY ix_reports_folder (workspace_id, folder_id, deleted_at)`,
+    ],
+  },
 ];
