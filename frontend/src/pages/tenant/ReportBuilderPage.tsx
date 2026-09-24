@@ -79,6 +79,18 @@ import {
 import { getApiError } from '../../services/apiClient';
 
 /**
+ * Còn bao nhiêu chỗ trống thì mới nhắc tới trần 12 trên thanh tiêu đề.
+ *
+ * Ba, không phải mười hai: một người vừa thả biểu đồ thứ hai không cần biết
+ * trần ở đâu, nhưng người vừa thả cái thứ mười thì cần — trước khi họ xếp xong
+ * bố cục rồi mới phát hiện không thêm được nữa.
+ */
+const CANH_BAO_CON_CHO = 3;
+
+/** Câu giải thích cho nút "Thêm biểu đồ" lúc trang đã đầy. */
+const HET_CHO = `Một trang chứa tối đa ${String(CANVAS_MAX_VISUALS)} biểu đồ — thêm trang mới để dựng tiếp.`;
+
+/**
  * Trang SỬA một báo cáo — trình dựng, toàn màn hình.
  *
  * ═══ Xem và sửa lại tách ra làm hai trang (§10.13) ══════════════════════════
@@ -396,6 +408,8 @@ function Builder({
   const activePage = pages.find((p) => p.id === activePageId) ?? pages[0] ?? null;
   const drafts = activePage?.visuals ?? [];
   const annotations = activePage?.annotations ?? [];
+  /** Còn thêm được bao nhiêu biểu đồ vào TRANG ĐANG MỞ. */
+  const conChoTrong = CANVAS_MAX_VISUALS - drafts.length;
 
   /**
    * Mọi phép sửa khung đi qua đây, nên mọi phép sửa đều hoàn tác được.
@@ -926,11 +940,26 @@ function Builder({
                 <span aria-hidden="true" className="text-slate-300">
                   ·
                 </span>
-                {/* Đếm theo TRANG ĐANG MỞ, vì trần cũng là của một trang. Một
-                    con số gộp cả báo cáo sẽ nói "9/12" trong lúc trang này còn
-                    thừa mười chỗ. */}
+                {/*
+                 * "2 biểu đồ", KHÔNG phải "2/12 biểu đồ".
+                 *
+                 * Dạng `a/b` trên một thanh tiêu đề đọc ra là SỐ THỨ TỰ — "biểu
+                 * đồ thứ 2 trong 12" — và người dùng đã đọc đúng như vậy: báo
+                 * cáo có hai biểu đồ, còn dòng chữ làm họ tưởng có mười hai.
+                 * Ngay cạnh nó là "trang 1/2", vốn LÀ số thứ tự thật, nên hai
+                 * con số cùng một dạng mà khác hẳn nghĩa đứng sát nhau.
+                 *
+                 * Trần 12 chỉ hiện ra khi sắp chạm. Trước đó nó là một con số
+                 * không ai cần biết, mà chỗ trên thanh này thì phải tiết kiệm.
+                 *
+                 * Vẫn đếm theo TRANG ĐANG MỞ, vì trần cũng là của một trang —
+                 * một con số gộp cả báo cáo sẽ báo "hết chỗ" trong lúc trang
+                 * này còn trống trơn.
+                 */}
                 <span className="text-slate-500">
-                  {drafts.length}/{CANVAS_MAX_VISUALS} biểu đồ
+                  {drafts.length} biểu đồ
+                  {conChoTrong <= CANH_BAO_CON_CHO &&
+                    (conChoTrong === 0 ? ' · hết chỗ' : ` · còn ${String(conChoTrong)} chỗ`)}
                   {pages.length > 1 &&
                     ` · trang ${pages.findIndex((p) => p.id === activePage?.id) + 1}/${pages.length}`}
                 </span>
@@ -947,7 +976,11 @@ function Builder({
                 />
                 <Button
                   onClick={addVisual}
-                  disabled={drafts.length >= CANVAS_MAX_VISUALS || cubeDown}
+                  disabled={conChoTrong <= 0 || cubeDown}
+                  // Nút mờ đi phải nói được VÌ SAO. "Hết chỗ" bên trái đã nói
+                  // rồi, nhưng nó nằm cách nút nửa thanh tiêu đề và không ai
+                  // đọc ngược lại khi cái mình vừa bấm không phản ứng.
+                  title={conChoTrong <= 0 ? HET_CHO : undefined}
                 >
                   + Thêm biểu đồ
                 </Button>
