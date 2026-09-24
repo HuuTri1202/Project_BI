@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 
+import { useDatDoc } from '../../components/ui/viTriNoi';
 import { usePermissions } from '../../auth/usePermissions';
 import { useHetHanMuc } from '../billing/hooks';
 import { UploadWizard } from '../datasets/wizard/UploadWizard';
@@ -70,13 +71,34 @@ const ITEMS = [
 
 export function CreateReportMenu({
   datamodelId,
+  folder = '',
 }: {
   /** Có mặt = đang đứng trong một mô hình; nút không hỏi nguồn nữa. */
   datamodelId?: number | undefined;
+  /**
+   * Thư mục người dùng đang mở ở tab Báo cáo — §10.25. Chuỗi rỗng = Chung.
+   *
+   * Báo cáo mới rơi vào ĐÚNG thư mục đang mở, không phải luôn luôn Chung: người
+   * đang đứng trong "Bán hàng" và bấm Tạo báo cáo đang làm một báo cáo bán hàng.
+   * Chuyển bằng `?folder=` trên URL của trình dựng — xem `ReportBuilderPage`.
+   */
+  folder?: string;
 } = {}): React.ReactElement {
+  const duoiThuMuc = folder === '' ? '' : `?folder=${encodeURIComponent(folder)}`;
   const [open, setOpen] = useState(false);
   const [wizardOpen, setWizardOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
+  /*
+   * Hộp bung ra mở XUỐNG hay LÊN — xem `viTriNoi.ts`.
+   *
+   * Nút này không chỉ nằm trên thanh tiêu đề: `EmptyState` của tab Báo cáo cũng
+   * đặt nó ở giữa trang, và ở đó thì đo được cửa sổ cao 520px là menu thò
+   * xuống dưới đáy 17px, 440px là 97px — tức mục "Tạo từ mô hình dữ liệu có
+   * sẵn" bị cắt đúng vào lúc người dùng chưa có báo cáo nào và cần nó nhất.
+   */
+  const hopRef = useRef<HTMLDivElement>(null);
+  const len = useDatDoc(open, hopRef, rootRef);
+  const doc = len ? 'bottom-full mb-1.5' : 'mt-1.5';
   const navigate = useNavigate();
   /** Tổ chức đã chạm hạn mức báo cáo của gói — xem `HetHanMucPanel`. */
   const hetHanMuc = useHetHanMuc('reports');
@@ -114,7 +136,9 @@ export function CreateReportMenu({
         >
           Tạo báo cáo
         </button>
-        {open && hetHanMuc !== null && <HetHanMucPanel message={hetHanMuc} />}
+        {open && hetHanMuc !== null && (
+          <HetHanMucPanel hopRef={hopRef} doc={doc} message={hetHanMuc} />
+        )}
       </div>
     );
   }
@@ -143,12 +167,15 @@ export function CreateReportMenu({
         </svg>
       </button>
 
-      {open && hetHanMuc !== null && <HetHanMucPanel message={hetHanMuc} />}
+      {open && hetHanMuc !== null && (
+        <HetHanMucPanel hopRef={hopRef} doc={doc} message={hetHanMuc} />
+      )}
 
       {open && hetHanMuc === null && (
         <div
+          ref={hopRef}
           role="menu"
-          className="absolute right-0 z-40 mt-1.5 w-72 rounded-xl border border-slate-200 bg-white p-1.5 shadow-lg"
+          className={`absolute right-0 z-40 w-72 rounded-xl border border-slate-200 bg-white p-1.5 shadow-lg ${doc}`}
         >
           {ITEMS.map((item) => (
             <button
@@ -158,7 +185,7 @@ export function CreateReportMenu({
               onClick={() => {
                 setOpen(false);
                 if (item.key === 'file') setWizardOpen(true);
-                else void navigate('/reports/new');
+                else void navigate(`/reports/new${duoiThuMuc}`);
               }}
               className="flex w-full items-start gap-3 rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-slate-50"
             >
@@ -186,7 +213,12 @@ export function CreateReportMenu({
       {/* `goal="report"` là toàn bộ điểm khác của nhánh này: wizard nạp file
           như thường, rồi dựng hộ một mô hình ẩn trên đúng các sheet vừa tích và
           đi thẳng vào trình dựng. Xem `UploadWizard`. */}
-      <UploadWizard open={wizardOpen} onClose={() => setWizardOpen(false)} goal="report" />
+      <UploadWizard
+        open={wizardOpen}
+        onClose={() => setWizardOpen(false)}
+        goal="report"
+        folder={folder}
+      />
     </div>
   );
 }
@@ -203,13 +235,29 @@ export function CreateReportMenu({
  * Người không quản lý thanh toán không có link "Xem các gói" (trang đó trả 403
  * cho họ); gói là của cả tổ chức, nên việc của họ là nhờ quản trị viên.
  */
-function HetHanMucPanel({ message }: { message: string }): React.ReactElement {
+function HetHanMucPanel({
+  message,
+  doc,
+  hopRef,
+}: {
+  message: string;
+  /** Lớp định vị dọc do `CreateReportMenu` quyết định — xem `viTriNoi.ts`. */
+  doc: string;
+  /*
+   * Tên `hopRef` chứ KHÔNG phải `ref`: React 18 giữ riêng chữ `ref`, component
+   * hàm không nhận được nó trong props — hộp sẽ không bao giờ được đo, và
+   * console kêu "Function components cannot be given refs". React 19 mới đổi
+   * luật đó.
+   */
+  hopRef: React.Ref<HTMLDivElement>;
+}): React.ReactElement {
   const permissions = usePermissions();
 
   return (
     <div
+      ref={hopRef}
       role="status"
-      className="absolute right-0 z-40 mt-1.5 w-80 rounded-xl border border-amber-200 bg-amber-50 p-3.5 text-sm text-amber-900 shadow-lg"
+      className={`absolute right-0 z-40 w-80 rounded-xl border border-amber-200 bg-amber-50 p-3.5 text-sm text-amber-900 shadow-lg ${doc}`}
     >
       <p className="font-semibold">Đã hết lượt tạo báo cáo</p>
       <p className="mt-1">{message} Xoá bớt báo cáo không còn dùng, hoặc nâng cấp gói.</p>

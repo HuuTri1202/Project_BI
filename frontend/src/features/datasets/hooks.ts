@@ -1,4 +1,9 @@
-import { REPORT_ERROR_CODES, type PageResult, type ReportDto } from '@bi/shared';
+import {
+  REPORT_ERROR_CODES,
+  type PageResult,
+  type ReportDto,
+  type ReportFolderDto,
+} from '@bi/shared';
 import {
   keepPreviousData,
   useMutation,
@@ -256,6 +261,74 @@ export function useDeleteReport(): UseMutationResult<void, unknown, number> {
   const invalidate = useInvalidateReports();
   return useMutation({
     mutationFn: api.deleteReport,
+    onSuccess: invalidate,
+  });
+}
+
+/* ─── Thư mục báo cáo — §10.25 ─────────────────────────────────────────────── */
+
+/**
+ * Thư mục của workspace đang mở, kèm số báo cáo trong từng cái.
+ *
+ * `enabled` theo `workspaceId` giống `useReports`: chưa biết workspace thì chưa
+ * có câu hỏi nào để hỏi, và gọi bừa với `null` trả về 400.
+ */
+export function useReportFolders(): UseQueryResult<api.ReportFolderList> {
+  const { current } = useWorkspace();
+  const workspaceId = current?.id ?? null;
+  return useQuery({
+    queryKey: datasetKeys.reportFolders(workspaceId),
+    queryFn: () => api.fetchReportFolders(workspaceId as number),
+    enabled: workspaceId !== null,
+  });
+}
+
+export function useCreateReportFolder(): UseMutationResult<ReportFolderDto, unknown, string> {
+  const { current } = useWorkspace();
+  const workspaceId = current?.id ?? null;
+  const invalidate = useInvalidateReports();
+  return useMutation({
+    mutationFn: (name: string) =>
+      api.createReportFolder({ workspaceId: workspaceId as number, name }),
+    onSuccess: invalidate,
+  });
+}
+
+export function useRenameReportFolder(): UseMutationResult<
+  ReportFolderDto,
+  unknown,
+  { id: number; name: string }
+> {
+  const invalidate = useInvalidateReports();
+  return useMutation({
+    mutationFn: ({ id, name }) => api.renameReportFolder(id, name),
+    onSuccess: invalidate,
+  });
+}
+
+export function useDeleteReportFolder(): UseMutationResult<void, unknown, number> {
+  const invalidate = useInvalidateReports();
+  return useMutation({
+    mutationFn: api.deleteReportFolder,
+    onSuccess: invalidate,
+  });
+}
+
+/**
+ * Chuyển một báo cáo sang thư mục khác.
+ *
+ * `useInvalidateReports` là đủ và cố ý: nó dọn cả danh sách LẪN số đếm của từng
+ * thư mục (xem `datasetKeys.reportFolders`). Không dọn số liệu của báo cáo —
+ * chuyển thư mục không đổi một con số nào bên trong nó.
+ */
+export function useMoveReport(): UseMutationResult<
+  ReportDto,
+  unknown,
+  { id: number; folderId: number | null }
+> {
+  const invalidate = useInvalidateReports();
+  return useMutation({
+    mutationFn: ({ id, folderId }) => api.moveReport(id, folderId),
     onSuccess: invalidate,
   });
 }

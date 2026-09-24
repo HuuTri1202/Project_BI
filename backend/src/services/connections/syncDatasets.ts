@@ -54,6 +54,13 @@ export async function syncDatasets(
    * thị riêng và lần nạp riêng.
    */
   workspaceId: number,
+  /**
+   * Thư mục nhận những bảng MỚI — §7.9. `null` = Chung.
+   *
+   * Chỉ áp cho bảng mới. Bảng đã có trong kho giữ nguyên chỗ đứng của nó: đồng
+   * bộ lại là cập nhật dữ liệu, không phải xếp lại tủ — xem `datasetsRepo.upsert`.
+   */
+  folderId: number | null = null,
   /** Ai bấm đồng bộ — ghi vào lần nạp tự động sinh ra ở cuối hàm. */
   triggeredBy: number | null = null,
   /**
@@ -117,6 +124,7 @@ export async function syncDatasets(
         name: schema.table,
         columnCount: schema.columns.length,
         workspaceId,
+        folderId,
       });
 
       await datasetsRepo.replaceColumns(conn, id, schema.columns);

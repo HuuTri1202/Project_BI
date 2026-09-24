@@ -85,6 +85,9 @@ describe('useUppyS3 dưới StrictMode', () => {
       workspaceId: 7,
       filename: 'so-lieu.csv',
       fileSize: file.size,
+      // §7.9 — thư mục đích đi kèm ngay từ lần xin chỗ tải lên. `null` = Chung,
+      // đúng giá trị `Probe` không truyền gì.
+      folderId: null,
     });
   });
 

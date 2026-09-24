@@ -19,6 +19,17 @@ export const datasetKeys = {
   reportList: (workspaceId: number | null, query: unknown) =>
     [...datasetKeys.reports(), 'list', workspaceId, query] as const,
   report: (id: number) => [...datasetKeys.reports(), 'detail', id] as const,
+
+  /**
+   * Thư mục báo cáo — §10.25.
+   *
+   * Nằm DƯỚI `reports()` để một lần dọn danh sách báo cáo dọn luôn cả nó: số
+   * báo cáo in cạnh mỗi thư mục đổi theo đúng những thao tác làm đổi danh sách
+   * (tạo, xoá, chuyển). Tách ra một nhánh riêng nghĩa là mỗi chỗ gọi phải nhớ
+   * dọn hai thứ, và chỗ quên sẽ hiện một con số cũ ngay cạnh danh sách mới.
+   */
+  reportFolders: (workspaceId: number | null) =>
+    [...datasetKeys.reports(), 'folders', workspaceId] as const,
   /**
    * Dữ liệu đã tổng hợp, tách khỏi metadata của báo cáo.
    *

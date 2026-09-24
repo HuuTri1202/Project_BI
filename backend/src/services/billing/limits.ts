@@ -208,8 +208,9 @@ async function demHienTai(db: Db, tenantId: number, loai: LoaiHanMuc): Promise<n
  * Chặn nếu thao tác sắp tới làm tổ chức vượt hạn mức.
  *
  * @param them  Số lượng sắp thêm. Mặc định 1 cho các loại ĐẾM; với
- *              `storageBytes` thì đây là SỐ BYTE của tệp sắp tải lên, nên người
- *              gọi luôn phải truyền.
+ *              `storageBytes` thì đây là SỐ BYTE bảng sắp nạp chiếm thêm trong
+ *              kho (§11.2 tính chỗ chiếm, không tính kích thước file), nên người
+ *              gọi luôn phải truyền — kể cả `0` để hỏi "đã đầy chưa".
  *
  * ⚠️ Gọi hàm này BÊN TRONG transaction đang tạo, không phải trước nó. Nó nhận
  * `db` đúng vì lý do đó: kiểm ở một connection rồi ghi ở connection khác là

@@ -2,7 +2,6 @@ import { DATASET_ERROR_CODES, type FileExt } from '@bi/shared';
 
 import { withTransaction } from '../../db/tx';
 import * as datasetsRepo from '../../repositories/datasets';
-import * as usageRepo from '../../repositories/usage';
 import { kiemHanMuc } from '../billing/limits';
 import { queueAutoLoad } from '../ingest/autoLoad';
 import { HttpError } from '../../utils/httpError';
@@ -42,6 +41,11 @@ export interface CommitInput {
   datasetId: number;
   tenantId: number;
   workspaceId: number;
+  /**
+   * Thư mục của bản ghi `pending` — §7.9. Mọi sheet của cùng một file đi theo
+   * nó, vì người dùng chọn thư mục MỘT lần cho cả file chứ không cho từng sheet.
+   */
+  folderId: number | null;
   s3Key: string;
   ext: FileExt;
   /**
@@ -99,29 +103,27 @@ export async function commitDatasets(input: CommitInput): Promise<CommittedDatas
     /*
      * ─── Hạn mức DUNG LƯỢNG — §11.2 ────────────────────────────────────────
      *
-     * Đây là chỗ duy nhất ghi `file_size_bytes`, nên guard ở đây thì không đường
-     * nào vòng qua được. Kiểm ở `POST /datasets/uploads` là phép lịch sự dựa trên
-     * số client KHAI; số ở đây đo được từ `headObject`.
+     * `them = 0`: câu này chỉ chặn tổ chức ĐÃ đầy kho, nó không cộng gì vào.
      *
-     * ⚠️ Khoá tổ chức TRƯỚC khi đếm. Đây là hạn mức duy nhất tiêu tài nguyên vật
-     * lý có hoá đơn: năm tab commit song song ở gói 5GB có thể cùng thấy "còn
-     * 1GB" và nhét vào 5GB thừa, mà MinIO thì giữ chúng vĩnh viễn. Transaction đã
-     * có sẵn nên cái khoá này tốn đúng một câu SELECT theo khoá chính, và nó chỉ
-     * tuần tự hoá thao tác của CÙNG một tổ chức.
+     * Từ migration 38, hạn mức đo chỗ dữ liệu chiếm trong KHO chứ không đo kích
+     * thước file — kho nén, và bộ dữ liệu nguồn `connection` không có file nào.
+     * Kích thước file ở đây (`analyzed.fileSize`, đo được từ `headObject`) không
+     * nói lên được bộ này sẽ chiếm bao nhiêu, nên lấy nó làm phần thêm là từ chối
+     * những file thật ra vẫn vừa.
+     *
+     * Chỗ cưỡng chế THẬT chuyển sang `loadDataset`, ngay sau khi dữ liệu đã nạp
+     * xong và đo được. Cái giá đã biết: tổ chức gần đầy kho có thể nhập file
+     * xong rồi mới thấy lần nạp `failed` kèm lý do vượt hạn mức, thay vì bị chặn
+     * ngay từ bước này. Đổi lại là không ai bị chặn oan vì một con số không liên
+     * quan tới thứ đang được tính.
+     *
+     * ⚠️ Khoá tổ chức vẫn giữ. Transaction đã có sẵn nên nó tốn đúng một câu
+     * SELECT theo khoá chính, và nó là mắt xích giữ cho MỌI đường tạo của cùng
+     * một tổ chức xếp hàng sau cùng một khoá (xem `trongHanMuc`) — bỏ đi ở một
+     * chỗ là mở lại khe hở kiểm-rồi-ghi cho những hạn mức khác.
      */
     await conn.query('SELECT id FROM tenants WHERE id = ? FOR UPDATE', [input.tenantId]);
-
-    /*
-     * ⚠️ Phần THÊM THẬT, không phải nguyên kích thước file.
-     *
-     * `demDungLuong` gom theo `s3_key`. Nếu khoá này đã ghi số byte — commit lần
-     * hai trên cùng một file — thì số đó ĐÃ nằm trong tổng, và cộng thêm lần nữa
-     * là tính đôi. Một lần gọi cho cả lô, không phải mỗi sheet: nhiều sheet dùng
-     * chung một `s3_key` nên file 50MB ba sheet vẫn chỉ tốn 50MB.
-     */
-    const daGhi = await usageRepo.dungLuongDaGhi(conn, input.tenantId, input.s3Key);
-    const themThat = Math.max(0, analyzed.fileSize - daGhi);
-    await kiemHanMuc(conn, input.tenantId, 'storageBytes', new Date(), themThat);
+    await kiemHanMuc(conn, input.tenantId, 'storageBytes', new Date(), 0);
 
     const created: CommittedDataset[] = [];
 
@@ -137,6 +139,7 @@ export async function commitDatasets(input: CommitInput): Promise<CommittedDatas
           ? input.datasetId
           : await datasetsRepo.createFileDataset(conn, input.tenantId, {
               workspaceId: input.workspaceId,
+              folderId: input.folderId,
               name,
               originalFilename: input.originalFilename,
               fileExt: input.ext,

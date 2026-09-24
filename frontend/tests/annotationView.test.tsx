@@ -1,14 +1,16 @@
-import type {
-  LineAnnotationDto,
-  ReportPageDto,
-  ShapeAnnotationDto,
-  TextAnnotationDto,
+import {
+  CANVAS_ROW_HEIGHT,
+  type LineAnnotationDto,
+  type ReportPageDto,
+  type ShapeAnnotationDto,
+  type TextAnnotationDto,
 } from '@bi/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
 import { AnnotationView } from '../src/features/reports/annotations/AnnotationView';
+import { CANVAS_GAP } from '../src/features/reports/canvasLayout';
 import { AnnotationBox } from '../src/features/reports/builder/AnnotationBox';
 import { CanvasView } from '../src/features/reports/CanvasView';
 
@@ -216,7 +218,12 @@ describe('CanvasView với chú thích', () => {
     const { container } = ve();
     // Đường kẻ ở hàng 10, cao 1 → khung phải cao ít nhất 11 hàng, không phải 8
     // hàng tối thiểu hay 6 hàng của biểu đồ.
-    expect((container.firstElementChild as HTMLElement).style.minHeight).toBe(`${11 * 44}px`);
+    //
+    // Từ §10.24 điều này CHỈ còn đúng nhờ `rowsNeeded` + `minHeight`: chú thích
+    // định vị tuyệt đối, nó không còn là ô lưới nên không tự kéo dài khung nữa.
+    expect((container.firstElementChild as HTMLElement).style.minHeight).toBe(
+      `${11 * (CANVAS_ROW_HEIGHT + CANVAS_GAP) - CANVAS_GAP}px`,
+    );
   });
 });
 

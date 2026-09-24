@@ -37,6 +37,22 @@ export function TableWrap({
    */
   grow = false,
   /**
+   * Bề rộng cột do `<colgroup>` quyết định, không do nội dung (`table-fixed`).
+   *
+   * Mặc định (`table-auto`) trình duyệt đo nội dung rồi chia — cách đó đúng cho
+   * bảng bốn cột, và hỏng cho bảng mười cột: ở Kho dữ liệu, chỗ thật sự có là
+   * 893px trong khi mười cột cộng lại ĐÒI 1036px. Không đủ thì trình duyệt tự
+   * xử, và nó xử theo cách tệ nhất — bóp mọi cột về tối thiểu (ô "file gốc" gãy
+   * NĂM dòng) rồi vẫn tràn, nên cột cuối nằm ngoài khung và không bấm được.
+   *
+   * `table-fixed` đảo lại thứ tự quyết định: bảng lấy đúng bề rộng khung, mỗi
+   * cột lấy đúng con số đã khai, và chữ nào dài quá thì CHÍNH NÓ cắt bớt (thêm
+   * `truncate` cho ô đó). Không còn ô nào tự ý nở ra lấn chỗ của cột khác.
+   *
+   * Cần đi kèm `<colgroup>` — thiếu nó thì mọi cột chia đều nhau.
+   */
+  fixed = false,
+  /**
    * Lớp phụ — dành cho TRẦN chiều cao (`max-h-60`).
    *
    * Có `fill` rồi vẫn cần cái này: `fill` để bảng nhường chỗ còn lại, còn ở tab
@@ -48,6 +64,7 @@ export function TableWrap({
   children: ReactNode;
   fill?: boolean;
   grow?: boolean;
+  fixed?: boolean;
   className?: string;
 }): React.ReactElement {
   return (
@@ -58,7 +75,11 @@ export function TableWrap({
         fill || grow ? 'min-h-0' : ''
       } ${grow ? 'flex-1' : ''} ${className}`}
     >
-      <table className="w-full min-w-[52rem] border-collapse text-sm">{children}</table>
+      <table
+        className={`w-full min-w-[52rem] border-collapse text-sm ${fixed ? 'table-fixed' : ''}`}
+      >
+        {children}
+      </table>
     </div>
   );
 }
@@ -84,6 +105,19 @@ export function Tr({ children }: { children: ReactNode }): React.ReactElement {
   return <tr className="hover:bg-slate-50/60">{children}</tr>;
 }
 
+/**
+ * ⚠️ `whitespace-nowrap` — tên cột KHÔNG bao giờ được xuống dòng.
+ *
+ * Đây là chỗ hỏng đã đo được ở tab Kho dữ liệu sau khi cột thư mục ăn mất 260px:
+ * "MÔ HÌNH DỮ LIỆU" và "CẬP NHẬT LẦN CUỐI" gãy thành BỐN dòng, "KHO PHÂN TÍCH"
+ * ba dòng, và hàng tiêu đề cao 89px thay vì 41px. Chữ HOA có giãn chữ
+ * (`tracking-wide`) gãy dòng thì gần như không đọc được — mắt phải ghép từng
+ * mảnh chữ lại để đoán ra tên cột.
+ *
+ * Hệ quả cố ý: bảng chật thì nó TRÀN NGANG và `TableWrap` cho cuộn, thay vì tự
+ * bóp chữ lại. Một thanh cuộn ngang là thứ người dùng hiểu ngay; một hàng tiêu
+ * đề bốn dòng thì họ tưởng trang bị lỗi — đúng như báo cáo nhận được.
+ */
 export function Th({
   children,
   align = 'left',
@@ -92,7 +126,7 @@ export function Th({
   return (
     <th
       scope="col"
-      className={`px-4 py-3 text-xs font-semibold tracking-wide text-slate-500 uppercase ${
+      className={`px-4 py-3 text-xs font-semibold tracking-wide whitespace-nowrap text-slate-500 uppercase ${
         align === 'right' ? 'text-right' : 'text-left'
       }`}
       {...rest}

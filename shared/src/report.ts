@@ -670,6 +670,8 @@ export interface CreateCanvasReportInput {
   datamodelId: number;
   name: string;
   canvas: ReportCanvasDto;
+  /** Thư mục đích — §10.25. Bỏ trống = Chung. */
+  folderId?: number | null;
 }
 
 export interface UpdateCanvasReportInput {
@@ -736,6 +738,16 @@ export interface ReportDto {
    * bản sao của `canvas.visuals[0]` — xem `updateCanvasReport`.
    */
   canvas: ReportCanvasDto | null;
+  /**
+   * Thư mục đang chứa báo cáo — §10.25. `null` = thư mục Chung.
+   *
+   * `null` ở đây là một câu trả lời ĐẦY ĐỦ, không phải "chưa xếp". Xem
+   * `reportFolder.ts`: Chung không phải một bản ghi, nên không có mã nào để trỏ
+   * tới. Giao diện dịch `null` thành chữ `CHUNG`.
+   */
+  folderId: number | null;
+  /** Tên thư mục, kèm sẵn để danh sách khỏi phải tra bảng thứ hai. */
+  folderName: string | null;
   creatorName: string | null;
   createdAt: string;
   updatedAt: string;
@@ -751,6 +763,8 @@ export interface ReportDto {
 export interface CreateReportInput {
   datasetId: number;
   name: string;
+  /** Thư mục đích — §10.25. Bỏ trống = Chung. */
+  folderId?: number | null;
 }
 
 /**
@@ -767,6 +781,8 @@ export interface CreateModelReportInput {
   name: string;
   chartType: ChartType;
   config: ReportModelConfigDto;
+  /** Thư mục đích — §10.25. Bỏ trống = Chung. */
+  folderId?: number | null;
 }
 
 /** Dựng hoặc sửa biểu đồ — trang Report, không phải wizard. */

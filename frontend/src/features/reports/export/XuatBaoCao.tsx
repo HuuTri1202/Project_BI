@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom';
 import { useQueryClient } from '@tanstack/react-query';
 
 import { Button } from '../../../components/ui/Button';
+import { useDatDoc } from '../../../components/ui/viTriNoi';
 import { getApiError } from '../../../services/apiClient';
 import { loiXuat } from '../../../services/danhDauXuat';
 import { fetchReportCanvasData, fetchReportData } from '../../datasets/api';
@@ -85,6 +86,14 @@ export function XuatBaoCao({
   const [hoi, setHoi] = useState<{ kieu: KieuXuat; danhSach: OXuat[] } | null>(null);
   const [ngoai, setNgoai] = useState<{ page: ReportPageDto; rong: number } | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
+  /*
+   * Mở xuống dưới hay lật lên trên — luật ở `viTriNoi.ts`, dùng chung với menu
+   * "⋮" và nút "Tạo báo cáo". Nút Xuất hiện đang nằm trên thanh tiêu đề nên
+   * dưới nó luôn còn chỗ; theo luật chung là để chỗ này khỏi thành cái menu
+   * thứ ba bị cắt lúc thanh tiêu đề dời đi đâu đó.
+   */
+  const hopRef = useRef<HTMLDivElement>(null);
+  const doc = useDatDoc(open || loi !== null, hopRef, rootRef) ? 'bottom-full mb-1.5' : 'mt-1.5';
   const qc = useQueryClient();
   /**
    * Người đang chờ khung ngoài màn hình của MỘT trang gắn vào DOM — xem
@@ -395,8 +404,9 @@ export function XuatBaoCao({
 
       {open && (
         <div
+          ref={hopRef}
           role="menu"
-          className="absolute right-0 z-40 mt-1.5 w-72 rounded-xl border border-slate-200 bg-white p-1.5 shadow-lg"
+          className={`absolute right-0 z-40 w-72 rounded-xl border border-slate-200 bg-white p-1.5 shadow-lg ${doc}`}
         >
           {muc.map((m) => (
             <button
@@ -442,8 +452,9 @@ export function XuatBaoCao({
 
       {loi !== null && (
         <div
+          ref={hopRef}
           role="alert"
-          className="absolute right-0 z-40 mt-1.5 w-72 rounded-xl border border-red-200 bg-white p-3 text-sm shadow-lg"
+          className={`absolute right-0 z-40 w-72 rounded-xl border border-red-200 bg-white p-3 text-sm shadow-lg ${doc}`}
         >
           <p className="font-medium text-red-700">Chưa xuất được báo cáo</p>
           <p className="mt-1 text-slate-600">{loi}</p>

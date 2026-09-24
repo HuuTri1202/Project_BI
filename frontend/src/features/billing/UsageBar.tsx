@@ -31,10 +31,20 @@ export function UsageBar({
   item,
   /** Đổi cách viết con số sang KB/MB/GB. */
   storage = false,
+  hint,
 }: {
   label: string;
   item: UsageItemDto;
   storage?: boolean;
+  /**
+   * Một câu nói rõ con số này đo CÁI GÌ, khi tên dòng không đủ.
+   *
+   * Sinh ra cho dòng dung lượng: nó đo chỗ dữ liệu chiếm trong kho — đã nén —
+   * chứ không phải tổng kích thước file đã tải lên, và hai số đó chênh nhau vài
+   * lần. Không nói ra thì người dùng tải lên 100MB, thấy hiện 20MB, và kết luận
+   * hệ thống đếm sai.
+   */
+  hint?: string;
 }): React.ReactElement {
   const khongGioiHan = item.limit === null;
   const percent = phanTramDaDung(item.used, item.limit);
@@ -50,6 +60,8 @@ export function UsageBar({
           {dinhDangHanMuc(item.limit, storage)}
         </span>
       </div>
+
+      {hint !== undefined && <p className="mt-0.5 text-xs text-slate-500">{hint}</p>}
 
       {/*
         `role="progressbar"` kèm ba thuộc tính aria: trình đọc màn hình đọc ra

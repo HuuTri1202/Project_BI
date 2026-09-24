@@ -5,6 +5,8 @@ import { env } from '../../config/env';
 import { mysqlPool } from '../../config/mysql';
 import * as loadsRepo from '../../repositories/datasetLoads';
 import * as datasetsRepo from '../../repositories/datasets';
+import * as usageRepo from '../../repositories/usage';
+import { kiemHanMuc } from '../billing/limits';
 import { requireSecret, toConfigFromSecret } from '../connections/connectionService';
 import { driverFor } from '../connections/drivers';
 import {
@@ -17,6 +19,7 @@ import {
 } from './buildDdl';
 import { readFileRows } from './readFileRows';
 import { toClickHouseDateTime } from './typeMap';
+import { doDungLuongBang } from './warehouseSize';
 
 /**
  * Chạy MỘT lần nạp, từ đầu tới cuối (§9.4, §9.5, §9.7).
@@ -59,6 +62,8 @@ export interface LoadOutcome {
   /** Số Ô hỏng, không phải số dòng hỏng. Một dòng có thể góp nhiều ô. */
   rowsFailed: number;
   chTable: string;
+  /** Chỗ bảng vừa nạp chiếm trong kho, byte — con số hạn mức §11.2 tính. */
+  warehouseBytes: number;
 }
 
 export async function loadDataset(
@@ -97,7 +102,37 @@ export async function loadDataset(
 
   let outcome: LoadOutcome;
   try {
-    outcome = await fill(runId, tenantId, dataset, columns, db, staging, target);
+    const daNap = await fill(runId, tenantId, dataset, columns, db, staging, target);
+
+    /*
+     * ─── Hạn mức DUNG LƯỢNG — §11.2, và đây là chỗ DUY NHẤT cưỡng chế ──────
+     *
+     * Đo bảng TẠM, trước khi tráo. Từ migration 38 hạn mức tính chỗ dữ liệu
+     * chiếm trong kho, mà chỗ ấy chỉ biết được sau khi dữ liệu đã nạp xong — cỡ
+     * file không nói lên được, vì kho nén, và vì nguồn `connection` không có
+     * file nào. Nên câu kiểm phải đứng ở đây chứ không ở lúc tải lên.
+     *
+     * Vượt hạn mức thì `kiemHanMuc` ném, `catch` bên dưới drop bảng tạm, và lần
+     * nạp kết thúc `failed` kèm nguyên câu thông báo của hạn mức ("gói X cho tối
+     * đa …, tổ chức đang dùng …"). Bảng đang phục vụ không bị đụng tới: dữ liệu
+     * cũ còn nguyên, báo cáo dựng trên nó vẫn chạy.
+     *
+     * ⚠️ Phần THÊM THẬT, không phải nguyên kích thước bảng mới. Bảng mới THAY
+     * bảng cũ, nên chỗ cũ được trả lại — xem `dungLuongDaGhi`.
+     *
+     * ⚠️ Không có khoá tổ chức quanh câu kiểm này, và đó là có chủ ý. Cả hệ
+     * thống chạy ĐÚNG MỘT lần nạp một lúc (`runner.ts` ghi rõ cái giá đó), nên
+     * không có hai lần nạp nào cùng thấy "còn chỗ". Đổi lại là không được giữ
+     * khoá `tenants` qua một chuỗi lệnh ClickHouse dài hàng phút — đúng điều
+     * `limits.ts` cấm.
+     */
+    const bytes = await doDungLuongBang(staging);
+    const daGhi = await usageRepo.dungLuongDaGhi(mysqlPool, tenantId, datasetId);
+    await kiemHanMuc(mysqlPool, tenantId, 'storageBytes', new Date(), Math.max(0, bytes - daGhi));
+
+    // Đo MỘT lần rồi dùng lại: sau `EXCHANGE`, bảng đích chính là bảng tạm này,
+    // chỉ khác cái tên. Hỏi lại là một vòng nữa sang ClickHouse cho cùng con số.
+    outcome = { ...daNap, warehouseBytes: bytes };
   } catch (err) {
     // Dọn bảng tạm rồi ném tiếp. Bỏ lại thì lần sau `DROP … SYNC` cũng xử lý
     // được, nhưng để một bảng rác nằm chờ tám phút là chiếm đĩa vô cớ.
@@ -139,7 +174,10 @@ async function fill(
   db: string,
   staging: string,
   target: string,
-): Promise<LoadOutcome> {
+  // Mọi thứ trừ `warehouseBytes`: hàm này ĐỔ dữ liệu, còn đo chỗ nó chiếm là
+  // việc của nơi gọi, sau khi đổ xong. Khai bằng `Omit` để thêm một trường vào
+  // `LoadOutcome` không lặng lẽ biến chỗ này thành thiếu.
+): Promise<Omit<LoadOutcome, 'warehouseBytes'>> {
   const insertColumns = insertColumnList(columns);
   const errors = new ErrorSink(runId);
 

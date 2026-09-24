@@ -12,6 +12,7 @@ import type {
   ReportConfigDto,
   ReportDataDto,
   ReportDto,
+  ReportFolderDto,
   UpdateCanvasReportInput,
   UpdateModelReportInput,
 } from '@bi/shared';
@@ -76,6 +77,8 @@ export async function createUpload(input: {
   workspaceId: number;
   filename: string;
   fileSize: number;
+  /** Thư mục đích — §7.9. `null` = Chung. Ghi vào bản ghi `pending` ngay từ đây. */
+  folderId: number | null;
 }): Promise<CreateUploadResultDto> {
   const { data } = await apiClient.post<CreateUploadResultDto>('/v1/datasets/uploads', input);
   return data;
@@ -108,6 +111,14 @@ export interface ReportListQuery {
   page: number;
   pageSize: number;
   q: string;
+  /**
+   * Thư mục đang mở — §10.25. Chuỗi rỗng = mọi thư mục, `'chung'` = Chung, còn
+   * lại là mã thư mục. `clean` bỏ chuỗi rỗng đi nên nó không lên tới server.
+   *
+   * Dựng bằng `folderFilterValue`, đọc lại bằng `parseFolderFilter` — cả hai ở
+   * @bi/shared, dùng chung với backend.
+   */
+  folder?: string;
 }
 
 export async function fetchReports(query: ReportListQuery): Promise<PageResult<ReportDto>> {
@@ -215,6 +226,54 @@ export async function fetchReportCanvasData(
 /** Tạo báo cáo NHIỀU biểu đồ — §10.10. */
 export async function createCanvasReport(input: CreateCanvasReportInput): Promise<ReportDto> {
   const { data } = await apiClient.post<ReportDto>('/v1/reports/canvas', input);
+  return normalizeReport(data);
+}
+
+/* ─── Thư mục báo cáo — §10.25 ─────────────────────────────────────────────── */
+
+/**
+ * `chungCount` đi RIÊNG, không nằm trong `items`.
+ *
+ * Chung không phải một thư mục (xem `reportFolder.ts` bên @bi/shared), nên nó
+ * không có mã để đứng chung một mảng với những cái có mã. Giao diện tự dựng
+ * dòng "Chung" từ con số này.
+ */
+export interface ReportFolderList {
+  items: ReportFolderDto[];
+  chungCount: number;
+}
+
+export async function fetchReportFolders(workspaceId: number): Promise<ReportFolderList> {
+  const { data } = await apiClient.get<ReportFolderList>('/v1/report-folders', {
+    params: { workspaceId },
+  });
+  return data;
+}
+
+export async function createReportFolder(input: {
+  workspaceId: number;
+  name: string;
+}): Promise<ReportFolderDto> {
+  const { data } = await apiClient.post<ReportFolderDto>(
+    '/v1/report-folders',
+    { name: input.name },
+    { params: { workspaceId: input.workspaceId } },
+  );
+  return data;
+}
+
+export async function renameReportFolder(id: number, name: string): Promise<ReportFolderDto> {
+  const { data } = await apiClient.patch<ReportFolderDto>(`/v1/report-folders/${id}`, { name });
+  return data;
+}
+
+export async function deleteReportFolder(id: number): Promise<void> {
+  await apiClient.delete(`/v1/report-folders/${id}`);
+}
+
+/** Chuyển một báo cáo sang thư mục khác. `folderId: null` = về Chung. */
+export async function moveReport(id: number, folderId: number | null): Promise<ReportDto> {
+  const { data } = await apiClient.patch<ReportDto>(`/v1/reports/${id}/folder`, { folderId });
   return normalizeReport(data);
 }
 

@@ -23,8 +23,15 @@ export * from './data';
  * chỉ chứa lời mô tả về những bảng `raw_*` đã nằm sẵn trong ClickHouse.
  */
 export * from './datamodel';
+/**
+ * `datasetFolder` / `reportFolder` chỉ còn phần RIÊNG của mỗi loại; luật chung
+ * của thư mục (tên "Chung", trần độ dài, bộ lọc trên URL) nằm ở `folder`.
+ */
+export * from './datasetFolder';
 export * from './dto';
+export * from './folder';
 export * from './platform';
 export * from './rbac';
 export * from './report';
+export * from './reportFolder';
 export * from './workspace';

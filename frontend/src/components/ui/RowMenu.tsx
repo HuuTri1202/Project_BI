@@ -1,5 +1,7 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
+
+import { choDatDoc, KHE_NEO, LE_CUA_SO } from './viTriNoi';
 
 /** Bề rộng menu, tính bằng px. Cần con số thật để canh mép phải khi định vị. */
 const MENU_W = 224;
@@ -23,6 +25,18 @@ const MENU_W = 224;
  * `position: fixed` trong một portal ở `document.body` không có tổ tiên nào cắt
  * được nó. Cái giá: phải tự tính toạ độ từ `getBoundingClientRect()` của nút, và
  * phải đóng menu khi trang cuộn — vì `fixed` không đi theo nội dung.
+ *
+ * ─── Vì sao phải LẬT, không chỉ đặt xuống dưới ──────────────────────────────
+ *
+ * Bản đầu luôn đặt menu ngay dưới nút. Với dòng cuối của một bảng nằm sát đáy
+ * cửa sổ thì "ngay dưới" là NGOÀI màn hình: đo được ở bảng Kho dữ liệu, menu
+ * thò xuống dưới đáy 72px và chỉ 2/4 mục nhìn thấy được. Và vì `fixed` không
+ * cuộn theo trang, hai mục kia không có đường nào tới được — cuộn trang cũng
+ * chỉ làm menu đóng lại.
+ *
+ * Chiều cao menu thì chỉ biết SAU khi dựng (số mục thay đổi theo quyền của
+ * người dùng), nên phép lật nằm trong `useLayoutEffect`: dựng ở chỗ tạm, đo,
+ * rồi dời — vẫn trước lượt vẽ, nên mắt không thấy nó nhảy.
  *
  * ─── Vì sao KHÔNG dùng `<details>` hay CSS thuần ────────────────────────────
  *
@@ -51,11 +65,32 @@ export function RowMenu({
     const rect = btnRef.current?.getBoundingClientRect();
     if (rect === undefined) return;
 
-    // Canh mép PHẢI của menu với mép phải của nút: cột thao tác nằm sát rìa
-    // bảng, nên bung sang phải là ra ngoài khung nhìn. `Math.max(8, …)` giữ nó
-    // khỏi tràn sang trái trên màn hình rất hẹp.
-    setAt({ top: rect.bottom + 4, left: Math.max(8, rect.right - MENU_W) });
+    // Chỗ TẠM: ngay dưới nút, canh mép PHẢI của menu với mép phải của nút (cột
+    // thao tác nằm sát rìa bảng, nên bung sang phải là ra ngoài khung nhìn).
+    // `useLayoutEffect` bên dưới dời lại nếu chỗ này không đủ.
+    setAt({ top: rect.bottom + KHE_NEO, left: Math.max(LE_CUA_SO, rect.right - MENU_W) });
   }
+
+  /*
+   * Dời menu vào trong cửa sổ, sau khi đã đo được nó cao bao nhiêu. Luật đặt
+   * theo chiều dọc nằm ở `viTriNoi.ts` — dùng chung với "Tạo báo cáo".
+   *
+   * `setAt` chỉ gọi khi toạ độ THẬT SỰ đổi — nếu không, lần chạy sau của chính
+   * effect này lại đặt lại đúng giá trị cũ và vòng lặp không bao giờ dừng.
+   */
+  useLayoutEffect(() => {
+    const menu = menuRef.current;
+    const btn = btnRef.current;
+    if (at === null || menu === null || btn === null) return;
+
+    const { top } = choDatDoc(btn.getBoundingClientRect(), menu.offsetHeight, window.innerHeight);
+    const left = Math.min(
+      Math.max(LE_CUA_SO, at.left),
+      Math.max(LE_CUA_SO, window.innerWidth - menu.offsetWidth - LE_CUA_SO),
+    );
+
+    if (top !== at.top || left !== at.left) setAt({ top, left });
+  }, [at]);
 
   useEffect(() => {
     if (!open) return;
@@ -207,15 +242,38 @@ export function RowMenuSub({
 }): React.ReactElement {
   const [mo, setMo] = useState(false);
   const [ben, setBen] = useState<'trai' | 'phai'>('trai');
+  /** Số px phải nhấc menu con lên để nó không thò xuống dưới đáy cửa sổ. */
+  const [nhac, setNhac] = useState(0);
   const btnRef = useRef<HTMLButtonElement>(null);
+  const conRef = useRef<HTMLDivElement>(null);
 
   const bat = (): void => {
     // Menu cha đã canh mép PHẢI của nút "⋮", nên nó thường nằm sát rìa phải và
     // menu con mở tiếp sang trái. Chỉ khi bên trái không còn chỗ mới lật.
     const rect = btnRef.current?.getBoundingClientRect();
-    if (rect !== undefined) setBen(rect.left >= MENU_W + 8 ? 'trai' : 'phai');
+    if (rect !== undefined) setBen(rect.left >= MENU_W + LE_CUA_SO ? 'trai' : 'phai');
     setMo(true);
   };
+
+  /*
+   * Cùng câu chuyện với menu cha, chỉ khác là menu con neo theo CHIỀU NGANG nên
+   * nó không lật lên trên được — nó trượt lên đúng bằng phần thò ra.
+   *
+   * Mục cuối của một menu cha đang nằm sát đáy sẽ đẩy menu con ba mục ("Xuất
+   * ảnh PNG / PDF / Excel") xuống dưới mép cửa sổ. Phải trả `nhac` về 0 khi
+   * đóng, nếu không lần mở sau đo trên một hộp đã bị dịch và cộng dồn.
+   */
+  useLayoutEffect(() => {
+    if (!mo) {
+      setNhac(0);
+      return;
+    }
+    const el = conRef.current;
+    if (el === null) return;
+    const rect = el.getBoundingClientRect();
+    const tran = rect.bottom - (window.innerHeight - LE_CUA_SO);
+    if (tran > 0) setNhac(-Math.min(tran, Math.max(0, rect.top - LE_CUA_SO)));
+  }, [mo]);
 
   return (
     <div className="relative" onMouseEnter={bat} onMouseLeave={() => setMo(false)} role="none">
@@ -257,9 +315,10 @@ export function RowMenuSub({
 
       {mo && (
         <div
+          ref={conRef}
           role="menu"
           aria-label={label}
-          style={{ width: MENU_W }}
+          style={{ width: MENU_W, transform: nhac === 0 ? undefined : `translateY(${nhac}px)` }}
           className={`absolute top-0 z-10 rounded-xl border border-slate-200 bg-white p-1 shadow-lg ${
             ben === 'trai' ? 'right-full mr-1' : 'left-full ml-1'
           }`}
@@ -282,4 +341,5 @@ export const ROW_MENU_ICONS = {
   pdf: 'M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8l-5-5Zm0 0v5h5M9 13h6m-6 4h6',
   sheet: 'M4 6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6Zm0 4h16M10 10v10',
   export: 'M12 4v11m0 0-4-4m4 4 4-4M5 19h14',
+  folder: 'M4 7a2 2 0 0 1 2-2h3l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7Z',
 } as const;

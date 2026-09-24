@@ -4,6 +4,7 @@ import * as loadsRepo from '../../repositories/datasetLoads';
 import * as datasetsRepo from '../../repositories/datasets';
 import { sweepOrphanTables } from './dropTables';
 import { loadDataset } from './loadDataset';
+import { dongBoDungLuongKho } from './warehouseSize';
 
 /**
  * Vòng lặp nạp chạy NỀN, trong chính tiến trình Express (§9.6).
@@ -125,6 +126,19 @@ async function tick(): Promise<void> {
       console.error('[ingest] janitor: không quét được kho:', err);
     }
 
+    // Đồng bộ dung lượng kho về MySQL — §11.2. Lượt này vừa là BACKFILL cho mọi
+    // bộ dữ liệu có từ trước migration 38, vừa là chỗ bắt phần trôi do ClickHouse
+    // merge part ở nền (bảng nhỏ dần sau khi nạp xong).
+    //
+    // `try` riêng, cùng lý do với khối dưới: nó đọc ClickHouse, và một lỗi ở đây
+    // không được cuốn theo việc nào khác.
+    try {
+      const doi = await dongBoDungLuongKho();
+      if (doi > 0) console.log(`[ingest] janitor: cập nhật dung lượng kho cho ${doi} bộ dữ liệu`);
+    } catch (err) {
+      console.error('[ingest] janitor: không đồng bộ được dung lượng kho:', err);
+    }
+
     // Đi CHUNG khe quét mỗi giờ chứ không có bộ đếm giờ riêng: nó là một câu
     // UPDATE trên MySQL, và một tác vụ nữa có vòng đời riêng nghĩa là một thứ
     // nữa `stopIngestRunner` phải chờ cho đúng.
@@ -164,6 +178,7 @@ async function tick(): Promise<void> {
     await datasetsRepo.markLoadStatus(mysqlPool, datasetId, 'loaded', {
       chTable: outcome.chTable,
       rowCount: outcome.rowsLoaded,
+      warehouseBytes: outcome.warehouseBytes,
     });
     console.log(
       `[ingest] dataset ${datasetId}: nạp xong ${outcome.rowsLoaded}/${outcome.rowsRead} dòng` +

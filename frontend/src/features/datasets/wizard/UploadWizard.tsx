@@ -73,9 +73,30 @@ interface Props {
   onClose: () => void;
   /** Mặc định `'dataset'` — giữ nguyên hành vi của mọi nơi gọi cũ. */
   goal?: UploadGoal;
+  /**
+   * Thư mục đích của BÁO CÁO sắp dựng — §10.25. Chỉ có nghĩa với
+   * `goal === 'report'`; chuỗi rỗng = Chung.
+   */
+  folder?: string;
+  /**
+   * Thư mục đích của BỘ DỮ LIỆU sắp tạo — §7.9. `null` = Chung.
+   *
+   * Khác hẳn `folder` ngay trên, và hai cái cố ý mang hai kiểu khác nhau để
+   * không ai truyền nhầm cái này vào chỗ kia: `folder` là một chuỗi trên URL
+   * của tab Báo cáo, còn đây là mã một dòng trong `dataset_folders`. Một file
+   * tải lên rơi vào thư mục này bất kể `goal` là gì — nó vào Kho dữ liệu trong
+   * cả hai đường.
+   */
+  folderId?: number | null;
 }
 
-export function UploadWizard({ open, onClose, goal = 'dataset' }: Props): React.ReactElement {
+export function UploadWizard({
+  open,
+  onClose,
+  goal = 'dataset',
+  folder = '',
+  folderId = null,
+}: Props): React.ReactElement {
   const navigate = useNavigate();
   const { current, options, select } = useWorkspace();
   const dialogRef = useRef<HTMLDialogElement>(null);
@@ -109,7 +130,7 @@ export function UploadWizard({ open, onClose, goal = 'dataset' }: Props): React.
    */
   const committedRef = useRef<{ id: number }[] | null>(null);
 
-  const upload = useUppyS3(current?.id ?? null);
+  const upload = useUppyS3(current?.id ?? null, folderId);
   const invalidateDatasets = useInvalidateDatasets();
 
   useEffect(() => {
@@ -351,7 +372,9 @@ export function UploadWizard({ open, onClose, goal = 'dataset' }: Props): React.
         datasetIds: datasets.map((d) => d.id),
       });
       onClose();
-      navigate(`/datamodels/${model.id}/report/new`);
+      navigate(
+        `/datamodels/${model.id}/report/new${folder === '' ? '' : `?folder=${encodeURIComponent(folder)}`}`,
+      );
     } catch (err) {
       setError(`Đã nạp xong dữ liệu, nhưng chưa dựng được báo cáo: ${getApiError(err).message}`);
       // Về 'pending' để câu lỗi HIỆN RA: nhánh 'done' của `StepProgress` không

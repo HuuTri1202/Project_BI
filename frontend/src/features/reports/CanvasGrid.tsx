@@ -1,5 +1,7 @@
 import { CANVAS_COLUMNS, CANVAS_ROW_HEIGHT } from '@bi/shared';
 
+import { CANVAS_GAP } from './canvasLayout';
+
 /**
  * Lưới của khung — §10.10. Dùng CHUNG giữa trình dựng và trang xem.
  *
@@ -22,6 +24,13 @@ import { CANVAS_COLUMNS, CANVAS_ROW_HEIGHT } from '@bi/shared';
  *
  * Các ô ĐƯỢC PHÉP đè lên nhau (xem `ReportCanvasDto`), và grid xử lý chuyện đó
  * sẵn — hai ô cùng vùng thì xếp chồng theo thứ tự trong DOM.
+ *
+ * ═══ `position: relative` là gốc toạ độ của CHÚ THÍCH — §10.24 ══════════════
+ *
+ * Chú thích mang toạ độ thực nên không đặt vào đường kẻ lưới được; nó tự định
+ * vị tuyệt đối bên trong lưới này (xem `annotationStyle`). `relative` không dời
+ * lưới đi đâu và không tạo tầng xếp chồng mới (`z-index: auto`), nên ba tầng vẽ
+ * của `CANVAS_LAYER_Z` vẫn nguyên.
  */
 
 export function CanvasGrid({
@@ -41,12 +50,21 @@ export function CanvasGrid({
         display: 'grid',
         gridTemplateColumns: `repeat(${CANVAS_COLUMNS}, minmax(0, 1fr))`,
         gridAutoRows: `${CANVAS_ROW_HEIGHT}px`,
-        gap: '12px',
-        minHeight: `${minRows * CANVAS_ROW_HEIGHT}px`,
+        gap: `${CANVAS_GAP}px`,
+        position: 'relative',
+        /*
+         * Chiều cao của `minRows` hàng CÓ KHOẢNG HỞ, không phải chỉ tổng chiều
+         * cao hàng.
+         *
+         * Trước §10.24 chú thích là ô lưới nên chính nó kéo dài lưới ra. Giờ nó
+         * định vị tuyệt đối và không tạo hàng nào, nên sàn này là thứ duy nhất
+         * chừa chỗ cho một mũi tên nằm dưới ô biểu đồ thấp nhất. Thiếu khoảng hở
+         * thì mỗi hàng hụt 12px, và tới hàng thứ mười là hụt hơn hai hàng.
+         */
+        minHeight: `${minRows * (CANVAS_ROW_HEIGHT + CANVAS_GAP) - CANVAS_GAP}px`,
       }}
     >
       {children}
     </div>
   );
 }
-

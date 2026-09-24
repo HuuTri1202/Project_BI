@@ -27,9 +27,18 @@ import { useConnections, useSourceTables, useSyncTables } from '../hooks';
  */
 export function SyncTablesModal({
   open,
+  folderId = null,
   onClose,
 }: {
   open: boolean;
+  /**
+   * Thư mục nhận những bảng MỚI — §7.9. `null` = Chung.
+   *
+   * Trang Kho dữ liệu truyền thư mục ĐANG MỞ vào đây, nên bấm "Đồng bộ từ CSDL"
+   * khi đang đứng trong một thư mục là bảng về thẳng chỗ đó. Bảng đã có trong
+   * kho giữ nguyên chỗ cũ — xem `datasetsRepo.upsert` bên backend.
+   */
+  folderId?: number | null;
   onClose: () => void;
 }): React.ReactElement {
   const permissions = usePermissions();
@@ -116,6 +125,7 @@ export function SyncTablesModal({
           const [schema = '', table = ''] = splitKey(k);
           return { schema, table };
         }),
+        folderId,
       },
       { onSuccess: setResult, onError: (err) => setError(getApiError(err).message) },
     );

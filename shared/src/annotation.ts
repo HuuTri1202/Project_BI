@@ -52,7 +52,12 @@ export const CANVAS_MAX_ANNOTATIONS = 40;
  */
 export const ANNOTATION_TEXT_MAX = 1000;
 
-/** Chú thích được nhỏ tới MỘT ô lưới — đường kẻ ngang chỉ cao một hàng. */
+/**
+ * Chú thích được nhỏ tới MỘT ô lưới — đường kẻ ngang chỉ cao một hàng.
+ *
+ * Đây là kích thước TỐI THIỂU, không phải bước nhảy: từ §10.24 chú thích đặt
+ * được ở mọi vị trí thực, chỉ không nhỏ hơn một ô.
+ */
 export const ANNOTATION_MIN_W = 1;
 export const ANNOTATION_MIN_H = 1;
 
@@ -112,17 +117,39 @@ const idRule = z
   .max(40)
   .regex(/^[A-Za-z0-9_-]+$/, 'Mã chú thích chỉ nhận chữ, số, gạch ngang và gạch dưới');
 
-/** Cùng lưới 12 cột với biểu đồ, cùng trần `y`/`h` — chỉ khác kích thước tối thiểu. */
+/**
+ * Cùng HỆ TOẠ ĐỘ với biểu đồ — cột và hàng lưới — nhưng nhận SỐ THỰC.
+ *
+ * ═══ Vì sao chú thích không bám lưới còn biểu đồ thì có — §10.24 ════════════
+ *
+ * Lưới 12 cột tồn tại để các biểu đồ thẳng hàng với nhau; đó là thứ làm một
+ * báo cáo trông gọn thay vì trông như một bàn giấy bừa. Chú thích thì làm việc
+ * ngược lại: nó CHỈ vào một chỗ cụ thể — khe giữa hai biểu đồ, một cái cột
+ * trong một biểu đồ, một dòng trong bảng. Những chỗ đó không nằm trên lưới.
+ *
+ * Đo trên Chromium trước khi sửa: một bước lưới là 83px ngang và 56px dọc, nên
+ * kéo một đường kẻ dọc 40px thì nó đứng yên hoàn toàn, còn 60px thì nhảy 83px.
+ * Không có cách nào đặt nó vào giữa hai biểu đồ.
+ *
+ * ═══ Vì sao vẫn là ĐƠN VỊ LƯỚI chứ không phải pixel ═════════════════════════
+ *
+ * Bề rộng một cột co theo khung chứa (`minmax(0, 1fr)`), nên cùng một báo cáo
+ * rộng khác nhau trên màn 27 inch và trên laptop. Lưu pixel tuyệt đối thì mũi
+ * tên vẽ đúng chỗ trên máy người dựng sẽ chỉ trượt ra ngoài trên máy người đọc.
+ * Đơn vị lưới là một TỈ LỆ, và x = 3.42 cột vẫn là 3.42 cột ở mọi bề rộng.
+ *
+ * Nhờ vậy dữ liệu cũ cũng không cần migrate: x = 3 vẫn đọc ra đúng chỗ cũ.
+ */
 const box = {
   id: idRule,
   x: z.coerce
     .number()
-    .int()
+    .finite()
     .min(0)
-    .max(CANVAS_COLUMNS - 1),
-  y: z.coerce.number().int().min(0).max(500),
-  w: z.coerce.number().int().min(ANNOTATION_MIN_W).max(CANVAS_COLUMNS),
-  h: z.coerce.number().int().min(ANNOTATION_MIN_H).max(60),
+    .max(CANVAS_COLUMNS - ANNOTATION_MIN_W),
+  y: z.coerce.number().finite().min(0).max(500),
+  w: z.coerce.number().finite().min(ANNOTATION_MIN_W).max(CANVAS_COLUMNS),
+  h: z.coerce.number().finite().min(ANNOTATION_MIN_H).max(60),
   layer: z.enum(ANNOTATION_LAYERS),
 };
 

@@ -81,7 +81,11 @@ function PlanCard({
         <li>{dinhDangHanMuc(plan.maxWorkspaces)} workspace</li>
         <li>{dinhDangHanMuc(plan.maxReports)} báo cáo</li>
         <li>{dinhDangHanMuc(plan.maxMembers)} thành viên</li>
-        <li>{dinhDangHanMuc(plan.maxStorageBytes, true)} dung lượng</li>
+        {/* "kho dữ liệu", không phải "dung lượng" trống không: con số này đo chỗ
+            dữ liệu chiếm sau khi nén, không đo tổng file tải lên — xem
+            migration 38. Người đang so gói để mua là người cần biết điều đó
+            nhất. */}
+        <li>{dinhDangHanMuc(plan.maxStorageBytes, true)} dung lượng kho dữ liệu</li>
       </ul>
 
       <div className="mt-5">

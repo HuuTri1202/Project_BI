@@ -15,6 +15,10 @@ export async function resetDatabase(): Promise<void> {
   // thứ tự để ai đọc còn thấy được cây phụ thuộc.
   for (const table of [
     'reports',
+    // Thư mục báo cáo — migration 37. Sau `reports` (khoá ngoại SET NULL): bỏ
+    // sót nó thì thư mục của ca trước nằm lại, và ca sau đếm ra một con số nó
+    // không tạo ra — hoặc đâm vào UNIQUE khi đặt lại đúng cái tên đó.
+    'report_folders',
     // §10 — tầng ngữ nghĩa. Quan hệ trỏ vào cột, cột trỏ vào thành phần, thành
     // phần trỏ vào cả mô hình lẫn bộ dữ liệu — nên khối này phải nằm trước
     // `datasets`.
@@ -33,6 +37,9 @@ export async function resetDatabase(): Promise<void> {
     'dataset_rows',
     'dataset_columns',
     'datasets',
+    // Thư mục bộ dữ liệu — migration 39. SAU `datasets` (khoá ngoại SET NULL),
+    // cùng lý do với `report_folders` ở trên.
+    'dataset_folders',
     'connections',
     'workspaces',
     'memberships',

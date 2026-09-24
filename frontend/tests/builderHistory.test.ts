@@ -1,13 +1,8 @@
 import { CANVAS_COLUMNS, CANVAS_ROW_HEIGHT } from '@bi/shared';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import {
-  CANVAS_GAP,
-  gridPitch,
-  sameBox,
-  snapBox,
-  spanPx,
-} from '../src/features/reports/builder/dragMath';
+import { CANVAS_GAP } from '../src/features/reports/canvasLayout';
+import { gridPitch, sameBox, snapBox, spanPx } from '../src/features/reports/builder/dragMath';
 import {
   HISTORY_LIMIT,
   MERGE_WINDOW_MS,

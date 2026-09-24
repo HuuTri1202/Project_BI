@@ -162,8 +162,15 @@ export function useSyncTables() {
   const { current } = useWorkspace();
 
   return useMutation({
-    mutationFn: ({ id, tables }: { id: number; tables: { schema: string; table: string }[] }) =>
-      api.syncTables(id, tables, current?.id as number),
+    mutationFn: ({
+      id,
+      tables,
+      folderId,
+    }: {
+      id: number;
+      tables: { schema: string; table: string }[];
+      folderId: number | null;
+    }) => api.syncTables(id, tables, current?.id as number, folderId),
     onSuccess: async () => {
       // Đồng bộ đổi CẢ BA thứ: kho dữ liệu, cờ `imported` của danh sách bảng, và
       // `datasetCount` trên từng kết nối. Nhắm đúng một key nghĩa là hai chỗ kia
@@ -416,6 +423,51 @@ export function useRenameDataset() {
 export function useDeleteDataset() {
   const invalidate = useInvalidateDatasets();
   return useMutation({ mutationFn: api.deleteDataset, onSuccess: invalidate });
+}
+
+// ─── Thư mục bộ dữ liệu (§7.9) ───────────────────────────────────────────────
+
+/**
+ * Thư mục của workspace đang mở.
+ *
+ * `enabled` theo `workspaceId` giống `useDatasets`: chưa biết workspace thì chưa
+ * có gì để hỏi, và gửi `workspaceId=undefined` lên là hỏi nhầm chỗ rồi cache
+ * câu trả lời sai dưới một key trông như đúng.
+ */
+export function useDatasetFolders(): UseQueryResult<api.DatasetFolderList> {
+  const { current } = useWorkspace();
+  const workspaceId = current?.id ?? null;
+  return useQuery({
+    queryKey: tenantKeys.datasetFolders(workspaceId),
+    queryFn: () => api.fetchDatasetFolders(workspaceId as number),
+    enabled: workspaceId !== null,
+  });
+}
+
+export function useCreateDatasetFolder() {
+  const invalidate = useInvalidateDatasets();
+  const { current } = useWorkspace();
+  const workspaceId = current?.id ?? null;
+  return useMutation({
+    mutationFn: (name: string) =>
+      api.createDatasetFolder({ workspaceId: workspaceId as number, name }),
+    onSuccess: invalidate,
+  });
+}
+
+export function useRenameDatasetFolder() {
+  const invalidate = useInvalidateDatasets();
+  return useMutation({ mutationFn: api.renameDatasetFolder, onSuccess: invalidate });
+}
+
+export function useDeleteDatasetFolder() {
+  const invalidate = useInvalidateDatasets();
+  return useMutation({ mutationFn: api.deleteDatasetFolder, onSuccess: invalidate });
+}
+
+export function useMoveDataset() {
+  const invalidate = useInvalidateDatasets();
+  return useMutation({ mutationFn: api.moveDataset, onSuccess: invalidate });
 }
 
 // ─── Workspace (§4.5) ────────────────────────────────────────────────────────

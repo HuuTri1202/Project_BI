@@ -10,12 +10,14 @@ import {
   CHART_PALETTES_ALL,
   CHART_SORTS,
   CHART_TYPES,
+  CHUNG,
   COLUMN_ROLES,
   ORDER_STATUSES,
   DATAMODEL_NAME_MAX,
   DATASET_NAME_MAX,
   DATASET_SOURCES,
   DATASET_STATUSES,
+  FOLDER_NAME_MAX,
   GROUP_PICKS,
   LOAD_STATUSES,
   MAX_GROUP_PAGE,
@@ -160,6 +162,14 @@ export const createUploadBodySchema = z.object({
   workspaceId: z.coerce.number().int().positive(),
   filename: z.string().trim().min(1, 'Thiếu tên file').max(255),
   fileSize: z.coerce.number().int().nonnegative().optional(),
+  /**
+   * Thư mục nhận bộ dữ liệu — §7.9. Vắng mặt hoặc `null` đều là Chung.
+   *
+   * Hai thứ đó là MỘT ở đây, khác hẳn đường chuyển thư mục: người dùng chưa tạo
+   * thư mục nào thì họ không "chọn Chung", họ chỉ tải file lên. Xem
+   * `moveDatasetBodySchema` để biết vì sao đường kia lại bắt buộc.
+   */
+  folderId: z.coerce.number().int().positive().nullable().optional(),
 });
 
 /**
@@ -212,6 +222,14 @@ export const reportConfigSchema = z.object({
 export const createReportBodySchema = z.object({
   datasetId: z.coerce.number().int().positive(),
   name: z.string().trim().min(1, 'Tên báo cáo không được để trống').max(REPORT_NAME_MAX),
+  /**
+   * Thư mục đích — §10.25. Vắng mặt hoặc `null` đều là Chung.
+   *
+   * `.nullable().optional()` chứ không chỉ `.optional()`: client gửi
+   * `folderId: null` khi người dùng chủ động chọn Chung trong hộp thoại, và bắt
+   * họ bỏ hẳn trường đi để nói cùng một điều là một cái bẫy không cần thiết.
+   */
+  folderId: z.coerce.number().int().positive().nullable().optional(),
 });
 
 export const updateReportBodySchema = z.object({
@@ -347,6 +365,8 @@ export const createModelReportBodySchema = z.object({
   name: z.string().trim().min(1, 'Tên báo cáo không được để trống').max(REPORT_NAME_MAX),
   chartType: z.enum(CHART_TYPES),
   config: reportModelConfigSchema,
+  /** Thư mục đích — xem `createReportBodySchema`. */
+  folderId: z.coerce.number().int().positive().nullable().optional(),
 });
 
 /**
@@ -489,6 +509,8 @@ export const createCanvasReportBodySchema = z.object({
   datamodelId: z.coerce.number().int().positive(),
   name: z.string().trim().min(1, 'Tên báo cáo không được để trống').max(REPORT_NAME_MAX),
   canvas: reportCanvasSchema,
+  /** Thư mục đích — xem `createReportBodySchema`. */
+  folderId: z.coerce.number().int().positive().nullable().optional(),
 });
 
 /** Không nhận `datamodelId` — cùng lý do với `updateModelReportBodySchema`. */
@@ -520,6 +542,72 @@ export const visualIdParamSchema = z.object({
 export const listReportsQuerySchema = paginationSchema.extend({
   workspaceId: z.coerce.number().int().positive(),
   q: z.string().trim().max(100).optional(),
+  /**
+   * Lọc theo thư mục — §10.25. Một CHUỖI, không phải số.
+   *
+   * Nó phải nói được ba điều mà một `number | undefined` chỉ nói được hai:
+   * "mọi thư mục" (vắng mặt), "Chung" (`'chung'`) và "thư mục số n". Phép dịch
+   * nằm ở `parseFolderFilter` bên @bi/shared, dùng chung với frontend — hai bản
+   * chép tay lệch nhau thì một cái link chép từ thanh địa chỉ mở ra sai chỗ.
+   *
+   * Không kiểm giá trị ở đây: `parseFolderFilter` coi mọi chuỗi lạ là "mọi thư
+   * mục", và trả 400 cho một tham số LỌC gõ sai là làm hỏng cả trang vì một chi
+   * tiết mà câu trả lời hợp lý luôn tồn tại.
+   */
+  folder: z.string().trim().max(20).optional(),
+});
+
+/* ─── Thư mục — §10.25 (báo cáo) và §7.9 (bộ dữ liệu) ─────────────────────── */
+
+/**
+ * MỘT luật đặt tên cho cả hai loại thư mục.
+ *
+ * Hai tab có hai bảng riêng, nhưng cái tên thì người dùng gõ vào cùng một ô và
+ * kỳ vọng cùng một luật. Hai bản chép tay sẽ lệch nhau ở lần sửa đầu tiên — và
+ * khi đó "Chung" bị cấm ở tab này mà lọt ở tab kia.
+ */
+const folderNameRule = z
+  .string()
+  .trim()
+  .min(1, 'Tên thư mục không được để trống')
+  .max(FOLDER_NAME_MAX)
+  /*
+   * Cấm đặt đúng tên của chỗ chứa mặc định.
+   *
+   * "Chung" không phải một bản ghi (xem `folder.ts`), nên UNIQUE của
+   * database không thấy va chạm nào. Để lọt thì cột bên trái hiện HAI dòng
+   * "Chung" — một ảo, một thật — và không có cách nào nhìn ra cái nào là cái
+   * nào. So không phân biệt hoa thường, vì hai cái tên đó mắt đọc ra như nhau.
+   */
+  .refine((name) => name.toLocaleLowerCase('vi') !== CHUNG.toLocaleLowerCase('vi'), {
+    message: `"${CHUNG}" là tên của thư mục mặc định, hãy chọn tên khác.`,
+  });
+
+export const createReportFolderBodySchema = z.object({ name: folderNameRule });
+export const renameReportFolderBodySchema = z.object({ name: folderNameRule });
+
+/**
+ * Chuyển một báo cáo sang thư mục khác.
+ *
+ * `folderId` BẮT BUỘC có mặt, và được phép `null`. Khác hẳn lúc tạo: ở đây
+ * vắng mặt không có nghĩa nào hợp lý — "chuyển đi đâu?" phải có câu trả lời, và
+ * coi vắng mặt là Chung nghĩa là một lỗi đánh máy ở client lặng lẽ dọn sạch thư
+ * mục của người dùng.
+ */
+export const moveReportBodySchema = z.object({
+  folderId: z.coerce.number().int().positive().nullable(),
+});
+
+export const createDatasetFolderBodySchema = z.object({ name: folderNameRule });
+export const renameDatasetFolderBodySchema = z.object({ name: folderNameRule });
+
+/** Chuyển một bộ dữ liệu sang thư mục khác — cùng luật với `moveReportBodySchema`. */
+export const moveDatasetBodySchema = z.object({
+  folderId: z.coerce.number().int().positive().nullable(),
+});
+
+export const workspaceScopeQuerySchema = z.object({
+  workspaceId: z.coerce.number().int().positive(),
 });
 
 // ─── Kết nối CSDL (§8) ───────────────────────────────────────────────────────
@@ -607,6 +695,8 @@ export const syncBodySchema = z.object({
    * chọn workspace đầu tiên. Giao diện LUÔN gửi workspace đang mở.
    */
   workspaceId: z.coerce.number().int().positive().optional(),
+  /** Thư mục nhận những bảng đồng bộ về — §7.9. Vắng mặt = Chung. */
+  folderId: z.coerce.number().int().positive().nullable().optional(),
   tables: z
     .array(
       z.object({
@@ -648,6 +738,11 @@ export const listDatasetsQuerySchema = paginationSchema.extend({
    * dựng mô hình lên.
    */
   loadStatus: z.enum(LOAD_STATUSES).optional(),
+  /**
+   * Lọc theo thư mục — §7.9. Một CHUỖI, không phải số; xem
+   * `listReportsQuerySchema.folder` để biết vì sao.
+   */
+  folder: z.string().trim().max(20).optional(),
   sort: z.string().optional(),
   order: z.enum(['asc', 'desc']).default('desc'),
 });

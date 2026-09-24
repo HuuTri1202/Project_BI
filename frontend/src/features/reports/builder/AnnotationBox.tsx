@@ -3,7 +3,7 @@ import { useEffect, useLayoutEffect, useRef } from 'react';
 
 import { AnnotationView } from '../annotations/AnnotationView';
 import { CANVAS_LAYER_Z, textFrameStyle, textStyle } from '../annotations/annotationStyle';
-import { cellStyle } from '../canvasLayout';
+import { annotationStyle } from '../canvasLayout';
 import { describeAnnotation } from './annotation';
 import { appear } from './glide';
 
@@ -95,7 +95,8 @@ export function AnnotationBox({
   return (
     <section
       ref={boxRef}
-      style={{ ...cellStyle(annotation), zIndex: CANVAS_LAYER_Z[annotation.layer] }}
+      style={{ ...annotationStyle(annotation), zIndex: CANVAS_LAYER_Z[annotation.layer] }}
+      data-annotation-id={annotation.id}
       tabIndex={0}
       aria-label={label}
       onFocus={onSelect}
