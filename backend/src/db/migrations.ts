@@ -3054,4 +3054,75 @@ export const migrations: readonly Migration[] = [
          ADD COLUMN warehouse_bytes BIGINT UNSIGNED NOT NULL DEFAULT 0 AFTER loaded_row_count`,
     ],
   },
+  {
+    id: 39,
+    name: 'dataset_folders',
+    statements: [
+      /*
+       * ═══ Thư mục bộ dữ liệu — §7.9 ═══════════════════════════════════════
+       *
+       * Đúng hình dạng của migration 37 (thư mục báo cáo), cho cùng một lý do:
+       * tab Kho dữ liệu là một danh sách phẳng, và cách duy nhất để tìm là gõ
+       * đúng tên. Kho của một tổ chức dùng vài tháng còn dài hơn danh sách báo
+       * cáo — mỗi sheet Excel là một dòng, nên một file mười sheet đã là mười.
+       *
+       * ─── Vì sao BẢNG RIÊNG chứ không dùng chung `report_folders` ────────
+       *
+       * Dùng chung thì phải thêm một cột `loai` và một UNIQUE trên
+       * `(workspace_id, loai, name)`, và mọi câu đếm phải nhớ lọc `loai` —
+       * quên một chỗ là thư mục báo cáo hiện trong cột thư mục của Kho dữ liệu.
+       * Đổi lại chỉ tiết kiệm được một bảng.
+       *
+       * Quan trọng hơn: hai bên ĐẾM hai thứ khác nhau và "còn sống" nghĩa khác
+       * nhau (bộ dữ liệu còn khuất theo kết nối bị xoá mềm, và còn có
+       * `status`), nên phần logic vẫn phải tách dù bảng có chung hay không.
+       *
+       * Hai bảng, một luật chung ở `@bi/shared/folder.ts` cho phần người dùng
+       * nhìn thấy: cùng "Chung", cùng trần tên, cùng bộ lọc trên URL.
+       *
+       * "Chung" vẫn là `datasets.folder_id IS NULL`, không phải một dòng —
+       * migration 37 ghi đủ ba lý do.
+       */
+      `CREATE TABLE IF NOT EXISTS dataset_folders (
+         id           BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+         tenant_id    BIGINT UNSIGNED NOT NULL,
+         workspace_id BIGINT UNSIGNED NOT NULL,
+         name         VARCHAR(120) NOT NULL,
+         created_by   BIGINT UNSIGNED NULL,
+         created_at   DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+         updated_at   DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3)
+                                  ON UPDATE CURRENT_TIMESTAMP(3),
+         PRIMARY KEY (id),
+         -- Trùng tên trong cùng một workspace là hai cái thẻ không phân biệt
+         -- được; khác workspace thì không liên quan gì tới nhau.
+         UNIQUE KEY uq_dataset_folders_name (workspace_id, name),
+         KEY ix_dataset_folders_workspace (workspace_id),
+         CONSTRAINT fk_dataset_folders_workspace FOREIGN KEY (tenant_id, workspace_id)
+           REFERENCES workspaces (tenant_id, id) ON DELETE CASCADE,
+         CONSTRAINT fk_dataset_folders_creator FOREIGN KEY (created_by)
+           REFERENCES users (id) ON DELETE SET NULL
+       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+
+      `ALTER TABLE datasets
+         ADD COLUMN folder_id BIGINT UNSIGNED NULL AFTER workspace_id`,
+
+      /*
+       * ON DELETE SET NULL — xoá thư mục là bộ dữ liệu QUAY VỀ Chung.
+       *
+       * Luật này ở tầng database chứ không ở tầng service, và đó là chủ ý: nó
+       * giữ cho "xoá thư mục không làm mất dữ liệu" đúng kể cả khi ai đó sau
+       * này thêm một đường xoá thứ hai và quên dọn. Ở đây hậu quả còn nặng hơn
+       * bên báo cáo: CASCADE sẽ xoá cả bảng `raw_*` trong kho theo dây chuyền
+       * janitor, tức là mất dữ liệu thật vì một thao tác sắp xếp.
+       */
+      `ALTER TABLE datasets
+         ADD CONSTRAINT fk_datasets_folder FOREIGN KEY (folder_id)
+           REFERENCES dataset_folders (id) ON DELETE SET NULL`,
+
+      // Danh sách Kho dữ liệu luôn lọc theo workspace + thư mục và luôn bỏ bản
+      // đã xoá mềm, nên ba cột đi cùng nhau trong một index.
+      `ALTER TABLE datasets
+         ADD KEY ix_datasets_folder (workspace_id, folder_id, deleted_at)`,
+    ],
+  },
 ];

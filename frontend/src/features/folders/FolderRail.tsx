@@ -1,9 +1,19 @@
-import { CHUNG, CHUNG_HINT, type ReportFolderDto } from '@bi/shared';
+import { CHUNG, chungHint, type FolderDto } from '@bi/shared';
 
-import { ROW_MENU_ICONS, RowMenu, RowMenuItem } from '../../../components/ui/RowMenu';
+import { ROW_MENU_ICONS, RowMenu, RowMenuItem } from '../../components/ui/RowMenu';
 
 /**
- * Cột thư mục bên trái tab Báo cáo — §10.25.
+ * Cột thư mục bên trái — MỘT bản dựng cho cả tab Báo cáo (§10.25) và tab Kho
+ * dữ liệu (§7.9).
+ *
+ * ═══ Vì sao một bản dùng chung ═════════════════════════════════════════════
+ *
+ * Hai tab xếp hai thứ khác nhau, nhưng cái cột thì làm đúng một việc: bày các
+ * chỗ chứa, đánh dấu chỗ đang mở, và cho tạo/sửa/xoá. Chép đôi nó nghĩa là mỗi
+ * lần sửa cách hiển thị — ghim Chung ở đầu, ẩn menu ⋮ của Chung, chỗ đặt nút +
+ * — phải làm hai lần cho khớp, và lần thứ hai sẽ bị quên.
+ *
+ * Cái duy nhất khác nhau là DANH TỪ, nên nó là một prop.
  *
  * ═══ MỘT danh sách, và "Chung" luôn đứng đầu ═══════════════════════════════
  *
@@ -32,6 +42,7 @@ import { ROW_MENU_ICONS, RowMenu, RowMenuItem } from '../../../components/ui/Row
  * một dòng đang mở — trang gọi nó đã quy mọi giá trị lạ về Chung.
  */
 export function FolderRail({
+  danhTu,
   folders,
   chungCount,
   dang,
@@ -41,20 +52,28 @@ export function FolderRail({
   onDoiTen,
   onXoa,
 }: {
-  folders: readonly ReportFolderDto[];
-  /** Số báo cáo chưa xếp thư mục. */
+  /**
+   * Thứ đang được xếp, số nhiều, viết thường: "báo cáo", "bộ dữ liệu".
+   *
+   * Nó đi vào nhãn vùng cho trình đọc màn hình, câu gợi ý dưới chữ Chung, và
+   * `aria-label` của con số. Không có nó thì cột đọc lên là "3" — một con số
+   * trần không nói được nó đếm cái gì.
+   */
+  danhTu: string;
+  folders: readonly FolderDto[];
+  /** Số mục chưa xếp thư mục. */
   chungCount: number;
   /** `null` = Chung, số = mã thư mục. Luôn có đúng một dòng đang mở. */
   dang: number | null;
   onChon: (folderId: number | null) => void;
   canEdit: boolean;
   onThemMoi: () => void;
-  onDoiTen: (folder: ReportFolderDto) => void;
-  onXoa: (folder: ReportFolderDto) => void;
+  onDoiTen: (folder: FolderDto) => void;
+  onXoa: (folder: FolderDto) => void;
 }): React.ReactElement {
   return (
     <nav
-      aria-label="Thư mục báo cáo"
+      aria-label={`Thư mục ${danhTu}`}
       className="flex w-60 shrink-0 flex-col gap-0.5 overflow-y-auto pr-3"
     >
       {/* Tiêu đề nhóm + nút thêm. Luôn có mặt kể cả khi chưa có thư mục nào:
@@ -91,8 +110,9 @@ export function FolderRail({
       {/* Chung: GHIM ở đầu, trước mọi thư mục người dùng tạo — xem ghi chú đầu
           file. Không có menu ⋮ vì không có gì để đổi tên hay xoá. */}
       <Dong
+        danhTu={danhTu}
         nhan={CHUNG}
-        hint={CHUNG_HINT}
+        hint={chungHint(danhTu)}
         icon={ICON.thuMuc}
         so={chungCount}
         chon={dang === null}
@@ -105,15 +125,16 @@ export function FolderRail({
              làm gì. */
           canEdit && (
             <p className="mt-2 px-2 text-xs leading-relaxed text-slate-400">
-              Bấm + ở trên để tạo thư mục và gom báo cáo theo chủ đề.
+              Bấm + ở trên để tạo thư mục và gom {danhTu} theo chủ đề.
             </p>
           )
         : folders.map((folder) => (
             <Dong
               key={folder.id}
+              danhTu={danhTu}
               nhan={folder.name}
               icon={ICON.thuMuc}
-              so={folder.reportCount}
+              so={folder.itemCount}
               chon={dang === folder.id}
               onClick={() => onChon(folder.id)}
               menu={
@@ -158,6 +179,7 @@ const ICON = {
 } as const;
 
 function Dong({
+  danhTu,
   nhan,
   hint,
   icon,
@@ -166,6 +188,7 @@ function Dong({
   onClick,
   menu,
 }: {
+  danhTu: string;
   nhan: string;
   hint?: string;
   icon: string;
@@ -211,7 +234,7 @@ function Dong({
             "Bán hàng 3", nghe như một thư mục tên "Bán hàng 3". `aria-label`
             tách nó ra thành "3 báo cáo". */}
         <span
-          aria-label={`${String(so)} báo cáo`}
+          aria-label={`${String(so)} ${danhTu}`}
           className={`shrink-0 rounded-full px-1.5 text-xs tabular-nums ${
             chon ? 'bg-brand-100 text-brand-700' : 'text-slate-400'
           }`}

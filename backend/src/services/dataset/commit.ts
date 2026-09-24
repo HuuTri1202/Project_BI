@@ -41,6 +41,11 @@ export interface CommitInput {
   datasetId: number;
   tenantId: number;
   workspaceId: number;
+  /**
+   * Thư mục của bản ghi `pending` — §7.9. Mọi sheet của cùng một file đi theo
+   * nó, vì người dùng chọn thư mục MỘT lần cho cả file chứ không cho từng sheet.
+   */
+  folderId: number | null;
   s3Key: string;
   ext: FileExt;
   /**
@@ -134,6 +139,7 @@ export async function commitDatasets(input: CommitInput): Promise<CommittedDatas
           ? input.datasetId
           : await datasetsRepo.createFileDataset(conn, input.tenantId, {
               workspaceId: input.workspaceId,
+              folderId: input.folderId,
               name,
               originalFilename: input.originalFilename,
               fileExt: input.ext,

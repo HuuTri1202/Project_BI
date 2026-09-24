@@ -1,13 +1,14 @@
-import { CHUNG, FOLDER_NAME_MAX, type ReportFolderDto } from '@bi/shared';
+import { CHUNG, FOLDER_NAME_MAX, type FolderDto } from '@bi/shared';
 import { useEffect, useState } from 'react';
 
-import { Button } from '../../../components/ui/Button';
-import { Field } from '../../../components/ui/Field';
-import { Modal } from '../../../components/ui/Modal';
-import { getApiError } from '../../../services/apiClient';
+import { Button } from '../../components/ui/Button';
+import { Field } from '../../components/ui/Field';
+import { Modal } from '../../components/ui/Modal';
+import { getApiError } from '../../services/apiClient';
 
 /**
- * Hộp thoại đặt tên thư mục — dùng cho cả TẠO MỚI lẫn ĐỔI TÊN — §10.25.
+ * Hộp thoại đặt tên thư mục — dùng cho cả TẠO MỚI lẫn ĐỔI TÊN, và cho cả hai
+ * tab (§10.25 báo cáo, §7.9 kho dữ liệu).
  *
  * Một component cho hai việc vì chúng khác nhau đúng ở chữ trên nút và giá trị
  * ban đầu của ô nhập. Tách đôi nghĩa là hai bản chép tay của cùng một luật đặt
@@ -18,15 +19,18 @@ import { getApiError } from '../../../services/apiClient';
  * biết chắc: một người khác có thể vừa tạo đúng cái tên đó một giây trước.
  */
 export function FolderDialog({
+  danhTu,
   open,
   folder,
   onClose,
   onSubmit,
   loading,
 }: {
+  /** Thứ được gom, số nhiều, viết thường: "báo cáo", "bộ dữ liệu". */
+  danhTu: string;
   open: boolean;
   /** `null` = tạo mới; có giá trị = đổi tên chính thư mục đó. */
-  folder: ReportFolderDto | null;
+  folder: FolderDto | null;
   onClose: () => void;
   onSubmit: (name: string) => Promise<unknown>;
   loading: boolean;
@@ -68,8 +72,8 @@ export function FolderDialog({
       title={doiTen ? 'Đổi tên thư mục' : 'Thư mục mới'}
       description={
         doiTen
-          ? 'Báo cáo bên trong không đổi chỗ.'
-          : 'Thư mục để gom báo cáo theo chủ đề. Tạo xong, đưa báo cáo vào bằng mục “Chuyển tới thư mục” ở menu ⋮ của từng dòng.'
+          ? `${danhTu.charAt(0).toLocaleUpperCase('vi')}${danhTu.slice(1)} bên trong không đổi chỗ.`
+          : `Thư mục để gom ${danhTu} theo chủ đề. Tạo xong, đưa ${danhTu} vào bằng mục “Chuyển tới thư mục” ở menu ⋮ của từng dòng.`
       }
       footer={
         <>
@@ -97,7 +101,10 @@ export function FolderDialog({
           label="Tên thư mục"
           value={name}
           onChange={(e) => setName(e.target.value)}
-          placeholder="Bán hàng, Nhân sự, Báo cáo tháng…"
+          // Ví dụ theo CHỦ ĐỀ, không theo loại: "Báo cáo tháng" đọc lạ trong tab
+          // Kho dữ liệu, và một placeholder riêng cho mỗi tab là thêm một prop
+          // chỉ để nói cùng một ý.
+          placeholder="Bán hàng, Nhân sự, Kế toán…"
           error={error ?? undefined}
           hint={`Tối đa ${String(FOLDER_NAME_MAX)} ký tự. “${CHUNG}” đã là tên của chỗ chứa mặc định.`}
         />

@@ -117,7 +117,7 @@ describe('POST /report-folders', () => {
     // Thư mục RỖNG phải hiện ra — xem ghi chú LEFT JOIN ở `listFolders`. Với
     // JOIN thường thì mảng này rỗng, và người vừa tạo thư mục bấm lần nữa.
     expect(res.body.items).toHaveLength(1);
-    expect(res.body.items[0]).toMatchObject({ id, name: 'Bán hàng', reportCount: 0 });
+    expect(res.body.items[0]).toMatchObject({ id, name: 'Bán hàng', itemCount: 0 });
   });
 
   it('trùng tên trong cùng workspace bị chặn', async () => {
@@ -188,7 +188,7 @@ describe('Chung là folder_id IS NULL', () => {
       .set(bearer(fx.tokenA));
 
     expect(res.body.chungCount).toBe(1);
-    expect(res.body.items[0].reportCount).toBe(1);
+    expect(res.body.items[0].itemCount).toBe(1);
   });
 
   it('lọc theo Chung là LỌC THẬT, không phải bỏ lọc', async () => {
@@ -284,7 +284,7 @@ describe('Số đếm phải KHỚP danh sách', () => {
       .set(bearer(fx.tokenA));
 
     expect(ds.body.total).toBe(1);
-    expect(tm.body.items[0].reportCount).toBe(ds.body.total);
+    expect(tm.body.items[0].itemCount).toBe(ds.body.total);
   });
 
   it('thư mục mà MỌI báo cáo đều mất nguồn vẫn hiện ra, đếm 0', async () => {
@@ -301,7 +301,7 @@ describe('Số đếm phải KHỚP danh sách', () => {
       .set(bearer(fx.tokenA));
 
     expect(tm.body.items).toHaveLength(1);
-    expect(tm.body.items[0]).toMatchObject({ name: 'Toàn mồ côi', reportCount: 0 });
+    expect(tm.body.items[0]).toMatchObject({ name: 'Toàn mồ côi', itemCount: 0 });
   });
 });
 

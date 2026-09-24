@@ -41,6 +41,16 @@ export const tenantKeys = {
 
   datasets: () => [...tenantKeys.all, 'datasets'] as const,
   datasetList: (query: unknown) => [...tenantKeys.datasets(), 'list', query] as const,
+  /**
+   * Thư mục bộ dữ liệu — NẰM DƯỚI `datasets()`, và đó là chủ ý.
+   *
+   * Mọi thao tác đổi danh sách cũng đổi con số cạnh thư mục: tạo, xoá, chuyển
+   * thư mục. Đặt nó ở đây thì MỘT lần `invalidate(datasets())` dọn cả hai —
+   * tách ra là mỗi mutation phải nhớ gọi hai lần, và lần thứ hai sẽ bị quên,
+   * để lại một con số đứng yên cạnh một danh sách vừa đổi.
+   */
+  datasetFolders: (workspaceId: number | null) =>
+    [...tenantKeys.datasets(), 'folders', workspaceId] as const,
   dataset: (id: number | null) => [...tenantKeys.datasets(), 'detail', id] as const,
 
   /**

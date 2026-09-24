@@ -7,6 +7,7 @@ import type {
   CreateAdminUserResultDto,
   DatabaseOptionDto,
   DatasetDetailDto,
+  DatasetFolderDto,
   DatasetDto,
   DatasetLoadDto,
   DatasetLoadErrorDto,
@@ -165,10 +166,18 @@ export async function syncTables(
   tables: { schema: string; table: string }[],
   /** Workspace nhận những bảng này — mỗi workspace quản lý kho riêng. */
   workspaceId: number,
+  /**
+   * Thư mục nhận những bảng MỚI — §7.9. `null` = Chung.
+   *
+   * Chỉ áp cho bảng mới. Bảng đã có trong kho giữ nguyên chỗ đứng: đồng bộ lại
+   * là cập nhật dữ liệu, không phải xếp lại tủ.
+   */
+  folderId: number | null,
 ): Promise<SyncResultDto> {
   const { data } = await apiClient.post<SyncResultDto>(`/v1/connections/${id}/sync`, {
     tables,
     workspaceId,
+    folderId,
   });
   return data;
 }
@@ -191,6 +200,14 @@ export interface DatasetListQuery {
    * màn hình người dùng, vì kho của mỗi workspace phải tách nhau.
    */
   workspaceId?: number;
+  /**
+   * Thư mục đang mở — §7.9. Một CHUỖI, không phải số.
+   *
+   * Ba trạng thái mà một `number | undefined` chỉ nói được hai: `''` = mọi thư
+   * mục, `'chung'` = chưa xếp, `'12'` = thư mục số 12. Phép dịch nằm ở
+   * `parseFolderFilter` bên @bi/shared, dùng chung với backend.
+   */
+  folder?: string;
 }
 
 export async function fetchDatasets(
@@ -225,6 +242,65 @@ export async function renameDataset(id: number, name: string): Promise<DatasetDt
 
 export async function deleteDataset(id: number): Promise<void> {
   await apiClient.delete(`/v1/datasets/${id}`);
+}
+
+// ─── Thư mục bộ dữ liệu (§7.9) ───────────────────────────────────────────────
+
+/**
+ * Danh sách thư mục + số của Chung.
+ *
+ * `chungCount` đi RIÊNG chứ không phải một phần tử giả trong `items`: Chung
+ * không phải một bản ghi (xem `folder.ts` bên @bi/shared), và nhét nó vào mảng
+ * là mời mọi nơi gọi đối xử với nó như một thư mục thật rồi gửi `folderId: 0`
+ * lên đường chuyển.
+ */
+export interface DatasetFolderList {
+  items: DatasetFolderDto[];
+  chungCount: number;
+}
+
+export async function fetchDatasetFolders(workspaceId: number): Promise<DatasetFolderList> {
+  const { data } = await apiClient.get<DatasetFolderList>('/v1/dataset-folders', {
+    params: { workspaceId },
+  });
+  return data;
+}
+
+export async function createDatasetFolder(input: {
+  workspaceId: number;
+  name: string;
+}): Promise<DatasetFolderDto> {
+  const { data } = await apiClient.post<DatasetFolderDto>(
+    '/v1/dataset-folders',
+    { name: input.name },
+    { params: { workspaceId: input.workspaceId } },
+  );
+  return data;
+}
+
+export async function renameDatasetFolder(input: {
+  id: number;
+  name: string;
+}): Promise<DatasetFolderDto> {
+  const { data } = await apiClient.patch<DatasetFolderDto>(`/v1/dataset-folders/${input.id}`, {
+    name: input.name,
+  });
+  return data;
+}
+
+export async function deleteDatasetFolder(id: number): Promise<void> {
+  await apiClient.delete(`/v1/dataset-folders/${id}`);
+}
+
+/** Chuyển một bộ dữ liệu sang thư mục khác. `null` = đưa về Chung. */
+export async function moveDataset(input: {
+  id: number;
+  folderId: number | null;
+}): Promise<DatasetDto> {
+  const { data } = await apiClient.patch<DatasetDto>(`/v1/datasets/${input.id}/folder`, {
+    folderId: input.folderId,
+  });
+  return data;
 }
 
 // ─── Nạp vào kho phân tích ClickHouse (§9) ───────────────────────────────────

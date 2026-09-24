@@ -37,6 +37,9 @@ export async function resetDatabase(): Promise<void> {
     'dataset_rows',
     'dataset_columns',
     'datasets',
+    // Thư mục bộ dữ liệu — migration 39. SAU `datasets` (khoá ngoại SET NULL),
+    // cùng lý do với `report_folders` ở trên.
+    'dataset_folders',
     'connections',
     'workspaces',
     'memberships',

@@ -39,6 +39,8 @@ interface DatasetRow extends RowDataPacket {
   source: DatasetSource;
   /** `NOT NULL` từ migration 11 — mọi bộ dữ liệu đều thuộc một workspace. */
   workspace_id: number;
+  folder_id: number | null;
+  folder_name: string | null;
   name: string;
   column_count: number;
   // nguồn `connection`
@@ -66,7 +68,8 @@ interface DatasetRow extends RowDataPacket {
 }
 
 const SELECT_LIST = `
-  SELECT d.id, d.source, d.workspace_id, d.name, d.column_count,
+  SELECT d.id, d.source, d.workspace_id, d.folder_id, f.name AS folder_name,
+         d.name, d.column_count,
          d.source_schema, d.source_table, d.synced_at, d.connection_id,
          c.name AS connection_name, c.kind AS connection_kind,
          d.original_filename, d.file_ext, d.file_size_bytes, d.sheet_name,
@@ -82,13 +85,19 @@ const SELECT_LIST = `
             JOIN datamodels m ON m.id = x.datamodel_id AND m.deleted_at IS NULL
            WHERE x.dataset_id = d.id) AS datamodel_id
     FROM datasets d
-    LEFT JOIN connections c ON c.id = d.connection_id AND c.tenant_id = d.tenant_id`;
+    LEFT JOIN connections c ON c.id = d.connection_id AND c.tenant_id = d.tenant_id
+    -- LEFT: bộ dữ liệu ở Chung có folder_id = NULL và không khớp dòng nào.
+    -- INNER JOIN ở đây là giấu mất mọi bộ chưa xếp thư mục — tức là gần như cả
+    -- kho, ngay ngày tính năng thư mục lên.
+    LEFT JOIN dataset_folders f ON f.id = d.folder_id`;
 
 function toDto(row: DatasetRow): DatasetDto {
   return {
     id: Number(row.id),
     source: row.source,
     workspaceId: Number(row.workspace_id),
+    folderId: row.folder_id === null ? null : Number(row.folder_id),
+    folderName: row.folder_name,
     name: row.name,
     columnCount: Number(row.column_count),
 
@@ -159,20 +168,73 @@ export interface DatasetFilter {
    * trong ClickHouse, nên không có cấu trúc nào để dựng mô hình lên.
    */
   loadStatus?: DatasetLoadStatus | undefined;
+  /**
+   * Thư mục đang mở — §7.9. BA trạng thái, không phải hai:
+   *
+   *   `undefined`  mọi thư mục
+   *   `null`       Chung (`folder_id IS NULL`)
+   *   số           đúng thư mục đó
+   *
+   * ⚠️ `if (filter.folderId)` gộp `null` vào `undefined` và biến "Chung" thành
+   * "tất cả" — cả hai đều falsy, và TypeScript không ngăn được.
+   */
+  folderId?: number | null | undefined;
   sort: DatasetSortKey;
   order: 'asc' | 'desc';
   page: number;
   pageSize: number;
 }
 
-function where(tenantId: number, filter: DatasetFilter): { sql: string; params: unknown[] } {
-  const conditions = ['d.tenant_id = ?', 'd.deleted_at IS NULL'];
-  const params: unknown[] = [tenantId];
+/**
+ * Bộ dữ liệu CÒN SỐNG — một định nghĩa, ba nơi dùng.
+ *
+ * Danh sách Kho dữ liệu, con số cạnh mỗi thư mục, và con số cạnh chữ "Chung"
+ * phải nói cùng một điều. Chép tay ba lần là ba con số khác nhau cho cùng một
+ * workspace — và đó không phải chuyện giả định: ở tab Báo cáo nó đã xảy ra
+ * thật, danh sách hiện 4 trong khi cột thư mục ghi 12.
+ *
+ * Tách làm hai mảnh vì danh sách CHO PHÉP đổi `status` (người dùng lọc `failed`
+ * để xem file nào nhập hỏng), còn định nghĩa "còn sống" thì không.
+ */
+const SONG_WHERE = 'd.deleted_at IS NULL AND c.deleted_at IS NULL';
 
+/**
+ * Mặc định CHỈ lấy `ready`. Bản ghi `pending` là rác của những lần đóng wizard
+ * giữa chừng và không có gì để xem; `failed` hiện khi người dùng chủ động lọc,
+ * để họ biết vì sao file mình tải lên không dùng được.
+ */
+const TRANG_THAI_MAC_DINH = "d.status = 'ready'";
+
+/**
+ * Đúng những bộ dữ liệu người dùng THẤY khi mở một thư mục mà không lọc gì thêm.
+ *
+ * `LEFT JOIN connections` phải có mặt: `SONG_WHERE` đọc `c.deleted_at`, và một
+ * bộ nguồn `file` không có dòng kết nối nào nên vế đó ra NULL và tự bỏ qua.
+ *
+ * ⚠️ Lọc `status = 'failed'` trên danh sách sẽ hiện những dòng con số này không
+ * đếm. Đó là lựa chọn, không phải sót: con số cạnh thư mục trả lời "mở nó ra
+ * thấy bao nhiêu", và mở nó ra là mở với bộ lọc mặc định.
+ */
+export const LIVE_DATASETS_SQL = `SELECT d.id, d.tenant_id, d.workspace_id, d.folder_id
+       FROM datasets d
+       LEFT JOIN connections c ON c.id = d.connection_id AND c.tenant_id = d.tenant_id
+      WHERE ${SONG_WHERE} AND ${TRANG_THAI_MAC_DINH}`;
+
+function where(tenantId: number, filter: DatasetFilter): { sql: string; params: unknown[] } {
   // Kết nối bị xoá mềm thì dataset của nó cũng khuất. Với nguồn `file` thì
   // `c.deleted_at` là NULL do LEFT JOIN không khớp dòng nào — nên điều kiện này
   // đúng cho cả hai mà không cần rẽ nhánh.
-  conditions.push('c.deleted_at IS NULL');
+  const conditions = ['d.tenant_id = ?', SONG_WHERE];
+  const params: unknown[] = [tenantId];
+
+  if (filter.folderId !== undefined) {
+    if (filter.folderId === null) {
+      conditions.push('d.folder_id IS NULL');
+    } else {
+      conditions.push('d.folder_id = ?');
+      params.push(filter.folderId);
+    }
+  }
 
   if (filter.connectionId !== undefined) {
     conditions.push('d.connection_id = ?');
@@ -191,14 +253,11 @@ function where(tenantId: number, filter: DatasetFilter): { sql: string; params: 
     params.push(filter.loadStatus);
   }
 
-  // Mặc định CHỈ lấy `ready`. Bản ghi `pending` là rác của những lần đóng wizard
-  // giữa chừng và không có gì để xem; `failed` hiện khi người dùng chủ động lọc,
-  // để họ biết vì sao file mình tải lên không dùng được.
   if (filter.status !== undefined) {
     conditions.push('d.status = ?');
     params.push(filter.status);
   } else {
-    conditions.push("d.status = 'ready'");
+    conditions.push(TRANG_THAI_MAC_DINH);
   }
 
   if (filter.search) {
@@ -326,6 +385,16 @@ export async function upsert(
      * bảng đồng bộ từ kết nối hiện ở MỌI workspace của tổ chức.
      */
     workspaceId: number;
+    /**
+     * Thư mục nhận bảng này — §7.9. `null` = Chung.
+     *
+     * ⚠️ Chỉ áp dụng cho dòng MỚI. Nhánh `ON DUPLICATE KEY UPDATE` bên dưới cố
+     * ý không đụng tới `folder_id`, cùng lý do với `name`: đồng bộ lại một bảng
+     * là cập nhật DỮ LIỆU của nó, không phải xếp lại chỗ đứng. Ghi đè thì một
+     * lần đồng bộ định kỳ sẽ lôi bảng ra khỏi thư mục người dùng vừa xếp vào,
+     * và họ không có cách nào đoán ra vì sao.
+     */
+    folderId: number | null;
   },
 ): Promise<{ id: number; isNew: boolean }> {
   const [existing] = await db.query<RowDataPacket[]>(
@@ -342,9 +411,9 @@ export async function upsert(
 
   await db.query<ResultSetHeader>(
     `INSERT INTO datasets
-       (tenant_id, source, workspace_id, connection_id, source_schema, source_table,
+       (tenant_id, source, workspace_id, folder_id, connection_id, source_schema, source_table,
         name, column_count, synced_at, status)
-     VALUES (?, 'connection', ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP(3), 'ready')
+     VALUES (?, 'connection', ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP(3), 'ready')
      ON DUPLICATE KEY UPDATE
        column_count = VALUES(column_count),
        workspace_id = VALUES(workspace_id),
@@ -353,6 +422,7 @@ export async function upsert(
     [
       tenantId,
       input.workspaceId,
+      input.folderId,
       input.connectionId,
       input.sourceSchema,
       input.sourceTable,
@@ -460,11 +530,47 @@ export async function softDelete(db: Db, tenantId: number, id: number): Promise<
 
 export interface CreateFileDatasetInput {
   workspaceId: number;
+  /**
+   * Thư mục nhận bộ dữ liệu — §7.9. `null` = Chung.
+   *
+   * BẮT BUỘC truyền, không có mặc định: `folderId` vắng mặt trông y hệt
+   * `folderId: null` ở nơi gọi, nên một đường tạo mới quên xếp thư mục sẽ lặng
+   * lẽ đổ mọi thứ vào Chung và không ai phát hiện ra cho tới khi người dùng hỏi
+   * sao bộ dữ liệu vừa tạo không nằm trong thư mục đang mở.
+   */
+  folderId: number | null;
   name: string;
   originalFilename: string;
   fileExt: FileExt;
   s3Key: string;
   createdBy: number;
+}
+
+/**
+ * Chuyển một bộ dữ liệu sang thư mục khác — §7.9. `null` = đưa về Chung.
+ *
+ * `updated_at = updated_at` GIỮ NGUYÊN mốc sửa đổi, và đó là chủ ý. Cột này khai
+ * `ON UPDATE CURRENT_TIMESTAMP(3)`, nên một câu UPDATE bình thường sẽ dập mốc
+ * cũ — nhưng cột hiện ra ở Kho dữ liệu tên là "Cập nhật lần cuối" và người đọc
+ * hiểu nó là "lần cuối dữ liệu được làm mới". Xếp lại mười bộ vào thư mục không
+ * phải là đồng bộ lại mười bộ. Gán tường minh chính nó là cách MySQL cho phép
+ * chặn `ON UPDATE`.
+ *
+ * KHÔNG lọc `status`: một bộ nhập hỏng (`failed`) vẫn phải xếp được vào thư mục,
+ * vì người dùng nhìn thấy nó trong danh sách khi họ lọc và muốn dọn cho gọn.
+ */
+export async function moveDataset(
+  db: Db,
+  tenantId: number,
+  id: number,
+  folderId: number | null,
+): Promise<number> {
+  const [result] = await db.query<ResultSetHeader>(
+    `UPDATE datasets SET folder_id = ?, updated_at = updated_at
+      WHERE tenant_id = ? AND id = ? AND deleted_at IS NULL`,
+    [folderId, tenantId, id],
+  );
+  return result.affectedRows;
 }
 
 /** Bản ghi `pending` sinh ra lúc xin presigned URL, trước khi file lên tới nơi. */
@@ -475,12 +581,13 @@ export async function createFileDataset(
 ): Promise<number> {
   const [result] = await db.query<ResultSetHeader>(
     `INSERT INTO datasets
-       (tenant_id, source, workspace_id, name, original_filename, file_ext, s3_key,
+       (tenant_id, source, workspace_id, folder_id, name, original_filename, file_ext, s3_key,
         status, created_by)
-     VALUES (?, 'file', ?, ?, ?, ?, ?, 'pending', ?)`,
+     VALUES (?, 'file', ?, ?, ?, ?, ?, ?, 'pending', ?)`,
     [
       tenantId,
       input.workspaceId,
+      input.folderId,
       input.name,
       input.originalFilename,
       input.fileExt,

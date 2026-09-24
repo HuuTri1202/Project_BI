@@ -1,7 +1,7 @@
 import {
   ADMIN_ERROR_CODES,
   allVisuals,
-  MAX_REPORT_FOLDERS,
+  MAX_FOLDERS,
   parseFolderFilter,
   APP_NAME,
   BILLING_ERROR_CODES,
@@ -50,6 +50,7 @@ import * as adminWorkspacesRepo from '../../repositories/adminWorkspaces';
 import * as billingRepo from '../../repositories/billing';
 import * as connectionsRepo from '../../repositories/connections';
 import * as datamodelsRepo from '../../repositories/datamodels';
+import * as datasetFoldersRepo from '../../repositories/datasetFolders';
 import * as datasetsRepo from '../../repositories/datasets';
 import type { Db } from '../../repositories/db';
 import * as membershipsRepo from '../../repositories/memberships';
@@ -121,6 +122,9 @@ import { buildPageResult, paginationSchema, resolveSortColumn } from '../../util
 import {
   addDatasetsBodySchema,
   commitDatasetsBodySchema,
+  createDatasetFolderBodySchema,
+  moveDatasetBodySchema,
+  renameDatasetFolderBodySchema,
   createConnectionBodySchema,
   createDataModelBodySchema,
   createMeasureBodySchema,
@@ -421,8 +425,14 @@ v1Router.post(
     const workspace = await resolveWorkspace(mysqlPool, auth.tenantId, body.workspaceId);
     const s3Key = buildStorageKey(auth.tenantId, workspace.id, ext);
 
+    // §7.9 — thư mục ghi vào bản ghi `pending` NGAY từ đây, không đợi tới lúc
+    // chốt sheet: nếu người dùng bỏ dở wizard thì bản ghi rác ấy vẫn nằm đúng
+    // chỗ, và `commit` chỉ việc đọc lại nó cho mọi sheet còn lại.
+    const folderId = await thuMucDichDataset(auth.tenantId, workspace.id, body.folderId);
+
     const datasetId = await datasetsRepo.createFileDataset(mysqlPool, auth.tenantId, {
       workspaceId: workspace.id,
+      folderId,
       name: defaultDatasetName(body.filename),
       originalFilename: body.filename,
       fileExt: ext,
@@ -502,6 +512,11 @@ v1Router.post(
       datasetId: id,
       tenantId: auth.tenantId,
       workspaceId: staged.workspaceId,
+      // Thư mục đã được chốt lúc xin chỗ tải lên; mọi sheet của cùng một file
+      // đi theo nó. Đọc lại từ bản ghi `pending` chứ không nhận lại từ client:
+      // client không có gì mới để nói ở bước này, và nhận lại là mở một đường
+      // thứ hai để sheet đầu và những sheet sau rơi vào hai thư mục khác nhau.
+      folderId: staged.folderId,
       s3Key: key,
       ext,
       originalFilename: staged.originalFilename,
@@ -1381,11 +1396,11 @@ v1Router.post(
     const workspace = await resolveWorkspace(mysqlPool, auth.tenantId, query.workspaceId);
 
     const dang = await reportFoldersRepo.countFolders(mysqlPool, auth.tenantId, workspace.id);
-    if (dang >= MAX_REPORT_FOLDERS) {
+    if (dang >= MAX_FOLDERS) {
       throw new HttpError(
         409,
         'TooManyFolders',
-        `Mỗi workspace tối đa ${String(MAX_REPORT_FOLDERS)} thư mục.`,
+        `Mỗi workspace tối đa ${String(MAX_FOLDERS)} thư mục.`,
       );
     }
 
@@ -2045,8 +2060,12 @@ v1Router.post(
     // chức" như bản đầu. Kết nối vẫn là tài sản chung — chỉ những bảng lấy ra
     // từ nó mới thuộc về một workspace.
     const workspace = await resolveWorkspace(mysqlPool, tenantId, body.workspaceId);
+    // §7.9 — thư mục đang mở lúc bấm "Đồng bộ từ CSDL". Chỉ áp cho bảng MỚI.
+    const folderId = await thuMucDichDataset(tenantId, workspace.id, body.folderId);
 
-    res.json(await syncDatasets(tenantId, id, body.tables, workspace.id, userId, viewerOf(req)));
+    res.json(
+      await syncDatasets(tenantId, id, body.tables, workspace.id, folderId, userId, viewerOf(req)),
+    );
   }),
 );
 
@@ -2076,6 +2095,9 @@ v1Router.get(
       source: query.source,
       status: query.status,
       connectionId: query.connectionId,
+      // §7.9. Ba trạng thái, và phép dịch nằm ở @bi/shared để URL của frontend
+      // và cách backend đọc nó không bao giờ lệch nhau.
+      folderId: parseFolderFilter(query.folder),
       sort,
       order: query.order,
       page: query.page,
@@ -2085,6 +2107,180 @@ v1Router.get(
     const total = await datasetsRepo.count(mysqlPool, tenantId, filter);
     const items = total === 0 ? [] : await datasetsRepo.list(mysqlPool, tenantId, filter);
     res.json(buildPageResult(items, total, query.page, query.pageSize));
+  }),
+);
+
+/* ─── Thư mục bộ dữ liệu — §7.9 ───────────────────────────────────────────── */
+
+/**
+ * Thư mục đích của một bộ dữ liệu. Trả về `null` nghĩa là Chung.
+ *
+ * Bản sinh đôi của `thuMucDich` bên báo cáo, và hai vế kiểm giống hệt: thư mục
+ * có tồn tại trong tổ chức này không, và nó có nằm đúng WORKSPACE không. Khoá
+ * ngoại chỉ buộc được vế thứ nhất. Thiếu vế thứ hai thì bộ dữ liệu lọt vào một
+ * thư mục của workspace khác và BIẾN MẤT khỏi mọi danh sách — Kho dữ liệu lọc
+ * theo workspace đang mở, nên không màn hình nào còn hiện nó ra, kể cả Chung.
+ *
+ * KHÔNG gộp với `thuMucDich` thành một hàm nhận thêm tham số "loại": hai hàm
+ * tra hai BẢNG khác nhau, và một tham số chọn bảng là đúng thứ sẽ bị truyền
+ * nhầm ở một nơi gọi nào đó rồi cho ra một lỗi 404 không ai hiểu nổi.
+ */
+async function thuMucDichDataset(
+  tenantId: number,
+  workspaceId: number,
+  folderId: number | null | undefined,
+): Promise<number | null> {
+  if (folderId === undefined || folderId === null) return null;
+
+  const folder = await datasetFoldersRepo.findFolder(mysqlPool, tenantId, folderId);
+  if (folder === null || folder.workspaceId !== workspaceId) {
+    throw notFound('Không tìm thấy thư mục này.');
+  }
+  return folder.id;
+}
+
+/**
+ * Chuyển một bộ dữ liệu sang thư mục khác — §7.9.
+ *
+ * Gác bằng `dataset:modify` chứ không phải `delete`: xếp lại chỗ đứng không làm
+ * mất gì, và viewer thì vẫn không được đụng.
+ */
+v1Router.patch(
+  '/datasets/:id/folder',
+  authorize('dataset', 'modify'),
+  asyncHandler(async (req, res) => {
+    const { tenantId } = requireAuth(req);
+    const { id } = idParamSchema.parse(req.params);
+    const body = moveDatasetBodySchema.parse(req.body);
+
+    // Đọc TRƯỚC: cần workspace của nó để kiểm thư mục đích cùng chỗ, và cũng là
+    // chỗ trả 404 cho một mã của tổ chức khác.
+    const dataset = await datasetsRepo.findOne(mysqlPool, tenantId, id);
+    if (dataset === null) throw notFound('Không tìm thấy bộ dữ liệu này.');
+
+    const folderId = await thuMucDichDataset(tenantId, dataset.workspaceId, body.folderId);
+
+    await datasetsRepo.moveDataset(mysqlPool, tenantId, id, folderId);
+    res.json(await datasetsRepo.findOne(mysqlPool, tenantId, id));
+  }),
+);
+
+/**
+ * Danh sách thư mục của một workspace, kèm số bộ dữ liệu trong từng cái.
+ *
+ * KHÔNG trả về "Chung" như một phần tử: nó không phải một bản ghi (xem
+ * `folder.ts`), và bịa ra một phần tử mã `0` ở đây là mời client đối xử với nó
+ * như một thư mục thật rồi gửi `folderId: 0` lên đường chuyển. Số của Chung đi
+ * riêng ở `chungCount`, đúng như bản chất của nó.
+ */
+v1Router.get(
+  '/dataset-folders',
+  authorize('dataset', 'read'),
+  asyncHandler(async (req, res) => {
+    const { tenantId } = requireAuth(req);
+    const query = workspaceScopeQuerySchema.parse(req.query);
+    const workspace = await resolveWorkspace(mysqlPool, tenantId, query.workspaceId);
+
+    const [items, chungCount] = await Promise.all([
+      datasetFoldersRepo.listFolders(mysqlPool, tenantId, workspace.id),
+      datasetFoldersRepo.countChung(mysqlPool, tenantId, workspace.id),
+    ]);
+
+    res.json({ items, chungCount });
+  }),
+);
+
+v1Router.post(
+  '/dataset-folders',
+  authorize('dataset', 'modify'),
+  asyncHandler(async (req, res) => {
+    const auth = requireAuth(req);
+    const query = workspaceScopeQuerySchema.parse(req.query);
+    const body = createDatasetFolderBodySchema.parse(req.body);
+    const workspace = await resolveWorkspace(mysqlPool, auth.tenantId, query.workspaceId);
+
+    const dang = await datasetFoldersRepo.countFolders(mysqlPool, auth.tenantId, workspace.id);
+    if (dang >= MAX_FOLDERS) {
+      throw new HttpError(
+        409,
+        'TooManyFolders',
+        `Mỗi workspace tối đa ${String(MAX_FOLDERS)} thư mục.`,
+      );
+    }
+
+    /*
+     * Bắt ER_DUP_ENTRY thay vì SELECT kiểm trước: giữa một câu SELECT và câu
+     * INSERT luôn có khe hở cho hai request đồng thời, và người dùng bấm hai
+     * lần vì lần đầu chưa thấy gì xảy ra là chuyện thường.
+     */
+    let id: number;
+    try {
+      id = await datasetFoldersRepo.createFolder(mysqlPool, auth.tenantId, {
+        workspaceId: workspace.id,
+        name: body.name,
+        createdBy: auth.userId,
+      });
+    } catch (err) {
+      if (datasetFoldersRepo.isDuplicateFolderName(err)) {
+        throw new HttpError(409, 'DuplicateName', 'Workspace đã có một thư mục trùng tên.', {
+          name: 'Tên này đã được dùng',
+        });
+      }
+      throw err;
+    }
+
+    const items = await datasetFoldersRepo.listFolders(mysqlPool, auth.tenantId, workspace.id);
+    const created = items.find((f) => f.id === id);
+    res.status(201).json(created ?? { id, workspaceId: workspace.id, name: body.name });
+  }),
+);
+
+v1Router.patch(
+  '/dataset-folders/:id',
+  authorize('dataset', 'modify'),
+  asyncHandler(async (req, res) => {
+    const { tenantId } = requireAuth(req);
+    const { id } = idParamSchema.parse(req.params);
+    const body = renameDatasetFolderBodySchema.parse(req.body);
+
+    const folder = await datasetFoldersRepo.findFolder(mysqlPool, tenantId, id);
+    if (folder === null) throw notFound('Không tìm thấy thư mục này.');
+
+    try {
+      await datasetFoldersRepo.renameFolder(mysqlPool, tenantId, id, body.name);
+    } catch (err) {
+      if (datasetFoldersRepo.isDuplicateFolderName(err)) {
+        throw new HttpError(409, 'DuplicateName', 'Workspace đã có một thư mục trùng tên.', {
+          name: 'Tên này đã được dùng',
+        });
+      }
+      throw err;
+    }
+
+    const items = await datasetFoldersRepo.listFolders(mysqlPool, tenantId, folder.workspaceId);
+    res.json(items.find((f) => f.id === id));
+  }),
+);
+
+/**
+ * Xoá một thư mục. Bộ dữ liệu bên trong KHÔNG mất — chúng về Chung.
+ *
+ * `dataset:modify` chứ không phải `dataset:delete`, và đó không phải sơ suất:
+ * không một bộ dữ liệu nào bị xoá ở đây. Khoá ngoại `ON DELETE SET NULL` của
+ * migration 39 là thứ bảo đảm điều đó, chứ không phải một câu UPDATE viết thêm
+ * ở chỗ này — luật nằm dưới database thì nó còn đúng với mọi đường xoá về sau.
+ */
+v1Router.delete(
+  '/dataset-folders/:id',
+  authorize('dataset', 'modify'),
+  asyncHandler(async (req, res) => {
+    const { tenantId } = requireAuth(req);
+    const { id } = idParamSchema.parse(req.params);
+
+    const affected = await datasetFoldersRepo.deleteFolder(mysqlPool, tenantId, id);
+    if (affected === 0) throw notFound('Không tìm thấy thư mục này.');
+
+    res.status(204).end();
   }),
 );
 

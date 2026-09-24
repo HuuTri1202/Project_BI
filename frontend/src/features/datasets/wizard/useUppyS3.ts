@@ -39,7 +39,7 @@ export interface UseUppyS3 {
   reset: () => void;
 }
 
-export function useUppyS3(workspaceId: number | null): UseUppyS3 {
+export function useUppyS3(workspaceId: number | null, folderId: number | null = null): UseUppyS3 {
   const [state, setState] = useState<UploadState>({ status: 'idle' });
 
   /**
@@ -52,6 +52,14 @@ export function useUppyS3(workspaceId: number | null): UseUppyS3 {
   const datasetIdRef = useRef<number | null>(null);
   const workspaceRef = useRef(workspaceId);
   workspaceRef.current = workspaceId;
+  /*
+   * Thư mục đích cũng phải đi qua ref, cùng lý do với `workspaceId` ngay trên:
+   * `getUploadParameters` là closure dựng MỘT lần lúc Uppy khởi tạo. Đọc thẳng
+   * prop trong đó là luôn thấy giá trị của lần render đầu — người dùng đổi thư
+   * mục rồi mới thả file sẽ thấy nó rơi vào thư mục cũ.
+   */
+  const folderRef = useRef(folderId);
+  folderRef.current = folderId;
 
   /**
    * Uppy được dựng TRONG effect và giữ ở state, KHÔNG phải ở ref.
@@ -111,6 +119,7 @@ export function useUppyS3(workspaceId: number | null): UseUppyS3 {
           workspaceId: ws,
           filename: file.name,
           fileSize: file.size ?? 0,
+          folderId: folderRef.current,
         });
 
         datasetIdRef.current = result.datasetId;

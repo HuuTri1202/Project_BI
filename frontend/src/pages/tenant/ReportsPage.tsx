@@ -31,9 +31,9 @@ import {
   useReportFolders,
   useReports,
 } from '../../features/datasets/hooks';
-import { FolderDialog } from '../../features/reports/folders/FolderDialog';
-import { FolderRail } from '../../features/reports/folders/FolderRail';
-import { MoveReportDialog } from '../../features/reports/folders/MoveReportDialog';
+import { FolderDialog } from '../../features/folders/FolderDialog';
+import { FolderRail } from '../../features/folders/FolderRail';
+import { MoveToFolderDialog } from '../../features/folders/MoveToFolderDialog';
 import { CreateReportMenu } from '../../features/tenant/CreateReportMenu';
 import { useListQueryState } from '../../hooks/useListQueryState';
 import { getApiError } from '../../services/apiClient';
@@ -79,6 +79,9 @@ interface ListQuery {
  * này là không dùng tới nữa.
  */
 const DEFAULTS: ListQuery = { page: 1, pageSize: 20, q: '', folder: FOLDER_FILTER_CHUNG };
+
+/** Danh từ của thứ đang được xếp — cột thư mục và hai hộp thoại đều dùng chung. */
+const DANH_TU = 'báo cáo';
 
 export default function ReportsPage(): React.ReactElement {
   const permissions = usePermissions();
@@ -170,6 +173,7 @@ export default function ReportsPage(): React.ReactElement {
             người dùng lăn chuột vào nhầm chỗ. */}
         <div className="flex min-h-0 flex-1 gap-4">
           <FolderRail
+            danhTu={DANH_TU}
             folders={danhSachThuMuc}
             chungCount={folders.data?.chungCount ?? 0}
             dang={dangMo}
@@ -346,6 +350,7 @@ export default function ReportsPage(): React.ReactElement {
       </PageBody>
 
       <FolderDialog
+        danhTu={DANH_TU}
         open={suaThuMuc !== undefined}
         folder={suaThuMuc ?? null}
         onClose={() => setSuaThuMuc(undefined)}
@@ -362,8 +367,8 @@ export default function ReportsPage(): React.ReactElement {
         }}
       />
 
-      <MoveReportDialog
-        report={chuyenBaoCao}
+      <MoveToFolderDialog
+        muc={chuyenBaoCao}
         folders={danhSachThuMuc}
         onClose={() => setChuyenBaoCao(null)}
         loading={chuyenThuMuc.isPending}
@@ -395,10 +400,10 @@ export default function ReportsPage(): React.ReactElement {
         }}
       >
         Xoá thư mục <strong>{xoaThuMucNao?.name}</strong>?{' '}
-        {xoaThuMucNao !== null && xoaThuMucNao.reportCount > 0 ? (
+        {xoaThuMucNao !== null && xoaThuMucNao.itemCount > 0 ? (
           <>
-            <strong>{xoaThuMucNao.reportCount} báo cáo</strong> bên trong KHÔNG bị xoá — chúng quay
-            về {CHUNG}.
+            <strong>{xoaThuMucNao.itemCount} báo cáo</strong> bên trong KHÔNG bị xoá — chúng quay về{' '}
+            {CHUNG}.
           </>
         ) : (
           'Thư mục này đang trống.'

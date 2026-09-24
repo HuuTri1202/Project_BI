@@ -248,6 +248,16 @@ export interface DatasetDto {
    * chứ không phải ở một quy ước mà code phải nhớ.
    */
   workspaceId: number;
+  /**
+   * Thư mục đang chứa bộ dữ liệu — §7.9. `null` = thư mục Chung.
+   *
+   * `null` ở đây là một câu trả lời ĐẦY ĐỦ, không phải "chưa xếp". Xem
+   * `folder.ts`: Chung không phải một bản ghi, nên không có mã nào để trỏ tới.
+   * Giao diện dịch `null` thành chữ `CHUNG`.
+   */
+  folderId: number | null;
+  /** Tên thư mục, kèm sẵn để danh sách khỏi phải tra bảng thứ hai. */
+  folderName: string | null;
   columnCount: number;
 
   /* ─── Nguồn `connection` ───────────────────────────────────────────────── */

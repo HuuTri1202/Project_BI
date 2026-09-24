@@ -1,14 +1,16 @@
-import { type ReportFolderDto } from '@bi/shared';
+import { type DatasetFolderDto } from '@bi/shared';
 import type { ResultSetHeader, RowDataPacket } from 'mysql2';
+import { LIVE_DATASETS_SQL } from './datasets';
 import type { Db } from './db';
-import { LIVE_REPORTS_SQL } from './reports';
 
 /**
- * Thư mục báo cáo — §10.25. Cùng khuôn tenant-scoped với `reports.ts`.
+ * Thư mục bộ dữ liệu — §7.9. Cùng khuôn tenant-scoped với `datasets.ts`, và
+ * cùng hình dạng với `reportFolders.ts`.
  *
  * Bảng này KHÔNG có `deleted_at`: thư mục không mang dữ liệu của riêng nó, và
- * xoá nó chỉ đẩy các báo cáo bên trong về Chung (khoá ngoại `ON DELETE SET
- * NULL`). Lập luận đầy đủ nằm ở migration 37.
+ * xoá nó chỉ đẩy các bộ dữ liệu bên trong về Chung (khoá ngoại `ON DELETE SET
+ * NULL`). Lập luận đầy đủ nằm ở migration 37, và migration 39 nói vì sao đây là
+ * một bảng riêng chứ không phải một cột `loai` thêm vào bảng kia.
  *
  * ⚠️ Mọi hàm ở đây nhận `tenantId` và đưa nó vào WHERE, kể cả khi đã có `id`.
  * Khoá chính là duy nhất toàn bảng, nên thiếu vế đó là một mã đoán đúng đọc
@@ -24,7 +26,7 @@ interface FolderRow extends RowDataPacket {
   updated_at: Date;
 }
 
-function toDto(row: FolderRow): ReportFolderDto {
+function toDto(row: FolderRow): DatasetFolderDto {
   return {
     id: Number(row.id),
     workspaceId: Number(row.workspace_id),
@@ -36,29 +38,30 @@ function toDto(row: FolderRow): ReportFolderDto {
 }
 
 /**
- * Mọi thư mục của một workspace, kèm số báo cáo đang nằm trong.
+ * Mọi thư mục của một workspace, kèm số bộ dữ liệu đang nằm trong.
  *
- * ⚠️ Con số này phải KHỚP từng đơn vị với danh sách báo cáo bên cạnh, nên nó
- * đếm trên `LIVE_REPORTS_SQL` — đúng định nghĩa mà danh sách dùng. Đếm thẳng
- * trên bảng `reports` là cách bản đầu làm, và nó cho ra 12 trong khi danh sách
- * hiện 4: chênh lệch chính là những báo cáo có nguồn đã bị xoá mềm.
+ * ⚠️ Con số này phải KHỚP từng đơn vị với danh sách bên cạnh, nên nó đếm trên
+ * `LIVE_DATASETS_SQL` — đúng định nghĩa mà danh sách dùng. Đếm thẳng trên bảng
+ * `datasets` là cách dễ viết nhất và nó SAI: bộ của một kết nối đã xoá mềm, và
+ * bản ghi `pending` của những lần đóng wizard giữa chừng, đều bị tính vào trong
+ * khi danh sách không hiện chúng. Đúng lỗi này đã xảy ra ở tab Báo cáo.
  *
- * ⚠️ `LEFT JOIN` chứ không phải `JOIN`: một thư mục RỖNG vẫn phải hiện ra —
- * người dùng vừa tạo thư mục xong mà nó không xuất hiện thì họ tạo lần nữa, và
- * lần đó đâm vào UNIQUE. Vì bảng con đã lọc sẵn, không có điều kiện nào phải
- * nhét vào `WHERE` — mà nhét vào đó thì thư mục toàn báo cáo mất nguồn sẽ biến
- * mất khỏi danh sách, không chỉ sai con số.
+ * ⚠️ `LEFT JOIN` chứ không phải `JOIN`, và điều kiện lọc nằm trong BẢNG CON chứ
+ * không trong `WHERE`: một thư mục RỖNG vẫn phải hiện ra — người dùng vừa tạo
+ * thư mục xong mà nó không xuất hiện thì họ tạo lần nữa, và lần đó đâm vào
+ * UNIQUE. Nhét điều kiện vào `WHERE` thì LEFT JOIN thoái hoá thành INNER và
+ * thư mục rỗng biến mất khỏi danh sách, không chỉ sai con số.
  */
 export async function listFolders(
   db: Db,
   tenantId: number,
   workspaceId: number,
-): Promise<ReportFolderDto[]> {
+): Promise<DatasetFolderDto[]> {
   const [rows] = await db.query<FolderRow[]>(
     `SELECT f.id, f.workspace_id, f.name, f.created_at, f.updated_at,
             COUNT(live.id) AS item_count
-       FROM report_folders f
-       LEFT JOIN (${LIVE_REPORTS_SQL}) live ON live.folder_id = f.id
+       FROM dataset_folders f
+       LEFT JOIN (${LIVE_DATASETS_SQL}) live ON live.folder_id = f.id
       WHERE f.tenant_id = ? AND f.workspace_id = ?
       GROUP BY f.id
       ORDER BY f.name ASC`,
@@ -68,15 +71,15 @@ export async function listFolders(
 }
 
 /**
- * Số báo cáo CHƯA xếp thư mục — con số in cạnh chữ "Chung".
+ * Số bộ dữ liệu CHƯA xếp thư mục — con số in cạnh chữ "Chung".
  *
- * Cùng `LIVE_REPORTS_SQL` với `listFolders` và với danh sách báo cáo. Xem ghi
- * chú ở đó: ba chỗ này phải nói cùng một con số, nếu không người dùng đếm tay
- * ra một kết quả khác kết quả hệ thống in ra.
+ * Cùng `LIVE_DATASETS_SQL` với `listFolders` và với danh sách. Ba chỗ này phải
+ * nói cùng một con số, nếu không người dùng đếm tay ra một kết quả khác kết quả
+ * hệ thống in ra.
  */
 export async function countChung(db: Db, tenantId: number, workspaceId: number): Promise<number> {
   const [rows] = await db.query<RowDataPacket[]>(
-    `SELECT COUNT(*) AS total FROM (${LIVE_REPORTS_SQL}) live
+    `SELECT COUNT(*) AS total FROM (${LIVE_DATASETS_SQL}) live
       WHERE live.tenant_id = ? AND live.workspace_id = ? AND live.folder_id IS NULL`,
     [tenantId, workspaceId],
   );
@@ -84,8 +87,8 @@ export async function countChung(db: Db, tenantId: number, workspaceId: number):
 }
 
 /**
- * Một thư mục, để route kiểm nó có thật và ĐÚNG WORKSPACE trước khi chuyển báo
- * cáo vào — xem ghi chú ở `reports.moveReport`.
+ * Một thư mục, để route kiểm nó có thật và ĐÚNG WORKSPACE trước khi chuyển bộ
+ * dữ liệu vào.
  */
 export async function findFolder(
   db: Db,
@@ -93,7 +96,7 @@ export async function findFolder(
   id: number,
 ): Promise<{ id: number; workspaceId: number; name: string } | null> {
   const [rows] = await db.query<RowDataPacket[]>(
-    `SELECT id, workspace_id, name FROM report_folders
+    `SELECT id, workspace_id, name FROM dataset_folders
       WHERE tenant_id = ? AND id = ? LIMIT 1`,
     [tenantId, id],
   );
@@ -108,7 +111,7 @@ export async function findFolder(
 
 export async function countFolders(db: Db, tenantId: number, workspaceId: number): Promise<number> {
   const [rows] = await db.query<RowDataPacket[]>(
-    `SELECT COUNT(*) AS total FROM report_folders WHERE tenant_id = ? AND workspace_id = ?`,
+    `SELECT COUNT(*) AS total FROM dataset_folders WHERE tenant_id = ? AND workspace_id = ?`,
     [tenantId, workspaceId],
   );
   return Number(rows[0]?.['total'] ?? 0);
@@ -120,7 +123,7 @@ export async function createFolder(
   input: { workspaceId: number; name: string; createdBy: number },
 ): Promise<number> {
   const [result] = await db.query<ResultSetHeader>(
-    `INSERT INTO report_folders (tenant_id, workspace_id, name, created_by)
+    `INSERT INTO dataset_folders (tenant_id, workspace_id, name, created_by)
      VALUES (?, ?, ?, ?)`,
     [tenantId, input.workspaceId, input.name, input.createdBy],
   );
@@ -134,31 +137,31 @@ export async function renameFolder(
   name: string,
 ): Promise<number> {
   const [result] = await db.query<ResultSetHeader>(
-    `UPDATE report_folders SET name = ? WHERE tenant_id = ? AND id = ?`,
+    `UPDATE dataset_folders SET name = ? WHERE tenant_id = ? AND id = ?`,
     [name, tenantId, id],
   );
   return result.affectedRows;
 }
 
 /**
- * Xoá một thư mục. Báo cáo bên trong KHÔNG mất — khoá ngoại `ON DELETE SET
+ * Xoá một thư mục. Bộ dữ liệu bên trong KHÔNG mất — khoá ngoại `ON DELETE SET
  * NULL` đưa chúng về Chung, và luật đó nằm ở database chứ không ở đây, để nó
  * còn đúng với mọi đường xoá khác được thêm về sau.
  */
 export async function deleteFolder(db: Db, tenantId: number, id: number): Promise<number> {
   const [result] = await db.query<ResultSetHeader>(
-    `DELETE FROM report_folders WHERE tenant_id = ? AND id = ?`,
+    `DELETE FROM dataset_folders WHERE tenant_id = ? AND id = ?`,
     [tenantId, id],
   );
   return result.affectedRows;
 }
 
-/** Tên trùng trong cùng workspace — UNIQUE `uq_report_folders_name`. */
+/** Tên trùng trong cùng workspace — UNIQUE `uq_dataset_folders_name`. */
 export function isDuplicateFolderName(err: unknown): boolean {
   return (
     typeof err === 'object' &&
     err !== null &&
     (err as { code?: string }).code === 'ER_DUP_ENTRY' &&
-    String((err as { message?: string }).message ?? '').includes('uq_report_folders_name')
+    String((err as { message?: string }).message ?? '').includes('uq_dataset_folders_name')
   );
 }

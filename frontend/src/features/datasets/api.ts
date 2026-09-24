@@ -77,6 +77,8 @@ export async function createUpload(input: {
   workspaceId: number;
   filename: string;
   fileSize: number;
+  /** Thư mục đích — §7.9. `null` = Chung. Ghi vào bản ghi `pending` ngay từ đây. */
+  folderId: number | null;
 }): Promise<CreateUploadResultDto> {
   const { data } = await apiClient.post<CreateUploadResultDto>('/v1/datasets/uploads', input);
   return data;

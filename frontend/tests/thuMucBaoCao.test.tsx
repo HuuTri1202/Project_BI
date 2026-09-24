@@ -2,7 +2,7 @@ import { CHUNG, folderFilterValue, parseFolderFilter, type ReportFolderDto } fro
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
-import { FolderRail } from '../src/features/reports/folders/FolderRail';
+import { FolderRail } from '../src/features/folders/FolderRail';
 
 /**
  * Thư mục báo cáo — §10.25.
@@ -23,8 +23,8 @@ import { FolderRail } from '../src/features/reports/folders/FolderRail';
  */
 
 const THU_MUC: ReportFolderDto[] = [
-  { id: 11, workspaceId: 1, name: 'Bán hàng', reportCount: 2, createdAt: '', updatedAt: '' },
-  { id: 12, workspaceId: 1, name: 'Nhân sự', reportCount: 0, createdAt: '', updatedAt: '' },
+  { id: 11, workspaceId: 1, name: 'Bán hàng', itemCount: 2, createdAt: '', updatedAt: '' },
+  { id: 12, workspaceId: 1, name: 'Nhân sự', itemCount: 0, createdAt: '', updatedAt: '' },
 ];
 
 function ve(
@@ -35,6 +35,7 @@ function ve(
 ): { onChon: typeof onChon; onThemMoi: typeof onThemMoi } {
   render(
     <FolderRail
+      danhTu="báo cáo"
       folders={folders}
       chungCount={3}
       dang={dang}
@@ -150,6 +151,7 @@ describe('FolderRail', () => {
   it('viewer không thấy menu nào, và cũng không thấy nút thêm', () => {
     render(
       <FolderRail
+        danhTu="báo cáo"
         folders={THU_MUC}
         chungCount={3}
         dang={null}

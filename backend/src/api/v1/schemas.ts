@@ -162,6 +162,14 @@ export const createUploadBodySchema = z.object({
   workspaceId: z.coerce.number().int().positive(),
   filename: z.string().trim().min(1, 'Thiếu tên file').max(255),
   fileSize: z.coerce.number().int().nonnegative().optional(),
+  /**
+   * Thư mục nhận bộ dữ liệu — §7.9. Vắng mặt hoặc `null` đều là Chung.
+   *
+   * Hai thứ đó là MỘT ở đây, khác hẳn đường chuyển thư mục: người dùng chưa tạo
+   * thư mục nào thì họ không "chọn Chung", họ chỉ tải file lên. Xem
+   * `moveDatasetBodySchema` để biết vì sao đường kia lại bắt buộc.
+   */
+  folderId: z.coerce.number().int().positive().nullable().optional(),
 });
 
 /**
@@ -549,8 +557,15 @@ export const listReportsQuerySchema = paginationSchema.extend({
   folder: z.string().trim().max(20).optional(),
 });
 
-/* ─── Thư mục báo cáo — §10.25 ─────────────────────────────────────────────── */
+/* ─── Thư mục — §10.25 (báo cáo) và §7.9 (bộ dữ liệu) ─────────────────────── */
 
+/**
+ * MỘT luật đặt tên cho cả hai loại thư mục.
+ *
+ * Hai tab có hai bảng riêng, nhưng cái tên thì người dùng gõ vào cùng một ô và
+ * kỳ vọng cùng một luật. Hai bản chép tay sẽ lệch nhau ở lần sửa đầu tiên — và
+ * khi đó "Chung" bị cấm ở tab này mà lọt ở tab kia.
+ */
 const folderNameRule = z
   .string()
   .trim()
@@ -559,7 +574,7 @@ const folderNameRule = z
   /*
    * Cấm đặt đúng tên của chỗ chứa mặc định.
    *
-   * "Chung" không phải một bản ghi (xem `reportFolder.ts`), nên UNIQUE của
+   * "Chung" không phải một bản ghi (xem `folder.ts`), nên UNIQUE của
    * database không thấy va chạm nào. Để lọt thì cột bên trái hiện HAI dòng
    * "Chung" — một ảo, một thật — và không có cách nào nhìn ra cái nào là cái
    * nào. So không phân biệt hoa thường, vì hai cái tên đó mắt đọc ra như nhau.
@@ -580,6 +595,14 @@ export const renameReportFolderBodySchema = z.object({ name: folderNameRule });
  * mục của người dùng.
  */
 export const moveReportBodySchema = z.object({
+  folderId: z.coerce.number().int().positive().nullable(),
+});
+
+export const createDatasetFolderBodySchema = z.object({ name: folderNameRule });
+export const renameDatasetFolderBodySchema = z.object({ name: folderNameRule });
+
+/** Chuyển một bộ dữ liệu sang thư mục khác — cùng luật với `moveReportBodySchema`. */
+export const moveDatasetBodySchema = z.object({
   folderId: z.coerce.number().int().positive().nullable(),
 });
 
@@ -672,6 +695,8 @@ export const syncBodySchema = z.object({
    * chọn workspace đầu tiên. Giao diện LUÔN gửi workspace đang mở.
    */
   workspaceId: z.coerce.number().int().positive().optional(),
+  /** Thư mục nhận những bảng đồng bộ về — §7.9. Vắng mặt = Chung. */
+  folderId: z.coerce.number().int().positive().nullable().optional(),
   tables: z
     .array(
       z.object({
@@ -713,6 +738,11 @@ export const listDatasetsQuerySchema = paginationSchema.extend({
    * dựng mô hình lên.
    */
   loadStatus: z.enum(LOAD_STATUSES).optional(),
+  /**
+   * Lọc theo thư mục — §7.9. Một CHUỖI, không phải số; xem
+   * `listReportsQuerySchema.folder` để biết vì sao.
+   */
+  folder: z.string().trim().max(20).optional(),
   sort: z.string().optional(),
   order: z.enum(['asc', 'desc']).default('desc'),
 });
