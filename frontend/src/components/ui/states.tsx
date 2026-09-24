@@ -22,7 +22,21 @@ export function EmptyState({
     <div className="rounded-xl border border-dashed border-slate-300 bg-white px-6 py-14 text-center">
       <p className="text-sm font-medium text-slate-700">{title}</p>
       {hint && <p className="mx-auto mt-1 max-w-sm text-sm text-slate-500">{hint}</p>}
-      {action && <div className="mt-4">{action}</div>}
+      {/*
+       * `flex justify-center`, KHÔNG dựa vào `text-center` của thẻ cha.
+       *
+       * `text-align` chỉ căn được nội dung INLINE. Phần lớn nút truyền vào đây
+       * là `Button` (`inline-flex`) nên nó trúng — nhưng một hành động bọc
+       * trong thẻ `div` của riêng nó thì không, và nó dạt hẳn sang mép trái
+       * giữa một khung căn giữa. Đúng chuyện đã xảy ra với nút "Tạo báo cáo"
+       * trong một thư mục rỗng: `CreateReportMenu` bọc ngoài một
+       * `div.relative` để neo menu thả xuống.
+       *
+       * Căn ở ĐÂY chứ không bắt từng nơi gọi tự bọc thêm một lớp: hai trang đã
+       * phải tự viết `flex justify-center` cho đúng việc này, và trang thứ ba
+       * quên là lại lệch đúng như vậy.
+       */}
+      {action && <div className="mt-4 flex flex-wrap justify-center gap-2">{action}</div>}
     </div>
   );
 }
