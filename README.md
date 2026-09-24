@@ -1243,8 +1243,14 @@ Xem mục _Xem trước, sửa sau_ bên dưới.
 
 Một workspace dùng được vài tháng có vài chục báo cáo, và tới trước bản này tab
 Báo cáo là một danh sách phẳng đúng bấy nhiêu dòng — cách duy nhất để tìm là gõ
-đúng tên. Bản này thêm một cột thư mục bên trái: **Tất cả**, **Chung**, rồi từng
-thư mục người dùng tự tạo, mỗi dòng kèm số báo cáo.
+đúng tên. Bản này thêm một cột thư mục bên trái: **Tất cả báo cáo**, **Chung**,
+rồi tiêu đề **THƯ MỤC** kèm nút **+**, và dưới đó là từng thư mục người dùng tự
+tạo, mỗi dòng có icon và số báo cáo.
+
+Nút **+** nằm trong chính cột đó, không ở thanh tiêu đề trang: nó đứng ngay cạnh
+thứ nó tạo ra. Bản đầu đặt một nút "Thư mục mới" cạnh nút "Tạo báo cáo" trên
+thanh trên cùng — hai nút khác hẳn nhau về hậu quả, đứng sát nhau, chữ na ná
+nhau, và cách danh sách thư mục nửa màn hình.
 
 ⚠️ Bản này có **migration 37** (`report_folders` + `reports.folder_id`). Kéo code
 về xong phải chạy `npm --workspace backend run migrate`, và chạy thêm một lần nữa

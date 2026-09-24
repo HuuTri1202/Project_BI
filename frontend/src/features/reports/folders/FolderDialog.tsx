@@ -69,7 +69,7 @@ export function FolderDialog({
       description={
         doiTen
           ? 'Báo cáo bên trong không đổi chỗ.'
-          : 'Thư mục để gom báo cáo theo chủ đề. Tạo xong, kéo báo cáo vào bằng mục “Chuyển tới thư mục”.'
+          : 'Thư mục để gom báo cáo theo chủ đề. Tạo xong, đưa báo cáo vào bằng mục “Chuyển tới thư mục” ở menu ⋮ của từng dòng.'
       }
       footer={
         <>

@@ -89,7 +89,8 @@ export function MoveReportDialog({
 
         {folders.length === 0 && (
           <p className="pt-1 text-sm text-slate-500">
-            Chưa có thư mục nào. Bấm “Thư mục mới” ở cột bên trái để tạo cái đầu tiên.
+            Chưa có thư mục nào. Đóng hộp này rồi bấm dấu + ở mục “Thư mục” bên trái để tạo cái đầu
+            tiên.
           </p>
         )}
       </div>

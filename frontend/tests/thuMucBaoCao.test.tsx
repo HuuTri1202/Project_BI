@@ -27,19 +27,25 @@ const THU_MUC: ReportFolderDto[] = [
   { id: 12, workspaceId: 1, name: 'Nhân sự', reportCount: 0, createdAt: '', updatedAt: '' },
 ];
 
-function ve(dang: number | null | undefined, onChon = vi.fn()): { onChon: typeof onChon } {
+function ve(
+  dang: number | null | undefined,
+  onChon = vi.fn(),
+  onThemMoi = vi.fn(),
+  folders: readonly ReportFolderDto[] = THU_MUC,
+): { onChon: typeof onChon; onThemMoi: typeof onThemMoi } {
   render(
     <FolderRail
-      folders={THU_MUC}
+      folders={folders}
       chungCount={3}
       dang={dang}
       onChon={onChon}
       canEdit
+      onThemMoi={onThemMoi}
       onDoiTen={vi.fn()}
       onXoa={vi.fn()}
     />,
   );
-  return { onChon };
+  return { onChon, onThemMoi };
 }
 
 /** Dòng trong cột thư mục, tìm theo tên đứng đầu. */
@@ -135,7 +141,7 @@ describe('FolderRail', () => {
     ]);
   });
 
-  it('viewer không thấy menu nào', () => {
+  it('viewer không thấy menu nào, và cũng không thấy nút thêm', () => {
     render(
       <FolderRail
         folders={THU_MUC}
@@ -143,10 +149,34 @@ describe('FolderRail', () => {
         dang={undefined}
         onChon={vi.fn()}
         canEdit={false}
+        onThemMoi={vi.fn()}
         onDoiTen={vi.fn()}
         onXoa={vi.fn()}
       />,
     );
     expect(screen.queryByRole('button', { name: /Thao tác trên thư mục/ })).toBeNull();
+    // Backend trả 403 cho họ; bày một cái nút chỉ để báo lỗi là một cái bẫy.
+    expect(screen.queryByRole('button', { name: 'Thêm thư mục' })).toBeNull();
+  });
+
+  it('nút "+" nằm NGAY TRONG cột, và còn đó cả khi chưa có thư mục nào', () => {
+    /*
+     * Đây là chỗ DUY NHẤT tạo được thư mục từ khi nút trên thanh tiêu đề bị bỏ
+     * đi. Ẩn nó lúc danh sách rỗng — một phản xạ dễ mắc khi viết nhánh "trống" —
+     * là khoá hẳn tính năng đúng vào lúc người dùng cần nó nhất: lần đầu.
+     */
+    const { onThemMoi } = ve(undefined, vi.fn(), vi.fn(), []);
+
+    const them = screen.getByRole('button', { name: 'Thêm thư mục' });
+    fireEvent.click(them);
+    expect(onThemMoi).toHaveBeenCalledTimes(1);
+
+    // Và cột trống vẫn nói ra mình dùng để làm gì.
+    expect(screen.getByText(/Chưa có thư mục nào/)).toBeTruthy();
+  });
+
+  it('dòng đầu gọi đúng tên thứ nó lọc: BÁO CÁO, không phải bộ dữ liệu', () => {
+    ve(undefined);
+    expect(dong('Tất cả').textContent).toContain('Tất cả báo cáo');
   });
 });

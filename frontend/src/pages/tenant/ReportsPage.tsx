@@ -131,15 +131,12 @@ export default function ReportsPage(): React.ReactElement {
         actions={
           /* Ẩn nút với viewer. Backend cũng chặn bằng 403, nhưng để nút bấm được
              rồi mới báo lỗi là bày ra một cái bẫy không có lý do gì để tồn tại. */
-          canEdit ? (
-            <div className="flex items-center gap-2">
-              {/* "Thư mục mới" đứng TRƯỚC "Tạo báo cáo", và nhạt hơn: gom chỗ là
-                  việc thỉnh thoảng mới làm, dựng báo cáo là việc chính. */}
-              <Button onClick={() => setSuaThuMuc(null)}>Thư mục mới</Button>
-              {/* Báo cáo mới rơi vào thư mục ĐANG MỞ — xem `CreateReportMenu`. */}
-              <CreateReportMenu folder={query.folder} />
-            </div>
-          ) : undefined
+          /* CHỈ "Tạo báo cáo" ở đây. Nút thêm thư mục nằm trong cột bên trái,
+             ngay cạnh danh sách nó tạo ra — xem `FolderRail`. Hai nút chữ na ná
+             nhau ("Thư mục mới" / "Tạo báo cáo") đứng sát nhau trên cùng một
+             thanh là chỗ bấm nhầm không có lý do gì để tồn tại.
+             Báo cáo mới rơi vào thư mục ĐANG MỞ — xem `CreateReportMenu`. */
+          canEdit ? <CreateReportMenu folder={query.folder} /> : undefined
         }
       >
         <div className="mt-4">
@@ -164,6 +161,7 @@ export default function ReportsPage(): React.ReactElement {
             dang={dangMo}
             onChon={chonThuMuc}
             canEdit={canEdit}
+            onThemMoi={() => setSuaThuMuc(null)}
             onDoiTen={setSuaThuMuc}
             onXoa={setXoaThuMucNao}
           />
