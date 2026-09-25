@@ -362,6 +362,62 @@ describe('§7.4 khoá lưu trữ do SERVER sinh', () => {
     expect(key).toMatch(new RegExp(`^t${f.tenantA}/w${f.workspaceA}/`));
   });
 
+  it('khoá mang theo TÊN file để nhìn vào bucket là nhận ra', async () => {
+    /*
+     * `t4/w5/ffb0134f-....xlsx` đúng về kỹ thuật nhưng không ai đọc được: mở
+     * MinIO ra chỉ thấy một dãy UUID, muốn biết cái nào là cái nào thì phải tra
+     * ngược trong database. Giờ tên người dùng đặt đứng TRƯỚC, nên danh sách
+     * sắp xếp theo tên là đọc được ngay.
+     */
+    const res = await request(app)
+      .post('/api/v1/datasets/uploads')
+      .set(bearer(f.tokenAdminA))
+      .send({ workspaceId: f.workspaceA, filename: 'Báo cáo quý 4.csv' });
+
+    expect(res.status).toBe(201);
+
+    const [rows] = await mysqlPool.query<RowDataPacket[]>(
+      'SELECT s3_key FROM datasets WHERE id = ?',
+      [res.body.datasetId],
+    );
+    const key = String(rows[0]?.['s3_key']);
+
+    // Bỏ dấu tiếng Việt chứ không nghiền nát chữ.
+    expect(key).toMatch(
+      new RegExp(`^t${f.tenantA}/w${f.workspaceA}/bao-cao-quy-4__[0-9a-f-]{36}\\.csv$`),
+    );
+    // Vé ghi trỏ vào ĐÚNG khoá đó — không phải một khoá khác được sinh lại.
+    expect(decodeURIComponent(res.body.uploadUrl as string)).toContain(key);
+  });
+
+  it('tên file có `../` KHÔNG thoát ra khỏi tiền tố tổ chức', async () => {
+    /*
+     * Vé ghi cấp cho một khoá có hiệu lực 15 phút và không cần token nào nữa.
+     * Nếu tên file lọt được một dấu `/` vào khoá thì trình duyệt sẽ ghi thẳng đè
+     * lên file của tổ chức khác, và không middleware nào nhìn thấy — việc ghi
+     * diễn ra giữa trình duyệt và S3.
+     */
+    const res = await request(app)
+      .post('/api/v1/datasets/uploads')
+      .set(bearer(f.tokenAdminA))
+      .send({ workspaceId: f.workspaceA, filename: '../../t999/w999/chiem-doat.csv' });
+
+    expect(res.status).toBe(201);
+
+    const [rows] = await mysqlPool.query<RowDataPacket[]>(
+      'SELECT s3_key FROM datasets WHERE id = ?',
+      [res.body.datasetId],
+    );
+    const key = String(rows[0]?.['s3_key']);
+
+    expect(key.split('/')).toHaveLength(3);
+    expect(key.startsWith(`t${f.tenantA}/w${f.workspaceA}/`)).toBe(true);
+    expect(key).not.toContain('..');
+    // Ten to chuc kia bi bop vao SLUG, khong con la mot doan duong dan nua.
+    expect(key).not.toContain('t999/w999');
+    expect(key.split('/')[2]).toMatch(/^t999-w999-chiem-doat__/);
+  });
+
   it('đuôi file lạ bị từ chối ngay, không tạo bản ghi', async () => {
     const res = await request(app)
       .post('/api/v1/datasets/uploads')

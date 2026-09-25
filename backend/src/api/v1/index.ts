@@ -424,7 +424,7 @@ v1Router.post(
     await kiemHanMuc(mysqlPool, auth.tenantId, 'storageBytes', new Date(), 0);
 
     const workspace = await resolveWorkspace(mysqlPool, auth.tenantId, body.workspaceId);
-    const s3Key = buildStorageKey(auth.tenantId, workspace.id, ext);
+    const s3Key = buildStorageKey(auth.tenantId, workspace.id, body.filename, ext);
 
     // §7.9 — thư mục ghi vào bản ghi `pending` NGAY từ đây, không đợi tới lúc
     // chốt sheet: nếu người dùng bỏ dở wizard thì bản ghi rác ấy vẫn nằm đúng
