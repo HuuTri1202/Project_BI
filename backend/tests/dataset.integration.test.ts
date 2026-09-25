@@ -1,4 +1,4 @@
-﻿import type { RowDataPacket } from 'mysql2';
+﻿import type { ResultSetHeader, RowDataPacket } from 'mysql2';
 import request from 'supertest';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 
@@ -362,6 +362,62 @@ describe('§7.4 khoá lưu trữ do SERVER sinh', () => {
     expect(key).toMatch(new RegExp(`^t${f.tenantA}/w${f.workspaceA}/`));
   });
 
+  it('khoá mang theo TÊN file để nhìn vào bucket là nhận ra', async () => {
+    /*
+     * `t4/w5/ffb0134f-....xlsx` đúng về kỹ thuật nhưng không ai đọc được: mở
+     * MinIO ra chỉ thấy một dãy UUID, muốn biết cái nào là cái nào thì phải tra
+     * ngược trong database. Giờ tên người dùng đặt đứng TRƯỚC, nên danh sách
+     * sắp xếp theo tên là đọc được ngay.
+     */
+    const res = await request(app)
+      .post('/api/v1/datasets/uploads')
+      .set(bearer(f.tokenAdminA))
+      .send({ workspaceId: f.workspaceA, filename: 'Báo cáo quý 4.csv' });
+
+    expect(res.status).toBe(201);
+
+    const [rows] = await mysqlPool.query<RowDataPacket[]>(
+      'SELECT s3_key FROM datasets WHERE id = ?',
+      [res.body.datasetId],
+    );
+    const key = String(rows[0]?.['s3_key']);
+
+    // Bỏ dấu tiếng Việt chứ không nghiền nát chữ.
+    expect(key).toMatch(
+      new RegExp(`^t${f.tenantA}/w${f.workspaceA}/bao-cao-quy-4__[0-9a-f-]{36}\\.csv$`),
+    );
+    // Vé ghi trỏ vào ĐÚNG khoá đó — không phải một khoá khác được sinh lại.
+    expect(decodeURIComponent(res.body.uploadUrl as string)).toContain(key);
+  });
+
+  it('tên file có `../` KHÔNG thoát ra khỏi tiền tố tổ chức', async () => {
+    /*
+     * Vé ghi cấp cho một khoá có hiệu lực 15 phút và không cần token nào nữa.
+     * Nếu tên file lọt được một dấu `/` vào khoá thì trình duyệt sẽ ghi thẳng đè
+     * lên file của tổ chức khác, và không middleware nào nhìn thấy — việc ghi
+     * diễn ra giữa trình duyệt và S3.
+     */
+    const res = await request(app)
+      .post('/api/v1/datasets/uploads')
+      .set(bearer(f.tokenAdminA))
+      .send({ workspaceId: f.workspaceA, filename: '../../t999/w999/chiem-doat.csv' });
+
+    expect(res.status).toBe(201);
+
+    const [rows] = await mysqlPool.query<RowDataPacket[]>(
+      'SELECT s3_key FROM datasets WHERE id = ?',
+      [res.body.datasetId],
+    );
+    const key = String(rows[0]?.['s3_key']);
+
+    expect(key.split('/')).toHaveLength(3);
+    expect(key.startsWith(`t${f.tenantA}/w${f.workspaceA}/`)).toBe(true);
+    expect(key).not.toContain('..');
+    // Ten to chuc kia bi bop vao SLUG, khong con la mot doan duong dan nua.
+    expect(key).not.toContain('t999/w999');
+    expect(key.split('/')[2]).toMatch(/^t999-w999-chiem-doat__/);
+  });
+
   it('đuôi file lạ bị từ chối ngay, không tạo bản ghi', async () => {
     const res = await request(app)
       .post('/api/v1/datasets/uploads')
@@ -382,6 +438,116 @@ describe('§7.4 khoá lưu trữ do SERVER sinh', () => {
       .send({ workspaceId: f.workspaceA, filename: 'bao-cao.xls' });
 
     expect(res.status).toBe(400);
+  });
+});
+
+describe('§7.4 trang chi tiết chỉ ra tệp gốc nằm đâu trên MinIO', () => {
+  /*
+   * ═══ Bộ này canh gì ═══════════════════════════════════════════════════════
+   *
+   * Kho phân tích đã tự khai chỗ đứng của mình bằng tên bảng `raw_t…_d…`. Phía
+   * kho TỆP thì không có gì tương đương, nên câu hỏi "bộ dữ liệu này ứng với
+   * đối tượng nào trong bucket" chỉ trả lời được bằng cách mở database ra tra
+   * — và đó là chỗ người ta tra nhầm rồi đi xoá nhầm tệp.
+   *
+   * Khoá đi kèm bản CHI TIẾT chứ không đi kèm danh sách, và bài cuối của bộ này
+   * canh đúng ranh giới đó.
+   */
+
+  it('bản chi tiết mang khoá đối tượng và tên bucket', async () => {
+    const datasetId = await uploadAndCommit(f.tokenAdminA);
+
+    const res = await request(app)
+      .get(`/api/v1/datasets/${datasetId}`)
+      .set(bearer(f.tokenAdminA))
+      .expect(200);
+
+    const [rows] = await mysqlPool.query<RowDataPacket[]>(
+      'SELECT s3_key FROM datasets WHERE id = ?',
+      [datasetId],
+    );
+    // Đúng khoá đang nằm trong database, không phải một chuỗi dựng lại từ id:
+    // phần định danh là UUID ngẫu nhiên nên không có cách nào đoán ra nó.
+    expect(res.body.file.key).toBe(String(rows[0]?.['s3_key']));
+    expect(res.body.file.key).toMatch(new RegExp(`^t${f.tenantA}/w${f.workspaceA}/`));
+
+    // Bucket đọc từ cấu hình, không viết cứng: giao diện MinIO bắt đầu bằng
+    // việc chọn bucket, nên thiếu nó thì khoá kia chỉ đúng một nửa.
+    expect(res.body.file.bucket).toBe('bi-datasets-test');
+  });
+
+  it('nguồn `connection` không có tệp nào -> `file` là null', async () => {
+    // Bảng đồng bộ từ CSDL không đi qua MinIO: dữ liệu ở lại bên khách hàng cho
+    // tới lúc nạp vào kho phân tích. Trả về một khoá rỗng hay một chuỗi giả ở
+    // đây sẽ khiến giao diện bày ra một nhãn dẫn tới hư không.
+    const [r] = await mysqlPool.query<ResultSetHeader>(
+      `INSERT INTO datasets
+         (tenant_id, workspace_id, source, name, status, source_schema, source_table)
+       VALUES (?, ?, 'connection', 'Đơn hàng', 'ready', 'shop', 'orders')`,
+      [f.tenantA, f.workspaceA],
+    );
+
+    const res = await request(app)
+      .get(`/api/v1/datasets/${r.insertId}`)
+      .set(bearer(f.tokenAdminA))
+      .expect(200);
+
+    expect(res.body.file).toBeNull();
+  });
+
+  it('mọi sheet của CÙNG một file trỏ về CÙNG một đối tượng', async () => {
+    /*
+     * Đây là điều giao diện buộc phải nói ra. Một workbook ba sheet sinh ra ba
+     * bộ dữ liệu, và người dùng nhìn ba nhãn giống hệt nhau sẽ tưởng mình đọc
+     * nhầm — hoặc tệ hơn, đi tìm ba tệp riêng trong bucket rồi kết luận hệ
+     * thống mất tệp.
+     */
+    const ExcelJS = await import('exceljs');
+    const wb = new ExcelJS.default.Workbook();
+    for (const ten of ['Doanh thu', 'Chi phi']) {
+      const sheet = wb.addWorksheet(ten);
+      sheet.addRow(['Cot', 'So']);
+      sheet.addRow(['A', 1]);
+    }
+
+    const datasetId = await upload(
+      f.tokenAdminA,
+      'bao-cao.xlsx',
+      Buffer.from(await wb.xlsx.writeBuffer()),
+    );
+    await request(app)
+      .post(`/api/v1/datasets/${datasetId}/analyze`)
+      .set(bearer(f.tokenAdminA))
+      .expect(200);
+
+    const bo = await commitSheets(f.tokenAdminA, datasetId, ['Doanh thu', 'Chi phi']);
+    expect(bo).toHaveLength(2);
+
+    const khoa: string[] = [];
+    for (const b of bo) {
+      const res = await request(app)
+        .get(`/api/v1/datasets/${b.id}`)
+        .set(bearer(f.tokenAdminA))
+        .expect(200);
+      khoa.push(res.body.file.key as string);
+    }
+    expect(khoa[0]).toBe(khoa[1]);
+  });
+
+  it('DANH SÁCH không mang khoá — nó đi kèm bản chi tiết', async () => {
+    // Hai mươi chuỗi UUID trong mỗi lần tải danh sách là chỗ trả cho một câu
+    // hỏi không ai đặt ở đó. Bài này giữ ranh giới ấy khỏi trôi.
+    await uploadAndCommit(f.tokenAdminA);
+
+    const res = await request(app)
+      .get('/api/v1/datasets')
+      .query({ workspaceId: f.workspaceA })
+      .set(bearer(f.tokenAdminA))
+      .expect(200);
+
+    expect(res.body.items.length).toBeGreaterThan(0);
+    expect(res.body.items[0].file).toBeUndefined();
+    expect(res.body.items[0].s3Key).toBeUndefined();
   });
 });
 

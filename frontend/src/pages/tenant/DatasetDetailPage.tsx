@@ -11,6 +11,7 @@ import { usePermissions } from '../../auth/usePermissions';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
+import { MaHaTang } from '../../components/ui/MaHaTang';
 import { Page, PageBody, PageHeader } from '../../components/ui/Page';
 import { Pagination } from '../../components/ui/Pagination';
 import { TBody, TableWrap, Td, Th, THead, Tr } from '../../components/ui/Table';
@@ -120,7 +121,36 @@ export default function DatasetDetailPage(): React.ReactElement {
             {data?.name ?? '…'}
           </>
         }
-        description={meta.length > 0 ? meta.join(' · ') : undefined}
+        description={
+          data && (
+            <span className="flex flex-wrap items-center gap-x-1.5 gap-y-1">
+              {meta.length > 0 && <span>{meta.join(' · ')}</span>}
+              {/*
+               * Khoá đối tượng trên MinIO — đối xứng với `raw_t…_d…` ở tab Kho
+               * phân tích, và đứng ở ĐẦU TRANG chứ không nằm trong một tab.
+               *
+               * Nó định danh TỆP GỐC, mà tệp gốc được gọi tên ngay bên trái
+               * ("database (1).xlsx"). Nhét nó vào tab "Dữ liệu" thì sai chỗ:
+               * tab đó đọc dòng từ MySQL, không đọc gì từ MinIO. Nhét vào tab
+               * "Kho phân tích" thì lẫn hai kho làm một.
+               *
+               * Chỉ nguồn `file` mới có — nguồn `connection` không tải tệp nào
+               * lên, dữ liệu ở lại trong CSDL của khách hàng.
+               */}
+              {data.file !== null && (
+                <>
+                  <span aria-hidden="true">·</span>
+                  <MaHaTang
+                    ma={data.file.key}
+                    giaiThich={`Tệp gốc trên MinIO, bucket ${data.file.bucket}${
+                      data.sheetName === null ? '' : ' — mọi sheet của file này dùng chung một tệp'
+                    }`}
+                  />
+                </>
+              )}
+            </span>
+          )
+        }
         actions={
           data && (
             <>
