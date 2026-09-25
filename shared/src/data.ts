@@ -323,6 +323,23 @@ export interface DatasetDto {
 
 export interface DatasetDetailDto extends DatasetDto {
   columns: DatasetColumnDto[];
+  /**
+   * Chỗ TỆP GỐC nằm trên MinIO/S3 — đối xứng với `chTable` của kho phân tích.
+   *
+   * `null` với nguồn `connection`: không có tệp nào được tải lên, dữ liệu ở lại
+   * trong CSDL của khách hàng.
+   *
+   * ⚠️ NHIỀU bộ dữ liệu dùng CHUNG một khoá. Một file Excel bốn sheet sinh ra
+   * bốn bộ dữ liệu, và cả bốn trỏ về đúng một đối tượng — `commitDatasets` chép
+   * cùng `s3Key` xuống từng dòng. Giao diện phải nói ra điều đó, nếu không người
+   * dùng sẽ đi tìm bốn tệp riêng trong bucket.
+   *
+   * Lộ khoá ra đây KHÔNG hạ thấp bảo mật: presigned URL bắt buộc mang khoá
+   * trong đường dẫn, nên trình duyệt đã biết khoá của chính nó từ bước xin chỗ
+   * tải lên. Thứ bảo vệ thật là khoá do server sinh, mang tiền tố tổ chức và một
+   * UUID ngẫu nhiên — xem `services/dataset/storageKey.ts`.
+   */
+  file: { bucket: string; key: string } | null;
 }
 
 /**

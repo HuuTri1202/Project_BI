@@ -544,7 +544,25 @@ v1Router.post(
 async function readDatasetDetail(tenantId: number, id: number): Promise<DatasetDetailDto> {
   const dataset = await datasetsRepo.findOne(mysqlPool, tenantId, id);
   if (!dataset) throw notFound('Không tìm thấy bộ dữ liệu này.');
-  return { ...dataset, columns: await datasetsRepo.listColumns(mysqlPool, id) };
+
+  /*
+   * Khoá lưu trữ đi kèm bản CHI TIẾT, không đi kèm danh sách.
+   *
+   * Trang chi tiết là nơi người ta hỏi "tệp này nằm đâu trong bucket" — thường
+   * là lúc đối chiếu với giao diện MinIO. Danh sách hai mươi dòng thì không, và
+   * hai mươi chuỗi UUID trong mỗi lần tải trang là chỗ trả cho một câu hỏi
+   * không ai đặt ở đó.
+   *
+   * `findStorageKey` đã lọc `source = 'file'`, nên nguồn `connection` ra `null`
+   * mà không cần thêm nhánh nào ở đây.
+   */
+  const luuTru = await datasetsRepo.findStorageKey(mysqlPool, tenantId, id);
+
+  return {
+    ...dataset,
+    columns: await datasetsRepo.listColumns(mysqlPool, id),
+    file: luuTru === null ? null : { bucket: env.S3_BUCKET, key: luuTru.key },
+  };
 }
 
 /**

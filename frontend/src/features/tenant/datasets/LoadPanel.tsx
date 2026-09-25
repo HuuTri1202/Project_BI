@@ -9,6 +9,7 @@ import { useState } from 'react';
 import { usePermissions } from '../../../auth/usePermissions';
 import { Badge } from '../../../components/ui/Badge';
 import { Button } from '../../../components/ui/Button';
+import { MaHaTang } from '../../../components/ui/MaHaTang';
 import { Pagination } from '../../../components/ui/Pagination';
 import { TBody, TableWrap, Td, Th, THead, Tr } from '../../../components/ui/Table';
 import { EmptyState, ErrorState, TableSkeleton } from '../../../components/ui/states';
@@ -92,10 +93,11 @@ export function LoadPanel({
             </span>
           )}
           {data?.finishedAt && <span>{new Date(data.finishedAt).toLocaleString('vi-VN')}</span>}
+          {/* Cùng hình dạng, cùng cách bấm với nhãn khoá MinIO ở đầu trang:
+              hai nhãn trông giống hệt nhau mà một cái chép được còn cái kia
+              thì không là thứ người dùng phải thử mới biết. */}
           {data?.chTable && (
-            <code className="rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-600">
-              {data.chTable}
-            </code>
+            <MaHaTang ma={data.chTable} giaiThich="Bảng trong kho phân tích ClickHouse" />
           )}
         </div>
 
