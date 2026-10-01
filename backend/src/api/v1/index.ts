@@ -77,6 +77,8 @@ import { isQrKey } from '../../services/billing/qrImage';
 import { deleteDataset } from '../../services/connections/deleteDataset';
 import { DEFAULT_PORTS, DEFAULT_SSL, REQUIRED_GRANTS } from '../../services/connections/drivers';
 import { previewDataset } from '../../services/connections/previewDataset';
+import { scopeOfAuth, type WorkspaceScope } from '../../repositories/workspaceScope';
+import * as workspaceMembersRepo from '../../repositories/workspaceMembers';
 import { syncDatasets } from '../../services/connections/syncDatasets';
 import {
   getLoadStatus,
@@ -150,6 +152,7 @@ import {
   listReportsQuerySchema,
   moveReportBodySchema,
   renameReportFolderBodySchema,
+  setMemberWorkspacesBodySchema,
   workspaceScopeQuerySchema,
   orderCodeParamSchema,
   renameDatasetBodySchema,
@@ -266,13 +269,33 @@ v1Router.get(
  * cái khác. Người dùng đang chủ động chọn nó; đổi ngầm sẽ khiến họ tưởng mình
  * đang xem workspace này trong khi thật ra là workspace kia.
  */
+/**
+ * Phạm vi workspace của người đang gọi — migration 40.
+ *
+ * Đọc từ `req.auth`, nơi `requireFreshMembership` vừa ghi đè vai trò TƯƠI từ
+ * database. Dựng lại ở mỗi chỗ gọi thay vì nhớ một lần vào `req`: nó rẻ (ba
+ * trường, không truy vấn gì) và không tạo thêm một trạng thái có thể cũ.
+ */
+function phamVi(req: Request): WorkspaceScope {
+  return scopeOfAuth(requireAuth(req));
+}
+
 async function resolveWorkspace(
   db: Db,
-  tenantId: number,
+  scope: WorkspaceScope,
   id: number | undefined,
 ): Promise<WorkspaceOptionDto> {
   if (id !== undefined) {
-    const found = await adminWorkspacesRepo.findOne(db, tenantId, id);
+    /*
+     * `findOneVisibleToUser` — migration 40.
+     *
+     * Trả `null` CẢ KHI workspace có thật mà người gọi không được vào, và nơi
+     * này biến nó thành 404 y như id bịa. Phân biệt bằng 403 sẽ xác nhận rằng
+     * workspace đó tồn tại — đủ để dò ra cơ cấu phòng ban của một công ty bằng
+     * cách đếm số trên thanh địa chỉ. Cùng lập luận đã dùng cho ranh giới tổ
+     * chức ngay bên dưới.
+     */
+    const found = await adminWorkspacesRepo.findOneVisibleToUser(db, scope, id);
     if (!found) throw notFound('Không tìm thấy workspace này.');
     if (!found.isActive) {
       throw new HttpError(
@@ -284,7 +307,7 @@ async function resolveWorkspace(
     return { id: found.id, name: found.name, slug: found.slug, isActive: found.isActive };
   }
 
-  const all = await adminWorkspacesRepo.listWithReportCount(db, tenantId);
+  const all = await adminWorkspacesRepo.listVisibleToUser(db, scope);
   const first = all.find((w) => w.isActive);
   if (!first) {
     // Tổ chức nào cũng được tạo kèm một workspace lúc đăng ký, nên tới đây nghĩa
@@ -293,7 +316,7 @@ async function resolveWorkspace(
     throw new HttpError(
       409,
       WORKSPACE_ERROR_CODES.NO_WORKSPACE,
-      'Tổ chức chưa có workspace nào dùng được. Quản trị viên cần tạo một workspace.',
+      'Bạn chưa được thêm vào workspace nào đang dùng được. Hãy nhờ quản trị viên tổ chức thêm bạn vào một workspace.',
     );
   }
   return { id: first.id, name: first.name, slug: first.slug, isActive: first.isActive };
@@ -315,7 +338,7 @@ v1Router.get(
     const { tenantId } = requireAuth(req);
     const { workspaceId } = homeQuerySchema.parse(req.query);
 
-    const workspace = await resolveWorkspace(mysqlPool, tenantId, workspaceId);
+    const workspace = await resolveWorkspace(mysqlPool, phamVi(req), workspaceId);
 
     // Tuần tự chứ không `Promise.all`: pool chỉ có 10 connection, và chiếm gấp
     // đôi connection để tiết kiệm vài mili-giây trên trang mà MỌI người dùng mở
@@ -423,7 +446,7 @@ v1Router.post(
      */
     await kiemHanMuc(mysqlPool, auth.tenantId, 'storageBytes', new Date(), 0);
 
-    const workspace = await resolveWorkspace(mysqlPool, auth.tenantId, body.workspaceId);
+    const workspace = await resolveWorkspace(mysqlPool, phamVi(req), body.workspaceId);
     const s3Key = buildStorageKey(auth.tenantId, workspace.id, body.filename, ext);
 
     // §7.9 — thư mục ghi vào bản ghi `pending` NGAY từ đây, không đợi tới lúc
@@ -500,7 +523,7 @@ v1Router.post(
     const { id } = idParamSchema.parse(req.params);
     const body = commitDatasetsBodySchema.parse(req.body);
 
-    const staged = await datasetsRepo.findOne(mysqlPool, auth.tenantId, id);
+    const staged = await datasetsRepo.findOne(mysqlPool, phamVi(req), id);
     // `originalFilename` chỉ null với bộ dữ liệu nguồn `connection`;
     // `requireDataset` ngay dưới đây lọc đúng nguồn `file`, nhưng kiểu vẫn cho
     // phép null nên phải chốt ở đây thay vì ép kiểu.
@@ -528,7 +551,7 @@ v1Router.post(
 
     const details: DatasetDetailDto[] = [];
     for (const item of committed) {
-      details.push(await readDatasetDetail(auth.tenantId, item.id));
+      details.push(await readDatasetDetail(phamVi(req), item.id));
     }
     res.json(details);
   }),
@@ -541,8 +564,9 @@ v1Router.post(
  * lại: route đọc chi tiết ở §8.5 và bước 3 của wizard §7 trả về cùng một hình
  * dạng, nên frontend chỉ có một `DatasetDetail` để hiển thị.
  */
-async function readDatasetDetail(tenantId: number, id: number): Promise<DatasetDetailDto> {
-  const dataset = await datasetsRepo.findOne(mysqlPool, tenantId, id);
+async function readDatasetDetail(scope: WorkspaceScope, id: number): Promise<DatasetDetailDto> {
+  const tenantId = scope.tenantId;
+  const dataset = await datasetsRepo.findOne(mysqlPool, scope, id);
   if (!dataset) throw notFound('Không tìm thấy bộ dữ liệu này.');
 
   /*
@@ -577,8 +601,9 @@ async function readDatasetDetail(tenantId: number, id: number): Promise<DatasetD
  * Route `/schema` mới là nơi đối chiếu hai bên và báo cột nào đã đổi kiểu — mở
  * một tab không đáng một vòng gọi sang ClickHouse cho mỗi bảng.
  */
-async function readDataModelDetail(tenantId: number, id: number): Promise<DataModelDetailDto> {
-  const model = await requireDataModel(tenantId, id);
+async function readDataModelDetail(scope: WorkspaceScope, id: number): Promise<DataModelDetailDto> {
+  const tenantId = scope.tenantId;
+  const model = await requireDataModel(scope, id);
 
   const [datasetRows, columnRows, measures, relationships] = await Promise.all([
     datamodelsRepo.listDatasets(mysqlPool, tenantId, id),
@@ -702,7 +727,7 @@ v1Router.post(
     const auth = requireAuth(req);
     const body = createReportBodySchema.parse(req.body);
 
-    const detail = await readDatasetDetail(auth.tenantId, body.datasetId);
+    const detail = await readDatasetDetail(phamVi(req), body.datasetId);
     if (detail.status !== 'ready') {
       throw new HttpError(
         409,
@@ -716,7 +741,7 @@ v1Router.post(
     // người gọi — thà đặt vào chỗ họ đang đứng còn hơn từ chối tạo báo cáo trên
     // một bộ dữ liệu hoàn toàn hợp lệ.
     const workspaceId =
-      detail.workspaceId ?? (await resolveWorkspace(mysqlPool, auth.tenantId, undefined)).id;
+      detail.workspaceId ?? (await resolveWorkspace(mysqlPool, phamVi(req), undefined)).id;
 
     // Hạn mức gói — §11.2. Kiểm và ghi trong CÙNG một khoá, xem `trongHanMuc`.
     // Gắn ở ROUTE vì không có tầng service ở giữa: repository thuần không mang
@@ -733,7 +758,7 @@ v1Router.post(
       }),
     );
 
-    res.status(201).json(await reportsRepo.findById(mysqlPool, auth.tenantId, id));
+    res.status(201).json(await reportsRepo.findById(mysqlPool, phamVi(req), id));
   }),
 );
 
@@ -867,7 +892,7 @@ v1Router.post(
 
     // Tra mô hình TRONG phạm vi tổ chức. Đây là chỗ chặn một id của tổ chức
     // khác, và nó phải đứng trước mọi thứ khác.
-    const model = await datamodelsRepo.findOne(mysqlPool, auth.tenantId, body.datamodelId);
+    const model = await datamodelsRepo.findOne(mysqlPool, phamVi(req), body.datamodelId);
     if (!model) throw notFound('Không tìm thấy mô hình dữ liệu này.');
 
     await assertModelChartConfig(auth.tenantId, model.id, body.chartType, body.config);
@@ -892,7 +917,7 @@ v1Router.post(
       }),
     );
 
-    res.status(201).json(await reportsRepo.findById(mysqlPool, auth.tenantId, id));
+    res.status(201).json(await reportsRepo.findById(mysqlPool, phamVi(req), id));
   }),
 );
 
@@ -914,7 +939,7 @@ v1Router.post(
     const auth = requireAuth(req);
     const body = createCanvasReportBodySchema.parse(req.body);
 
-    const model = await datamodelsRepo.findOne(mysqlPool, auth.tenantId, body.datamodelId);
+    const model = await datamodelsRepo.findOne(mysqlPool, phamVi(req), body.datamodelId);
     if (!model) throw notFound('Không tìm thấy mô hình dữ liệu này.');
 
     const fields = await explorerFields(auth.tenantId, model.id);
@@ -938,7 +963,7 @@ v1Router.post(
       }),
     );
 
-    res.status(201).json(await reportsRepo.findById(mysqlPool, auth.tenantId, id));
+    res.status(201).json(await reportsRepo.findById(mysqlPool, phamVi(req), id));
   }),
 );
 
@@ -958,7 +983,7 @@ v1Router.get(
     const { tenantId } = requireAuth(req);
     const query = listReportsQuerySchema.parse(req.query);
 
-    const workspace = await resolveWorkspace(mysqlPool, tenantId, query.workspaceId);
+    const workspace = await resolveWorkspace(mysqlPool, phamVi(req), query.workspaceId);
 
     const filter: reportsRepo.ListReportsFilter = {
       workspaceId: workspace.id,
@@ -979,10 +1004,9 @@ v1Router.get(
   '/reports/:id',
   authorize('report', 'read'),
   asyncHandler(async (req, res) => {
-    const { tenantId } = requireAuth(req);
     const { id } = idParamSchema.parse(req.params);
 
-    const report = await reportsRepo.findById(mysqlPool, tenantId, id);
+    const report = await reportsRepo.findById(mysqlPool, phamVi(req), id);
     if (!report) throw notFound('Không tìm thấy báo cáo này.');
     res.json(report);
   }),
@@ -1003,7 +1027,7 @@ v1Router.get(
     const { tenantId } = requireAuth(req);
     const { id } = idParamSchema.parse(req.params);
 
-    const report = await reportsRepo.findById(mysqlPool, tenantId, id);
+    const report = await reportsRepo.findById(mysqlPool, phamVi(req), id);
     if (!report) throw notFound('Không tìm thấy báo cáo này.');
 
     // Báo cáo vừa được wizard tạo thì chưa có cấu hình — đó là trạng thái BÌNH
@@ -1049,7 +1073,7 @@ v1Router.get(
     // Bảng đó giờ chỉ giữ một MẪU để xem trước, nên tổng hợp trên nó sẽ cho ra
     // một biểu đồ trông hoàn toàn hợp lý mà sai số liệu — kiểu hỏng tệ nhất
     // trong BI. Xem `aggregateWarehouse.ts`.
-    const dataset = await datasetsRepo.findOne(mysqlPool, tenantId, report.datasetId);
+    const dataset = await datasetsRepo.findOne(mysqlPool, phamVi(req), report.datasetId);
     if (!dataset) throw notFound('Bộ dữ liệu của báo cáo này không còn tồn tại.');
 
     const columns = await datasetsRepo.listColumns(mysqlPool, report.datasetId);
@@ -1103,7 +1127,7 @@ v1Router.get(
     const { id } = idParamSchema.parse(req.params);
     const query = canvasDataQuerySchema.parse(req.query);
 
-    const report = await reportsRepo.findById(mysqlPool, auth.tenantId, id);
+    const report = await reportsRepo.findById(mysqlPool, phamVi(req), id);
     if (!report) throw notFound('Không tìm thấy báo cáo này.');
 
     if (report.canvas === null || report.datamodelId === null) {
@@ -1187,7 +1211,7 @@ v1Router.get(
     const { id, visualId } = visualIdParamSchema.parse(req.params);
     const { page } = reportPageQuerySchema.parse(req.query);
 
-    const report = await reportsRepo.findById(mysqlPool, auth.tenantId, id);
+    const report = await reportsRepo.findById(mysqlPool, phamVi(req), id);
     if (!report) throw notFound('Không tìm thấy báo cáo này.');
 
     if (report.canvas === null || report.datamodelId === null) {
@@ -1220,7 +1244,7 @@ v1Router.patch(
     const { id } = idParamSchema.parse(req.params);
     const body = updateReportBodySchema.parse(req.body);
 
-    const existing = await reportsRepo.findById(mysqlPool, tenantId, id);
+    const existing = await reportsRepo.findById(mysqlPool, phamVi(req), id);
     if (!existing) throw notFound('Không tìm thấy báo cáo này.');
 
     // Thân request ở đây mang cấu hình dạng TÊN CỘT, vốn chỉ có nghĩa với báo
@@ -1242,7 +1266,7 @@ v1Router.patch(
       config: body.config,
     });
 
-    res.json(await reportsRepo.findById(mysqlPool, tenantId, id));
+    res.json(await reportsRepo.findById(mysqlPool, phamVi(req), id));
   }),
 );
 
@@ -1266,7 +1290,7 @@ v1Router.patch(
     const { id } = idParamSchema.parse(req.params);
     const body = updateModelReportBodySchema.parse(req.body);
 
-    const existing = await reportsRepo.findById(mysqlPool, tenantId, id);
+    const existing = await reportsRepo.findById(mysqlPool, phamVi(req), id);
     if (!existing) throw notFound('Không tìm thấy báo cáo này.');
 
     // Ngược chiều với nhánh kia, và cũng cùng lý do: ghi cấu hình dạng ID lên
@@ -1286,7 +1310,7 @@ v1Router.patch(
       config: body.config,
     });
 
-    res.json(await reportsRepo.findById(mysqlPool, tenantId, id));
+    res.json(await reportsRepo.findById(mysqlPool, phamVi(req), id));
   }),
 );
 
@@ -1309,7 +1333,7 @@ v1Router.patch(
     const { id } = idParamSchema.parse(req.params);
     const body = updateCanvasReportBodySchema.parse(req.body);
 
-    const existing = await reportsRepo.findById(mysqlPool, tenantId, id);
+    const existing = await reportsRepo.findById(mysqlPool, phamVi(req), id);
     if (!existing) throw notFound('Không tìm thấy báo cáo này.');
 
     if (existing.source !== 'datamodel' || existing.datamodelId === null) {
@@ -1328,7 +1352,7 @@ v1Router.patch(
       canvas: body.canvas,
     });
 
-    res.json(await reportsRepo.findById(mysqlPool, tenantId, id));
+    res.json(await reportsRepo.findById(mysqlPool, phamVi(req), id));
   }),
 );
 
@@ -1368,13 +1392,13 @@ v1Router.patch(
 
     // Đọc báo cáo TRƯỚC: cần workspace của nó để kiểm thư mục đích cùng chỗ, và
     // cũng là chỗ trả 404 cho một mã của tổ chức khác.
-    const report = await reportsRepo.findById(mysqlPool, tenantId, id);
+    const report = await reportsRepo.findById(mysqlPool, phamVi(req), id);
     if (report === null) throw notFound('Không tìm thấy báo cáo này.');
 
     const folderId = await thuMucDich(tenantId, report.workspaceId, body.folderId);
 
     await reportsRepo.moveReport(mysqlPool, tenantId, id, folderId);
-    res.json(await reportsRepo.findById(mysqlPool, tenantId, id));
+    res.json(await reportsRepo.findById(mysqlPool, phamVi(req), id));
   }),
 );
 
@@ -1394,7 +1418,7 @@ v1Router.get(
   asyncHandler(async (req, res) => {
     const { tenantId } = requireAuth(req);
     const query = workspaceScopeQuerySchema.parse(req.query);
-    const workspace = await resolveWorkspace(mysqlPool, tenantId, query.workspaceId);
+    const workspace = await resolveWorkspace(mysqlPool, phamVi(req), query.workspaceId);
 
     const [items, chungCount] = await Promise.all([
       reportFoldersRepo.listFolders(mysqlPool, tenantId, workspace.id),
@@ -1412,7 +1436,7 @@ v1Router.post(
     const auth = requireAuth(req);
     const query = workspaceScopeQuerySchema.parse(req.query);
     const body = createReportFolderBodySchema.parse(req.body);
-    const workspace = await resolveWorkspace(mysqlPool, auth.tenantId, query.workspaceId);
+    const workspace = await resolveWorkspace(mysqlPool, phamVi(req), query.workspaceId);
 
     const dang = await reportFoldersRepo.countFolders(mysqlPool, auth.tenantId, workspace.id);
     if (dang >= MAX_FOLDERS) {
@@ -1562,8 +1586,7 @@ v1Router.patch(
 v1Router.get(
   '/workspaces',
   asyncHandler(async (req, res) => {
-    const { tenantId } = requireAuth(req);
-    res.json(await adminWorkspacesRepo.listWithReportCount(mysqlPool, tenantId));
+    res.json(await adminWorkspacesRepo.listVisibleToUser(mysqlPool, phamVi(req)));
   }),
 );
 
@@ -1598,7 +1621,7 @@ v1Router.patch(
     });
     if (affected === 0) throw notFound('Không tìm thấy workspace này.');
 
-    res.json(await adminWorkspacesRepo.findOne(mysqlPool, tenantId, id));
+    res.json(await adminWorkspacesRepo.findOneVisibleToUser(mysqlPool, phamVi(req), id));
   }),
 );
 
@@ -1809,6 +1832,97 @@ v1Router.patch(
       return;
     }
     res.json(await adminMembersRepo.findMember(mysqlPool, auth.tenantId, userId));
+  }),
+);
+
+/**
+ * Workspace mà một thành viên vào được — migration 40.
+ *
+ * ═══ Vì sao là endpoint RIÊNG, không nhét vào danh sách thành viên ═════════
+ *
+ * Danh sách thành viên có phân trang, tìm kiếm và sắp xếp; thêm một mảng
+ * workspace vào mỗi dòng nghĩa là mọi lần lật trang lại kéo thêm dữ liệu mà
+ * bảng không hiện. Màn gán là một hộp thoại mở ra cho ĐÚNG MỘT người, nên nó
+ * hỏi đúng lúc nó mở.
+ *
+ * ⚠️ ADMIN trả về danh sách RỖNG, và đó KHÔNG có nghĩa "không vào được gì" —
+ * admin thấy mọi workspace qua `allWorkspaces`, không qua bảng này. Giao diện
+ * phải đọc vai trò trước khi vẽ, nếu không nó sẽ hiện một hộp thoại trống trơn
+ * cho người có nhiều quyền nhất.
+ */
+v1Router.get(
+  '/members/:userId/workspaces',
+  authorize('member', 'read'),
+  asyncHandler(async (req, res) => {
+    const auth = requireAuth(req);
+    const { userId } = userIdParamSchema.parse(req.params);
+
+    // Kiểm người đó CÓ trong tổ chức trước khi trả bất cứ thứ gì: thiếu bước
+    // này thì `?userId=` bất kỳ cho ra một mảng rỗng trông như câu trả lời hợp
+    // lệ, và nó xác nhận rằng mọi id người dùng đều "tồn tại".
+    const member = await adminMembersRepo.findMember(mysqlPool, auth.tenantId, userId);
+    if (!member) throw notFound('Không tìm thấy thành viên này.');
+
+    res.json({
+      workspaceIds: await workspaceMembersRepo.listWorkspaceIds(mysqlPool, auth.tenantId, userId),
+    });
+  }),
+);
+
+v1Router.put(
+  '/members/:userId/workspaces',
+  authorize('member', 'modify'),
+  asyncHandler(async (req, res) => {
+    const auth = requireAuth(req);
+    const { userId } = userIdParamSchema.parse(req.params);
+    const body = setMemberWorkspacesBodySchema.parse(req.body);
+
+    await withTransaction(async (conn) => {
+      const member = await adminMembersRepo.lockMemberForUpdate(conn, auth.tenantId, userId);
+      if (!member || member.removed) throw notFound('Không tìm thấy thành viên này.');
+
+      /*
+       * Gán cho một ADMIN là vô nghĩa, và im lặng chấp nhận thì tệ hơn là từ
+       * chối: admin vẫn thấy mọi workspace, nên người gán sẽ tin rằng mình vừa
+       * siết quyền ai đó trong khi không có gì đổi. Nói thẳng, và chỉ ra việc
+       * thật sự cần làm — hạ vai trò xuống trước.
+       */
+      if (member.role === 'admin') {
+        throw badRequest(
+          'Quản trị viên tổ chức luôn thấy mọi workspace. Hãy đổi vai trò của người này trước nếu muốn giới hạn.',
+        );
+      }
+
+      /*
+       * Mọi id phải là workspace CÒN SỐNG của chính tổ chức này.
+       *
+       * Khoá ngoại ghép đã chặn id của tổ chức khác ở tầng database, nhưng nó
+       * cho qua một workspace đã XOÁ MỀM (`deleted_at` không nằm trong khoá).
+       * Gán vào đó tạo một dòng không bao giờ có tác dụng, và nó sẽ nằm im cho
+       * tới ngày ai đó khôi phục workspace rồi thấy một người lạ đã ở sẵn trong
+       * đó.
+       */
+      if (body.workspaceIds.length > 0) {
+        const song = await adminWorkspacesRepo.listWithReportCount(conn, auth.tenantId);
+        const hopLe = new Set(song.map((w) => w.id));
+        const la = body.workspaceIds.filter((id) => !hopLe.has(id));
+        if (la.length > 0) {
+          throw notFound(
+            `Có ${String(la.length)} workspace không còn tồn tại. Tải lại trang rồi chọn lại.`,
+          );
+        }
+      }
+
+      await workspaceMembersRepo.replaceForUser(
+        conn,
+        auth.tenantId,
+        userId,
+        body.workspaceIds,
+        auth.userId,
+      );
+    });
+
+    res.json({ workspaceIds: body.workspaceIds });
   }),
 );
 
@@ -2078,7 +2192,7 @@ v1Router.post(
     // Bảng đồng bộ về thuộc workspace người dùng đang mở, không phải "cả tổ
     // chức" như bản đầu. Kết nối vẫn là tài sản chung — chỉ những bảng lấy ra
     // từ nó mới thuộc về một workspace.
-    const workspace = await resolveWorkspace(mysqlPool, tenantId, body.workspaceId);
+    const workspace = await resolveWorkspace(mysqlPool, phamVi(req), body.workspaceId);
     // §7.9 — thư mục đang mở lúc bấm "Đồng bộ từ CSDL". Chỉ áp cho bảng MỚI.
     const folderId = await thuMucDichDataset(tenantId, workspace.id, body.folderId);
 
@@ -2094,7 +2208,6 @@ v1Router.get(
   '/datasets',
   authorize('dataset', 'read'),
   asyncHandler(async (req, res) => {
-    const { tenantId } = requireAuth(req);
     const query = listDatasetsQuerySchema.parse(req.query);
 
     const sort = resolveSortColumn(query.sort, datasetsRepo.DATASET_SORT_KEYS, 'name');
@@ -2102,6 +2215,22 @@ v1Router.get(
       throw badRequest('Cột sắp xếp không hợp lệ.', {
         sort: `Chỉ nhận: ${datasetsRepo.DATASET_SORT_KEYS.join(', ')}`,
       });
+    }
+
+    /*
+     * Có khai `workspaceId` thì XÁC MINH nó qua chỗ thắt chung — migration 40.
+     *
+     * Bộ lọc phạm vi ở tầng repository đã đủ an toàn: workspace của phòng khác
+     * cho ra danh sách RỖNG, không rò một dòng nào. Nhưng rỗng-và-200 là một
+     * câu trả lời gây hiểu nhầm — nó đọc như "phòng đó chưa có bộ dữ liệu nào"
+     * chứ không phải "bạn không được vào phòng đó", và hai màn danh sách kia
+     * (báo cáo, mô hình) đã trả 404 cho đúng tình huống ấy.
+     *
+     * Một hệ thống trả lời ba kiểu khác nhau cho cùng một câu hỏi là một hệ
+     * thống không ai đoán được.
+     */
+    if (query.workspaceId !== undefined) {
+      await resolveWorkspace(mysqlPool, phamVi(req), query.workspaceId);
     }
 
     const filter: datasetsRepo.DatasetFilter = {
@@ -2123,8 +2252,8 @@ v1Router.get(
       pageSize: query.pageSize,
     };
 
-    const total = await datasetsRepo.count(mysqlPool, tenantId, filter);
-    const items = total === 0 ? [] : await datasetsRepo.list(mysqlPool, tenantId, filter);
+    const total = await datasetsRepo.count(mysqlPool, phamVi(req), filter);
+    const items = total === 0 ? [] : await datasetsRepo.list(mysqlPool, phamVi(req), filter);
     res.json(buildPageResult(items, total, query.page, query.pageSize));
   }),
 );
@@ -2174,13 +2303,13 @@ v1Router.patch(
 
     // Đọc TRƯỚC: cần workspace của nó để kiểm thư mục đích cùng chỗ, và cũng là
     // chỗ trả 404 cho một mã của tổ chức khác.
-    const dataset = await datasetsRepo.findOne(mysqlPool, tenantId, id);
+    const dataset = await datasetsRepo.findOne(mysqlPool, phamVi(req), id);
     if (dataset === null) throw notFound('Không tìm thấy bộ dữ liệu này.');
 
     const folderId = await thuMucDichDataset(tenantId, dataset.workspaceId, body.folderId);
 
     await datasetsRepo.moveDataset(mysqlPool, tenantId, id, folderId);
-    res.json(await datasetsRepo.findOne(mysqlPool, tenantId, id));
+    res.json(await datasetsRepo.findOne(mysqlPool, phamVi(req), id));
   }),
 );
 
@@ -2268,7 +2397,7 @@ v1Router.get(
   asyncHandler(async (req, res) => {
     const { tenantId } = requireAuth(req);
     const query = workspaceScopeQuerySchema.parse(req.query);
-    const workspace = await resolveWorkspace(mysqlPool, tenantId, query.workspaceId);
+    const workspace = await resolveWorkspace(mysqlPool, phamVi(req), query.workspaceId);
 
     const [items, chungCount] = await Promise.all([
       datasetFoldersRepo.listFolders(mysqlPool, tenantId, workspace.id),
@@ -2286,7 +2415,7 @@ v1Router.post(
     const auth = requireAuth(req);
     const query = workspaceScopeQuerySchema.parse(req.query);
     const body = createDatasetFolderBodySchema.parse(req.body);
-    const workspace = await resolveWorkspace(mysqlPool, auth.tenantId, query.workspaceId);
+    const workspace = await resolveWorkspace(mysqlPool, phamVi(req), query.workspaceId);
 
     const dang = await datasetFoldersRepo.countFolders(mysqlPool, auth.tenantId, workspace.id);
     if (dang >= MAX_FOLDERS) {
@@ -2377,10 +2506,9 @@ v1Router.get(
   '/datasets/:id',
   authorize('dataset', 'read'),
   asyncHandler(async (req, res) => {
-    const { tenantId } = requireAuth(req);
     const { id } = idParamSchema.parse(req.params);
 
-    res.json(await readDatasetDetail(tenantId, id));
+    res.json(await readDatasetDetail(phamVi(req), id));
   }),
 );
 
@@ -2401,9 +2529,8 @@ v1Router.get(
   authorize('dataset', 'read'),
   connectionProbeLimit,
   asyncHandler(async (req, res) => {
-    const { tenantId } = requireAuth(req);
     const { id } = idParamSchema.parse(req.params);
-    res.json(await previewDataset(tenantId, id));
+    res.json(await previewDataset(phamVi(req), id));
   }),
 );
 
@@ -2427,10 +2554,10 @@ v1Router.post(
   '/datasets/:id/load',
   authorize('dataset', 'modify'),
   asyncHandler(async (req, res) => {
-    const { tenantId, userId } = requireAuth(req);
+    const { userId } = requireAuth(req);
     const { id } = idParamSchema.parse(req.params);
 
-    res.status(202).json(await queueLoad(tenantId, id, userId));
+    res.status(202).json(await queueLoad(phamVi(req), id, userId));
   }),
 );
 
@@ -2444,10 +2571,9 @@ v1Router.get(
   '/datasets/:id/load',
   authorize('dataset', 'read'),
   asyncHandler(async (req, res) => {
-    const { tenantId } = requireAuth(req);
     const { id } = idParamSchema.parse(req.params);
 
-    res.json(await getLoadStatus(tenantId, id));
+    res.json(await getLoadStatus(phamVi(req), id));
   }),
 );
 
@@ -2515,7 +2641,7 @@ v1Router.patch(
     const affected = await datasetsRepo.rename(mysqlPool, tenantId, id, name);
     if (affected === 0) throw notFound('Không tìm thấy tập dữ liệu này.');
 
-    res.json(await datasetsRepo.findOne(mysqlPool, tenantId, id));
+    res.json(await datasetsRepo.findOne(mysqlPool, phamVi(req), id));
   }),
 );
 
@@ -2566,8 +2692,8 @@ v1Router.delete(
  * router: `findOne` đã lọc `tenant_id` nên id lạ cho ra `null`, và 403 sẽ xác
  * nhận rằng id đó có tồn tại.
  */
-async function requireDataModel(tenantId: number, id: number): Promise<DataModelDto> {
-  const found = await datamodelsRepo.findOne(mysqlPool, tenantId, id);
+async function requireDataModel(scope: WorkspaceScope, id: number): Promise<DataModelDto> {
+  const found = await datamodelsRepo.findOne(mysqlPool, scope, id);
   if (!found) throw notFound('Không tìm thấy mô hình dữ liệu này.');
   return found;
 }
@@ -2576,7 +2702,6 @@ v1Router.get(
   '/datamodels',
   authorize('datamodel', 'read'),
   asyncHandler(async (req, res) => {
-    const { tenantId } = requireAuth(req);
     const query = listDataModelsQuerySchema.parse(req.query);
 
     const sort = resolveSortColumn(query.sort, datamodelsRepo.DATAMODEL_SORT_KEYS, 'updatedAt');
@@ -2592,7 +2717,7 @@ v1Router.get(
     const workspaceId =
       query.workspaceId === undefined
         ? undefined
-        : (await resolveWorkspace(mysqlPool, tenantId, query.workspaceId)).id;
+        : (await resolveWorkspace(mysqlPool, phamVi(req), query.workspaceId)).id;
 
     const filter: datamodelsRepo.DataModelFilter = {
       workspaceId,
@@ -2603,8 +2728,8 @@ v1Router.get(
       pageSize: query.pageSize,
     };
 
-    const total = await datamodelsRepo.count(mysqlPool, tenantId, filter);
-    const items = total === 0 ? [] : await datamodelsRepo.list(mysqlPool, tenantId, filter);
+    const total = await datamodelsRepo.count(mysqlPool, phamVi(req), filter);
+    const items = total === 0 ? [] : await datamodelsRepo.list(mysqlPool, phamVi(req), filter);
     res.json(buildPageResult(items, total, query.page, query.pageSize));
   }),
 );
@@ -2623,7 +2748,7 @@ v1Router.post(
     const auth = requireAuth(req);
     const body = createDataModelBodySchema.parse(req.body);
 
-    const workspace = await resolveWorkspace(mysqlPool, auth.tenantId, body.workspaceId);
+    const workspace = await resolveWorkspace(mysqlPool, phamVi(req), body.workspaceId);
 
     // Trùng id trong danh sách gửi lên sẽ đâm vào UNIQUE (datamodel_id,
     // dataset_id) và cho ra lỗi 500 khó hiểu. Lọc trước, im lặng — người dùng
@@ -2632,6 +2757,7 @@ v1Router.post(
 
     const id = await createDataModel({
       tenantId: auth.tenantId,
+      scope: phamVi(req),
       workspaceId: workspace.id,
       name: body.name,
       description: body.description ?? null,
@@ -2643,7 +2769,7 @@ v1Router.post(
     // rollback thì Cube đọc một mô hình database không có.
     await regenerateTenant(auth.tenantId);
 
-    res.status(201).json(await datamodelsRepo.findOne(mysqlPool, auth.tenantId, id));
+    res.status(201).json(await datamodelsRepo.findOne(mysqlPool, phamVi(req), id));
   }),
 );
 
@@ -2651,9 +2777,8 @@ v1Router.get(
   '/datamodels/:id',
   authorize('datamodel', 'read'),
   asyncHandler(async (req, res) => {
-    const { tenantId } = requireAuth(req);
     const { id } = idParamSchema.parse(req.params);
-    res.json(await readDataModelDetail(tenantId, id));
+    res.json(await readDataModelDetail(phamVi(req), id));
   }),
 );
 
@@ -2674,7 +2799,7 @@ v1Router.patch(
     // Đổi tên cũng phải sinh lại: tên bảng và alias đi vào `title:` của file cube.
     await regenerateTenant(tenantId);
 
-    res.json(await datamodelsRepo.findOne(mysqlPool, tenantId, id));
+    res.json(await datamodelsRepo.findOne(mysqlPool, phamVi(req), id));
   }),
 );
 
@@ -2704,11 +2829,11 @@ v1Router.post(
     const { id } = idParamSchema.parse(req.params);
     const body = addDatasetsBodySchema.parse(req.body);
 
-    await requireDataModel(auth.tenantId, id);
-    await addDatasets(auth.tenantId, id, [...new Set(body.datasetIds)], auth.userId);
+    await requireDataModel(phamVi(req), id);
+    await addDatasets(phamVi(req), id, [...new Set(body.datasetIds)], auth.userId);
     await regenerateTenant(auth.tenantId);
 
-    res.json(await readDataModelDetail(auth.tenantId, id));
+    res.json(await readDataModelDetail(phamVi(req), id));
   }),
 );
 
@@ -2728,7 +2853,7 @@ v1Router.patch(
     if (!Number.isInteger(refId) || refId <= 0) throw badRequest('Mã không hợp lệ.');
 
     const body = updateModelDatasetBodySchema.parse(req.body);
-    await requireDataModel(tenantId, id);
+    await requireDataModel(phamVi(req), id);
 
     const dataset = (await datamodelsRepo.listDatasets(mysqlPool, tenantId, id)).find(
       (row) => Number(row.id) === refId,
@@ -2788,7 +2913,7 @@ v1Router.patch(
       }
     }
 
-    res.json({ dataModel: await readDataModelDetail(tenantId, id), warning });
+    res.json({ dataModel: await readDataModelDetail(phamVi(req), id), warning });
   }),
 );
 
@@ -2801,7 +2926,7 @@ v1Router.delete(
     const refId = Number(req.params['refId']);
     if (!Number.isInteger(refId) || refId <= 0) throw badRequest('Mã không hợp lệ.');
 
-    await requireDataModel(tenantId, id);
+    await requireDataModel(phamVi(req), id);
 
     // Xoá CỨNG: cascade kéo theo cột, thước đo và quan hệ trỏ vào bộ dữ liệu
     // này. Xoá mềm sẽ để lại thước đo mồ côi mà bộ sinh schema vẫn đem đi sinh,
@@ -2830,7 +2955,7 @@ v1Router.patch(
     const { id } = idParamSchema.parse(req.params);
     const body = saveLayoutBodySchema.parse(req.body);
 
-    await requireDataModel(tenantId, id);
+    await requireDataModel(phamVi(req), id);
     await datamodelsRepo.saveLayout(mysqlPool, tenantId, body.positions);
     res.status(204).end();
   }),
@@ -2851,9 +2976,8 @@ v1Router.get(
   '/datamodels/:id/schema',
   authorize('datamodel', 'read'),
   asyncHandler(async (req, res) => {
-    const { tenantId } = requireAuth(req);
     const { id } = idParamSchema.parse(req.params);
-    res.json(await readModelSchema(tenantId, id));
+    res.json(await readModelSchema(phamVi(req), id));
   }),
 );
 
@@ -2866,7 +2990,7 @@ v1Router.patch(
     const body = saveSchemaBodySchema.parse(req.body);
     const auth = requireAuth(req);
 
-    await requireDataModel(tenantId, id);
+    await requireDataModel(phamVi(req), id);
 
     // Cột và thước đo đi trong CÙNG một giao dịch: đổi tên hiển thị của cột
     // cũng đổi tên thước đo dựng trên nó, nên lưu được nửa này mà hỏng nửa kia
@@ -2901,7 +3025,7 @@ v1Router.patch(
     await datamodelsRepo.touch(mysqlPool, tenantId, id);
     await regenerateTenant(tenantId);
 
-    res.json(await readModelSchema(tenantId, id));
+    res.json(await readModelSchema(phamVi(req), id));
   }),
 );
 
@@ -2913,7 +3037,7 @@ v1Router.get(
   asyncHandler(async (req, res) => {
     const { tenantId } = requireAuth(req);
     const { id } = idParamSchema.parse(req.params);
-    await requireDataModel(tenantId, id);
+    await requireDataModel(phamVi(req), id);
     res.json(await datamodelsRepo.listMeasures(mysqlPool, tenantId, id));
   }),
 );
@@ -2951,7 +3075,7 @@ v1Router.post(
     const { id } = idParamSchema.parse(req.params);
     const body = createMeasureBodySchema.parse(req.body);
 
-    await requireDataModel(auth.tenantId, id);
+    await requireDataModel(phamVi(req), id);
     const columnId = validateMeasure(body.agg, body.columnId);
 
     // Cột phải THUỘC mô hình này, và kiểu của nó phải nhận được phép gộp.
@@ -3000,7 +3124,7 @@ v1Router.patch(
     if (!Number.isInteger(measureId) || measureId <= 0) throw badRequest('Mã không hợp lệ.');
 
     const body = updateMeasureBodySchema.parse(req.body);
-    await requireDataModel(tenantId, id);
+    await requireDataModel(phamVi(req), id);
     const columnId = validateMeasure(body.agg, body.columnId);
 
     try {
@@ -3034,7 +3158,7 @@ v1Router.delete(
     const measureId = Number(req.params['measureId']);
     if (!Number.isInteger(measureId) || measureId <= 0) throw badRequest('Mã không hợp lệ.');
 
-    await requireDataModel(tenantId, id);
+    await requireDataModel(phamVi(req), id);
     // Qua `deleteMeasure` chứ không gọi thẳng repo: nó chặn việc xoá một thước
     // đo đang là vế của công thức khác, thứ sẽ làm Cube hỏng biên dịch và kéo
     // sập cả tab Explorer.
@@ -3063,7 +3187,7 @@ v1Router.post(
     const { id } = idParamSchema.parse(req.params);
     const body = createFormulaMeasureBodySchema.parse(req.body);
 
-    await requireDataModel(auth.tenantId, id);
+    await requireDataModel(phamVi(req), id);
 
     // Bọc như hai route thước đo thường: câu kiểm trùng tên trong `services`
     // chạy TRƯỚC lệnh ghi, nên hai request đồng thời vẫn lọt qua được cả hai và
@@ -3102,7 +3226,7 @@ v1Router.post(
     const { id } = idParamSchema.parse(req.params);
     const body = createRowExprMeasureBodySchema.parse(req.body);
 
-    await requireDataModel(auth.tenantId, id);
+    await requireDataModel(phamVi(req), id);
 
     try {
       const measureId = await createRowExprMeasure(auth.tenantId, id, auth.userId, body);
@@ -3131,7 +3255,7 @@ v1Router.get(
   asyncHandler(async (req, res) => {
     const { tenantId } = requireAuth(req);
     const { id } = idParamSchema.parse(req.params);
-    await requireDataModel(tenantId, id);
+    await requireDataModel(phamVi(req), id);
     res.json(await datamodelsRepo.listRelationships(mysqlPool, tenantId, id));
   }),
 );
@@ -3144,7 +3268,7 @@ v1Router.post(
     const { id } = idParamSchema.parse(req.params);
     const body = createRelationshipBodySchema.parse(req.body);
 
-    await requireDataModel(auth.tenantId, id);
+    await requireDataModel(phamVi(req), id);
     const result = await createRelationship(auth.tenantId, id, auth.userId, body);
     await regenerateTenant(auth.tenantId);
 
@@ -3164,7 +3288,7 @@ v1Router.delete(
     const relId = Number(req.params['relId']);
     if (!Number.isInteger(relId) || relId <= 0) throw badRequest('Mã không hợp lệ.');
 
-    await requireDataModel(tenantId, id);
+    await requireDataModel(phamVi(req), id);
     const affected = await datamodelsRepo.softDeleteRelationship(mysqlPool, tenantId, id, relId);
     if (affected === 0) throw notFound('Không tìm thấy quan hệ này.');
 
@@ -3206,8 +3330,9 @@ function asDuplicateMeasureName(err: unknown): unknown {
  * Kiểu mới được ĐỒNG BỘ vào `ch_type` ngay tại đây, nên lần mở sau không còn
  * báo lệch nữa. Người dùng thấy cảnh báo đúng một lần, ở đúng lúc nó có nghĩa.
  */
-async function readModelSchema(tenantId: number, id: number): Promise<DataModelDetailDto> {
-  const detail = await readDataModelDetail(tenantId, id);
+async function readModelSchema(scope: WorkspaceScope, id: number): Promise<DataModelDetailDto> {
+  const tenantId = scope.tenantId;
+  const detail = await readDataModelDetail(scope, id);
 
   for (const dataset of detail.datasets) {
     let live;
@@ -3260,9 +3385,8 @@ v1Router.get(
   '/datamodels/:id/explorer-status',
   authorize('datamodel', 'read'),
   asyncHandler(async (req, res) => {
-    const { tenantId } = requireAuth(req);
     const { id } = idParamSchema.parse(req.params);
-    await requireDataModel(tenantId, id);
+    await requireDataModel(phamVi(req), id);
 
     res.json({
       cubeReady: await pingCube(),

@@ -9,6 +9,7 @@ import { HttpError, notFound } from '../../utils/httpError';
 import { warehouseSchema } from '../ingest/loadService';
 import { defaultAggOf, defaultRoleOf, isSystemColumn } from './classifyColumn';
 import { ROW_COUNT_MEASURE_NAME, uniqueName } from './measures';
+import type { WorkspaceScope } from '../../repositories/workspaceScope';
 
 /**
  * Tạo mô hình dữ liệu — §10.2.
@@ -128,8 +129,8 @@ export function initialPosition(index: number): { x: number; y: number } {
  * việc người dùng đang làm: họ vừa tích một bộ dữ liệu trong hộp thoại tạo mô
  * hình, và họ cần biết vì sao bộ đó không dùng được.
  */
-async function readSchema(tenantId: number, datasetId: number): Promise<WarehouseSchemaDto> {
-  const dataset = await datasetsRepo.findOne(mysqlPool, tenantId, datasetId);
+async function readSchema(scope: WorkspaceScope, datasetId: number): Promise<WarehouseSchemaDto> {
+  const dataset = await datasetsRepo.findOne(mysqlPool, scope, datasetId);
   if (!dataset) throw notFound('Không tìm thấy bộ dữ liệu này.');
 
   if (dataset.loadStatus !== 'loaded') {
@@ -140,11 +141,19 @@ async function readSchema(tenantId: number, datasetId: number): Promise<Warehous
     );
   }
 
-  return warehouseSchema(tenantId, datasetId);
+  return warehouseSchema(scope.tenantId, datasetId);
 }
 
 export interface CreateInput {
   tenantId: number;
+  /**
+   * Phạm vi workspace của người gọi — migration 40.
+   *
+   * Bắt buộc, không suy ra từ `tenantId`: `datasetIds` do CLIENT tích, nên thiếu
+   * nó thì một người chỉ vào được workspace HR vẫn dựng được mô hình trên bộ dữ
+   * liệu của Sale — và từ đó đọc được mọi con số bên trong qua Explorer.
+   */
+  scope: WorkspaceScope;
   workspaceId: number;
   name: string;
   description: string | null;
@@ -164,7 +173,7 @@ export async function createDataModel(input: CreateInput): Promise<number> {
   // phải rollback gì.
   const schemas = new Map<number, WarehouseSchemaDto>();
   for (const datasetId of input.datasetIds) {
-    schemas.set(datasetId, await readSchema(input.tenantId, datasetId));
+    schemas.set(datasetId, await readSchema(input.scope, datasetId));
   }
 
   return withTransaction(async (conn) => {
@@ -226,7 +235,7 @@ export async function createDataModel(input: CreateInput): Promise<number> {
  * Vị trí lưới tiếp nối số thẻ đang có, để thẻ mới không đè lên thẻ cũ.
  */
 export async function addDatasets(
-  tenantId: number,
+  scope: WorkspaceScope,
   dataModelId: number,
   datasetIds: readonly number[],
   // `null` hợp lệ, cùng lý do đã ghi ở `CreateInput.createdBy`: bộ dữ liệu đồng
@@ -235,9 +244,10 @@ export async function addDatasets(
 ): Promise<void> {
   const schemas = new Map<number, WarehouseSchemaDto>();
   for (const datasetId of datasetIds) {
-    schemas.set(datasetId, await readSchema(tenantId, datasetId));
+    schemas.set(datasetId, await readSchema(scope, datasetId));
   }
 
+  const tenantId = scope.tenantId;
   const existing = await datamodelsRepo.listDatasets(mysqlPool, tenantId, dataModelId);
 
   // Tên thước đo đang dùng, để cột "Doanh thu" của bảng mới không đâm vào cột

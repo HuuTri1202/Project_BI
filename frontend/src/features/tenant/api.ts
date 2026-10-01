@@ -472,6 +472,33 @@ export async function removeMember(userId: number): Promise<void> {
   await apiClient.delete(`/v1/members/${userId}`);
 }
 
+/**
+ * Workspace mà một thành viên vào được.
+ *
+ * ⚠️ ADMIN luôn trả về mảng RỖNG, và nó KHÔNG có nghĩa "không vào được gì" —
+ * quản trị viên tổ chức thấy mọi workspace mà không cần dòng phân quyền nào.
+ * Nơi gọi phải đọc vai trò trước khi vẽ, nếu không nó hiện một hộp thoại trống
+ * trơn cho đúng người có nhiều quyền nhất.
+ */
+export async function fetchMemberWorkspaces(userId: number): Promise<number[]> {
+  const { data } = await apiClient.get<{ workspaceIds: number[] }>(
+    `/v1/members/${userId}/workspaces`,
+  );
+  return data.workspaceIds;
+}
+
+/** Đặt LẠI cả danh sách — mảng rỗng là hợp lệ, nghĩa là gỡ hết. */
+export async function setMemberWorkspaces(
+  userId: number,
+  workspaceIds: readonly number[],
+): Promise<number[]> {
+  const { data } = await apiClient.put<{ workspaceIds: number[] }>(
+    `/v1/members/${userId}/workspaces`,
+    { workspaceIds },
+  );
+  return data.workspaceIds;
+}
+
 // ─── Hồ sơ cá nhân (§4.4) ────────────────────────────────────────────────────
 
 /**

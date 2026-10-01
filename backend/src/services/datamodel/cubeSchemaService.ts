@@ -52,7 +52,7 @@ async function buildModelFile(
   tenantId: number,
   dataModelId: number,
 ): Promise<GeneratedCubeFile | null> {
-  const model = await datamodelsRepo.findOne(mysqlPool, tenantId, dataModelId);
+  const model = await datamodelsRepo.findOneAnyWorkspace(mysqlPool, tenantId, dataModelId);
   if (model === null) return null;
 
   const [datasetRows, columnRows, measures, relationships] = await Promise.all([

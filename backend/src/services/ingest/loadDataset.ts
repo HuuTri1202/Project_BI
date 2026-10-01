@@ -71,7 +71,7 @@ export async function loadDataset(
   tenantId: number,
   datasetId: number,
 ): Promise<LoadOutcome> {
-  const dataset = await datasetsRepo.findOne(mysqlPool, tenantId, datasetId);
+  const dataset = await datasetsRepo.findOneAnyWorkspace(mysqlPool, tenantId, datasetId);
   if (!dataset) throw new Error('Bộ dữ liệu không còn tồn tại.');
 
   const allColumns = await datasetsRepo.listColumns(mysqlPool, datasetId);

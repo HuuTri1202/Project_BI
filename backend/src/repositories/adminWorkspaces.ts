@@ -1,6 +1,7 @@
 import type { AdminWorkspaceDto } from '@bi/shared';
 import type { ResultSetHeader, RowDataPacket } from 'mysql2';
 import type { Db } from './db';
+import { workspaceFilter, type WorkspaceScope } from './workspaceScope';
 
 /**
  * Thao tác workspace trong PHẠM VI MỘT TỔ CHỨC (§4.5, §4.6).
@@ -80,7 +81,37 @@ export async function listWithReportCount(
   return rows.map(toDto);
 }
 
-export async function findOne(
+/**
+ * Danh sách workspace mà NGƯỜI GỌI vào được — migration 40.
+ *
+ * Tách khỏi `listWithReportCount` chứ không thêm một tham số tuỳ chọn: hàm kia
+ * phục vụ khu quản trị NỀN TẢNG (`/api/admin`, superadmin), nơi "thấy hết" mới
+ * là đúng. Một tham số `scope?` sẽ khiến hai ngữ cảnh khác hẳn nhau trông giống
+ * nhau ở chỗ gọi, và chỗ nào quên truyền thì lặng lẽ trả về cả tổ chức.
+ */
+export async function listVisibleToUser(
+  db: Db,
+  scope: WorkspaceScope,
+): Promise<AdminWorkspaceDto[]> {
+  const loc = workspaceFilter(scope, 'w.id');
+  const [rows] = await db.query<WorkspaceListRow[]>(
+    `${SELECT_LIST}
+      WHERE w.tenant_id = ? AND w.deleted_at IS NULL${loc.sql}
+      ORDER BY w.name ASC`,
+    [scope.tenantId, ...loc.params],
+  );
+  return rows.map(toDto);
+}
+
+/**
+ * Một workspace, KHÔNG kiểm người gọi có vào được không.
+ *
+ * Tên dài và khó chịu là cố ý — nó là thứ nhắc người đọc rằng câu hỏi "người
+ * này có được vào không" CHƯA được trả lời ở đây. Đường đi của request dùng
+ * `findOneVisibleToUser`; hàm này còn lại cho khu quản trị nền tảng và cho các
+ * luồng nội bộ không có người dùng nào đứng sau.
+ */
+export async function findOneAnyMember(
   db: Db,
   tenantId: number,
   id: number,
@@ -90,6 +121,30 @@ export async function findOne(
       WHERE w.tenant_id = ? AND w.id = ? AND w.deleted_at IS NULL
       LIMIT 1`,
     [tenantId, id],
+  );
+  const row = rows[0];
+  return row ? toDto(row) : null;
+}
+
+/**
+ * Một workspace, CHỈ khi người gọi vào được.
+ *
+ * Trả `null` cho cả hai ca "không tồn tại" và "không được vào", và nơi gọi biến
+ * cả hai thành 404. Phân biệt chúng bằng 403 sẽ xác nhận rằng workspace đó có
+ * thật — đủ để dò ra cơ cấu phòng ban của một tổ chức bằng cách đếm số trên URL.
+ * Cùng lập luận mà `resolveWorkspace` đã dùng cho ranh giới tổ chức.
+ */
+export async function findOneVisibleToUser(
+  db: Db,
+  scope: WorkspaceScope,
+  id: number,
+): Promise<AdminWorkspaceDto | null> {
+  const loc = workspaceFilter(scope, 'w.id');
+  const [rows] = await db.query<WorkspaceListRow[]>(
+    `${SELECT_LIST}
+      WHERE w.tenant_id = ? AND w.id = ? AND w.deleted_at IS NULL${loc.sql}
+      LIMIT 1`,
+    [scope.tenantId, id, ...loc.params],
   );
   const row = rows[0];
   return row ? toDto(row) : null;

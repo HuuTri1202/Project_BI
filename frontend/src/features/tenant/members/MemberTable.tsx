@@ -16,6 +16,7 @@ interface MemberTableProps {
   /** Id của người đang đăng nhập — dòng của chính họ không có nút thao tác. */
   currentUserId: number;
   onChangeRole: (user: AdminUserDto) => void;
+  onAssignWorkspaces: (user: AdminUserDto) => void;
   onToggleStatus: (user: AdminUserDto) => void;
   onResetPassword: (user: AdminUserDto) => void;
   onRemove: (user: AdminUserDto) => void;
@@ -30,6 +31,7 @@ export function MemberTable({
   onSort,
   currentUserId,
   onChangeRole,
+  onAssignWorkspaces,
   onToggleStatus,
   onResetPassword,
   onRemove,
@@ -104,6 +106,18 @@ export function MemberTable({
                   <div className="flex justify-end gap-1">
                     <Button size="sm" variant="ghost" disabled={locked} onClick={() => onChangeRole(user)}>
                       Đổi vai trò
+                    </Button>
+                    {/* Đứng NGAY SAU "Đổi vai trò", và cố ý: hai thao tác này
+                        trả lời hai nửa của cùng một câu — được làm gì, và ở
+                        đâu. Tách chúng ra xa nhau là để người dùng đổi vai trò
+                        xong rồi quên mất nửa còn lại. */}
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      disabled={locked}
+                      onClick={() => onAssignWorkspaces(user)}
+                    >
+                      Workspace
                     </Button>
                     <Button size="sm" variant="ghost" disabled={locked} onClick={() => onToggleStatus(user)}>
                       {user.memberActive ? 'Khoá' : 'Mở khoá'}

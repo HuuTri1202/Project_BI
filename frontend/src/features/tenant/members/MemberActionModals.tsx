@@ -9,7 +9,10 @@ import { Button } from '../../../components/ui/Button';
 import { Modal } from '../../../components/ui/Modal';
 import { getApiError } from '../../../services/apiClient';
 import {
+  useMemberWorkspaces,
   useRemoveMember,
+  useSetMemberWorkspaces,
+  useWorkspaces,
   useResetMemberPassword,
   useUpdateMemberRole,
   useSetMemberActive,
@@ -33,6 +36,126 @@ function ErrorLine({ message }: { message: string | null }): React.ReactElement 
     <p role="alert" className="mb-4 rounded-lg bg-red-50 px-3.5 py-3 text-sm text-red-700">
       {message}
     </p>
+  );
+}
+
+// ─── Gán workspace ───────────────────────────────────────────────────────────
+
+/**
+ * Chọn những workspace một thành viên vào được — migration 40.
+ *
+ * ═══ Vì sao ADMIN có một màn hình riêng, không phải một danh sách bị khoá ═══
+ *
+ * Quản trị viên tổ chức thấy MỌI workspace, và quyền đó đến từ vai trò chứ
+ * không từ bảng phân quyền — nên danh sách ô tích của họ luôn rỗng. Vẽ ra một
+ * danh sách rỗng, kể cả khi làm mờ đi, sẽ đọc như "người này chưa được vào đâu
+ * cả" — đúng ngược với sự thật.
+ *
+ * Nên nhánh admin nói thẳng điều đang xảy ra, và chỉ ra việc THẬT SỰ cần làm
+ * nếu người dùng muốn siết: đổi vai trò trước. Backend từ chối cùng một lý do,
+ * nên hai bên nói cùng một câu.
+ */
+export function AssignWorkspacesModal({
+  user,
+  onClose,
+}: {
+  user: AdminUserDto | null;
+  onClose: () => void;
+}): React.ReactElement {
+  const [chon, setChon] = useState<Set<number>>(new Set());
+  const [error, showError, clearError] = useActionError();
+  const laAdmin = user?.role === 'admin';
+
+  const workspaces = useWorkspaces();
+  // `null` khi đóng, và khi người đó là admin — không có gì để hỏi.
+  const daGan = useMemberWorkspaces(user === null || laAdmin ? null : user.userId);
+  const mutation = useSetMemberWorkspaces();
+
+  // Mở cho một người khác -> nạp lại lựa chọn của CHÍNH họ. Thiếu đoạn này thì
+  // lần mở thứ hai mang theo ô tích của người trước, và bấm Lưu là gán nhầm.
+  useEffect(() => {
+    if (user) clearError();
+    setChon(new Set(daGan.data ?? []));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, daGan.data]);
+
+  const bat = (id: number): void => {
+    setChon((truoc) => {
+      const sau = new Set(truoc);
+      if (sau.has(id)) sau.delete(id);
+      else sau.add(id);
+      return sau;
+    });
+  };
+
+  const submit = (): void => {
+    if (!user) return;
+    mutation.mutate(
+      { userId: user.userId, workspaceIds: [...chon] },
+      { onSuccess: onClose, onError: showError },
+    );
+  };
+
+  return (
+    <Modal
+      open={user !== null}
+      onClose={onClose}
+      title="Workspace được vào"
+      description={user ? `${user.fullName} · ${user.email}` : ''}
+      footer={
+        <>
+          <Button onClick={onClose}>{laAdmin ? 'Đóng' : 'Huỷ'}</Button>
+          {!laAdmin && (
+            <Button variant="primary" onClick={submit} loading={mutation.isPending}>
+              Lưu
+            </Button>
+          )}
+        </>
+      }
+    >
+      <ErrorLine message={error} />
+
+      {laAdmin ? (
+        <p className="rounded-lg bg-slate-50 px-3.5 py-3 text-sm text-slate-600">
+          Quản trị viên tổ chức luôn thấy <strong>mọi workspace</strong>, nên không có gì để
+          chọn ở đây. Muốn giới hạn người này thì đổi vai trò của họ sang Người tạo hoặc Người
+          xem trước.
+        </p>
+      ) : (
+        <>
+          <p className="mb-3 text-sm text-slate-600">
+            Người này chỉ thấy báo cáo, bộ dữ liệu và mô hình nằm trong những workspace được
+            tích. Bỏ tích hết thì họ không vào được workspace nào.
+          </p>
+          <fieldset className="space-y-2">
+            <legend className="sr-only">Chọn workspace</legend>
+            {(workspaces.data ?? []).map((ws) => (
+              <label
+                key={ws.id}
+                className={`flex cursor-pointer items-start gap-3 rounded-lg border p-3 transition-colors ${
+                  chon.has(ws.id)
+                    ? 'border-brand-500 bg-brand-50'
+                    : 'border-slate-200 hover:bg-slate-50'
+                }`}
+              >
+                <input
+                  type="checkbox"
+                  className="mt-0.5"
+                  checked={chon.has(ws.id)}
+                  onChange={() => bat(ws.id)}
+                />
+                <span className="min-w-0">
+                  <span className="block truncate text-sm font-medium text-slate-800">
+                    {ws.name}
+                  </span>
+                  <span className="block text-xs text-slate-500">{ws.reportCount} báo cáo</span>
+                </span>
+              </label>
+            ))}
+          </fieldset>
+        </>
+      )}
+    </Modal>
   );
 }
 

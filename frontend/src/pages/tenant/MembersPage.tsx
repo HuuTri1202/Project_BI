@@ -9,6 +9,7 @@ import type { MemberListQuery } from '../../features/tenant/api';
 import { useMembers } from '../../features/tenant/hooks';
 import { CreateMemberModal } from '../../features/tenant/members/CreateMemberModal';
 import {
+  AssignWorkspacesModal,
   ChangeRoleModal,
   RemoveMemberModal,
   ResetPasswordModal,
@@ -72,6 +73,7 @@ export default function MembersPage(): React.ReactElement {
 
   const [createOpen, setCreateOpen] = useState(false);
   const [changingRole, setChangingRole] = useState<AdminUserDto | null>(null);
+  const [assigningWs, setAssigningWs] = useState<AdminUserDto | null>(null);
   const [togglingStatus, setTogglingStatus] = useState<AdminUserDto | null>(null);
   const [resettingPassword, setResettingPassword] = useState<AdminUserDto | null>(null);
   const [removing, setRemoving] = useState<AdminUserDto | null>(null);
@@ -203,6 +205,7 @@ export default function MembersPage(): React.ReactElement {
               onSort={onSort}
               currentUserId={user?.id ?? -1}
               onChangeRole={setChangingRole}
+              onAssignWorkspaces={setAssigningWs}
               onToggleStatus={setTogglingStatus}
               onResetPassword={setResettingPassword}
               onRemove={setRemoving}
@@ -237,6 +240,7 @@ export default function MembersPage(): React.ReactElement {
         }}
       />
       <ChangeRoleModal user={changingRole} onClose={() => setChangingRole(null)} />
+      <AssignWorkspacesModal user={assigningWs} onClose={() => setAssigningWs(null)} />
       <ToggleStatusModal user={togglingStatus} onClose={() => setTogglingStatus(null)} />
       <ResetPasswordModal
         user={resettingPassword}

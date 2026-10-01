@@ -6,6 +6,7 @@ import * as adminWorkspacesRepo from '../../repositories/adminWorkspaces';
 import { HttpError } from '../../utils/httpError';
 import { slugifyOrFallback } from '../auth/slug';
 import { trongHanMuc } from '../billing/limits';
+import * as workspaceMembersRepo from '../../repositories/workspaceMembers';
 
 export interface CreateWorkspaceInput {
   tenantId: number;
@@ -57,6 +58,28 @@ export async function createWorkspace(input: CreateWorkspaceInput): Promise<Admi
            VALUES (?, ?, ?, ?, ?)`,
           [input.tenantId, input.name, slug, input.description ?? null, input.createdBy],
         );
+        /*
+         * Người tạo vào được workspace mình vừa tạo — migration 40.
+         *
+         * Trong CÙNG transaction với câu INSERT ở trên, không phải một bước
+         * sau: workspace tạo xong mà dòng phân quyền hỏng sẽ cho ra một
+         * workspace chính người vừa tạo cũng không mở được, và không có gì trên
+         * màn hình nói vì sao.
+         *
+         * Admin không cần dòng này (họ thấy mọi workspace), nhưng gán vẫn vô
+         * hại và rẻ hơn một nhánh `if` phải đọc vai trò — `INSERT IGNORE` nên
+         * chạy lại cũng không sinh dòng thứ hai. `null` xảy ra với luồng tạo tổ
+         * chức tự động, khi chưa có người dùng nào đứng sau.
+         */
+        if (input.createdBy !== null) {
+          await workspaceMembersRepo.grant(
+            conn,
+            input.tenantId,
+            result.insertId,
+            input.createdBy,
+            input.createdBy,
+          );
+        }
         return result.insertId;
       } catch (err) {
         if (!isDuplicateSlug(err)) throw err;
@@ -73,7 +96,7 @@ export async function createWorkspace(input: CreateWorkspaceInput): Promise<Admi
 
   // Đọc lại SAU khi commit, trên pool: trong transaction thì connection khác
   // chưa thấy dòng mới, và `findOne` là repository đọc bình thường.
-  const created = await adminWorkspacesRepo.findOne(mysqlPool, input.tenantId, id);
+  const created = await adminWorkspacesRepo.findOneAnyMember(mysqlPool, input.tenantId, id);
   if (!created) throw new Error('Vừa tạo workspace xong nhưng đọc lại không thấy');
   return created;
 }

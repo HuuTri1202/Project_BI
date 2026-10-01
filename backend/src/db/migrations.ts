@@ -3125,4 +3125,95 @@ export const migrations: readonly Migration[] = [
          ADD KEY ix_datasets_folder (workspace_id, folder_id, deleted_at)`,
     ],
   },
+
+  {
+    /*
+     * ═══ Thành viên thuộc WORKSPACE nào ═══════════════════════════════════
+     *
+     * Tới migration 39, `memberships` trả lời "người này ở tổ chức nào, vai trò
+     * gì" — và đó là TOÀN BỘ phạm vi. Hệ quả: mời một nhân viên HR vào tổ chức
+     * là họ thấy luôn workspace của Sale, của Kế toán, của Ban giám đốc. Vai trò
+     * `viewer` không đỡ được, vì nó giới hạn HÀNH ĐỘNG chứ không giới hạn DỮ
+     * LIỆU — xem được mọi báo cáo vẫn là xem được mọi báo cáo.
+     *
+     * Bảng này thêm trục còn thiếu: một người thấy những workspace nào.
+     *
+     * ─── Vì sao KHÔNG đưa `role` vào bảng này ────────────────────────────
+     *
+     * Cám dỗ rõ ràng: `workspace_members(user_id, workspace_id, role)` cho phép
+     * "creator ở HR, viewer ở Sale". Nhưng vai trò hiện do Casbin chấm với
+     * `dom = tenantId`, nên đưa vai trò xuống workspace nghĩa là đổi domain của
+     * Casbin, viết lại ma trận quyền, và sửa mọi chỗ gọi `enforce` — trong khi
+     * câu hỏi cần trả lời chỉ là "được THẤY workspace nào".
+     *
+     * Hai trục tách bạch: `memberships.role` nói LÀM GÌ, bảng này nói Ở ĐÂU.
+     * Ngày cần vai trò riêng từng workspace thì thêm cột vào đây, và mọi dòng
+     * đang có vẫn đọc được — thêm cột rẻ hơn hẳn việc tách một bảng ra sau.
+     *
+     * ─── Vì sao `tenant_id` lặp lại ở đây ────────────────────────────────
+     *
+     * Suy ra được qua `workspace_id`, nhưng khoá ngoại GHÉP `(tenant_id,
+     * workspace_id)` là thứ khiến một dòng trỏ sang workspace của tổ chức khác
+     * trở nên BẤT KHẢ THI ở tầng database, không phải chỉ khó xảy ra. Cùng lập
+     * luận mà `projects` và `reports` đã dùng.
+     *
+     * Nó cũng phục vụ truy vấn nóng nhất của tính năng này — "người này vào
+     * được những workspace nào trong tổ chức đang mở" — qua `idx_wm_user`.
+     *
+     * ⚠️ ADMIN KHÔNG CÓ DÒNG Ở ĐÂY, và đó là chủ ý. Admin tổ chức thấy mọi
+     * workspace, giống hệt cách dòng `(*, *)` của Casbin hoạt động: người đi gán
+     * quyền không được tự khoá mình ra khỏi workspace cuối cùng. Luật đó nằm
+     * trong `WorkspaceScope.allWorkspaces` ở tầng ứng dụng, không nằm ở đây —
+     * nếu gieo dòng cho admin thì hạ quyền một admin xuống creator sẽ lặng lẽ
+     * để lại quyền truy cập cũ.
+     */
+    id: 40,
+    name: 'workspace_members',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS workspace_members (
+        id           BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+        tenant_id    BIGINT UNSIGNED NOT NULL,
+        workspace_id BIGINT UNSIGNED NOT NULL,
+        user_id      BIGINT UNSIGNED NOT NULL,
+        created_by   BIGINT UNSIGNED NULL,
+        created_at   DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+        PRIMARY KEY (id),
+        -- Một người vào một workspace đúng một lần. Gán lại = ON DUPLICATE KEY,
+        -- không sinh dòng thứ hai.
+        UNIQUE KEY uq_wm_workspace_user (workspace_id, user_id),
+        -- Câu hỏi nóng nhất: "người này vào được workspace nào của tổ chức này".
+        KEY idx_wm_user (tenant_id, user_id),
+        CONSTRAINT fk_wm_workspace FOREIGN KEY (tenant_id, workspace_id)
+          REFERENCES workspaces (tenant_id, id) ON DELETE CASCADE,
+        CONSTRAINT fk_wm_user FOREIGN KEY (user_id)
+          REFERENCES users (id) ON DELETE CASCADE,
+        -- SET NULL: dòng phân quyền sống lâu hơn người đã gán nó.
+        CONSTRAINT fk_wm_creator FOREIGN KEY (created_by)
+          REFERENCES users (id) ON DELETE SET NULL
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+
+      /*
+       * Gieo: MỌI thành viên hiện có được MỌI workspace hiện có.
+       *
+       * Nâng cấp không được đổi hành vi. Hôm qua họ vào được tất cả; sáng nay
+       * chạy migration xong mà mất quyền thì đó là một sự cố, không phải một
+       * tính năng — và người gặp nó sẽ không nối được với việc vừa nâng cấp.
+       * Siết lại là việc admin làm CHỦ ĐỘNG ở màn Thành viên, từng người một.
+       *
+       * Bỏ qua admin: họ thấy mọi workspace qua `allWorkspaces`, nên một dòng ở
+       * đây vừa thừa vừa sai nghĩa — xem ghi chú ở đầu migration.
+       *
+       * `removed_at IS NULL AND is_active` — người đã bị gỡ hoặc khoá không
+       * được gieo lại quyền mà họ vốn đã mất.
+       */
+      `INSERT IGNORE INTO workspace_members (tenant_id, workspace_id, user_id)
+         SELECT w.tenant_id, w.id, m.user_id
+           FROM workspaces w
+           JOIN memberships m ON m.tenant_id = w.tenant_id
+          WHERE w.deleted_at IS NULL
+            AND m.removed_at IS NULL
+            AND m.is_active = 1
+            AND m.role <> 'admin'`,
+    ],
+  },
 ];

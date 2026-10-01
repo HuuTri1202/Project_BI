@@ -97,8 +97,20 @@ function nguonCua(m: DataModelMeasureDto, nhan: (columnId: number) => string): M
  * SELECT cho mỗi id. Một truy vấn Explorer hỏi tối đa 40 trường; 40 lần đi
  * database là 40 vòng mạng cho dữ liệu vừa đủ nằm trong một câu.
  */
+/*
+ * `findOneAnyWorkspace` — migration 40.
+ *
+ * Mọi đường vào hàm này đều đã chứng minh quyền TRƯỚC: route Explorer đọc mô
+ * hình bằng `datamodelsRepo.findOne` có `scope`, còn đường báo cáo đọc chính
+ * báo cáo bằng `reportsRepo.findById` có `scope` — mà báo cáo và mô hình của nó
+ * luôn nằm cùng một workspace (khoá ngoại ghép của migration 23).
+ *
+ * Lọc lại ở đây không thêm an toàn nào mà lại cần một `scope` chạy xuyên qua
+ * bốn tầng gọi, trong đó có cả đường `canvas-data` vốn cố ý dựng chỉ mục MỘT
+ * lần cho cả trang (§10.14).
+ */
 async function indexModel(tenantId: number, dataModelId: number): Promise<ModelIndex> {
-  const model = await datamodelsRepo.findOne(mysqlPool, tenantId, dataModelId);
+  const model = await datamodelsRepo.findOneAnyWorkspace(mysqlPool, tenantId, dataModelId);
   if (!model) throw notFound('Không tìm thấy mô hình dữ liệu này.');
 
   const [datasetRows, columnRows, measures] = await Promise.all([

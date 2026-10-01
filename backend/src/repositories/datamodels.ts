@@ -13,6 +13,7 @@ import type { ResultSetHeader, RowDataPacket } from 'mysql2';
 
 import { escapeLikeTerm } from '../utils/sql';
 import type { Db } from './db';
+import { workspaceFilter, type WorkspaceScope } from './workspaceScope';
 
 /**
  * Tầng ngữ nghĩa — §10.
@@ -135,32 +136,64 @@ function where(tenantId: number, filter: DataModelFilter): { sql: string; params
   return { sql: parts.join(' AND '), params };
 }
 
-export async function count(db: Db, tenantId: number, filter: DataModelFilter): Promise<number> {
-  const w = where(tenantId, filter);
+export async function count(
+  db: Db,
+  scope: WorkspaceScope,
+  filter: DataModelFilter,
+): Promise<number> {
+  const w = where(scope.tenantId, filter);
+  // Phải mang CÙNG bộ lọc với `list`: lệch nhau thì trang 1 hiện 8 dòng trong
+  // khi thanh phân trang nói 20, và không ai lần ra vì sao.
+  const loc = workspaceFilter(scope, 'dm.workspace_id');
   const [rows] = await db.query<RowDataPacket[]>(
-    `SELECT COUNT(*) AS total FROM datamodels dm WHERE ${w.sql}`,
-    w.params,
+    `SELECT COUNT(*) AS total FROM datamodels dm WHERE ${w.sql}${loc.sql}`,
+    [...w.params, ...loc.params],
   );
   return Number(rows[0]?.['total'] ?? 0);
 }
 
 export async function list(
   db: Db,
-  tenantId: number,
+  scope: WorkspaceScope,
   filter: DataModelFilter,
 ): Promise<DataModelDto[]> {
-  const w = where(tenantId, filter);
+  const w = where(scope.tenantId, filter);
+  const loc = workspaceFilter(scope, 'dm.workspace_id');
   const direction = filter.order === 'asc' ? 'ASC' : 'DESC';
   const [rows] = await db.query<ModelRow[]>(
-    `${MODEL_SELECT} WHERE ${w.sql}
+    `${MODEL_SELECT} WHERE ${w.sql}${loc.sql}
       ORDER BY ${SORT_SQL[filter.sort]} ${direction}, dm.id ASC
       LIMIT ? OFFSET ?`,
-    [...w.params, filter.pageSize, (filter.page - 1) * filter.pageSize],
+    [...w.params, ...loc.params, filter.pageSize, (filter.page - 1) * filter.pageSize],
   );
   return rows.map(toModelDto);
 }
 
-export async function findOne(db: Db, tenantId: number, id: number): Promise<DataModelDto | null> {
+export async function findOne(
+  db: Db,
+  scope: WorkspaceScope,
+  id: number,
+): Promise<DataModelDto | null> {
+  const loc = workspaceFilter(scope, 'dm.workspace_id');
+  const [rows] = await db.query<ModelRow[]>(
+    `${MODEL_SELECT} WHERE dm.tenant_id = ? AND dm.id = ? AND dm.deleted_at IS NULL${loc.sql} LIMIT 1`,
+    [scope.tenantId, id, ...loc.params],
+  );
+  const row = rows[0];
+  return row ? toModelDto(row) : null;
+}
+
+/**
+ * Như `findOne` nhưng KHÔNG hỏi người gọi vào được workspace nào.
+ *
+ * Dành cho luồng NỀN: sinh lại file schema cho Cube, janitor dọn bảng kho. Xem
+ * ghi chú cùng tên ở `repositories/datasets.ts`.
+ */
+export async function findOneAnyWorkspace(
+  db: Db,
+  tenantId: number,
+  id: number,
+): Promise<DataModelDto | null> {
   const [rows] = await db.query<ModelRow[]>(
     `${MODEL_SELECT} WHERE dm.tenant_id = ? AND dm.id = ? AND dm.deleted_at IS NULL LIMIT 1`,
     [tenantId, id],
