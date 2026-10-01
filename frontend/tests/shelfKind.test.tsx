@@ -1,4 +1,4 @@
-import { COLUMN_ROLE_TERMS, type ExplorerFieldDto } from '@bi/shared';
+import { COLUMN_ROLE_TERMS, type ChartType, type ExplorerFieldDto } from '@bi/shared';
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 
@@ -86,7 +86,7 @@ const THUOC_DO: ExplorerFieldDto[] = [
   { id: 2, label: 'Quantity', datasetName: 'Orders', cubeType: 'number' },
 ];
 
-function bangCauHinh(chartType: 'bar' | 'pie'): React.ReactElement {
+function bangCauHinh(chartType: ChartType): React.ReactElement {
   const draft = {
     ...emptyVisual({ x: 0, y: 0 }),
     chartType,
@@ -107,22 +107,70 @@ function bangCauHinh(chartType: 'bar' | 'pie'): React.ReactElement {
 }
 
 describe('VisualPanel — cả ba ô thả đều nói loại trường', () => {
-  it('ảnh chụp của người dùng: Trục, Giá trị, Nhóm màu đều đã điền', () => {
+  it('ảnh chụp của người dùng: ba ô đã điền vẫn nói mình nhận gì', () => {
     render(bangCauHinh('bar'));
 
     // `getByText` ném lỗi nếu không thấy, nên ba dòng này vừa là kiểm vừa là
     // mô tả đúng cái người dùng đọc được trên màn hình.
-    expect(screen.getByText('Trục').parentElement?.textContent).toContain('(Dimension)');
+    expect(screen.getByText('Chiều dữ liệu').parentElement?.textContent).toContain('(Dimension)');
     expect(screen.getByText('Giá trị').parentElement?.textContent).toContain('(Measure)');
     expect(screen.getByText('Nhóm màu').parentElement?.textContent).toContain('(Dimension)');
   });
 
-  it('biểu đồ tròn đổi tên ô thành "Lát cắt" mà vẫn giữ loại trường', () => {
+  it('biểu đồ tròn giữ nguyên tên ô, chỉ đổi chỗ nó vẽ ra', () => {
     render(bangCauHinh('pie'));
 
-    expect(screen.getByText('Lát cắt').parentElement?.textContent).toContain('(Dimension)');
+    // Tên ô KHÔNG đổi theo loại — người dùng không phải học một từ mới chỉ vì
+    // đổi sang biểu đồ tròn. Thứ đổi là chữ nhỏ: tròn thì không có trục nào.
+    expect(screen.getByText('Chiều dữ liệu').parentElement?.textContent).toContain('lát cắt');
+    expect(screen.queryByText(/trục/)).toBeNull();
     // Ô Nhóm màu của biểu đồ tròn bị KHOÁ, và nó vẫn phải nói mình nhận gì:
     // người dùng cần biết cái ô xám đó là chỗ của chiều, không phải thước đo.
     expect(screen.getByText('Nhóm màu').parentElement?.textContent).toContain('(Dimension)');
+  });
+});
+
+/**
+ * Chữ nhỏ cạnh nhãn — thứ DUY NHẤT đổi theo loại biểu đồ.
+ *
+ * Đây là lý do `CHART_SHELF_LABELS` là một bảng tra chứ không phải một cặp hằng
+ * số, nên bốn ca này canh đúng chỗ đó: gộp về một chữ chung là chúng đỏ.
+ */
+describe('VisualPanel — chữ nhỏ đi theo kênh THẬT của từng loại', () => {
+  it('biểu đồ cột: chiều ở trục X, giá trị ở trục Y, nói KỂ CẢ khi đã có trường', () => {
+    // `bangCauHinh` điền sẵn cả ba ô — đúng trạng thái mà một câu `hint` đã bị
+    // trường vừa thả chiếm chỗ. Đây là lý do chữ này nằm cạnh nhãn.
+    render(bangCauHinh('bar'));
+
+    expect(screen.getByText('Chiều dữ liệu').parentElement?.textContent).toContain('trục X');
+    expect(screen.getByText('Giá trị').parentElement?.textContent).toContain('trục Y');
+  });
+
+  it('thanh ngang: hai trục ĐẢO lại, cả hai ô phải nói đúng chiều', () => {
+    render(bangCauHinh('hbar'));
+
+    // Chiều chạy theo bề DỌC và con số chạy theo bề NGANG ở loại này. Nói
+    // ngược là chỉ người dùng nhìn sai chiều chính biểu đồ họ đang dựng.
+    expect(screen.getByText('Chiều dữ liệu').parentElement?.textContent).toContain('trục Y');
+    expect(screen.getByText('Giá trị').parentElement?.textContent).toContain('trục X');
+  });
+
+  it('bản đồ nhiệt: ô chiều thứ hai là TRỤC Y, không phải "Nhóm màu"', () => {
+    render(bangCauHinh('heatmap'));
+
+    // Màu của bản đồ nhiệt đến từ CON SỐ (xem nhánh `heatmap` ở `chartSpec`),
+    // nên gọi ô này là "Nhóm màu" là mô tả sai thứ nó làm.
+    expect(screen.queryByText('Nhóm màu')).toBeNull();
+    expect(screen.getByText('Trục Y').parentElement?.textContent).toContain('(Dimension)');
+    expect(screen.getByText('Chiều dữ liệu').parentElement?.textContent).toContain('trục X');
+    expect(screen.getByText('Giá trị').parentElement?.textContent).toContain('độ đậm màu');
+  });
+
+  it('bảng số liệu không có trục nào, nên KHÔNG bịa ra một cái', () => {
+    render(bangCauHinh('table'));
+
+    expect(screen.getByText('Chiều dữ liệu').parentElement?.textContent).toContain('cột nhóm');
+    expect(screen.getByText('Giá trị').parentElement?.textContent).not.toContain('·');
+    expect(screen.queryByText(/trục/)).toBeNull();
   });
 });
