@@ -95,6 +95,20 @@ interface FieldProps extends ControlBinding {
   placeholder?: string;
   /** Hiện nút con mắt để xem mật khẩu vừa gõ. */
   revealable?: boolean;
+  /**
+   * Control nhỏ nằm BÊN TRONG ô, sát lề phải — đơn vị, nút chuyển đổi đơn vị.
+   *
+   * Dùng khi cái điều khiển đó chỉ có nghĩa CÙNG với con số trong ô. Đơn vị của ô
+   * dung lượng là ví dụ: "500" không nói gì cả, "500" + "MB" mới là một câu trả
+   * lời. Tách nó thành một `SelectField` riêng ở cột bên cạnh thì hai nửa của
+   * cùng một câu trông như hai câu hỏi rời nhau, và người điền có thể sửa một nửa
+   * rồi rời form mà chưa đọc nửa kia.
+   *
+   * Ô bị chừa sẵn `pr-24` khi có suffix, nên chỗ này vừa cho hai nút chữ ngắn.
+   * Rộng hơn thế thì con số sẽ chạy xuống dưới nút — hãy dựng khối riêng, đừng
+   * nới hằng này.
+   */
+  suffix?: ReactNode;
 }
 
 export function Field({
@@ -108,6 +122,7 @@ export function Field({
   autoComplete,
   placeholder,
   revealable = false,
+  suffix,
 }: FieldProps) {
   const [revealed, setRevealed] = useState(false);
   const inputType = revealable && revealed ? 'text' : type;
@@ -123,7 +138,10 @@ export function Field({
             placeholder={placeholder}
             aria-invalid={Boolean(error)}
             aria-describedby={describedBy}
-            className={controlClass(error, revealable ? 'pr-11' : '')}
+            className={controlClass(
+              error,
+              revealable ? 'pr-11' : suffix !== undefined ? 'pr-24' : '',
+            )}
             // Trải MỘT trong hai, không trải cả hai: `registration` cũng mang
             // theo `onChange` của riêng nó, nên có cả hai thì cái sau ghi đè cái
             // trước và một nửa số ô lặng lẽ ngừng cập nhật.
@@ -142,6 +160,10 @@ export function Field({
             >
               {revealed ? <EyeOffIcon /> : <EyeIcon />}
             </button>
+          )}
+
+          {suffix !== undefined && (
+            <span className="absolute inset-y-0 right-0 flex items-center pr-2">{suffix}</span>
           )}
         </div>
       )}

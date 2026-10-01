@@ -555,6 +555,44 @@ export function useUpdateMemberRole() {
   });
 }
 
+/**
+ * Danh sách workspace người ĐANG ĐĂNG NHẬP vào được.
+ *
+ * Cùng khoá cache với `WorkspaceProvider`, nên bộ chọn trên thanh điều hướng và
+ * hộp thoại gán quyền không bao giờ nói hai điều khác nhau — và một lần gán
+ * quyền làm mới cả hai bằng một lệnh.
+ */
+export function useWorkspaces() {
+  return useQuery({ queryKey: tenantKeys.workspaces(), queryFn: api.fetchWorkspaces });
+}
+
+export function useMemberWorkspaces(userId: number | null) {
+  return useQuery({
+    queryKey: tenantKeys.memberWorkspaces(userId as number),
+    queryFn: () => api.fetchMemberWorkspaces(userId as number),
+    // Chỉ hỏi khi hộp thoại thật sự mở: danh sách thành viên có phân trang, và
+    // nạp sẵn cho cả trang là 50 vòng gọi cho một thứ không ai đang xem.
+    enabled: userId !== null,
+  });
+}
+
+export function useSetMemberWorkspaces() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ userId, workspaceIds }: { userId: number; workspaceIds: number[] }) =>
+      api.setMemberWorkspaces(userId, workspaceIds),
+    onSuccess: (_data, variables) => {
+      void queryClient.invalidateQueries({
+        queryKey: tenantKeys.memberWorkspaces(variables.userId),
+      });
+      // Phạm vi của CHÍNH người đang đăng nhập có thể vừa đổi, nên bộ chọn
+      // workspace trên thanh điều hướng phải đọc lại — nếu không họ vẫn đứng
+      // trong một workspace vừa bị gỡ khỏi tay mình.
+      void queryClient.invalidateQueries({ queryKey: tenantKeys.workspaces() });
+    },
+  });
+}
+
 export function useSetMemberActive() {
   const invalidate = useInvalidateMembers();
   return useMutation({

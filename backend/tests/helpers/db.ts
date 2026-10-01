@@ -41,6 +41,9 @@ export async function resetDatabase(): Promise<void> {
     // cùng lý do với `report_folders` ở trên.
     'dataset_folders',
     'connections',
+    // Ai vào được workspace nào — migration 40. TRƯỚC 'workspaces' theo khoá
+    // ngoại CASCADE; để lại thì ca sau thấy quyền của ca trước.
+    'workspace_members',
     'workspaces',
     'memberships',
     // Vé đặt lại mật khẩu — migration 36. Phải đứng TRƯỚC `users` (khoá ngoại

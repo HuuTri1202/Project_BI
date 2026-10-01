@@ -1,5 +1,6 @@
 import {
   CHART_SERIES_SUPPORT,
+  CHART_SHELF_LABELS,
   CHART_SORTS,
   CHART_SORT_LABELS,
   CHART_STACKABLE,
@@ -44,6 +45,9 @@ export function VisualPanel({
   onChange: (patch: Partial<VisualDraft>) => void;
 }): React.ReactElement {
   const support = CHART_SERIES_SUPPORT[draft.chartType];
+  /* Tên ba ô đọc theo loại biểu đồ: "Trục X" của biểu đồ cột là "Trục Y" của
+     thanh ngang, và ô "Nhóm màu" của bản đồ nhiệt thật ra là trục dọc. */
+  const tenO = CHART_SHELF_LABELS[draft.chartType];
   const series = seriesUsed(draft);
 
   const chosenDimension = dimensions.find((f) => f.id === draft.dimensionId) ?? null;
@@ -108,7 +112,8 @@ export function VisualPanel({
       <div className="space-y-2">
         <PanelTitle>Ô thả</PanelTitle>
         <Shelf
-          label={draft.chartType === 'pie' ? 'Lát cắt' : 'Trục'}
+          label={tenO.dimension}
+          truc={tenO.dimensionAxis}
           hint="Chiều để chia nhóm"
           accepts="dimension"
           field={chosenDimension}
@@ -117,7 +122,8 @@ export function VisualPanel({
           onClear={() => onChange({ dimensionId: null })}
         />
         <Shelf
-          label="Giá trị"
+          label={tenO.measure}
+          truc={tenO.measureAxis}
           hint="Thước đo để đo"
           accepts="measure"
           field={chosenMeasure}
@@ -136,7 +142,7 @@ export function VisualPanel({
           }
         />
         <Shelf
-          label="Nhóm màu"
+          label={tenO.series}
           hint={
             support === 'required'
               ? 'Chiều thứ hai — bắt buộc với loại này'
@@ -234,7 +240,7 @@ export function VisualPanel({
           onChange={(v) => setOption({ stacked: v })}
           disabledReason={
             chosenSeries === null
-              ? 'Cần một chiều ở ô Nhóm màu thì mới có gì để chồng.'
+              ? `Cần một chiều ở ô ${tenO.series} thì mới có gì để chồng.`
               : !CHART_STACKABLE.includes(draft.chartType)
                 ? `${CHART_TYPE_LABELS[draft.chartType]} không xếp chồng được.`
                 : undefined

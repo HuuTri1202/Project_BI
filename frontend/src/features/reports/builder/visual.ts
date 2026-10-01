@@ -5,6 +5,7 @@ import {
   CANVAS_MIN_H,
   CANVAS_MIN_W,
   CHART_SERIES_SUPPORT,
+  CHART_SHELF_LABELS,
   CHART_TYPE_LABELS,
   MEASURE_AGG_LABELS,
   DEFAULT_CHART_PALETTE,
@@ -141,10 +142,15 @@ export function seriesUsed(draft: VisualDraft): number | null {
  * bỏ bên kia thì một client khác ghi được cấu hình không vẽ nổi.
  */
 export function blockerOf(draft: VisualDraft): string | null {
-  if (draft.dimensionId === null) return 'Kéo một chiều vào ô Trục.';
-  if (draft.measureId === null) return 'Kéo một thước đo vào ô Giá trị.';
+  // Gọi ô bằng ĐÚNG cái tên đang hiện trên màn hình. Viết cứng "ô Trục" ở đây
+  // sẽ chỉ người dùng của biểu đồ thanh ngang đi tìm một cái ô tên "Trục Y",
+  // và của bản đồ nhiệt đi tìm "Nhóm màu" trong khi ô đó tên "Trục Y".
+  const tenO = CHART_SHELF_LABELS[draft.chartType];
+
+  if (draft.dimensionId === null) return `Kéo một chiều vào ô ${tenO.dimension}.`;
+  if (draft.measureId === null) return `Kéo một thước đo vào ô ${tenO.measure}.`;
   if (CHART_SERIES_SUPPORT[draft.chartType] === 'required' && seriesUsed(draft) === null) {
-    return `${CHART_TYPE_LABELS[draft.chartType]} cần thêm một chiều ở ô Nhóm màu.`;
+    return `${CHART_TYPE_LABELS[draft.chartType]} cần thêm một chiều ở ô ${tenO.series}.`;
   }
   return null;
 }

@@ -634,6 +634,32 @@ export const workspaceScopeQuerySchema = z.object({
   workspaceId: z.coerce.number().int().positive(),
 });
 
+/**
+ * Đặt LẠI danh sách workspace của một thành viên — migration 40.
+ *
+ * ─── Vì sao nhận CẢ BỘ, và vì sao mảng rỗng là hợp lệ ──────────────────────
+ *
+ * Giao diện là một danh sách có ô tích: người dùng thấy trạng thái cuối cùng họ
+ * muốn, không thấy từng thao tác. Nhận "thêm cái này bỏ cái kia" buộc giao diện
+ * tự tính hiệu, và hai tab mở cùng lúc sẽ tính ra hai cái hiệu khác nhau trên
+ * cùng một gốc — cái sau ghi đè cái trước theo kiểu không ai đoán được.
+ *
+ * Mảng RỖNG là một câu trả lời hợp lệ, không phải lỗi nhập liệu: "người này
+ * chưa được vào workspace nào" là một trạng thái thật, hay gặp ngay sau khi mời
+ * một người vào tổ chức mà chưa phân phòng ban. Bắt tối thiểu một phần tử sẽ
+ * khiến admin phải gán bừa một workspace để lưu được form.
+ *
+ * Trần 200 theo đúng lý do của `moveDatasetsBodySchema`: con số này sinh ra
+ * đúng số dấu `?` trong câu INSERT, nên không có trần thì một thân request bịa
+ * ra sẽ dựng một câu SQL dài tuỳ ý.
+ */
+export const setMemberWorkspacesBodySchema = z.object({
+  workspaceIds: z
+    .array(z.coerce.number().int().positive())
+    .max(200, 'Mỗi lượt gán tối đa 200 workspace.')
+    .transform((ids) => [...new Set(ids)]),
+});
+
 // ─── Kết nối CSDL (§8) ───────────────────────────────────────────────────────
 
 /**

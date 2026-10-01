@@ -11,6 +11,7 @@ import type {
 } from '@bi/shared';
 import type { ResultSetHeader, RowDataPacket } from 'mysql2';
 import type { Db } from './db';
+import { workspaceFilter, type WorkspaceScope } from './workspaceScope';
 
 /**
  * Kho dữ liệu — MỘT khái niệm dataset, HAI nguồn.
@@ -273,20 +274,34 @@ function where(tenantId: number, filter: DatasetFilter): { sql: string; params: 
   return { sql: conditions.join(' AND '), params };
 }
 
-export async function count(db: Db, tenantId: number, filter: DatasetFilter): Promise<number> {
-  const w = where(tenantId, filter);
+export async function count(db: Db, scope: WorkspaceScope, filter: DatasetFilter): Promise<number> {
+  const w = where(scope.tenantId, filter);
+  const loc = workspaceFilter(scope, 'd.workspace_id');
   const [rows] = await db.query<RowDataPacket[]>(
     `SELECT COUNT(*) AS total
        FROM datasets d
        LEFT JOIN connections c ON c.id = d.connection_id AND c.tenant_id = d.tenant_id
-      WHERE ${w.sql}`,
-    w.params,
+      WHERE ${w.sql}${loc.sql}`,
+    [...w.params, ...loc.params],
   );
   return Number(rows[0]?.['total'] ?? 0);
 }
 
-export async function list(db: Db, tenantId: number, filter: DatasetFilter): Promise<DatasetDto[]> {
-  const w = where(tenantId, filter);
+/**
+ * Danh sách bộ dữ liệu — migration 40 thêm ranh giới workspace.
+ *
+ * `filter.workspaceId` CỐ Ý vẫn để trống được ("cả tổ chức"): màn Kho dữ liệu
+ * có nhánh xem gộp. Nhưng "cả tổ chức" giờ nghĩa là cả tổ chức TRONG PHẠM VI
+ * người gọi, nên bộ lọc dưới đây phải đứng độc lập với nó — không thể dựa vào
+ * việc nơi gọi nhớ truyền `workspaceId`.
+ */
+export async function list(
+  db: Db,
+  scope: WorkspaceScope,
+  filter: DatasetFilter,
+): Promise<DatasetDto[]> {
+  const w = where(scope.tenantId, filter);
+  const loc = workspaceFilter(scope, 'd.workspace_id');
   const direction = filter.order === 'asc' ? 'ASC' : 'DESC';
 
   const [rows] = await db.query<DatasetRow[]>(
@@ -296,10 +311,10 @@ export async function list(db: Db, tenantId: number, filter: DatasetFilter): Pro
     // `SORT_SQL[...]` chứ không nội suy trực tiếp giá trị từ client: ORDER BY
     // không tham số hoá được, nên whitelist là lớp phòng thủ duy nhất.
     `${SELECT_LIST}
-      WHERE ${w.sql}
+      WHERE ${w.sql}${loc.sql}
       ORDER BY ${SORT_SQL[filter.sort]} ${direction}, d.id ASC
       LIMIT ? OFFSET ?`,
-    [...w.params, filter.pageSize, (filter.page - 1) * filter.pageSize],
+    [...w.params, ...loc.params, filter.pageSize, (filter.page - 1) * filter.pageSize],
   );
   return rows.map(toDto);
 }
@@ -310,7 +325,36 @@ export async function list(db: Db, tenantId: number, filter: DatasetFilter): Pro
  * Khác `list`: wizard phải đọc được bản ghi `pending` của chính nó giữa hai
  * bước, và trang chi tiết phải hiện được bản ghi `failed` kèm lý do.
  */
-export async function findOne(db: Db, tenantId: number, id: number): Promise<DatasetDto | null> {
+export async function findOne(
+  db: Db,
+  scope: WorkspaceScope,
+  id: number,
+): Promise<DatasetDto | null> {
+  const loc = workspaceFilter(scope, 'd.workspace_id');
+  const [rows] = await db.query<DatasetRow[]>(
+    `${SELECT_LIST} WHERE d.tenant_id = ? AND d.id = ? AND d.deleted_at IS NULL${loc.sql} LIMIT 1`,
+    [scope.tenantId, id, ...loc.params],
+  );
+  const row = rows[0];
+  return row ? toDto(row) : null;
+}
+
+/**
+ * Như `findOne` nhưng KHÔNG hỏi người gọi vào được workspace nào.
+ *
+ * Dành cho các luồng NỀN không có người dùng nào đứng sau: bộ nạp kho (§9),
+ * dịch vụ sinh schema Cube, janitor. Chúng chạy theo một hàng đợi chứ không
+ * theo một request, nên không có `scope` nào để hỏi — và chúng cũng không trả
+ * dữ liệu ra cho ai.
+ *
+ * Tên dài là cố ý: nó phải đọc như một ngoại lệ có lý do, để không ai dùng nó
+ * trong một route cho tiện.
+ */
+export async function findOneAnyWorkspace(
+  db: Db,
+  tenantId: number,
+  id: number,
+): Promise<DatasetDto | null> {
   const [rows] = await db.query<DatasetRow[]>(
     `${SELECT_LIST} WHERE d.tenant_id = ? AND d.id = ? AND d.deleted_at IS NULL LIMIT 1`,
     [tenantId, id],

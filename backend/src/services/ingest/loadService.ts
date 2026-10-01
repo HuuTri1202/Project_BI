@@ -14,6 +14,7 @@ import * as loadsRepo from '../../repositories/datasetLoads';
 import * as datasetsRepo from '../../repositories/datasets';
 import { HttpError, notFound } from '../../utils/httpError';
 import { chTableName, ROW_INDEX_COLUMN } from './buildDdl';
+import type { WorkspaceScope } from '../../repositories/workspaceScope';
 
 /**
  * Tầng giữa HTTP và việc nạp thật (§9.7).
@@ -24,11 +25,12 @@ import { chTableName, ROW_INDEX_COLUMN } from './buildDdl';
  */
 
 export async function queueLoad(
-  tenantId: number,
+  scope: WorkspaceScope,
   datasetId: number,
   userId: number | null,
 ): Promise<DatasetLoadDto> {
-  const dataset = await datasetsRepo.findOne(mysqlPool, tenantId, datasetId);
+  const tenantId = scope.tenantId;
+  const dataset = await datasetsRepo.findOne(mysqlPool, scope, datasetId);
   // 404 chứ không 403 cho id của tổ chức khác — cùng quy ước với phần còn lại.
   if (!dataset) throw notFound('Không tìm thấy tập dữ liệu này.');
 
@@ -77,14 +79,15 @@ export async function queueLoad(
   await loadsRepo.enqueue(mysqlPool, tenantId, datasetId, userId);
   await datasetsRepo.markLoadStatus(mysqlPool, datasetId, 'queued');
 
-  return getLoadStatus(tenantId, datasetId);
+  return getLoadStatus(scope, datasetId);
 }
 
 export async function getLoadStatus(
-  tenantId: number,
+  scope: WorkspaceScope,
   datasetId: number,
 ): Promise<DatasetLoadDto> {
-  const dataset = await datasetsRepo.findOne(mysqlPool, tenantId, datasetId);
+  const tenantId = scope.tenantId;
+  const dataset = await datasetsRepo.findOne(mysqlPool, scope, datasetId);
   if (!dataset) throw notFound('Không tìm thấy tập dữ liệu này.');
 
   const run = await loadsRepo.findLatestRun(mysqlPool, tenantId, datasetId);
@@ -243,8 +246,14 @@ export async function warehouseSchema(
  * không nhận một ký tự nào của người dùng. Suy lại thì không có đường nào để một
  * giá trị lạ trong cột đó đi vào câu truy vấn.
  */
+/*
+ * `findOneAnyWorkspace`: hàm này CHỈ tới được sau khi nơi gọi đã chứng minh
+ * quyền trên chính báo cáo hoặc bộ dữ liệu đó (migration 40). Lọc lại ở đây là
+ * hỏi một câu đã có câu trả lời, và nó sẽ hỏng ở đúng chỗ không nên hỏng: vòng
+ * tổng hợp số liệu của một báo cáo mà người xem có quyền đọc.
+ */
 async function requireLoadedTable(tenantId: number, datasetId: number): Promise<string> {
-  const dataset = await datasetsRepo.findOne(mysqlPool, tenantId, datasetId);
+  const dataset = await datasetsRepo.findOneAnyWorkspace(mysqlPool, tenantId, datasetId);
   if (!dataset) throw notFound('Không tìm thấy tập dữ liệu này.');
 
   if (dataset.loadStatus !== 'loaded') {

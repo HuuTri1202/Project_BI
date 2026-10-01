@@ -16,6 +16,7 @@ import {
 import type { ResultSetHeader, RowDataPacket } from 'mysql2';
 import { escapeLikeTerm } from '../utils/sql';
 import type { Db } from './db';
+import { workspaceFilter, type WorkspaceScope } from './workspaceScope';
 
 /**
  * Báo cáo — một biểu đồ dựng trên một bộ dữ liệu (§7.6).
@@ -422,12 +423,31 @@ export async function listReports(
   return rows.map(toDto);
 }
 
-export async function findById(db: Db, tenantId: number, id: number): Promise<ReportDto | null> {
+/**
+ * Một báo cáo, CHỈ khi người gọi vào được workspace của nó — migration 40.
+ *
+ * ─── Vì sao bộ lọc nằm ở ĐÂY chứ không ở route ─────────────────────────────
+ *
+ * Có 15 chỗ trong `api/v1/index.ts` đọc báo cáo theo id. Thêm một dòng kiểm ở
+ * từng chỗ nghĩa là 15 cơ hội để quên, và chỗ nào quên thì không có gì báo —
+ * endpoint vẫn trả 200, chỉ là trả báo cáo của phòng ban khác. Đặt ở đây thì cả
+ * 15 chỗ được bảo vệ cùng lúc và không ai phải nhớ gì.
+ *
+ * Đổi tham số `tenantId` thành `scope` chứ không thêm tham số thứ tư: mọi chỗ
+ * gọi cũ thành lỗi BIÊN DỊCH và phải được xem lại từng cái. Thêm tham số có giá
+ * trị mặc định thì chỗ quên vẫn chạy — cùng cái bẫy mà `Db` đã cố ý tránh.
+ */
+export async function findById(
+  db: Db,
+  scope: WorkspaceScope,
+  id: number,
+): Promise<ReportDto | null> {
+  const loc = workspaceFilter(scope, 'r.workspace_id');
   const [rows] = await db.query<ReportRow[]>(
     `SELECT ${SELECT_COLUMNS}
-      WHERE r.tenant_id = ? AND r.id = ? AND r.deleted_at IS NULL
+      WHERE r.tenant_id = ? AND r.id = ? AND r.deleted_at IS NULL${loc.sql}
       LIMIT 1`,
-    [tenantId, id],
+    [scope.tenantId, id, ...loc.params],
   );
   const row = rows[0];
   return row ? toDto(row) : null;

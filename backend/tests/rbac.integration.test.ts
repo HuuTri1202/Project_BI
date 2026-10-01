@@ -16,7 +16,15 @@ import { enforce, permissionMatrixFor, resetEnforcer } from '../src/authz/enforc
 import { closeMysql, mysqlPool } from '../src/config/mysql';
 import { closeRedis } from '../src/config/redis';
 import { resetDatabase } from './helpers/db';
-import { bearer, capGoiKhongGioiHan, makeMembership, makeTenant, makeUser, signTokenFor } from './helpers/fixtures';
+import {
+  bearer,
+  capGoiKhongGioiHan,
+  makeMembership,
+  makeTenant,
+  makeUser,
+  makeWorkspace,
+  signTokenFor,
+} from './helpers/fixtures';
 
 /**
  * Test phân quyền RBAC bằng Casbin — §6.
@@ -272,11 +280,10 @@ describe('§6.4 middleware authorize gác đúng endpoint', () => {
    * mỗi dòng là một endpoint có thật, bắn bằng token có thật.
    */
   it('creator tạo được bộ dữ liệu nhưng không mời được thành viên', async () => {
-    const ws = await mysqlPool.query(
-      'INSERT INTO workspaces (tenant_id, name, slug) VALUES (?, ?, ?)',
-      [f.tenantA, 'Kinh doanh', 'kinh-doanh'],
-    );
-    const wsId = (ws[0] as { insertId: number }).insertId;
+    // Qua fixture chứ không INSERT thẳng: từ migration 40, một workspace không
+    // có dòng `workspace_members` thì creator không vào được, và bài này nói về
+    // RBAC chứ không nói về phân quyền workspace.
+    const wsId = await makeWorkspace(f.tenantA, 'Kinh doanh', 'kinh-doanh');
 
     // Chọn `datasets/uploads` làm ca "tạo được": nó là route ghi RẺ NHẤT của
     // creator — không cần dựng sẵn một bộ dữ liệu như `POST /reports` đòi hỏi,

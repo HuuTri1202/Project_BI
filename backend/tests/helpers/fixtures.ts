@@ -75,6 +75,29 @@ export async function makeMembership(
       options.removed === true ? new Date() : null,
     ],
   );
+
+  /*
+   * Mở MỌI workspace đang có của tổ chức cho người vừa vào — migration 40.
+   *
+   * ─── Vì sao cả ở đây lẫn trong `makeWorkspace` ───────────────────────────
+   *
+   * Hai hàm này được gọi theo CẢ HAI thứ tự trong các bộ test đang có: bộ thì
+   * dựng workspace trước rồi mời người, bộ thì ngược lại. Gán ở một chỗ thôi
+   * thì nửa số bộ test lặng lẽ không có quyền nào — và triệu chứng là 404 ở
+   * những bài không nói gì về workspace, tức là rất khó lần ra.
+   *
+   * Hai chỗ cùng dùng `INSERT IGNORE` nên gọi cả hai không sinh dòng trùng.
+   *
+   * Admin bị loại: quyền của họ đến từ vai trò, không từ bảng này.
+   */
+  if (role !== 'admin' && options.removed !== true && options.isActive !== false) {
+    await mysqlPool.query(
+      `INSERT IGNORE INTO workspace_members (tenant_id, workspace_id, user_id)
+         SELECT ?, w.id, ? FROM workspaces w
+          WHERE w.tenant_id = ? AND w.deleted_at IS NULL`,
+      [tenantId, userId, tenantId],
+    );
+  }
 }
 
 /**
@@ -130,12 +153,61 @@ export async function capGoiKhongGioiHan(tenantId: number, grantedBy: number): P
   );
 }
 
+/**
+ * Một workspace, và MỌI thành viên hiện có của tổ chức vào được nó.
+ *
+ * ─── Vì sao fixture tự gán quyền ───────────────────────────────────────────
+ *
+ * Migration 40 thêm ranh giới workspace: không có dòng `workspace_members` thì
+ * một người không-phải-admin không thấy gì cả. Mà gần như mọi bộ test ở đây
+ * đang canh một chuyện KHÁC — thư mục, phân trang, hạn mức — và chúng dựng
+ * workspace chỉ vì phải có một cái.
+ *
+ * Bắt từng bộ tự gán quyền sẽ biến một thay đổi về phân quyền thành hàng trăm
+ * dòng nhiễu ở những bài không nói gì về phân quyền. Nên fixture này làm đúng
+ * điều mà migration 40 làm với dữ liệu đang có: mở cho mọi người đang ở trong
+ * tổ chức.
+ *
+ * ⚠️ Bộ test NÀO canh chính ranh giới workspace thì phải tự dựng lấy — gọi
+ * `revokeWorkspace` để gỡ, hoặc tạo thành viên SAU khi tạo workspace rồi gán
+ * tay bằng `grantWorkspace`. Xem `workspaceAccess.integration.test.ts`.
+ */
 export async function makeWorkspace(tenantId: number, name: string, slug: string): Promise<number> {
   const [result] = await mysqlPool.query<ResultSetHeader>(
     'INSERT INTO workspaces (tenant_id, name, slug) VALUES (?, ?, ?)',
     [tenantId, name, slug],
   );
-  return result.insertId;
+  const workspaceId = result.insertId;
+
+  await mysqlPool.query<ResultSetHeader>(
+    `INSERT IGNORE INTO workspace_members (tenant_id, workspace_id, user_id)
+       SELECT ?, ?, m.user_id FROM memberships m
+        WHERE m.tenant_id = ? AND m.removed_at IS NULL AND m.is_active = 1
+          AND m.role <> 'admin'`,
+    [tenantId, workspaceId, tenantId],
+  );
+
+  return workspaceId;
+}
+
+/** Cho một người vào một workspace. */
+export async function grantWorkspace(
+  tenantId: number,
+  workspaceId: number,
+  userId: number,
+): Promise<void> {
+  await mysqlPool.query<ResultSetHeader>(
+    `INSERT IGNORE INTO workspace_members (tenant_id, workspace_id, user_id) VALUES (?, ?, ?)`,
+    [tenantId, workspaceId, userId],
+  );
+}
+
+/** Gỡ một người khỏi một workspace. */
+export async function revokeWorkspace(workspaceId: number, userId: number): Promise<void> {
+  await mysqlPool.query<ResultSetHeader>(
+    `DELETE FROM workspace_members WHERE workspace_id = ? AND user_id = ?`,
+    [workspaceId, userId],
+  );
 }
 
 /**

@@ -10,6 +10,7 @@ import { HttpError, notFound } from '../../utils/httpError';
 import { requireSecret, toConfigFromSecret } from './connectionService';
 import { driverFor, PREVIEW_ROW_LIMIT } from './drivers';
 import { explainConnectionError } from './explainError';
+import type { WorkspaceScope } from '../../repositories/workspaceScope';
 
 /**
  * Đọc vài dòng đầu của bảng nguồn để người dùng NHÌN được dữ liệu.
@@ -36,10 +37,11 @@ import { explainConnectionError } from './explainError';
  * hàng, kể cả bảng họ cố ý không đồng bộ.
  */
 export async function previewDataset(
-  tenantId: number,
+  scope: WorkspaceScope,
   datasetId: number,
 ): Promise<DatasetPreviewDto> {
-  const dataset = await datasetsRepo.findOne(mysqlPool, tenantId, datasetId);
+  const tenantId = scope.tenantId;
+  const dataset = await datasetsRepo.findOne(mysqlPool, scope, datasetId);
   // 404 chứ không 403 cho id của tổ chức khác — cùng quy ước với phần còn lại.
   if (!dataset) throw notFound('Không tìm thấy tập dữ liệu này.');
 

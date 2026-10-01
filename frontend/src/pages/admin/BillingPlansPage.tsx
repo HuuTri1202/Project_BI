@@ -16,7 +16,7 @@ import {
   useDeletePlan,
   useUpdatePlan,
 } from '../../features/admin/billing/hooks';
-import { dinhDangHanMuc, dinhDangTien } from '../../features/billing/format';
+import { dinhDangDungLuong, dinhDangHanMuc, dinhDangTien } from '../../features/billing/format';
 import { getApiError } from '../../services/apiClient';
 
 /**
@@ -32,12 +32,27 @@ import { getApiError } from '../../services/apiClient';
  * đang điền form.
  */
 
-/** Chuỗi rỗng -> `null` (không giới hạn); còn lại -> số. */
-function toLimit(raw: string): number | null {
+/**
+ * Đọc một ô hạn mức: `null` = KHÔNG GIỚI HẠN, `undefined` = gõ sai.
+ *
+ * ═══ Vì sao phải phân biệt hai thứ đó ══════════════════════════════════════
+ *
+ * Bản trước trả `null` cho CẢ ô trống lẫn giá trị không đọc được. Ô trống nghĩa
+ * là "không giới hạn", nên gõ `abc` hay `0.5` vào "Workspace tối đa" sẽ lặng lẽ
+ * cấp cho gói đó **vô hạn workspace** — không báo lỗi, không hiện gì, và người
+ * vận hành rời màn hình tin rằng mình vừa đặt một hạn mức.
+ *
+ * Nó dễ xảy ra hơn vẻ ngoài: ô dung lượng trước đây tính bằng GB, nên một gói
+ * 500 MB hiện ra là `0.48828125`. Chỉ cần mở hộp thoại đó lên sửa tên gói rồi
+ * bấm Lưu là dung lượng thành vô hạn.
+ *
+ * `undefined` tách bạch cho `submit` có chỗ dừng lại và nói ra.
+ */
+function docHanMuc(raw: string): number | null | undefined {
   const s = raw.trim();
   if (s === '') return null;
   const n = Number(s);
-  return Number.isInteger(n) && n >= 0 ? n : null;
+  return Number.isInteger(n) && n >= 0 ? n : undefined;
 }
 
 function limitToText(value: number | null): string {
@@ -53,13 +68,108 @@ interface FormState {
   maxWorkspaces: string;
   maxReports: string;
   maxMembers: string;
-  maxStorageGb: string;
+  maxStorage: string;
+  donViDungLuong: DonViDungLuong;
   isPublic: boolean;
   isFeatured: boolean;
   sortOrder: string;
 }
 
-const GB = 1024 * 1024 * 1024;
+type DonViDungLuong = 'MB' | 'GB';
+
+/**
+ * Đơn vị NHẬP LIỆU của ô dung lượng. Database vẫn lưu BYTE.
+ *
+ * ═══ Vì sao cho CHỌN đơn vị thay vì chốt một cái ═══════════════════════════
+ *
+ * Bắt người vận hành gõ `5368709120` là mời một lỗi thêm bớt số 0 mà không ai
+ * phát hiện, nên ô này phải nhận một đơn vị người đọc được. Nhưng mọi đơn vị
+ * đơn lẻ đều hỏng ở một đầu, vì `docHanMuc` chỉ nhận SỐ NGUYÊN:
+ *
+ *   - Chốt GB: gói 500 MB thành `0.48828125` → bị từ chối, không gõ nổi.
+ *   - Chốt MB: gói 50 GB thành `51200` → gõ được, nhưng người vận hành phải tự
+ *     nhân 1024 trong đầu, và một con số 5 chữ số thì sai một chữ cũng không
+ *     nhìn ra.
+ *
+ * Nên đơn vị là một lựa chọn của người điền: họ gõ con số họ đang nghĩ (`500`
+ * hoặc `50`) rồi chỉ vào đơn vị của nó. Không còn phép nhân nào phải làm tay.
+ *
+ * ─── Đổi đơn vị KHÔNG đổi con số đã gõ ─────────────────────────────────────
+ *
+ * Bấm sang GB khi ô đang là `500` cho ra 500 GB, chứ không quy `500 MB` thành
+ * `0.48828125`. Hai nút này khai Ý NGHĨA của con số, không phải cách xem nó.
+ *
+ * Hướng còn lại nghe "bảo toàn giá trị" hơn nhưng tự chặn chính nó: quy đổi
+ * 500 MB sang GB luôn ra số thập phân, mà số thập phân thì bị từ chối — nên
+ * người muốn chuyển một gói MB sang đơn vị GB sẽ mắc kẹt ở một form không lưu
+ * được, đúng vào thao tác mà hai cái nút này sinh ra để phục vụ.
+ *
+ * Bù lại, bấm nhầm đơn vị là lệch 1024 lần, nên nó KHÔNG được âm thầm: gợi ý
+ * dưới ô luôn hiện lại kích thước qua `dinhDangDungLuong` — đúng hàm mà bảng giá
+ * dùng — nên con số khách sẽ thấy nằm ngay trước mắt người đang điền.
+ *
+ * 1024 chứ không 1000, khớp với `dinhDangDungLuong`. Lệch nhau thì gõ 10240 MB
+ * rồi màn hình hiện "10,7 GB", và người vận hành sẽ sửa đi sửa lại một con số
+ * vốn đã đúng.
+ */
+const DON_VI: Record<DonViDungLuong, number> = {
+  MB: 1024 * 1024,
+  GB: 1024 * 1024 * 1024,
+};
+
+/**
+ * Chọn đơn vị để MỞ một gói đã có: đơn vị lớn nhất mà con số còn là số nguyên.
+ *
+ * Gói `pro` (5368709120 byte) mở ra là `5` + GB chứ không phải `5120` + MB, vì
+ * con số người vận hành đang nghĩ trong đầu là "5 GB". Gói `free` (104857600)
+ * không chia hết cho GB nên mở ra `100` + MB.
+ *
+ * ⚠️ Byte lẻ tới mức không tròn cả MB (chỉ xảy ra nếu ai đó ghi thẳng vào
+ * database) thì ô hiện số thập phân và `submit` TỪ CHỐI, kèm tên ô. Cố ý ồn ào:
+ * tự làm tròn ở đây là lặng lẽ đổi hạn mức của một gói đang bán, chỉ vì có người
+ * mở hộp thoại ra sửa cái tên.
+ */
+function doDungLuong(bytes: number | null): {
+  maxStorage: string;
+  donViDungLuong: DonViDungLuong;
+} {
+  if (bytes === null) return { maxStorage: '', donViDungLuong: 'MB' };
+  if (bytes % DON_VI.GB === 0) {
+    return { maxStorage: String(bytes / DON_VI.GB), donViDungLuong: 'GB' };
+  }
+  return { maxStorage: String(bytes / DON_VI.MB), donViDungLuong: 'MB' };
+}
+
+/** Hai nút khai đơn vị của con số vừa gõ — xem khối `DON_VI` ở trên. */
+function NutDonVi({
+  value,
+  onChange,
+}: {
+  value: DonViDungLuong;
+  onChange: (donVi: DonViDungLuong) => void;
+}): React.ReactElement {
+  return (
+    <span className="flex overflow-hidden rounded-md border border-slate-300">
+      {(Object.keys(DON_VI) as DonViDungLuong[]).map((donVi) => (
+        <button
+          key={donVi}
+          type="button"
+          // `aria-pressed` chứ không chỉ đổi màu: trình đọc màn hình không thấy
+          // được nền xanh, và đơn vị là nửa còn lại của giá trị đang điền.
+          aria-pressed={value === donVi}
+          onClick={() => onChange(donVi)}
+          className={`px-2 py-1 text-xs font-medium transition-colors ${
+            value === donVi
+              ? 'bg-brand-500 text-white'
+              : 'bg-white text-slate-500 hover:bg-slate-50'
+          }`}
+        >
+          {donVi}
+        </button>
+      ))}
+    </span>
+  );
+}
 
 function emptyForm(): FormState {
   return {
@@ -71,7 +181,8 @@ function emptyForm(): FormState {
     maxWorkspaces: '',
     maxReports: '',
     maxMembers: '',
-    maxStorageGb: '',
+    maxStorage: '',
+    donViDungLuong: 'MB',
     isPublic: true,
     isFeatured: false,
     sortOrder: '0',
@@ -88,16 +199,16 @@ function formFrom(plan: PlanDto): FormState {
     maxWorkspaces: limitToText(plan.maxWorkspaces),
     maxReports: limitToText(plan.maxReports),
     maxMembers: limitToText(plan.maxMembers),
-    // Nhập bằng GB cho người đọc, đổi sang byte khi gửi. Bắt người vận hành gõ
-    // 5368709120 là mời một lỗi thêm bớt số 0 mà không ai phát hiện.
-    maxStorageGb: plan.maxStorageBytes === null ? '' : String(plan.maxStorageBytes / GB),
+    // Số + đơn vị người đọc được, đổi sang byte khi gửi — xem `DON_VI`.
+    ...doDungLuong(plan.maxStorageBytes),
     isPublic: plan.isPublic,
     isFeatured: plan.isFeatured,
     sortOrder: String(plan.sortOrder),
   };
 }
 
-function PlanModal({
+/** Xuất ra để test được luật đơn vị và luật hạn mức mà không phải dựng cả trang. */
+export function PlanModal({
   open,
   plan,
   onClose,
@@ -124,6 +235,24 @@ function PlanModal({
 
   const set = (patch: Partial<FormState>): void => setForm((prev) => ({ ...prev, ...patch }));
 
+  /*
+   * Gợi ý dưới ô dung lượng: kích thước mà KHÁCH sẽ đọc được.
+   *
+   * Nó tồn tại vì bấm nhầm MB/GB lệch 1024 lần mà con số trên màn hình không đổi
+   * gì cả. Dòng này đổi, nên cái nhầm đó có chỗ lộ ra ngay lúc đang điền thay vì
+   * nằm lại trong bảng giá.
+   *
+   * Cố ý dùng chính `dinhDangDungLuong` của bảng giá chứ không tự viết lại phép
+   * chia: một cách tính thứ hai ở đây sẽ là chỗ để hai màn hình nói hai con số.
+   */
+  const soDungLuong = docHanMuc(form.maxStorage);
+  const goiYDungLuong =
+    soDungLuong === undefined
+      ? 'Phải là số nguyên — hãy đổi đơn vị thay vì gõ số lẻ.'
+      : soDungLuong === null
+        ? 'Để trống = không giới hạn.'
+        : `Khách thấy: ${dinhDangDungLuong(soDungLuong * DON_VI[form.donViDungLuong])}`;
+
   function submit(): void {
     setLoi(null);
 
@@ -133,16 +262,32 @@ function PlanModal({
     if (!Number.isInteger(gia) || gia < 0) return setLoi('Giá phải là số nguyên không âm.');
     if (!Number.isInteger(ngay) || ngay < 0) return setLoi('Số ngày phải là số nguyên không âm.');
 
-    const gb = toLimit(form.maxStorageGb);
+    /*
+     * Bốn ô hạn mức đọc CÙNG một kiểu, và ô nào gõ sai thì dừng ngay — xem
+     * `docHanMuc`. Để trống vẫn hợp lệ: đó là cách khai "không giới hạn".
+     */
+    const hanMuc = [
+      ['Workspace tối đa', form.maxWorkspaces],
+      ['Báo cáo tối đa', form.maxReports],
+      ['Thành viên tối đa', form.maxMembers],
+      ['Dung lượng', form.maxStorage],
+    ] as const;
+    for (const [nhan, raw] of hanMuc) {
+      if (docHanMuc(raw) === undefined) {
+        return setLoi(`"${nhan}" phải là số nguyên không âm, hoặc để trống nếu không giới hạn.`);
+      }
+    }
+
+    const dungLuong = docHanMuc(form.maxStorage) ?? null;
     const input: PlanWriteInput = {
       name: form.name.trim(),
       description: form.description.trim() === '' ? null : form.description.trim(),
       priceVnd: gia,
       durationDays: ngay,
-      maxWorkspaces: toLimit(form.maxWorkspaces),
-      maxReports: toLimit(form.maxReports),
-      maxMembers: toLimit(form.maxMembers),
-      maxStorageBytes: gb === null ? null : gb * GB,
+      maxWorkspaces: docHanMuc(form.maxWorkspaces) ?? null,
+      maxReports: docHanMuc(form.maxReports) ?? null,
+      maxMembers: docHanMuc(form.maxMembers) ?? null,
+      maxStorageBytes: dungLuong === null ? null : dungLuong * DON_VI[form.donViDungLuong],
       isPublic: form.isPublic,
       isFeatured: form.isFeatured,
       sortOrder: Number(form.sortOrder) || 0,
@@ -235,9 +380,16 @@ function PlanModal({
             onChange={(e) => set({ maxMembers: e.target.value })}
           />
           <Field
-            label="Dung lượng (GB)"
-            value={form.maxStorageGb}
-            onChange={(e) => set({ maxStorageGb: e.target.value })}
+            label="Dung lượng"
+            hint={goiYDungLuong}
+            value={form.maxStorage}
+            onChange={(e) => set({ maxStorage: e.target.value })}
+            suffix={
+              <NutDonVi
+                value={form.donViDungLuong}
+                onChange={(donViDungLuong) => set({ donViDungLuong })}
+              />
+            }
           />
         </div>
 

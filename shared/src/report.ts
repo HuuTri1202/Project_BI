@@ -97,6 +97,116 @@ export const CHART_SERIES_SUPPORT: Record<ChartType, 'no' | 'optional' | 'requir
   table: 'optional',
 };
 
+/**
+ * Tên ba ô thả của trình dựng, và CHỖ trên biểu đồ mà mỗi ô vẽ ra.
+ *
+ * ─── Tên nói VAI TRÒ, chữ nhỏ nói CHỖ ──────────────────────────────────────
+ *
+ * Hai câu khác nhau, và nhét cả hai vào cái tên thì mất một câu:
+ *
+ *   "Chiều dữ liệu"  ô này nhận gì — câu người dùng hỏi lúc đi tìm chỗ thả
+ *   "· trục X"       nó hiện ra đâu — câu người dùng hỏi lúc nhìn biểu đồ rồi
+ *                    quay lại muốn đổi
+ *
+ * Nên TÊN ô cố định ở mọi loại biểu đồ ("Chiều dữ liệu", "Giá trị"): đó là từ
+ * người dùng đi tìm, và đổi nó theo loại là bắt họ học tám cái tên cho cùng
+ * một việc. Phần đổi theo loại là chữ nhỏ bên cạnh.
+ *
+ * ⚠️ Và phần đó BẮT BUỘC phải đổi theo loại — một chữ "trục X" cố định không
+ * phải mơ hồ mà là SAI:
+ *
+ *   thanh ngang   chiều nằm ở trục DỌC, thước đo nằm ở trục NGANG — đảo hẳn
+ *   bản đồ nhiệt  chiều thứ hai LÀ trục Y. Nó không hề "nhóm màu": màu đến từ
+ *                 CON SỐ, xem nhánh `heatmap` của `chartSpec.ts`
+ *   tròn, bảng    không có trục nào cả
+ *
+ * Nên bảng này phải đọc được cạnh `chartSpec.ts`: mỗi dòng ở đây là tên NGƯỜI
+ * DÙNG THẤY của đúng kênh mã hoá mà nhánh tương ứng bên đó khai. Lệch nhau là
+ * giao diện chỉ sai chỗ — loại lỗi không có gì bắt được ngoài con mắt.
+ */
+export interface ChartShelfLabels {
+  /** Ô nhận chiều thứ nhất. */
+  dimension: string;
+  /**
+   * Chiều thứ nhất hiện ra đâu — chữ nhỏ LUÔN HIỆN cạnh nhãn.
+   *
+   * ─── Vì sao không phải một câu `hint` ────────────────────────────────────
+   *
+   * `hint` chỉ hiện khi ô còn TRỐNG; thả xong một trường là trường đó chiếm
+   * chỗ nó. Mà lúc người dùng cần biết "thứ này vẽ lên trục nào" nhất lại đúng
+   * là lúc ô đã có trường — lúc nhìn biểu đồ rồi quay lại muốn đổi. Đây cùng
+   * một lỗi mà `Shelf` đã phải in loại trường ra để chữa.
+   */
+  dimensionAxis: string | null;
+  /** Ô nhận thước đo. */
+  measure: string;
+  /** Con số rơi xuống đâu. `null` = loại này không có kênh nào gọi tên được. */
+  measureAxis: string | null;
+  /** Ô nhận chiều thứ hai. Tên nó đã tự nói ra kênh, nên không có chữ nhỏ. */
+  series: string;
+}
+
+export const CHART_SHELF_LABELS: Record<ChartType, ChartShelfLabels> = {
+  bar: {
+    dimension: 'Chiều dữ liệu',
+    dimensionAxis: 'trục X',
+    measure: 'Giá trị',
+    measureAxis: 'trục Y',
+    series: 'Nhóm màu',
+  },
+  line: {
+    dimension: 'Chiều dữ liệu',
+    dimensionAxis: 'trục X',
+    measure: 'Giá trị',
+    measureAxis: 'trục Y',
+    series: 'Nhóm màu',
+  },
+  area: {
+    dimension: 'Chiều dữ liệu',
+    dimensionAxis: 'trục X',
+    measure: 'Giá trị',
+    measureAxis: 'trục Y',
+    series: 'Nhóm màu',
+  },
+  scatter: {
+    dimension: 'Chiều dữ liệu',
+    dimensionAxis: 'trục X',
+    measure: 'Giá trị',
+    measureAxis: 'trục Y',
+    series: 'Nhóm màu',
+  },
+  // Hai trục ĐẢO so với bốn loại trên — đây là lý do cả bảng này tồn tại thay
+  // vì một cặp hằng số.
+  hbar: {
+    dimension: 'Chiều dữ liệu',
+    dimensionAxis: 'trục Y',
+    measure: 'Giá trị',
+    measureAxis: 'trục X',
+    series: 'Nhóm màu',
+  },
+  heatmap: {
+    dimension: 'Chiều dữ liệu',
+    dimensionAxis: 'trục X',
+    measure: 'Giá trị',
+    measureAxis: 'độ đậm màu',
+    series: 'Trục Y',
+  },
+  pie: {
+    dimension: 'Chiều dữ liệu',
+    dimensionAxis: 'lát cắt',
+    measure: 'Giá trị',
+    measureAxis: 'độ lớn lát cắt',
+    series: 'Nhóm màu',
+  },
+  table: {
+    dimension: 'Chiều dữ liệu',
+    dimensionAxis: 'cột nhóm',
+    measure: 'Giá trị',
+    measureAxis: null,
+    series: 'Cột nhóm thứ hai',
+  },
+};
+
 /** Loại biểu đồ có xếp chồng được không — chỉ hỏi khi đã có chiều thứ hai. */
 export const CHART_STACKABLE: readonly ChartType[] = ['bar', 'hbar', 'area'];
 

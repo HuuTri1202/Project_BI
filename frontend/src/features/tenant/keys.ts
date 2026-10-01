@@ -22,6 +22,8 @@ export const tenantKeys = {
   tenant: () => [...tenantKeys.all, 'info'] as const,
 
   workspaces: () => [...tenantKeys.all, 'workspaces'] as const,
+  /** Workspace mà MỘT thành viên vào được — hộp thoại gán quyền. */
+  memberWorkspaces: (userId: number) => [...tenantKeys.all, 'member-workspaces', userId] as const,
 
   members: () => [...tenantKeys.all, 'members'] as const,
   memberList: (query: unknown) => [...tenantKeys.members(), 'list', query] as const,

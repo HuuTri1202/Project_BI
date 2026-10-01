@@ -262,6 +262,7 @@ export function Toggle({
  */
 export function Shelf({
   label,
+  truc,
   hint,
   accepts,
   field,
@@ -273,6 +274,15 @@ export function Shelf({
   disabledReason,
 }: {
   label: string;
+  /**
+   * Chỗ trên biểu đồ mà ô này vẽ ra — in cạnh nhãn, LUÔN hiện.
+   *
+   * Chỉ ô "Giá trị" cần: tên ba ô kia đã tự nói ra chỗ của mình ("Trục X",
+   * "Lát cắt"), còn ô này giữ tên "Giá trị" ở mọi loại biểu đồ nên không có gì
+   * nói con số rơi xuống trục nào. Để trong `hint` thì nó biến mất đúng lúc
+   * cần nhất — xem ghi chú đầu hàm.
+   */
+  truc?: string | null | undefined;
   hint: string;
   accepts: FieldKind;
   field: ExplorerFieldDto | null;
@@ -339,7 +349,10 @@ export function Shelf({
         <span
           className={`truncate text-xs font-semibold ${locked ? 'text-slate-400' : 'text-slate-700'}`}
         >
-          {label} <span className="font-normal text-slate-400">({COLUMN_ROLE_TERMS[accepts]})</span>
+          {label}{' '}
+          <span className="font-normal text-slate-400">
+            ({COLUMN_ROLE_TERMS[accepts]}){truc !== null && truc !== undefined && ` · ${truc}`}
+          </span>
         </span>
         {field !== null && !locked && (
           <button
