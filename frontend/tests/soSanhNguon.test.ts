@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 
 import { duKienDanhSachMoHinh } from '../src/features/chat/duKienTrang';
 import type { Nguon } from '../src/features/chat/nguCanh';
-import { goiYSoSanh, soSanhNguon, traLoiTrang } from '../src/features/chat/traLoi';
+import { goiYGan, goiYSoSanh, soSanhNguon, traLoiTrang } from '../src/features/chat/traLoi';
 
 /**
  * So GIỮA các mục của một danh sách — "mô hình nào được dùng nhiều nhất".
@@ -142,6 +142,23 @@ describe('soSanhNguon — "mục nào … nhất"', () => {
     expect(kq?.cau).not.toContain('Cao nhất');
   });
 
+  /*
+   * Chip và câu trả lời phải gọi cùng một mục bằng CÙNG một tên. Trả lời "cao
+   * nhất là Global-Superstore" khi trên màn hình có ba chip tên y hệt nhau thì
+   * câu đó không chỉ ra được mô hình nào — đúng lỗi đã ghi ở `nhanO.ts`.
+   */
+  it('tên trùng nhau thì câu trả lời cũng đánh số như chip', () => {
+    const n = trangMoHinh([
+      moHinh({ name: 'Global-Superstore', reportCount: 1 }),
+      moHinh({ name: 'Global-Superstore', reportCount: 9 }),
+      moHinh({ name: 'doanh thu', reportCount: 4 }),
+    ]);
+
+    expect(soSanhNguon(n, 'mô hình nào được dùng nhiều nhất')?.cau).toContain(
+      'Global-Superstore (2)',
+    );
+  });
+
   it('luôn nói rõ là chỉ so trên các mục của trang đang mở', () => {
     // `tong` là 40 trong khi trang chỉ hiện 2 — đúng cảnh phân trang.
     const n = duKienDanhSachMoHinh(
@@ -176,6 +193,24 @@ describe('soSanhNguon — "mục nào chưa …"', () => {
     expect(kq?.cau).toContain('Nhân sự');
     expect(kq?.cau).not.toContain('Kho');
     expect(kq?.so).toEqual(['2']);
+  });
+
+  /*
+   * Ba cột cùng nói về "bảng"/"quan hệ" nằm cạnh nhau, nên ca này canh chuyện
+   * thêm cột thứ ba làm hoà điểm hai cột kia. Hoà là khung trả lời "chưa hiểu"
+   * — hỏng cả ba câu thay vì thêm được một.
+   */
+  it('cột "đã nối đủ chưa" không cướp câu hỏi của hai cột cạnh nó', () => {
+    const n = trangMoHinh([
+      moHinh({ name: 'Đủ', datasetCount: 3, relationshipCount: 2 }),
+      moHinh({ name: 'Thiếu', datasetCount: 4, relationshipCount: 1 }),
+      moHinh({ name: 'Trống', datasetCount: 2, relationshipCount: 0 }),
+    ]);
+
+    // Mỗi câu phải rơi vào ĐÚNG cột của nó.
+    expect(soSanhNguon(n, 'mô hình nào chưa nối đủ')?.cau).toContain('Mô hình đã nối đủ chưa');
+    expect(soSanhNguon(n, 'mô hình nào chưa nối quan hệ')?.cau).toContain('Số quan hệ của mô hình');
+    expect(soSanhNguon(n, 'mô hình nào nhiều bảng nhất')?.cau).toContain('Số bảng trong mô hình');
   });
 
   it('nói thẳng khi không mô hình nào thiếu', () => {
@@ -390,5 +425,46 @@ describe('goiYSoSanh', () => {
 
   it('trang chỉ có biểu đồ thì không gợi ý gì', () => {
     expect(goiYSoSanh([{ ten: 'Doanh thu theo vùng', duKien: [] }])).toEqual([]);
+  });
+});
+
+describe('goiYGan — lối ra của "tôi chưa hiểu"', () => {
+  const trang: Nguon[] = [
+    {
+      ten: 'Đơn hàng',
+      duKien: [
+        { nhan: 'Số dòng của bảng Đơn hàng', gia: '120' },
+        { nhan: 'Ngày cập nhật bảng Đơn hàng', gia: '01/02/2026' },
+      ],
+    },
+    { ten: 'Khách hàng', duKien: [{ nhan: 'Số dòng của bảng Khách hàng', gia: '40' }] },
+  ];
+
+  it('xếp theo số từ trùng, dữ kiện trùng nhiều nhất lên đầu', () => {
+    const mau = goiYGan(trang, trang[0]!, 'cập nhật lúc nào');
+
+    expect(mau[0]).toBe('Ngày cập nhật bảng Đơn hàng?');
+  });
+
+  /*
+   * Bằng điểm thì gợi ý phải nói về thứ người dùng ĐANG XEM. Gợi ý một dữ kiện
+   * của mục khác, cùng điểm, là đẩy họ đi khỏi chỗ họ đang đứng.
+   */
+  it('bằng điểm thì ưu tiên nguồn đang chọn', () => {
+    const chonKhach = trang[1]!;
+
+    expect(goiYGan(trang, chonKhach, 'dòng')[0]).toBe('Số dòng của bảng Khách hàng?');
+    expect(goiYGan(trang, trang[0]!, 'dòng')[0]).toBe('Số dòng của bảng Đơn hàng?');
+  });
+
+  it('gợi ý nhiều nhất ba câu', () => {
+    expect(
+      goiYGan(trang, trang[0]!, 'bảng đơn hàng khách hàng dòng ngày').length,
+    ).toBeLessThanOrEqual(3);
+  });
+
+  it('không trùng từ nào thì không gợi ý gì — để khung rơi về câu mẫu', () => {
+    expect(goiYGan(trang, trang[0]!, 'zzz qqq')).toEqual([]);
+    expect(goiYGan(trang, trang[0]!, '')).toEqual([]);
   });
 });

@@ -1,5 +1,6 @@
 import type {
   AdminUserDto,
+  BillingCycle,
   BillingSummaryDto,
   ConnectionDto,
   DataModelDetailDto,
@@ -292,6 +293,22 @@ export function duKienDanhSachMoHinh(models: DataModelDto[], tong: number): Nguo
         ...dk(`Số thước đo của mô hình ${m.name}`, m.measureCount),
         ...dk(`Số quan hệ của mô hình ${m.name}`, m.relationshipCount),
         ...dk(`Số báo cáo đang dùng mô hình ${m.name}`, m.reportCount),
+        /*
+         * Cùng cận dưới mà cột "Quan hệ" trên màn hình đang dùng để treo thẻ
+         * "chưa nối đủ": N bảng cần ÍT NHẤT N-1 quan hệ. Người đọc thấy thẻ
+         * cảnh báo rồi hỏi lại thì phải được nghe cùng một câu với màn hình.
+         *
+         * ⚠️ Nhãn cố ý KHÔNG chứa chữ "bảng" hay "quan hệ". Hai chữ đó đã là
+         * của "Số bảng trong mô hình" và "Số quan hệ của mô hình"; dùng lại là
+         * ba cột cùng điểm nhau trong `chonThuocTinh`, và câu hỏi hoà điểm thì
+         * khung trả lời "chưa hiểu" — hỏng cả ba câu thay vì thêm được một.
+         */
+        ...dk(
+          `Mô hình ${m.name} đã nối đủ chưa`,
+          m.relationshipCount < m.datasetCount - 1
+            ? `chưa nối đủ — ${String(m.relationshipCount)} quan hệ cho ${String(m.datasetCount)} bảng, cần ít nhất ${String(m.datasetCount - 1)}`
+            : 'đã nối đủ',
+        ),
         ...dk(`Mô tả của mô hình ${m.name}`, m.description),
         ...dk(`Người tạo mô hình ${m.name}`, m.creatorName),
         ...dk(`Mô hình ${m.name} sửa lần cuối lúc nào`, dinhDangNgay(m.updatedAt)),
@@ -490,6 +507,54 @@ export function duKienDonHang(orders: OrderDto[], tong: number): Nguon[] {
       ],
     })),
   ];
+}
+
+/* ═══ Ba trang chỉ nói về MỘT thứ ════════════════════════════════════════════
+ *
+ * Ba hàm dưới đây mượn lại đúng ba hàm danh sách ở trên rồi cắt bỏ phần tóm
+ * tắt. Một màn chỉ có một kết nối mà vẫn khai "Số kết nối đang có: 1" thì câu
+ * đó không trả lời cho ai cả, và nó còn cạnh tranh điểm với dữ kiện thật.
+ *
+ * Mượn lại, chứ không chép: dữ kiện của một kết nối phải giống hệt nhau dù
+ * người dùng đang đứng ở trang danh sách hay trang sửa. Hai bản sao sẽ lệch
+ * nhau ngay lần đầu có người thêm một trường.
+ */
+
+/** Trang sửa một kết nối. `null` khi đang TẠO MỚI — chưa có gì để hỏi. */
+export function duKienMotKetNoi(conn: ConnectionDto | null): Nguon[] {
+  return conn === null ? [] : duKienKetNoi([conn]).slice(1);
+}
+
+/** Màn mua gói: gói đang mua, kèm chu kỳ người dùng vừa chọn trên bảng giá. */
+export function duKienMuaGoi(plan: PlanDto | undefined, cycle: BillingCycle): Nguon[] {
+  if (plan === undefined) return [];
+  const [goi] = duKienBangGia([plan]).slice(1);
+  if (goi === undefined) return [];
+  return [
+    {
+      ...goi,
+      duKien: [
+        ...goi.duKien,
+        // Chu kỳ KHÔNG nằm trong `PlanDto` — nó là lựa chọn người dùng vừa bấm,
+        // và nó quyết định số tiền sắp trả. Thiếu nó thì khung đọc giá tháng
+        // cho một đơn đang mua theo năm.
+        ...dk('Đang mua theo chu kỳ nào', cycle === 'yearly' ? 'theo năm' : 'theo tháng'),
+      ],
+    },
+  ];
+}
+
+/**
+ * Trang một đơn hàng — màn chờ tiền về.
+ *
+ * ⚠️ Mượn `duKienDonHang`, và đó là CHỖ CHẶN: `OrderDetailDto` còn mang
+ * `bankAccountNo`, `bankBin`, `bankAccountName` và `qrPayload` (chuỗi EMVCo có
+ * sẵn số tài khoản bên trong). `duKienDonHang` chỉ đọc các trường của `OrderDto`
+ * nên bốn thứ đó không có đường nào đi vào câu trả lời — xem cùng lý do đã ghi ở
+ * `duKienPhuongThucThanhToan`.
+ */
+export function duKienMotDonHang(order: OrderDto | undefined): Nguon[] {
+  return order === undefined ? [] : duKienDonHang([order], 1).slice(1);
 }
 
 /* ═══ Phần 3: console vận hành hệ thống (/admin) ════════════════════════════

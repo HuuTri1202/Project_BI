@@ -73,6 +73,42 @@ describe('Đọc ý định', () => {
     expect(docYDinh('hôm nay trời thế nào')).toBeNull();
     expect(docYDinh('')).toBeNull();
   });
+
+  /*
+   * ⚠️ "báo **cáo nhất**" chứa đúng chuỗi "cao nhat". Không xử riêng thì câu hỏi
+   * về cái ÍT nhất được trả lời bằng cái NHIỀU nhất — ngược hẳn, bằng một con
+   * số có thật, nên không có dấu hiệu nào để nhận ra.
+   */
+  it('từ lật chiều thắng chuỗi "cao nhat" nằm lẫn trong "báo cáo nhất"', () => {
+    expect(docYDinh('khu vực nào ít báo cáo nhất')).toBe('thap_nhat');
+    expect(docYDinh('mô hình nào ít bảng nhất')).toBe('thap_nhat');
+  });
+
+  it('tính từ bị danh từ chen vào giữa vẫn đọc ra được', () => {
+    // Bảng từ khoá so chuỗi liền nhau nên "nhiều doanh thu nhất" trượt hết.
+    expect(docYDinh('khu vực nào nhiều doanh thu nhất')).toBe('cao_nhat');
+  });
+
+  it('lưới hứng "nhất" KHÔNG cướp của ti_trong và top_n', () => {
+    // Hai câu này đều có chữ "nhất", và thứ tự trong bảng cố ý xếp chúng lên
+    // trước `cao_nhat`. Lưới hứng phải nằm SAU bảng mới giữ được thứ tự đó.
+    expect(docYDinh('Miền Bắc chiếm bao nhiêu % so với cao nhất')).toBe('ti_trong');
+    expect(docYDinh('top 3 cao nhất là những vùng nào')).toBe('top_n');
+  });
+});
+
+describe('Hỏi ngược chiều trên biểu đồ', () => {
+  it('"ít … nhất" ra dòng thấp nhất, không phải dòng cao nhất', () => {
+    const kq = traLoi(nguonBieuDo(), 'khu vực nào ít báo cáo nhất');
+
+    // Miền Trung 200 là thấp nhất; Miền Nam 500 là cao nhất.
+    expect(kq?.cau).toContain('Miền Trung');
+    expect(kq?.cau).not.toContain('Miền Nam');
+  });
+
+  it('"nhiều … nhất" ra dòng cao nhất', () => {
+    expect(traLoi(nguonBieuDo(), 'khu vực nào nhiều doanh thu nhất')?.cau).toContain('Miền Nam');
+  });
 });
 
 describe('Tính trên số liệu biểu đồ', () => {

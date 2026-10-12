@@ -4,7 +4,7 @@ import { KHONG_XUAT } from '../../services/danhDauXuat';
 import { dienDatLai } from './api';
 import { useNguCanh } from './nguCanh';
 import type { Nguon } from './nguCanh';
-import { goiYSoSanh, traLoiTrang } from './traLoi';
+import { goiYGan, goiYSoSanh, nhanDuyNhat, traLoiTrang } from './traLoi';
 
 /**
  * Khung hỏi đáp nổi ở góc dưới-phải.
@@ -56,6 +56,8 @@ interface TinNhan {
   luc: string;
   /** Bot không hiểu câu hỏi — vẽ khác, và đọc bằng `role="status"`. */
   chuaHieu?: boolean;
+  /** Câu bấm được, chỉ có ở tin "chưa hiểu" — xem `goiYGan`. */
+  goiY?: string[];
 }
 
 function gioBayGio(): string {
@@ -109,7 +111,20 @@ export function HoiDapPanel(): React.ReactElement | null {
         cau:
           kq?.cau ??
           `Tôi chưa hiểu câu này. Tôi chỉ trả lời bằng số liệu đang có trên ${nguCanh.trang} — không tra ở đâu khác.`,
-        ...(kq === null ? { chuaHieu: true } : {}),
+        /*
+         * Bế tắc phải kèm đường đi tiếp. Gần nhất với câu vừa gõ trước; không
+         * có gì gần thì rơi về đúng những câu mẫu của màn chào — thà gợi ý
+         * chung chung còn hơn để người dùng tự đoán xem khung biết gì.
+         */
+        ...(kq === null
+          ? {
+              chuaHieu: true,
+              goiY: (() => {
+                const gan = goiYGan(nguCanh.nguon, nguon, q);
+                return gan.length > 0 ? gan : cauMau(nguon, goiYSoSanh(nguCanh.nguon)).slice(0, 3);
+              })(),
+            }
+          : {}),
       },
     ]);
     setCauHoi('');
@@ -189,10 +204,21 @@ export function HoiDapPanel(): React.ReactElement | null {
       {/* Một nguồn thì không có gì để chọn, và một dãy chip có đúng một chip chỉ
           chiếm chỗ mà không nói thêm điều gì. */}
       {nguCanh.nguon.length > 1 && (
-        <div className="flex shrink-0 flex-wrap gap-1 border-b border-slate-100 px-3.5 py-2">
-          {nguCanh.nguon.map((n, i) => (
+        /*
+         * MỘT hàng cuộn ngang, không phải `flex-wrap`.
+         *
+         * Trang danh sách có thể đẩy ra mười mấy nguồn; gói dòng thì dãy chip
+         * ăn bốn hàng và đè gần hết chỗ của cuộc trò chuyện — tức là che mất
+         * chính thứ người dùng mở khung ra để đọc. Cuộn ngang giữ mọi chip với
+         * tới được mà chỉ tốn một hàng.
+         */
+        <div className="flex shrink-0 gap-1 overflow-x-auto border-b border-slate-100 px-3.5 py-2">
+          {nhanDuyNhat(nguCanh.nguon).map((nhan, i) => (
             <button
-              key={n.ten}
+              /* Khoá theo CHỈ SỐ, không theo tên: tên nguồn trùng nhau được —
+                 ba mô hình cùng tên "Global-Superstore" là chuyện có thật, và
+                 khoá trùng thì React gộp chúng thành một chip. */
+              key={i}
               type="button"
               aria-pressed={i === chon}
               onClick={() => {
@@ -202,13 +228,13 @@ export function HoiDapPanel(): React.ReactElement | null {
                 // bằng những con số có thật, nên không có gì báo là đã nhầm.
                 setTinNhan([]);
               }}
-              className={`max-w-full truncate rounded-full border px-2 py-0.5 text-xs transition-colors ${
+              className={`shrink-0 rounded-full border px-2 py-0.5 text-xs whitespace-nowrap transition-colors ${
                 i === chon
                   ? 'border-brand-500 bg-brand-50 font-medium text-brand-700'
                   : 'border-slate-200 text-slate-500 hover:bg-slate-50'
               }`}
             >
-              {n.ten}
+              {nhan}
             </button>
           ))}
         </div>
@@ -220,7 +246,7 @@ export function HoiDapPanel(): React.ReactElement | null {
         {tinNhan.length === 0 ? (
           <ChaoHoi nguon={nguon} soSanh={goiYSoSanh(nguCanh.nguon)} onChon={setCauHoi} />
         ) : (
-          tinNhan.map((t) => <BongBong key={t.id} tin={t} />)
+          tinNhan.map((t) => <BongBong key={t.id} tin={t} onChon={setCauHoi} />)
         )}
       </div>
 
@@ -254,7 +280,13 @@ export function HoiDapPanel(): React.ReactElement | null {
 }
 
 /** Một bong bóng tin nhắn. */
-function BongBong({ tin }: { tin: TinNhan }): React.ReactElement {
+function BongBong({
+  tin,
+  onChon,
+}: {
+  tin: TinNhan;
+  onChon: (q: string) => void;
+}): React.ReactElement {
   if (tin.ai === 'nguoi') {
     return (
       <div className="flex flex-col items-end gap-0.5">
@@ -284,10 +316,49 @@ function BongBong({ tin }: { tin: TinNhan }): React.ReactElement {
           }`}
         >
           {tin.cau}
+          {tin.goiY !== undefined && tin.goiY.length > 0 && (
+            <span className="mt-2 block">
+              <span className="mb-1.5 block text-xs text-amber-700">Có phải bạn muốn hỏi:</span>
+              <NutGoiY mau={tin.goiY} onChon={onChon} />
+            </span>
+          )}
         </p>
         <span className="text-[11px] text-slate-400">{tin.luc}</span>
       </div>
     </div>
+  );
+}
+
+/**
+ * Dãy câu mẫu bấm được.
+ *
+ * Dùng chung cho màn chào và cho bong bóng "chưa hiểu": hai chỗ này gợi ý cùng
+ * một kiểu câu, và hai bản sao sẽ lệch nhau ngay lần đầu có người sửa một bên.
+ *
+ * `<span>` chứ không `<ul>`: nó nằm TRONG một `<p>`, và `<ul>` trong `<p>` là
+ * HTML không hợp lệ — trình duyệt sẽ tự đóng `<p>` lại trước đó và câu trả lời
+ * bị tách khỏi gợi ý của chính nó.
+ */
+function NutGoiY({
+  mau,
+  onChon,
+}: {
+  mau: string[];
+  onChon: (q: string) => void;
+}): React.ReactElement {
+  return (
+    <span className="flex flex-col gap-1">
+      {mau.map((q) => (
+        <button
+          key={q}
+          type="button"
+          onClick={() => onChon(q)}
+          className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1 text-left text-xs text-slate-600 transition-colors hover:border-brand-400 hover:bg-brand-50"
+        >
+          {q}
+        </button>
+      ))}
+    </span>
   );
 }
 
@@ -308,18 +379,6 @@ function ChaoHoi({
   soSanh: string[];
   onChon: (q: string) => void;
 }): React.ReactElement {
-  const mau =
-    nguon.bang !== undefined
-      ? [
-          `${nguon.bang.dimensionLabel} nào cao nhất?`,
-          `Tổng ${nguon.bang.measureLabel} là bao nhiêu?`,
-          `Top 3 ${nguon.bang.dimensionLabel}`,
-          `Có mấy ${nguon.bang.dimensionLabel}?`,
-        ]
-      : // Câu so sánh đứng TRƯỚC: đó là nhóm câu hỏi người dùng không đoán được
-        // là hỏi được, còn "Số dòng của X?" thì nhìn chip là nghĩ ra.
-        [...soSanh, ...nguon.duKien.map((d) => `${d.nhan}?`)].slice(0, 4);
-
   return (
     <div className="flex items-start gap-2">
       <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-white">
@@ -331,22 +390,31 @@ function ChaoHoi({
           trên màn hình và trả lời bằng chính số đó.
         </p>
         <p className="mt-2 mb-1.5 text-xs text-slate-400">Thử hỏi:</p>
-        <ul className="space-y-1">
-          {mau.map((q) => (
-            <li key={q}>
-              <button
-                type="button"
-                onClick={() => onChon(q)}
-                className="w-full rounded-lg border border-slate-200 px-2 py-1 text-left text-xs text-slate-600 transition-colors hover:border-brand-400 hover:bg-brand-50"
-              >
-                {q}
-              </button>
-            </li>
-          ))}
-        </ul>
+        <NutGoiY mau={cauMau(nguon, soSanh)} onChon={onChon} />
       </div>
     </div>
   );
+}
+
+/**
+ * Câu mẫu của MỘT nguồn — bốn câu, đúng kiểu mà nguồn đó trả lời được.
+ *
+ * Một danh sách viết cứng sẽ gợi ý "khu vực nào cao nhất" trên một trang không
+ * có biểu đồ nào, tức là dạy người dùng hỏi những câu chắc chắn nhận về "tôi
+ * chưa hiểu".
+ */
+function cauMau(nguon: Nguon, soSanh: string[]): string[] {
+  if (nguon.bang !== undefined) {
+    return [
+      `${nguon.bang.dimensionLabel} nào cao nhất?`,
+      `Tổng ${nguon.bang.measureLabel} là bao nhiêu?`,
+      `Top 3 ${nguon.bang.dimensionLabel}`,
+      `Có mấy ${nguon.bang.dimensionLabel}?`,
+    ];
+  }
+  // Câu so sánh đứng TRƯỚC: đó là nhóm câu hỏi người dùng không đoán được là
+  // hỏi được, còn "Số dòng của X?" thì nhìn chip là nghĩ ra.
+  return [...soSanh, ...nguon.duKien.map((d) => `${d.nhan}?`)].slice(0, 4);
 }
 
 /**

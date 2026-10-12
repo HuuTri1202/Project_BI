@@ -260,3 +260,80 @@ describe('Lớp viết lại câu không được làm hỏng câu trả lời',
     expect(bong[1]).toHaveTextContent('Tổng là 800 Doanh thu.');
   });
 });
+
+describe('Chưa hiểu thì phải mở ra đường đi tiếp', () => {
+  /*
+   * Một câu "tôi chưa hiểu" trơ trọi là ngõ cụt: người dùng không biết mình gõ
+   * sai ở đâu, thử thêm một câu nữa cũng chưa hiểu, rồi đóng khung lại. Thứ
+   * chặn chuyện đó là mấy câu BẤM ĐƯỢC lấy từ chính dữ kiện trang đang giữ.
+   */
+  it('câu chưa hiểu kèm gợi ý bấm được, lấy từ dữ kiện gần nhất', () => {
+    dung([
+      { ten: 'Đơn hàng', duKien: [{ nhan: 'Số dòng của bảng Đơn hàng', gia: '120' }] },
+      { ten: 'Khách hàng', duKien: [{ nhan: 'Số cột của bảng Khách hàng', gia: '8' }] },
+    ]);
+    fireEvent.click(nutMo());
+
+    // Chip đang chọn là "Đơn hàng", và nó không có dữ kiện nào về cột — nên
+    // `traLoi` cố ý không đoán, còn gợi ý thì phải với sang nguồn bên cạnh.
+    hoi('cột thì sao');
+
+    expect(screen.getByText(/Tôi chưa hiểu câu này/)).toBeInTheDocument();
+    const goiY = screen.getByRole('button', { name: 'Số cột của bảng Khách hàng?' });
+
+    // Bấm vào là nó điền thẳng vào ô nhập — không phải chép tay lại.
+    fireEvent.click(goiY);
+    expect(screen.getByLabelText('Câu hỏi')).toHaveValue('Số cột của bảng Khách hàng?');
+  });
+
+  it('không có dữ kiện nào gần thì vẫn gợi ý câu mẫu của nguồn đang chọn', () => {
+    dung([{ ten: 'Đơn hàng', duKien: [{ nhan: 'Số dòng của Đơn hàng', gia: '120' }] }]);
+    fireEvent.click(nutMo());
+
+    // "zzz" không trùng từ nào với dữ kiện nào.
+    hoi('zzz qqq');
+
+    expect(screen.getByText(/Tôi chưa hiểu câu này/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Số dòng của Đơn hàng?' })).toBeInTheDocument();
+  });
+});
+
+describe('Chip chọn nguồn', () => {
+  /*
+   * Tên nguồn KHÔNG duy nhất — ba mô hình cùng tên "Global-Superstore" trong
+   * một workspace là chuyện có thật. Hai chip giống nhau từng chữ thì người
+   * dùng không chỉ ra được mình đang hỏi cái nào, và React còn gộp chúng làm
+   * một vì khoá trùng.
+   */
+  it('tên nguồn trùng nhau thì chip được đánh số', () => {
+    dung([
+      { ten: 'Global-Superstore', duKien: [{ nhan: 'Số bảng trong mô hình A', gia: '4' }] },
+      { ten: 'Global-Superstore', duKien: [{ nhan: 'Số bảng trong mô hình B', gia: '2' }] },
+      { ten: 'doanh thu', duKien: [{ nhan: 'Số bảng trong mô hình C', gia: '9' }] },
+    ]);
+    fireEvent.click(nutMo());
+
+    expect(screen.getByRole('button', { name: 'Global-Superstore (1)' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Global-Superstore (2)' })).toBeInTheDocument();
+    // Tên không trùng thì KHÔNG đánh số — thêm "(1)" vào một chip đứng một mình
+    // chỉ làm người đọc đi tìm cái "(2)" không có.
+    expect(screen.getByRole('button', { name: 'doanh thu' })).toBeInTheDocument();
+  });
+
+  /*
+   * Chip thứ hai phải chọn được RIÊNG. Khoá trùng làm React coi hai chip là một
+   * phần tử, và câu trả lời nói về mô hình kia bằng những con số có thật.
+   */
+  it('chip trùng tên vẫn trỏ tới đúng nguồn của nó', () => {
+    dung([
+      { ten: 'Global-Superstore', duKien: [{ nhan: 'Số bảng trong mô hình này', gia: '4' }] },
+      { ten: 'Global-Superstore', duKien: [{ nhan: 'Số bảng trong mô hình này', gia: '2' }] },
+    ]);
+    fireEvent.click(nutMo());
+
+    fireEvent.click(screen.getByRole('button', { name: 'Global-Superstore (2)' }));
+    hoi('số bảng trong mô hình này');
+
+    expect(screen.getByText('Số bảng trong mô hình này: 2.')).toBeInTheDocument();
+  });
+});

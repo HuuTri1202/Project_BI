@@ -101,6 +101,12 @@ const TU_KHOA: { y: YDinh; tu: string[] }[] = [
   { y: 'chua_co', tu: ['chua ', 'khong co', 'bang 0'] },
 ];
 
+/** Chữ "nhất" đứng riêng thành một từ — "cao nhất", "ít báo cáo nhất". */
+const CO_NHAT = /(^| )nhat( |$)/;
+
+/** Những từ lật chiều so sánh: có chúng thì "nhất" là nhỏ nhất, không phải lớn nhất. */
+const TU_NGUOC = /(^| )(it|thap|nho|re|cu|som)( |$)/;
+
 /**
  * Câu hỏi này đang hỏi gì? `null` = không nhận ra.
  *
@@ -108,13 +114,28 @@ const TU_KHOA: { y: YDinh; tu: string[] }[] = [
  * ("Miền Bắc bao nhiêu"), nên nó được thử ở `tinhBang` bằng cách tìm xem câu
  * hỏi có nhắc tên nhóm nào không. Đặt một từ khoá kiểu "bao nhieu" vào đây sẽ
  * nuốt luôn mọi câu hỏi khác.
+ *
+ * ═══ Hai luật kẹp hai đầu bảng từ khoá ═════════════════════════════════════
+ *
+ * Bảng `TU_KHOA` so chuỗi LIỀN NHAU, nên tiếng Việt chen danh từ vào giữa tính
+ * từ là nó trượt: "ít báo cáo nhất" không chứa "it nhat". Riêng ca đó còn tệ
+ * hơn trượt — "báo **cáo nhất**" CHỨA đúng chuỗi "cao nhat", nên câu hỏi về cái
+ * ít nhất được trả lời bằng cái nhiều nhất, ngược hẳn, bằng một con số có thật.
+ *
+ * Nên:
+ *
+ *   - Luật lật chiều chạy TRƯỚC bảng, vì nó đang sửa một câu trả lời SAI.
+ *   - Luật "có `nhất` thì là cao nhất" chạy SAU bảng, chỉ như một lưới hứng.
+ *     Đặt nó trước là nó nuốt `ti_trong` ("chiếm bao nhiêu % so với cao nhất")
+ *     và `top_n` — hai thứ mà thứ tự trong bảng đã cố ý xếp lên trên `cao_nhat`.
  */
 export function docYDinh(cauHoi: string): YDinh | null {
   const q = chuanHoa(cauHoi);
+  if (CO_NHAT.test(q) && TU_NGUOC.test(q)) return 'thap_nhat';
   for (const { y, tu } of TU_KHOA) {
     if (tu.some((t) => q.includes(t))) return y;
   }
-  return null;
+  return CO_NHAT.test(q) ? 'cao_nhat' : null;
 }
 
 /**
@@ -486,6 +507,33 @@ interface ThuocTinh extends Cot {
  * hình, nhãn "Mô hình X dựng từ tệp nào" nhắc đúng tên nguồn tóm tắt nên trông
  * như một thuộc tính, nhưng không bảng nào khác có nó.
  */
+/**
+ * Tên hiện ra cho từng nguồn, có đánh số khi trùng nhau.
+ *
+ * Tên nguồn KHÔNG duy nhất: ba mô hình dữ liệu cùng tên "Global-Superstore"
+ * trong một workspace là chuyện có thật. Ba chip giống nhau từng chữ thì người
+ * dùng không biết mình đang bấm cái nào — và tệ hơn, câu "cao nhất là
+ * Global-Superstore" cũng không chỉ ra được là cái nào.
+ *
+ * Vì vậy chip VÀ câu trả lời dùng chung đúng hàm này. Hai chỗ gọi cùng một mục
+ * bằng hai cái tên khác nhau là lỗi đã được ghi lại ở `features/reports/nhanO.ts`.
+ *
+ * ⚠️ Chỉ đổi tên HIỆN RA. `nguon.ten` giữ nguyên, vì `nguonTheoTen` dò nó trong
+ * câu hỏi — người dùng gõ "Global-Superstore", không ai gõ "Global-Superstore (1)".
+ */
+export function nhanDuyNhat(nguon: Nguon[]): string[] {
+  const tong = new Map<string, number>();
+  for (const n of nguon) tong.set(n.ten, (tong.get(n.ten) ?? 0) + 1);
+
+  const dem = new Map<string, number>();
+  return nguon.map((n) => {
+    if ((tong.get(n.ten) ?? 0) < 2) return n.ten;
+    const i = (dem.get(n.ten) ?? 0) + 1;
+    dem.set(n.ten, i);
+    return `${n.ten} (${String(i)})`;
+  });
+}
+
 function gomThuocTinh(tatCa: Nguon[]): { cot: Cot[]; muc: Muc[] } {
   const nhom = new Map<string, Cot>();
   for (const [i, n] of tatCa.entries()) {
@@ -501,11 +549,13 @@ function gomThuocTinh(tatCa: Nguon[]): { cot: Cot[]; muc: Muc[] } {
 
   const cot = [...nhom.values()].filter((g) => g.gia.size >= 2);
   const chiSo = new Set(cot.flatMap((g) => [...g.gia.keys()]));
+  // Tên ĐÁNH SỐ, giống hệt chip — xem `nhanDuyNhat`.
+  const nhan = nhanDuyNhat(tatCa);
   const muc: Muc[] = [...chiSo]
     .sort((a, b) => a - b)
     .flatMap((i) => {
-      const n = tatCa[i];
-      return n === undefined ? [] : [{ i, ten: n.ten }];
+      const ten = nhan[i];
+      return ten === undefined ? [] : [{ i, ten }];
     });
   return { cot, muc };
 }
@@ -531,24 +581,6 @@ function chonThuocTinh(tatCa: Nguon[], cauHoi: string): ThuocTinh | null {
 }
 
 /**
- * Ý định so sánh khi tính từ chen vào GIỮA — "nhiều cột nhất", "ít bảng nhất".
- *
- * Hai thứ `docYDinh` không làm được, và cả hai đều vì nó so từ khoá liền nhau:
- *
- *   - Trượt "ít báo cáo nhất", vì từ khoá của nó là "it nhat".
- *   - Tệ hơn: "ít báo cáo nhất" CHỨA chuỗi "cao nhat" (của chữ "báo cáo"), nên
- *     nó không trượt mà trả về `cao_nhat` — ngược hẳn câu hỏi.
- *
- * Vì vậy ở nhánh so giữa các mục, hàm này được hỏi TRƯỚC `docYDinh`. Chỉ ở đây
- * thôi: chữ "nào" đã chắc chắn có mặt rồi nên một chữ "nhất" là đủ để kết luận,
- * còn ngoài kia thì không — "chiếm bao nhiêu % so với cao nhất" cũng có "nhất".
- */
-function sieuNhat(q: string): YDinh | null {
-  if (!/(^| )nhat($| )/.test(q)) return null;
-  return /(^| )(it|thap|nho|re|hiem|cu)( |$)/.test(q) ? 'thap_nhat' : 'cao_nhat';
-}
-
-/**
  * Trả lời câu hỏi "mục NÀO …" bằng cách so mọi mục đang hiện. `null` = chưa hiểu.
  *
  * Ba cửa phải qua hết: đúng ý định so sánh, câu hỏi có chữ "nào", và đúng MỘT
@@ -558,7 +590,7 @@ function sieuNhat(q: string): YDinh | null {
 export function soSanhNguon(tatCa: Nguon[], cauHoi: string): TraLoi | null {
   const q = chuanHoa(cauHoi);
   if (!q.split(' ').includes('nao')) return null;
-  const y = sieuNhat(q) ?? docYDinh(cauHoi);
+  const y = docYDinh(cauHoi);
   if (y !== 'cao_nhat' && y !== 'thap_nhat' && y !== 'chua_co') return null;
 
   const tt = chonThuocTinh(tatCa, cauHoi);
@@ -618,6 +650,44 @@ export function soSanhNguon(tatCa: Nguon[], cauHoi: string): TraLoi | null {
 function noiTen(ten: string[]): string {
   const cuoi = ten[ten.length - 1] ?? '';
   return ten.length < 2 ? cuoi : `${ten.slice(0, -1).join(', ')} và ${cuoi}`;
+}
+
+/**
+ * Mấy dữ kiện GẦN câu hỏi nhất — để khung gợi ý thay vì bế tắc ở "tôi chưa hiểu".
+ *
+ * ═══ Vì sao "chưa hiểu" phải kèm đường đi tiếp ═════════════════════════════
+ *
+ * `traLoi` cố ý trả `null` thay vì đoán, và đó là quyết định đúng. Nhưng một
+ * câu "tôi chưa hiểu" trơ trọi thì người dùng không biết mình gõ sai ở đâu —
+ * họ thử thêm một câu nữa, cũng chưa hiểu, rồi đóng khung lại và không mở nữa.
+ * Thứ chặn đứng chuyện đó không phải một lời xin lỗi dài hơn, mà là mấy câu
+ * BẤM ĐƯỢC, lấy từ chính dữ kiện trang đang giữ.
+ *
+ * Ngưỡng ở đây là MỘT từ trùng, lỏng hơn ngưỡng hai từ của `traCuu`. Chủ ý:
+ * đây là gợi ý để bấm, không phải câu trả lời. Đoán gần gần rồi khẳng định là
+ * sai; đoán gần gần rồi mời người dùng chọn là đúng việc của nó.
+ *
+ * Dữ kiện của nguồn ĐANG CHỌN được xét trước, nên khi điểm bằng nhau thì gợi ý
+ * nói về thứ người dùng đang xem.
+ */
+export function goiYGan(tatCa: Nguon[], chon: Nguon, cauHoi: string): string[] {
+  const tuHoi = tuNoiDung(cauHoi);
+  if (tuHoi.size === 0) return [];
+
+  const diem = new Map<string, number>();
+  for (const n of [chon, ...tatCa.filter((x) => x !== chon)]) {
+    for (const d of n.duKien) {
+      const dm = [...tuNoiDung(d.nhan)].filter((t) => tuHoi.has(t)).length;
+      if (dm === 0) continue;
+      const cu = diem.get(d.nhan);
+      if (cu === undefined || dm > cu) diem.set(d.nhan, dm);
+    }
+  }
+
+  return [...diem.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 3)
+    .map(([nhan]) => `${nhan}?`);
 }
 
 /**
