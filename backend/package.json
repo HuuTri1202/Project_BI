@@ -13,6 +13,7 @@
     "migrate": "tsx src/scripts/migrate.ts",
     "seed:admin": "tsx src/scripts/seed-admin.ts",
     "backfill:personal": "tsx src/scripts/backfill-personal-tenants.ts",
+    "llm:kiem": "tsx src/scripts/kiem-llm.ts",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",

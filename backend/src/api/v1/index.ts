@@ -87,6 +87,8 @@ import {
   queueLoad,
   warehouseSchema,
 } from '../../services/ingest/loadService';
+import { dienDat } from '../../services/chat/dienDat';
+import { hieuY } from '../../services/chat/hieuY';
 import { chTableName } from '../../services/ingest/buildDdl';
 import { cubeTypeOf } from '../../services/datamodel/classifyColumn';
 import { addDatasets, createDataModel } from '../../services/datamodel/createDataModel';
@@ -122,6 +124,8 @@ import { asyncHandler } from '../../utils/asyncHandler';
 import { badRequest, HttpError, notFound } from '../../utils/httpError';
 import { buildPageResult, paginationSchema, resolveSortColumn } from '../../utils/pagination';
 import {
+  dienDatBodySchema,
+  hieuYBodySchema,
   addDatasetsBodySchema,
   commitDatasetsBodySchema,
   createDatasetFolderBodySchema,
@@ -640,6 +644,11 @@ async function readDataModelDetail(scope: WorkspaceScope, id: number): Promise<D
       primaryColumnId: row.primary_column_id === null ? null : Number(row.primary_column_id),
       primaryColumnName: row.primary_column_name,
       chTable: chTableName(tenantId, Number(row.dataset_id)),
+      source: row.source,
+      originalFilename: row.original_filename,
+      sourceSchema: row.source_schema,
+      sourceTable: row.source_table,
+      connectionName: row.connection_name,
       canvasX: Number(row.canvas_x),
       canvasY: Number(row.canvas_y),
       columns: columnsByDataset.get(Number(row.id)) ?? [],
@@ -3784,3 +3793,43 @@ function asDuplicateName(err: unknown): unknown {
   }
   return err;
 }
+
+// ─── Khung hỏi đáp: viết lại câu trả lời ─────────────────────────────────────
+//
+// Con số do FRONTEND tính từ dữ liệu trang đang mở; endpoint này chỉ nhờ mô
+// hình diễn đạt lại cho mượt, rồi ĐỐI CHIẾU để chắc không con số nào bị đổi.
+// Xem `services/chat/dienDat.ts` cho ba luật của nó.
+//
+// Không gác `authorize`: nó không đọc dữ liệu nào của tổ chức cả. Thân request
+// mang theo đúng câu mà người gọi vừa tự tính ra trên máy họ, nên quyền đã được
+// quyết ở chỗ họ lấy được dữ liệu đó. `authenticate` +
+// `requireFreshMembership` vẫn áp vì cả router đã khai ở trên — đủ để một người
+// ngoài không tiêu lượt gọi của hệ thống.
+v1Router.post(
+  '/chat/dien-dat',
+  rateLimit({ bucket: 'chat-dien-dat', max: 60, windowSeconds: 600 }),
+  asyncHandler(async (req, res) => {
+    const body = dienDatBodySchema.parse(req.body);
+    res.json({ cau: await dienDat(body) });
+  }),
+);
+
+/*
+ * Nhờ mô hình CHỌN một nhãn dữ kiện cho câu hỏi — xem `services/chat/hieuY.ts`.
+ *
+ * Cùng lý do không gác `authorize` như trên: nhãn trong thân request là thứ
+ * người gọi vừa đọc được trên màn hình của chính họ, nên quyền đã được quyết ở
+ * chỗ họ lấy được dữ liệu đó. Endpoint này KHÔNG đọc gì của tổ chức cả.
+ *
+ * Trần thấp hơn `/chat/dien-dat` (40 so với 60): lớp này chỉ chạy khi phép so
+ * từ khoá ở máy người dùng đã trượt, nên một người gõ bình thường gần như không
+ * chạm tới nó. Chạm trần ở đây nghĩa là đang gõ linh tinh hàng loạt.
+ */
+v1Router.post(
+  '/chat/hieu-y',
+  rateLimit({ bucket: 'chat-hieu-y', max: 40, windowSeconds: 600 }),
+  asyncHandler(async (req, res) => {
+    const body = hieuYBodySchema.parse(req.body);
+    res.json(await hieuY(body));
+  }),
+);

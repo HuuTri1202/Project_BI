@@ -1,5 +1,5 @@
 import { ORDER_STATUSES_LIVE, isAwaitingLatePayment, type BillingCycle } from '@bi/shared';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 
 import { Button } from '../../../components/ui/Button';
@@ -17,6 +17,8 @@ import {
   usePlans,
 } from '../../../features/billing/hooks';
 import { getApiError } from '../../../services/apiClient';
+import { duKienMotDonHang, duKienMuaGoi } from '../../../features/chat/duKienTrang';
+import { useKhaiNguCanh } from '../../../features/chat/nguCanh';
 
 /**
  * Màn thanh toán — §11.
@@ -66,6 +68,14 @@ export function CheckoutPage(): React.ReactElement {
 
   const plan = plans.data?.find((p) => String(p.id) === planId);
   const sanSang = (methods.data ?? []).filter((m) => m.isConfigured);
+
+  // Khai dữ kiện cho khung hỏi đáp — xem `features/chat/duKienTrang.ts`. Phải
+  // đứng TRƯỚC mọi lệnh `return` sớm bên dưới: hook không được gọi có điều kiện.
+  const nguCanhGoi = useMemo(
+    () => ({ trang: 'màn mua gói', nguon: duKienMuaGoi(plan, cycle) }),
+    [plan, cycle],
+  );
+  useKhaiNguCanh(nguCanhGoi);
 
   // Chỉ có một phương thức dùng được thì chọn sẵn: bắt người dùng bấm vào lựa
   // chọn duy nhất là hỏi một câu chỉ có một câu trả lời.
@@ -213,6 +223,13 @@ export function OrderDetailPage(): React.ReactElement {
    */
   const status = useOrderStatus(code ?? null);
   const hienTai = status.data?.status ?? order.data?.status;
+
+  // Khai dữ kiện cho khung hỏi đáp — xem `features/chat/duKienTrang.ts`.
+  const nguCanhDon = useMemo(
+    () => ({ trang: 'trang đơn hàng', nguon: duKienMotDonHang(order.data) }),
+    [order.data],
+  );
+  useKhaiNguCanh(nguCanhDon);
 
   /*
    * ─── Tiền về xong thì màn hình phải TỰ đi tiếp — §11.2 ───────────────────

@@ -1,5 +1,5 @@
 import type { DataModelDto } from '@bi/shared';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 
 import { usePermissions } from '../../auth/usePermissions';
@@ -22,6 +22,8 @@ import {
 import { useListQueryState } from '../../hooks/useListQueryState';
 import { getApiError } from '../../services/apiClient';
 import { useWorkspace } from '../../workspace/useWorkspace';
+import { duKienDanhSachMoHinh } from '../../features/chat/duKienTrang';
+import { useKhaiNguCanh } from '../../features/chat/nguCanh';
 
 /**
  * Danh sách mô hình dữ liệu — §10.1.
@@ -83,6 +85,16 @@ export default function DataModelsPage(): React.ReactElement {
   const canDelete = permissions.can('datamodel', 'delete');
 
   const { data, isPending, isError, error, isPlaceholderData } = useDataModels(query);
+
+  // Khai dữ kiện cho khung hỏi đáp — xem `features/chat/duKienTrang.ts`.
+  const nguCanh = useMemo(
+    () => ({
+      trang: 'danh sách mô hình dữ liệu',
+      nguon: duKienDanhSachMoHinh(data?.items ?? [], data?.total ?? 0),
+    }),
+    [data],
+  );
+  useKhaiNguCanh(nguCanh);
 
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<DataModelDto | null>(null);
@@ -219,6 +231,7 @@ export default function DataModelsPage(): React.ReactElement {
                       một nhu cầu chưa ai có. */}
                   <Th>Thước đo</Th>
                   <Th>Quan hệ</Th>
+                  <Th>Báo cáo</Th>
                   <Th>Người tạo</Th>
                   <SortableTh
                     sortKey="updatedAt"
@@ -271,6 +284,12 @@ export default function DataModelsPage(): React.ReactElement {
                           <Badge tone="warning">chưa nối đủ</Badge>
                         </div>
                       )}
+                    </Td>
+                    <Td>
+                      {/* Số báo cáo đang dựng trên mô hình. Hiện ở đây vì đây là
+                          thứ phải biết TRƯỚC khi bấm xoá, và cột cuối cùng của
+                          dòng này chính là nút xoá. */}
+                      <span className="tabular-nums">{model.reportCount}</span>
                     </Td>
                     <Td>
                       <span className="text-slate-600">{model.creatorName ?? '—'}</span>

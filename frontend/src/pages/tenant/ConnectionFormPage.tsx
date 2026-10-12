@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Button } from '../../components/ui/Button';
 import { Page, PageBody, PageHeader } from '../../components/ui/Page';
@@ -6,6 +7,8 @@ import { useConnectionsBase } from '../../features/tenant/connections/basePath';
 import { ConnectionWizard } from '../../features/tenant/connections/ConnectionWizard';
 import { useConnections } from '../../features/tenant/hooks';
 import { getApiError } from '../../services/apiClient';
+import { duKienMotKetNoi } from '../../features/chat/duKienTrang';
+import { useKhaiNguCanh } from '../../features/chat/nguCanh';
 
 /*
  * Đường quay về sau khi lưu / bấm Huỷ KHÔNG cứng được nữa: admin về
@@ -51,6 +54,14 @@ export default function ConnectionFormPage(): React.ReactElement {
   // trong URL là bịa. Cả hai đều không nên hiện một form trống trông như đang tạo
   // mới — lưu nó lại sẽ tạo ra một kết nối thứ hai chứ không sửa cái nào.
   const missing = isEdit && data !== undefined && editing === null;
+
+  // Khai dữ kiện cho khung hỏi đáp — xem `features/chat/duKienTrang.ts`. Tạo
+  // mới thì không khai gì: form trống chưa nói được điều gì về dữ liệu.
+  const nguCanh = useMemo(
+    () => ({ trang: 'trang sửa kết nối', nguon: duKienMotKetNoi(editing) }),
+    [editing],
+  );
+  useKhaiNguCanh(nguCanh);
 
   return (
     <Page width="4xl">

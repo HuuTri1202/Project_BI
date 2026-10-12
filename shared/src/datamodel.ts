@@ -17,6 +17,8 @@
  * thứ dịch một câu hỏi "doanh thu theo khu vực" thành SQL chạy trên ClickHouse.
  */
 
+import type { DatasetSource } from './data';
+
 /**
  * Vai trò của một cột trong mô hình.
  *
@@ -444,6 +446,37 @@ export interface DataModelDatasetDto {
   primaryColumnName: string | null;
   /** Bảng trong ClickHouse — hiện ra để người dùng đối chiếu được. */
   chTable: string;
+  /**
+   * Bảng này GỐC ở đâu ra — tệp người dùng tải lên, hay một bảng đồng bộ từ CSDL.
+   *
+   * ═══ Vì sao `chTable` không trả lời được câu đó ════════════════════════════
+   *
+   * `chTable` nghe như một gợi ý về nguồn nhưng không phải: nó là
+   * `chTableName(tenantId, datasetId)`, tức chỉ gồm hai con số. Và `datasetName`
+   * là tên người dùng đặt cho bộ dữ liệu, đổi được, không nhất thiết dính gì tới
+   * tệp gốc. Nên trước khi có mấy trường này, câu hỏi "mô hình này dựng từ tệp
+   * nào" KHÔNG có đường trả lời nào từ dữ liệu mô hình — phải mở sang Kho dữ
+   * liệu rồi tự đối chiếu từng bộ một.
+   *
+   * ─── Vì sao gộp vào đây chứ không gọi thêm một request ─────────────────────
+   *
+   * Câu truy vấn ở `datamodels.listDatasets` ĐÃ `JOIN datasets` để lấy
+   * `dataset_name`, nên mấy trường này chỉ là thêm cột vào `SELECT` — không
+   * thêm một lượt khứ hồi nào. Cách còn lại là giao diện tự gọi
+   * `GET /datasets/:id` cho từng bảng của mô hình, tức n request cho một câu hỏi
+   * mà một câu `JOIN` sẵn có đã trả lời được.
+   *
+   * ⚠️ `originalFilename` là tên tệp THẬT. Đừng suy nó ra từ khoá MinIO: slug
+   * trong khoá đã bỏ dấu, hạ chữ thường và cắt còn 40 ký tự (`slugTenFile`),
+   * nên nó nhận ra được chứ không khôi phục được.
+   */
+  source: DatasetSource;
+  /** Nguồn `file`: tên tệp người dùng đã tải lên. Nguồn `connection`: `null`. */
+  originalFilename: string | null;
+  /** Nguồn `connection`: bảng gốc bên CSDL khách hàng. Nguồn `file`: `null`. */
+  sourceSchema: string | null;
+  sourceTable: string | null;
+  connectionName: string | null;
   canvasX: number;
   canvasY: number;
   columns: DataModelColumnDto[];
@@ -565,6 +598,16 @@ export interface DataModelDto {
   datasetCount: number;
   measureCount: number;
   relationshipCount: number;
+  /**
+   * Số báo cáo đang dựng trên mô hình này.
+   *
+   * Đây là câu trả lời cho "mô hình nào còn ai dùng" — thứ phải biết trước khi
+   * xoá, và thứ khung hỏi đáp cần để so giữa các mô hình. Đếm theo
+   * `reports.datamodel_id`, nên nó KHÔNG tính báo cáo dựng thẳng trên một bộ
+   * dữ liệu (`reports.dataset_id`) — hai nhánh đó loại trừ nhau bằng ràng buộc
+   * `CHECK` của bảng.
+   */
+  reportCount: number;
   creatorName: string | null;
   createdAt: string;
   updatedAt: string;

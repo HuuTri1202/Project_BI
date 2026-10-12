@@ -44,6 +44,29 @@ if (dialogProto !== undefined && typeof dialogProto.showModal !== 'function') {
   };
 }
 
+/**
+ * `Element.prototype.scrollTo` — jsdom không cài đặt, và gọi nó thì NÉM LỖI.
+ *
+ * Cùng loại lỗ hổng với `ResizeObserver` và `<dialog>` ở trên: một API có thật
+ * trong mọi trình duyệt, jsdom bỏ trống. Khung hỏi đáp cuộn xuống tin mới nhất
+ * sau mỗi câu trả lời, nên thiếu bản vá này thì cả component nổ ngay lần render
+ * thứ hai — và thông báo lỗi nói về `scrollTo`, không nói gì về jsdom.
+ *
+ * Vá ở ĐÂY chứ không `if` trong component: việc cuộn là hành vi thật của sản
+ * phẩm, không phải thứ cần né vì môi trường test thiếu đồ.
+ *
+ * ⚠️ Hỏi `globalThis.Element?` chứ không gọi thẳng `Element`: file này chạy cho
+ * CẢ những bộ test khai `@vitest-environment node` (axisLabels, xuatMotO…), và ở
+ * đó không có `Element` nào — gọi thẳng là năm file chết ngay lúc nạp, với một
+ * thông báo chẳng liên quan gì tới chúng. Cùng khuôn với bản vá `<dialog>` dưới.
+ */
+const elementProto = globalThis.Element?.prototype;
+if (elementProto !== undefined && typeof elementProto.scrollTo !== 'function') {
+  elementProto.scrollTo = function scrollTo(): void {
+    // Không làm gì: jsdom không có bố cục nên không có gì để cuộn.
+  };
+}
+
 // jsdom giữ nguyên DOM giữa các test trong cùng một file; không dọn thì test sau
 // tìm thấy hai element trùng nhãn và `getByLabelText` ném lỗi "found multiple".
 afterEach(() => {

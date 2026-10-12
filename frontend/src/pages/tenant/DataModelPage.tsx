@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, NavLink, Navigate, Outlet, useNavigate, useParams } from 'react-router-dom';
 
 import { usePermissions } from '../../auth/usePermissions';
@@ -8,6 +8,8 @@ import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
 import { Page, PageBody, PageHeader } from '../../components/ui/Page';
 import { ErrorState, TableSkeleton } from '../../components/ui/states';
 import { CreateReportMenu } from '../../features/tenant/CreateReportMenu';
+import { duKienMoHinh } from '../../features/chat/duKienTrang';
+import { useKhaiNguCanh } from '../../features/chat/nguCanh';
 import { CreateDataModelModal } from '../../features/datamodels/CreateDataModelModal';
 import {
   useDataModel,
@@ -95,6 +97,21 @@ export default function DataModelPage(): React.ReactElement {
   const activeId = Number.isInteger(fromUrl) && fromUrl > 0 ? fromUrl : null;
 
   const { data, isPending, isError, error } = useDataModel(activeId);
+  /*
+   * Khai cho khung hỏi đáp: một nguồn cho cả mô hình, cộng một nguồn cho MỖI
+   * bảng trong nó. Nhờ `source`/`originalFilename` vừa thêm vào
+   * `DataModelDatasetDto`, câu "mô hình này dựng từ tệp nào" trả lời được ngay
+   * ở đây mà không phải gọi thêm request nào.
+   */
+  const nguCanh = useMemo(
+    () => ({
+      trang: data === undefined ? 'mô hình dữ liệu' : `mô hình ${data.name}`,
+      nguon: data === undefined ? [] : duKienMoHinh(data),
+    }),
+    [data],
+  );
+  useKhaiNguCanh(nguCanh);
+
   const [creating, setCreating] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const remove = useDeleteDataModel();

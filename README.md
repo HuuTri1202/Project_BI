@@ -10,23 +10,24 @@ mà **không cần viết SQL**.
 
 ## Trạng thái hiện tại
 
-| Phần                                                                                      | Trạng thái                                             |
-| ----------------------------------------------------------------------------------------- | ------------------------------------------------------ |
-| Hạ tầng dev — 6 container (MySQL, Redis, MinIO, ClickHouse, Cube.js, MinIO-init)          | ✅ chạy được                                           |
-| Backend (Express) + Frontend (React + Vite + Tailwind v4)                                 | ✅ chạy được                                           |
-| **Xác thực** — đăng ký, đăng nhập, JWT, đổi & quên mật khẩu, đổi tổ chức                  | ✅ xong — xem mục _Xác thực_                           |
-| **Console vận hành hệ thống** (`/admin`) — nhìn xuyên mọi tổ chức                         | ✅ xong                                                |
-| **Khu người dùng** — trang chủ, project, workspace, thành viên, hồ sơ                     | ✅ xong                                                |
-| **Phân quyền Casbin** — 8 tài nguyên × 4 hành động, policy trong database                 | ✅ xong                                                |
-| **Kết nối CSDL & Kho dữ liệu** (§8) — MySQL, ClickHouse (SSL/TLS, xem trước dữ liệu)      | ✅ xong                                                |
-| **Nạp dữ liệu vào ClickHouse** (§9) — bảng `raw_*`, nạp nền, nạp lại nguyên tử            | ✅ xong                                                |
-| **Mô hình dữ liệu** (§10) — Cube schema, quan hệ, thước đo, Explorer                      | ✅ xong — xem mục _Mô hình dữ liệu_                    |
-| **Trình dựng biểu đồ** (§10.9) — kéo thả chiều/thước đo, 8 loại biểu đồ Vega-Lite         | ✅ xong — xem mục _Trình dựng biểu đồ_                 |
-| **Khu Báo cáo & khung nhiều biểu đồ** (§10.10) — mục sidebar riêng, tối đa 12 ô một khung | ✅ xong — xem mục _Khu Báo cáo_                        |
-| **Xuất báo cáo** — ảnh PNG và tệp PDF, mọi vai trò xuất được                              | ✅ xong                                                |
-| **Thư mục báo cáo** (§10.25) — gom báo cáo theo chủ đề, mặc định nằm ở Chung              | ✅ xong — xem mục _Thư mục báo cáo_                    |
-| **Gói cước & thanh toán** (§11) — VietQR, đối soát Sepay, hạn mức theo gói                | ✅ xong — xem [docs/thanh-toan.md](docs/thanh-toan.md) |
-| Bộ lọc dùng chung cả khung, chia sẻ báo cáo ra ngoài                                      | ⏳ chưa làm                                            |
+| Phần                                                                                         | Trạng thái                                             |
+| -------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
+| Hạ tầng dev — 6 container (MySQL, Redis, MinIO, ClickHouse, Cube.js, MinIO-init)             | ✅ chạy được                                           |
+| Backend (Express) + Frontend (React + Vite + Tailwind v4)                                    | ✅ chạy được                                           |
+| **Xác thực** — đăng ký, đăng nhập, JWT, đổi & quên mật khẩu, đổi tổ chức                     | ✅ xong — xem mục _Xác thực_                           |
+| **Console vận hành hệ thống** (`/admin`) — nhìn xuyên mọi tổ chức                            | ✅ xong                                                |
+| **Khu người dùng** — trang chủ, project, workspace, thành viên, hồ sơ                        | ✅ xong                                                |
+| **Phân quyền Casbin** — 8 tài nguyên × 4 hành động, policy trong database                    | ✅ xong                                                |
+| **Kết nối CSDL & Kho dữ liệu** (§8) — MySQL, ClickHouse (SSL/TLS, xem trước dữ liệu)         | ✅ xong                                                |
+| **Nạp dữ liệu vào ClickHouse** (§9) — bảng `raw_*`, nạp nền, nạp lại nguyên tử               | ✅ xong                                                |
+| **Mô hình dữ liệu** (§10) — Cube schema, quan hệ, thước đo, Explorer                         | ✅ xong — xem mục _Mô hình dữ liệu_                    |
+| **Trình dựng biểu đồ** (§10.9) — kéo thả chiều/thước đo, 8 loại biểu đồ Vega-Lite            | ✅ xong — xem mục _Trình dựng biểu đồ_                 |
+| **Khu Báo cáo & khung nhiều biểu đồ** (§10.10) — mục sidebar riêng, tối đa 12 ô một khung    | ✅ xong — xem mục _Khu Báo cáo_                        |
+| **Xuất báo cáo** — ảnh PNG và tệp PDF, mọi vai trò xuất được                                 | ✅ xong                                                |
+| **Thư mục báo cáo** (§10.25) — gom báo cáo theo chủ đề, mặc định nằm ở Chung                 | ✅ xong — xem mục _Thư mục báo cáo_                    |
+| **Gói cước & thanh toán** (§11) — VietQR, đối soát Sepay, hạn mức theo gói                   | ✅ xong — xem [docs/thanh-toan.md](docs/thanh-toan.md) |
+| **Trợ lý hỏi đáp dữ liệu** — khung nổi ở mọi trang, trả lời theo trang đang mở và cả tổ chức | ✅ xong — xem mục _Trợ lý hỏi đáp_                     |
+| Bộ lọc dùng chung cả khung, chia sẻ báo cáo ra ngoài                                         | ⏳ chưa làm                                            |
 
 Xem lộ trình đầy đủ và phân công theo tính năng trong tài liệu kế hoạch của nhóm.
 
@@ -3074,6 +3075,83 @@ dùng một khung khác thứ họ vừa dựng, mà không nói gì.
 Không ca nào cần ClickHouse trả số thật. Việc đó đã được chứng minh bằng tay
 trên dữ liệu thật; buộc nó vào CI sẽ biến một bộ test cấu hình thành một bộ test
 hạ tầng.
+
+---
+
+## Trợ lý hỏi đáp
+
+Khung nổi ở góc dưới-phải của **mọi** trang có dữ liệu. Hỏi bằng tiếng Việt về
+thứ đang hiện trên màn hình: _"datamodel nào được dùng nhiều nhất"_, _"mô hình
+nào chưa nối quan hệ"_, _"số dòng của bộ dữ liệu này"_, _"khu vực nào cao nhất"_.
+
+**Nó không bịa được.** Mọi con số trong câu trả lời là một phép tính trên dữ
+liệu mà chính trang đó đã tải về, hoặc trên hai danh sách xuyên hệ thống nói
+dưới đây — **không có endpoint nào riêng cho khung**, nên không có chỗ nào để
+bịa. Hệ quả là quyền được thừa hưởng miễn phí: `viewer` không có `dataset:read`
+thì hai lời gọi kia trả 403, khung không có nguồn nào của Kho dữ liệu, và không
+cần thêm một lớp chặn nào.
+
+**Hai phạm vi, và khung luôn nói rõ nó đang đọc phạm vi nào.** Trang đang mở trả
+lời trước; chỉ khi trang không trả lời được thì khung mới tra **danh sách bộ dữ
+liệu và mô hình dữ liệu của cả tổ chức** (`GET /datasets` + `GET /datamodels`,
+gọi khi khung được mở, bỏ trống `workspaceId`). Nhờ vậy _"có bao nhiêu bộ dữ
+liệu"_, _"mô hình nào nhiều bảng nhất"_ trả lời được từ bất cứ trang nào — và
+câu trả lời mang sẵn vế _"tra trên toàn bộ tổ chức, không phải trên trang đang
+mở"_, vì danh sách đó KHÔNG ở trên màn hình để người đọc đối chiếu.
+
+Câu trả lời luôn nói rõ nó đứng trên cái gì — _"so trên 9 mục đang hiện trên
+trang này"_, _"tệp đã bị cắt khi tải lên nên đây chưa phải toàn bộ"_, _"tính
+trên 5 nhóm đang hiện trên biểu đồ"_. Không hiểu thì nói chưa hiểu, kèm vài câu
+bấm được, chứ không đoán.
+
+**Hỏi bằng lời thường, trả lời bằng chữ.** _"Có những sản phẩm nào trên biểu
+đồ"_, _"liệt kê các sản phẩm có số lượng 10"_ — khung đọc ra đủ tên kèm giá trị
+của từng tên, chứ không chỉ một con số. Ngưỡng lọc lấy từ chính câu người dùng
+gõ; không có con số nào trong câu thì nó liệt kê hết, chứ không tự đặt ngưỡng.
+
+**Mô hình ngôn ngữ là lớp phủ, không phải điều kiện chạy.** Chưa điền
+`LLM_BASE_URL` / `LLM_API_KEY` / `LLM_MODEL` trong `backend/.env` thì khung vẫn
+chạy đủ chức năng bằng phép so từ khoá. Khi có cấu hình, mô hình làm đúng hai
+việc, và **không việc nào cho phép nó tạo ra nội dung**:
+
+1. **Hiểu câu hỏi.** Phép so từ khoá mù trước cách nói khác — _"cái này nặng bao
+   nhiêu"_ không trùng từ nào với _"Dung lượng của Đơn hàng Q4"_. Khi nó trượt,
+   mô hình nhận một **danh sách đánh số các nhãn** mà trang đang giữ (chỉ nhãn,
+   không có giá trị nào) và chỉ trả về **một con số**: nhãn nào khớp, hoặc 0.
+   Chỉ số ngoài khoảng bị bỏ ngay ở backend, và câu trả lời vẫn do code dựng từ
+   chính dữ kiện đó — kể cả điều kiện của con số.
+2. **Viết lại thành câu.** Câu mẫu do code ghép chuỗi nên nó đọc như một dòng
+   bảng (_"Số quan hệ của mô hình Bán hàng: 3."_); mô hình biến nó thành một câu
+   tiếng Việt có chủ ngữ vị ngữ. Cả HAI đường ra câu trả lời đều đi qua đây.
+   Câu nó viết bị đối chiếu: con số nào biến mất thì bỏ cả câu, trả lại câu mẫu.
+
+**Kiểm tra đã nối được mô hình chưa:**
+
+```bash
+npm --workspace backend run llm:kiem
+```
+
+Nó in ra ba biến đọc được (khoá chỉ in ĐỘ DÀI, không in giá trị), gọi thử nhà
+cung cấp, rồi thử đúng việc khung nhờ mô hình làm — chọn một trường. Lệnh này
+tồn tại vì khung **cố ý** không bao giờ hỏng vì lớp mô hình: điền sai một ký tự
+thì màn hình trông y hệt lúc điền đúng.
+
+⚠️ `tsx watch` chỉ theo dõi file `.ts`. Sửa `.env` xong phải **khởi động lại
+backend**, nó không tự nạp lại.
+
+Thứ tệ nhất mô hình làm được là **chọn nhầm nhãn** — và khi đó câu trả lời hiện
+ra kèm nguyên văn cái nhãn nó chọn, nên người đọc thấy ngay là nó đang nói
+chuyện khác. Thứ gửi lên mô hình chỉ gồm câu hỏi, tên trường, và mấy dữ kiện của
+riêng câu trả lời — không gửi bảng số liệu, không gửi số tài khoản ngân hàng.
+
+| Nơi ở                                          | Việc                                             |
+| ---------------------------------------------- | ------------------------------------------------ |
+| `frontend/src/features/chat/duKienTrang.ts`    | Mỗi trang một hàm: DTO đã tải → dữ kiện hỏi được |
+| `frontend/src/features/chat/nguCanhHeThong.ts` | Hai danh sách xuyên hệ thống, kéo khi khung mở   |
+| `frontend/src/features/chat/traLoi.ts`         | Lõi trả lời — hàm thuần, không React, không mạng |
+| `frontend/src/features/chat/HoiDapPanel.tsx`   | Khung, con robot, bong bóng, gợi ý               |
+| `backend/src/services/chat/hieuY.ts`           | Lớp hiểu câu hỏi — mô hình chỉ CHỌN một nhãn     |
+| `backend/src/services/chat/dienDat.ts`         | Lớp viết lại + luật đối chiếu số                 |
 
 ---
 

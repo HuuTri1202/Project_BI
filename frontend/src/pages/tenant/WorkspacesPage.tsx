@@ -1,5 +1,5 @@
 import type { AdminWorkspaceDto } from '@bi/shared';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import { Modal } from '../../components/ui/Modal';
@@ -8,6 +8,8 @@ import { EmptyState, ErrorState, TableSkeleton } from '../../components/ui/state
 import { useDeleteWorkspace, useWorkspaceList } from '../../features/tenant/hooks';
 import { WorkspaceFormModal } from '../../features/tenant/workspaces/WorkspaceFormModal';
 import { getApiError } from '../../services/apiClient';
+import { duKienWorkspace } from '../../features/chat/duKienTrang';
+import { useKhaiNguCanh } from '../../features/chat/nguCanh';
 
 /**
  * Tab "Workspace" của trang Quản lý tổ chức — §4.5.
@@ -25,6 +27,13 @@ import { getApiError } from '../../services/apiClient';
  */
 export default function TenantWorkspacesPage(): React.ReactElement {
   const { items, isLoading, error } = useWorkspaceList();
+
+  // Khai dữ kiện cho khung hỏi đáp — xem `features/chat/duKienTrang.ts`.
+  const nguCanh = useMemo(
+    () => ({ trang: 'danh sách workspace', nguon: duKienWorkspace(items ?? []) }),
+    [items],
+  );
+  useKhaiNguCanh(nguCanh);
 
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<AdminWorkspaceDto | null>(null);

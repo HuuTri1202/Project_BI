@@ -1029,3 +1029,35 @@ export const renameDatasetBodySchema = z.object({
     .max(255)
     .transform((v) => v.replace(/\s+/g, ' ')),
 });
+
+/**
+ * Khung hỏi đáp gửi câu mẫu lên để được viết lại — `POST /chat/dien-dat`.
+ *
+ * ⚠️ KHÔNG có trường nào nhận `rows` hay cả bảng số liệu, và đó là một quyết
+ * định về quyền riêng tư chứ không phải sự thiếu sót: mô hình chỉ được thấy
+ * đúng mấy con số đã có trong câu trả lời người dùng vừa đọc.
+ *
+ * Trần độ dài có mặt vì thân request đi thẳng vào prompt của một hãng thứ ba.
+ * Không chặn thì một câu hỏi vài trăm KB vừa tốn lượt gọi vừa là đường để nhồi
+ * chỉ thị lạ vào prompt.
+ */
+export const dienDatBodySchema = z.object({
+  cauHoi: z.string().min(1).max(500),
+  cau: z.string().min(1).max(2000),
+  so: z.array(z.string().min(1).max(100)).max(20),
+});
+
+/**
+ * Khung hỏi đáp nhờ mô hình CHỌN một nhãn — `POST /chat/hieu-y`.
+ *
+ * ⚠️ Chỉ có `nhan`, không có giá trị, và đó là chính cái làm lớp này an toàn:
+ * mô hình chỉ thấy TÊN TRƯỜNG trên màn hình, không thấy số liệu nào, nên không
+ * có con số nào để nó sửa hay bịa. Xem `services/chat/hieuY.ts`.
+ *
+ * Trần 60 nhãn khớp `TRAN_NHAN`; schema chặn sớm để một thân request vài trăm
+ * nhãn không đi tới tận nơi mới bị cắt.
+ */
+export const hieuYBodySchema = z.object({
+  cauHoi: z.string().min(1).max(500),
+  nhan: z.array(z.string().min(1).max(300)).min(1).max(60),
+});

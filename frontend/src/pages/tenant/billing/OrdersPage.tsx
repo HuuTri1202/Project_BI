@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { ORDER_STATUSES, ORDER_STATUS_LABELS, type OrderStatus } from '@bi/shared';
 import { Link } from 'react-router-dom';
 
@@ -11,6 +12,8 @@ import { useOrders } from '../../../features/billing/hooks';
 import { OrderStatusBadge } from '../../../features/billing/OrderStatusBadge';
 import { useListQueryState } from '../../../hooks/useListQueryState';
 import { getApiError } from '../../../services/apiClient';
+import { duKienDonHang } from '../../../features/chat/duKienTrang';
+import { useKhaiNguCanh } from '../../../features/chat/nguCanh';
 
 /**
  * Lịch sử đơn hàng — §11.
@@ -47,6 +50,16 @@ const STATUS_OPTIONS = ORDER_STATUSES.map((s) => ({ value: s, label: ORDER_STATU
 export default function OrdersPage(): React.ReactElement {
   const { query, update, reset } = useListQueryState<OrderQuery>({ ...DEFAULTS }, ALLOWED);
   const { data, isPending, isError, error, isPlaceholderData } = useOrders(query);
+
+  // Khai dữ kiện cho khung hỏi đáp — xem `features/chat/duKienTrang.ts`.
+  const nguCanh = useMemo(
+    () => ({
+      trang: 'danh sách đơn hàng',
+      nguon: duKienDonHang(data?.items ?? [], data?.total ?? 0),
+    }),
+    [data],
+  );
+  useKhaiNguCanh(nguCanh);
 
   const coLoc = query.status !== '';
 

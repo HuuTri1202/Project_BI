@@ -1,5 +1,5 @@
 import { CONNECTION_KIND_LABELS, CONNECTION_VISIBILITY_LABELS, type ConnectionDto } from '@bi/shared';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useConnectionsBase } from '../../features/tenant/connections/basePath';
 import { Badge } from '../../components/ui/Badge';
@@ -14,6 +14,8 @@ import {
   useTestSavedConnection,
 } from '../../features/tenant/hooks';
 import { getApiError } from '../../services/apiClient';
+import { duKienKetNoi } from '../../features/chat/duKienTrang';
+import { useKhaiNguCanh } from '../../features/chat/nguCanh';
 
 /**
  * Tab "Kết nối" của trang Quản lý tổ chức — §8.
@@ -28,6 +30,13 @@ export default function ConnectionsPage(): React.ReactElement {
   const navigate = useNavigate();
   const { base, standalone } = useConnectionsBase();
   const { data, isPending, isError, error } = useConnections();
+
+  // Khai dữ kiện cho khung hỏi đáp — xem `features/chat/duKienTrang.ts`.
+  const nguCanh = useMemo(
+    () => ({ trang: 'danh sách kết nối', nguon: duKienKetNoi(data ?? []) }),
+    [data],
+  );
+  useKhaiNguCanh(nguCanh);
 
   const [deleting, setDeleting] = useState<ConnectionDto | null>(null);
 

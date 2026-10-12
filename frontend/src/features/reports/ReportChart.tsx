@@ -5,6 +5,7 @@ import { VegaChart } from '../../components/charts/VegaChart';
 import { TBody, Td, Th, THead, TableWrap, Tr } from '../../components/ui/Table';
 import { KHONG_XUAT } from '../../services/danhDauXuat';
 import { buildChartSpec, hasSeries } from './chartSpec';
+import { formatValue } from './nhanO';
 
 /**
  * Biểu đồ của một báo cáo — dùng chung cho trang XEM và trình DỰNG (§10.9).
@@ -321,17 +322,4 @@ export function ReportDataTable({ data }: { data: ReportDataDto }): React.ReactE
       </TBody>
     </TableWrap>
   );
-}
-
-/**
- * Con số trong bảng, đọc theo cách thước đo được khai.
- *
- * `'percent'` nhân 100 khi HIỂN THỊ, không đụng tới dữ liệu — cùng lập luận với
- * trục của biểu đồ.
- */
-function formatValue(value: number, format: ReportDataDto['format']): string {
-  if (format === 'percent') {
-    return `${(value * 100).toLocaleString('vi-VN', { maximumFractionDigits: 2 })} %`;
-  }
-  return value.toLocaleString('vi-VN');
 }

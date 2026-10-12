@@ -1,6 +1,6 @@
 import { JOB_TITLES, normalizePhone, phoneRule, registerFields } from '@bi/shared';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
 import { useAuth } from '../auth/useAuth';
@@ -10,6 +10,8 @@ import { Field, SelectField } from '../components/ui/Field';
 import { useChangePassword, useUpdateProfile } from '../features/tenant/hooks';
 import { getApiError } from '../services/apiClient';
 import { ROLE_LABELS } from '../types/auth';
+import { duKienHoSo } from '../features/chat/duKienTrang';
+import { useKhaiNguCanh } from '../features/chat/nguCanh';
 
 /**
  * Hồ sơ cá nhân — §4.4: sửa thông tin và đổi mật khẩu.
@@ -75,6 +77,13 @@ type ProfileValues = z.infer<typeof profileSchema>;
 
 function ProfileForm(): React.ReactElement {
   const { user } = useAuth();
+
+  // Khai dữ kiện cho khung hỏi đáp — xem `features/chat/duKienTrang.ts`.
+  const nguCanh = useMemo(
+    () => ({ trang: 'hồ sơ của bạn', nguon: user === null ? [] : duKienHoSo(user) }),
+    [user],
+  );
+  useKhaiNguCanh(nguCanh);
   const updateProfile = useUpdateProfile();
   const [saved, setSaved] = useState(false);
 

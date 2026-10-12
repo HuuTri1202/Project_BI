@@ -251,6 +251,34 @@ const envSchema = z.object({
   MAIL_FROM: z.string().min(1).optional(),
 
   /**
+   * Mô hình ngôn ngữ dùng để VIẾT LẠI câu trả lời của khung hỏi đáp.
+   *
+   * ═══ Ba biến này KHÔNG bắt buộc, và đó là điểm chính ═══════════════════════
+   *
+   * Khung hỏi đáp tự tính ra câu trả lời và tự ghép thành câu. Thiếu cấu hình ở
+   * đây thì nó dùng câu mẫu đó — chạy đủ chức năng, offline, không tốn gì. Lớp
+   * này chỉ làm câu đọc mượt hơn.
+   *
+   * Cố ý như vậy: buổi demo không được phụ thuộc vào bậc miễn phí của một hãng
+   * thứ ba. Hết lượt, mất mạng hay chưa có khoá đều phải ra cùng một kết quả —
+   * câu trả lời theo mẫu, không phải một khung báo lỗi.
+   *
+   * ─── Vì sao theo chuẩn OpenAI thay vì gắn một hãng ────────────────────────
+   *
+   * `LLM_BASE_URL` nhận mọi endpoint nói được `POST /chat/completions`: Groq,
+   * OpenRouter, hoặc một LM Studio/Ollama chạy ngay trên máy. Đổi hãng là đổi
+   * một biến môi trường, không sửa dòng code nào — và ngày nào muốn đưa hẳn vào
+   * trong nhà thì chỉ cần trỏ về localhost.
+   *
+   * ⚠️ `LLM_API_KEY` là BÍ MẬT. Nó ở backend chứ không ở frontend vì biến của
+   * Vite được nhúng thẳng vào bundle gửi về máy người dùng — ai mở devtools
+   * cũng đọc được, rồi dùng khoá đó cho việc của họ.
+   */
+  LLM_BASE_URL: z.string().url().optional(),
+  LLM_API_KEY: z.string().min(8).optional(),
+  LLM_MODEL: z.string().min(1).optional(),
+
+  /**
    * Vé đặt lại mật khẩu sống bao lâu.
    *
    * 60 phút: đủ dài cho người đọc mail trên điện thoại rồi mới về máy tính, đủ
