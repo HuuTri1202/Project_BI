@@ -296,3 +296,107 @@ describe('Nguồn không có bảng thì không tính được', () => {
     expect(traLoi(rong, 'tổng doanh thu')?.cau).toContain('không có dòng nào');
   });
 });
+
+describe('Biểu đồ hai chiều: hỏi chiều nào thì cộng theo chiều đó', () => {
+  /**
+   * Đúng hình dạng màn hình thật: Quantity theo Customer Name, tách màu theo
+   * Product Name. Mỗi dòng là một CẶP (khách, sản phẩm).
+   *
+   * Staples: 5 + 6 = 11 — tổng lớn nhất, nhưng không dòng nào của nó lớn nhất.
+   * Boston:  9      =  9 — dòng lớn nhất bảng, mà tổng lại thua.
+   */
+  function hinhHai(): Nguon {
+    return {
+      ten: 'Quantity theo Customer Name',
+      duKien: [],
+      bang: {
+        rows: [
+          { label: 'Jonathan Doherty', value: 9, series: 'Boston Pencil Sharpener' },
+          { label: 'Jonathan Doherty', value: 5, series: 'Staples' },
+          { label: 'Laura Armstrong', value: 6, series: 'Staples' },
+          { label: 'Laura Armstrong', value: 2, series: 'Acco Index Tab' },
+        ],
+        dimensionLabel: 'Customer Name',
+        measureLabel: 'Quantity',
+        seriesLabel: 'Product Name',
+        grouped: false,
+      },
+    };
+  }
+
+  /*
+   * ⚠️ Ca cốt lõi. Trả lời bằng DÒNG lớn nhất ra "Jonathan Doherty (Boston
+   * Pencil Sharpener): 9" — đúng số, sai câu hỏi. Sản phẩm bán nhiều nhất là
+   * sản phẩm có TỔNG lớn nhất, cộng qua mọi khách đang hiện.
+   */
+  it('hỏi theo chuỗi thì cộng theo chuỗi, không lấy dòng lớn nhất', () => {
+    const kq = traLoi(hinhHai(), 'product name nào có quantity cao nhất');
+
+    expect(kq?.cau).toContain('Staples');
+    expect(kq?.so).toEqual(['11']);
+    expect(kq?.cau).not.toContain('Boston');
+  });
+
+  it('hỏi theo chiều trục thì cộng theo trục', () => {
+    // Jonathan 9+5 = 14; Laura 6+2 = 8.
+    const kq = traLoi(hinhHai(), 'customer name nào có quantity cao nhất');
+
+    expect(kq?.cau).toContain('Jonathan Doherty');
+    expect(kq?.so).toEqual(['14']);
+  });
+
+  it('thấp nhất cũng cộng theo chiều được hỏi', () => {
+    expect(traLoi(hinhHai(), 'product name nào quantity thấp nhất')?.cau).toContain(
+      'Acco Index Tab',
+    );
+  });
+
+  it('top N cũng xếp hạng theo chiều được hỏi', () => {
+    const kq = traLoi(hinhHai(), 'top 2 product name');
+
+    expect(kq?.cau).toContain('1. Staples 11');
+    expect(kq?.cau).toContain('2. Boston Pencil Sharpener 9');
+  });
+
+  /*
+   * Không gọi tên chiều nào thì KHÔNG được tự ý cộng: không có cách nào biết
+   * người hỏi muốn gộp hay không, và một con số gộp im lặng thì không ai nhận
+   * ra. Giữ cách cũ — dòng lớn nhất, gọi đủ cả hai tên.
+   */
+  it('không gọi tên chiều nào thì vẫn trả lời bằng dòng lớn nhất', () => {
+    const kq = traLoi(hinhHai(), 'cao nhất là gì');
+
+    expect(kq?.cau).toContain('Jonathan Doherty (Boston Pencil Sharpener)');
+    expect(kq?.so).toEqual(['9']);
+  });
+
+  /*
+   * Gọi tên cả hai chiều mà hai tên rời nhau thì câu hỏi thật sự lẫn lộn. Chọn
+   * bừa một chiều là đưa ra một con số GỘP mà không ai biết đã gộp theo gì.
+   */
+  it('gọi tên cả hai chiều thì không gộp bừa', () => {
+    const kq = traLoi(hinhHai(), 'customer name với product name cái nào cao nhất');
+
+    expect(kq?.cau).toContain('Jonathan Doherty (Boston Pencil Sharpener)');
+  });
+
+  /*
+   * Trừ khi một tên nằm lọt trong tên kia — khi đó mọi câu hỏi về "Product
+   * Name" đều chứa "Name", và tên dài hơn mới là tên người dùng gõ.
+   */
+  it('tên chiều này nằm trong tên chiều kia thì lấy tên dài hơn', () => {
+    const n = hinhHai();
+    const bang = { ...n.bang!, dimensionLabel: 'Name' };
+
+    expect(traLoi({ ...n, bang }, 'product name nào cao nhất')?.cau).toContain('Staples');
+  });
+
+  it('số liệu bị cắt thì câu gộp vẫn mang cảnh báo', () => {
+    const n = hinhHai();
+    const bang = { ...n.bang!, paging: { page: 0, hasMore: true } };
+
+    expect(traLoi({ ...n, bang }, 'product name nào có quantity cao nhất')?.cau).toContain(
+      'không phải toàn bộ dữ liệu',
+    );
+  });
+});

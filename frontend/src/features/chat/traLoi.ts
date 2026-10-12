@@ -166,6 +166,62 @@ function tenDong(row: ReportDataDto['rows'][number]): string {
   return row.series === undefined ? row.label : `${row.label} (${row.series})`;
 }
 
+/**
+ * Câu hỏi đang hỏi về CHIỀU NÀO của một biểu đồ hai chiều? `null` = không nói rõ.
+ *
+ * ═══ Vì sao phải hỏi câu này ═══════════════════════════════════════════════
+ *
+ * Biểu đồ "Quantity theo Customer Name, tách màu theo Product Name" có mỗi dòng
+ * là một CẶP (khách, sản phẩm). Hỏi "Product Name nào Quantity cao nhất" mà trả
+ * lời bằng dòng lớn nhất thì ra một cặp — "Jonathan Doherty (Boston Pencil
+ * Sharpener): 13" — đúng số, sai câu hỏi. Sản phẩm bán nhiều nhất là sản phẩm
+ * có TỔNG lớn nhất, cộng qua mọi khách đang hiện.
+ *
+ * Chỉ gộp khi câu hỏi GỌI TÊN một chiều. Không gọi tên thì giữ nguyên cách cũ —
+ * dòng lớn nhất, gọi đủ cả hai tên — vì khi đó không có cách nào biết người hỏi
+ * muốn gộp hay không, và một con số gộp im lặng thì không ai nhận ra.
+ */
+function chieuHoi(bang: ReportDataDto, cauHoi: string): 'label' | 'series' | null {
+  if (bang.seriesLabel === undefined) return null;
+  const q = chuanHoa(cauHoi);
+  const chuoi = chuanHoa(bang.seriesLabel);
+  const truc = chuanHoa(bang.dimensionLabel);
+  const coChuoi = chuoi !== '' && q.includes(chuoi);
+  const coTruc = truc !== '' && q.includes(truc);
+
+  if (coChuoi !== coTruc) return coChuoi ? 'series' : 'label';
+
+  // Không gọi tên chiều nào: giữ cách cũ, trả lời bằng dòng lớn nhất.
+  if (!coChuoi) return null;
+
+  /*
+   * Gọi tên CẢ HAI. Gần như luôn là vì một tên nằm lọt trong tên kia — chiều
+   * "Name" và chuỗi "Product Name" thì câu hỏi nào về cái sau cũng chứa cái
+   * trước. Tên DÀI hơn là tên người dùng thật sự gõ; cùng luật đã dùng ở
+   * `timDong` và `nguonTheoTen`.
+   *
+   * Hai tên rời nhau mà cùng được gọi thì câu hỏi thật sự lẫn lộn — trả `null`
+   * để rơi về câu trả lời gọi đủ cả hai tên, thay vì chọn bừa một chiều rồi đưa
+   * ra một con số gộp mà không ai biết đã gộp theo gì.
+   */
+  if (chuoi !== truc && chuoi.includes(truc)) return 'series';
+  if (chuoi !== truc && truc.includes(chuoi)) return 'label';
+  return null;
+}
+
+/** Cộng các dòng lại theo một chiều. */
+function gopTheo(
+  rows: ReportDataDto['rows'],
+  chieu: 'label' | 'series',
+): { ten: string; value: number }[] {
+  const tong = new Map<string, number>();
+  for (const r of rows) {
+    const k = chieu === 'series' ? (r.series ?? '') : r.label;
+    tong.set(k, (tong.get(k) ?? 0) + r.value);
+  }
+  return [...tong.entries()].map(([ten, value]) => ({ ten, value }));
+}
+
 function ghep(cau: string, luuY: string | null): string {
   return luuY === null ? cau : `${cau} — ${luuY}`;
 }
@@ -183,6 +239,24 @@ function tinhBang(bang: ReportDataDto, cauHoi: string, y: YDinh | null): TraLoi 
     case 'cao_nhat':
     case 'thap_nhat': {
       const lon = y === 'cao_nhat';
+
+      const chieu = chieuHoi(bang, cauHoi);
+      if (chieu !== null) {
+        const nhom = gopTheo(rows, chieu);
+        const dinh = nhom.reduce((a, b) =>
+          lon ? (b.value > a.value ? b : a) : b.value < a.value ? b : a,
+        );
+        const gia = doc(dinh.value);
+        const tenChieu = chieu === 'series' ? (bang.seriesLabel ?? '') : dimensionLabel;
+        return {
+          cau: ghep(
+            `${tenChieu} ${lon ? 'cao nhất' : 'thấp nhất'} là ${dinh.ten}, với tổng ${measureLabel} ${gia} trên ${String(nhom.length)} ${tenChieu}.`,
+            cat,
+          ),
+          so: [gia],
+        };
+      }
+
       const dong = rows.reduce((a, b) =>
         lon ? (b.value > a.value ? b : a) : b.value < a.value ? b : a,
       );
@@ -218,6 +292,23 @@ function tinhBang(bang: ReportDataDto, cauHoi: string, y: YDinh | null): TraLoi 
     }
 
     case 'top_n': {
+      const chieu = chieuHoi(bang, cauHoi);
+      if (chieu !== null) {
+        const nhom = gopTheo(rows, chieu).sort((a, b) => b.value - a.value);
+        const n = Math.min(docSo(cauHoi) ?? 5, nhom.length);
+        const dau = nhom.slice(0, n);
+        const tenChieu = chieu === 'series' ? (bang.seriesLabel ?? '') : dimensionLabel;
+        return {
+          cau: ghep(
+            `${String(n)} ${tenChieu} cao nhất: ${dau
+              .map((g, i) => `${String(i + 1)}. ${g.ten} ${doc(g.value)}`)
+              .join('; ')}.`,
+            cat,
+          ),
+          so: dau.map((g) => doc(g.value)),
+        };
+      }
+
       const n = Math.min(docSo(cauHoi) ?? 5, rows.length);
       const dau = [...rows].sort((a, b) => b.value - a.value).slice(0, n);
       const so = dau.map((r) => doc(r.value));

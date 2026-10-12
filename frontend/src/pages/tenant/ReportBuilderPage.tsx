@@ -26,6 +26,7 @@ import {
   useDataModels,
   useExplorerFields,
   useExplorerStatus,
+  useModelReportPreview,
 } from '../../features/datamodels/hooks';
 import {
   useCreateCanvasReport,
@@ -68,6 +69,7 @@ import {
   newVisualId,
   nextPageName,
   pagesFromDto,
+  previewConfigOfDraft,
   readyPages,
   seriesUsed,
   slotForClick,
@@ -250,19 +252,6 @@ function Builder({
 
   const model = useDataModel(modelId);
 
-  /*
-   * Khai dữ kiện cho khung hỏi đáp: ở trình dựng, thứ đáng hỏi là MÔ HÌNH —
-   * bảng nào, cột kiểu gì, thước đo nào có sẵn. Số liệu của từng ô thì chưa
-   * lưu, nên không khai; muốn hỏi về số thì sang trang xem.
-   */
-  const nguCanh = useMemo(
-    () => ({
-      trang: model.data === undefined ? 'trình dựng báo cáo' : `mô hình ${model.data.name}`,
-      nguon: model.data === undefined ? [] : duKienMoHinh(model.data),
-    }),
-    [model.data],
-  );
-  useKhaiNguCanh(nguCanh);
   const status = useExplorerStatus(modelId);
   const fields = useExplorerFields(modelId);
 
@@ -493,6 +482,34 @@ function Builder({
       ? null
       : (drafts.find((d) => d.id === selectedId) ?? drafts[0] ?? null);
 
+  /*
+   * ─── Khung hỏi đáp: khai CẢ mô hình LẪN số liệu của ô đang chọn ──────────
+   *
+   * Mô hình thì rõ: bảng nào, cột kiểu gì, thước đo nào có sẵn.
+   *
+   * Số liệu thì từng bị bỏ qua với lý do "chưa lưu nên không khai" — sai. Nó
+   * đang hiện ngay trên màn hình, và câu người ta hỏi ở trình dựng gần như
+   * luôn là về nó ("Product Name nào Quantity cao nhất"). Bỏ qua nghĩa là
+   * khung nói "chưa hiểu" ngay cạnh một biểu đồ có sẵn câu trả lời.
+   *
+   * ⚠️ Không nâng số liệu từ ô lên đây bằng callback. Mỗi ô tự gọi
+   * `useModelReportPreview`; dựng LẠI đúng tham số đó ở tầng trang thì
+   * react-query trả về từ CÙNG một mục cache — không thêm một vòng mạng nào,
+   * và không ô nào phải vẽ lại. Cùng lý do `groupPage` được để nguyên trong ô
+   * thay vì kéo lên đây.
+   *
+   * Lấy trang nhóm 0 vì ô có thể đang ở trang khác mà tầng này không thấy —
+   * `luuYCat` trong `traLoi` tự nói ra là số liệu chưa đầy đủ khi `hasMore` bật.
+   */
+  const canTro = selected === null ? 'chưa chọn ô' : blockerOf(selected);
+  const cauHinhO = selected === null || canTro !== null ? null : previewConfigOfDraft(selected);
+  const soLieuO = useModelReportPreview(
+    modelId,
+    cauHinhO === null || selected === null
+      ? null
+      : { chartType: selected.chartType, config: cauHinhO, page: 0 },
+  );
+
   // Số BẢNG có trường — cùng phép gom mà bảng trường dùng, nên hai con số không
   // lệch nhau được.
   const sheetCount = groupBySheet(dimensions, measures).length;
@@ -503,6 +520,26 @@ function Builder({
     const ten = fieldLabelsOf(draft, dimensions, measures);
     return titleOf(draft, ten.dimension, ten.measure);
   };
+
+  /*
+   * Nguồn của khung hỏi đáp. Phải đứng sau `labelOf`: chip gọi ô bằng ĐÚNG cái
+   * tên đang hiện trên đầu ô — xem `features/reports/nhanO.ts`.
+   */
+  const tenO = selected === null ? null : labelOf(selected);
+  const nguCanh = useMemo(
+    () => ({
+      trang: model.data === undefined ? 'trình dựng báo cáo' : `mô hình ${model.data.name}`,
+      nguon: [
+        // Số liệu của ô đang chọn đứng TRƯỚC: đó là thứ người ta vừa nhìn.
+        ...(soLieuO.data === undefined || tenO === null
+          ? []
+          : [{ ten: tenO, duKien: [], bang: soLieuO.data }]),
+        ...(model.data === undefined ? [] : duKienMoHinh(model.data)),
+      ],
+    }),
+    [model.data, soLieuO.data, tenO],
+  );
+  useKhaiNguCanh(nguCanh);
 
   // ─── Sửa một ô ─────────────────────────────────────────────────────────────
 

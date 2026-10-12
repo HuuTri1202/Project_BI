@@ -3108,6 +3108,20 @@ việc, và **không việc nào cho phép nó tạo ra nội dung**:
 2. **Viết lại cho mượt.** Câu nó viết bị đối chiếu: con số nào biến mất thì bỏ
    cả câu, trả lại câu mẫu.
 
+**Kiểm tra đã nối được mô hình chưa:**
+
+```bash
+npm --workspace backend run llm:kiem
+```
+
+Nó in ra ba biến đọc được (khoá chỉ in ĐỘ DÀI, không in giá trị), gọi thử nhà
+cung cấp, rồi thử đúng việc khung nhờ mô hình làm — chọn một trường. Lệnh này
+tồn tại vì khung **cố ý** không bao giờ hỏng vì lớp mô hình: điền sai một ký tự
+thì màn hình trông y hệt lúc điền đúng.
+
+⚠️ `tsx watch` chỉ theo dõi file `.ts`. Sửa `.env` xong phải **khởi động lại
+backend**, nó không tự nạp lại.
+
 Thứ tệ nhất mô hình làm được là **chọn nhầm nhãn** — và khi đó câu trả lời hiện
 ra kèm nguyên văn cái nhãn nó chọn, nên người đọc thấy ngay là nó đang nói
 chuyện khác. Thứ gửi lên mô hình chỉ gồm câu hỏi, tên trường, và mấy dữ kiện của
