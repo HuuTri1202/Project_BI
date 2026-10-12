@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 
 import { formatValue } from '../src/features/reports/nhanO';
 import type { Nguon } from '../src/features/chat/nguCanh';
-import { chuanHoa, docYDinh, traLoi } from '../src/features/chat/traLoi';
+import { chuanHoa, docDieuKien, docYDinh, luaChonTrang, traLoi } from '../src/features/chat/traLoi';
 
 /**
  * Lõi trả lời của khung hỏi đáp.
@@ -398,5 +398,124 @@ describe('Biểu đồ hai chiều: hỏi chiều nào thì cộng theo chiều 
     expect(traLoi({ ...n, bang }, 'product name nào có quantity cao nhất')?.cau).toContain(
       'không phải toàn bộ dữ liệu',
     );
+  });
+});
+
+describe('Lọc theo giá trị', () => {
+  function hinhHai(): Nguon {
+    return {
+      ten: 'Quantity theo Customer Name',
+      duKien: [],
+      bang: {
+        rows: [
+          { label: 'Jonathan', value: 9, series: 'Boston' },
+          { label: 'Jonathan', value: 4, series: 'Staples' },
+          { label: 'Laura', value: 4, series: 'Acco' },
+          { label: 'Laura', value: 6, series: 'Staples' },
+        ],
+        dimensionLabel: 'Customer Name',
+        measureLabel: 'Quantity',
+        seriesLabel: 'Product Name',
+        grouped: false,
+      },
+    };
+  }
+
+  it('đọc toán tử và ngưỡng từ chính câu người dùng gõ', () => {
+    expect(docDieuKien('có số lượng là 4')).toEqual({ toanTu: '=', nguong: 4 });
+    expect(docDieuKien('số lượng trên 10')).toEqual({ toanTu: '>', nguong: 10 });
+    expect(docDieuKien('số lượng dưới 10')).toEqual({ toanTu: '<', nguong: 10 });
+    expect(docDieuKien('số lượng từ 10 trở lên')).toEqual({ toanTu: '>=', nguong: 10 });
+    expect(docDieuKien('số lượng từ 10 trở xuống')).toEqual({ toanTu: '<=', nguong: 10 });
+    // Không có con số nào thì đây không phải câu hỏi lọc.
+    expect(docDieuKien('liệt kê sản phẩm')).toBeNull();
+  });
+
+  /*
+   * ⚠️ Từ DÀI phải thử trước: "lớn hơn hoặc bằng" CHỨA "lớn hơn". Sai thứ tự
+   * thì ">= 10" thành "> 10", và câu trả lời thiếu đúng những mục bằng 10 —
+   * một danh sách ngắn hơn sự thật, không có gì báo.
+   */
+  it('"lớn hơn hoặc bằng" không bị đọc thành "lớn hơn"', () => {
+    expect(docDieuKien('quantity lớn hơn hoặc bằng 4')).toEqual({ toanTu: '>=', nguong: 4 });
+    expect(docDieuKien('quantity nhỏ hơn hoặc bằng 4')).toEqual({ toanTu: '<=', nguong: 4 });
+  });
+
+  it('liệt kê đúng những chuỗi khớp điều kiện', () => {
+    // Gộp theo Product Name: Boston 9, Staples 10, Acco 4.
+    const kq = traLoi(hinhHai(), 'liệt kê product name có quantity là 4');
+
+    expect(kq?.cau).toContain('Acco');
+    expect(kq?.cau).not.toContain('Staples');
+    expect(kq?.so).toEqual(['1']);
+  });
+
+  /*
+   * "Liệt kê" mà không có con số thì đây không phải câu hỏi lọc. Trả lời bằng
+   * một phép lọc với ngưỡng tự nghĩ ra (0, hay giá trị đầu tiên) là bịa ra
+   * điều kiện mà người dùng chưa hề nói.
+   */
+  it('câu lọc không có ngưỡng thì rơi xuống nhánh khác, không tự đặt ngưỡng', () => {
+    const kq = traLoi(hinhHai(), 'liệt kê product name');
+
+    expect(kq?.cau ?? '').not.toContain('bằng 0');
+    expect(kq?.cau ?? '').not.toContain('Product Name nào có Quantity bằng');
+  });
+
+  it('không mục nào khớp thì nói thẳng', () => {
+    expect(traLoi(hinhHai(), 'liệt kê product name có quantity là 99')?.cau).toContain(
+      'Không Product Name nào',
+    );
+  });
+
+  /*
+   * Không gộp thì mỗi mục là một DÒNG, không phải một giá trị của chiều nào.
+   * Gọi nó bằng tên chiều là nói sai: "2 Customer Name" trong khi danh sách
+   * liệt kê ra hai CẶP (khách, sản phẩm).
+   */
+  it('không gộp thì không gọi mục là tên một chiều', () => {
+    const kq = traLoi(hinhHai(), 'liệt kê những mục có giá trị là 4');
+
+    expect(kq?.cau).toContain('mục trên biểu đồ');
+    expect(kq?.cau).not.toContain('2 Customer Name');
+  });
+});
+
+describe('luaChonTrang — mọi thứ trang trả lời được', () => {
+  const bieuDo: Nguon = { ten: 'Doanh thu theo Khu vực', duKien: [], bang: bang() };
+  const traCuu: Nguon = {
+    ten: 'Đơn hàng Q4',
+    duKien: [{ nhan: 'Số dòng của Đơn hàng Q4', gia: '120' }],
+  };
+
+  /*
+   * Lớp hiểu câu hỏi chỉ cho mô hình CHỌN một mục trong danh sách này. Thiếu
+   * phép tính trong danh sách nghĩa là mô hình không bao giờ chọn được một
+   * phép tính — và "liệt kê sản phẩm có số lượng là 4" nhận về "chưa hiểu"
+   * ngay cạnh một biểu đồ có sẵn câu trả lời.
+   */
+  it('biểu đồ góp cả PHÉP TÍNH vào danh sách, không chỉ dữ kiện', () => {
+    const nhan = luaChonTrang([bieuDo], bieuDo, '').map((lc) => lc.nhan);
+
+    expect(nhan).toContain('Khu vực nào có Doanh thu cao nhất');
+    expect(nhan).toContain('Tổng Doanh thu');
+    expect(nhan.some((n) => n.startsWith('Liệt kê Khu vực theo Doanh thu'))).toBe(true);
+  });
+
+  it('mỗi lựa chọn tự chạy ra đúng câu trả lời của nó', () => {
+    const ds = luaChonTrang([bieuDo], bieuDo, 'tổng doanh thu');
+    const tong = ds.find((lc) => lc.nhan === 'Tổng Doanh thu');
+
+    expect(tong?.chay()?.cau).toBe('Tổng Doanh thu là 1.000.');
+  });
+
+  it('nguồn đang chọn xếp trước — backend chỉ lấy 60 nhãn đầu', () => {
+    const ds = luaChonTrang([bieuDo, traCuu], traCuu, '');
+
+    expect(ds[0]?.nhan).toBe('Số dòng của Đơn hàng Q4');
+  });
+
+  it('nguồn không có biểu đồ thì chỉ góp dữ kiện', () => {
+    expect(luaChonTrang([traCuu], traCuu, '')).toHaveLength(1);
   });
 });

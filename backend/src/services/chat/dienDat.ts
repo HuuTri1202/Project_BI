@@ -41,6 +41,87 @@ export interface DienDatInput {
   so: string[];
 }
 
+/**
+ * Địa chỉ `POST /chat/completions`, đã dọn dấu `/` thừa ở cuối `LLM_BASE_URL`.
+ *
+ * Người điền `.env` chép địa chỉ từ tài liệu của nhà cung cấp, và nhiều nhà
+ * viết nó KÈM dấu gạch cuối — Gemini là một ví dụ
+ * (`.../v1beta/openai/`). Nối thẳng thì ra `…/openai//chat/completions`, và
+ * một dấu gạch thừa đủ để nhận 404.
+ *
+ * Lỗi đó rất đắt vì nó im: `dienDat` nuốt mọi lỗi theo đúng thiết kế, nên màn
+ * hình trông y hệt lúc chưa cấu hình gì.
+ */
+export function diaChiGoi(): string {
+  return `${String(env.LLM_BASE_URL).replace(/\/+$/, '')}/chat/completions`;
+}
+
+/**
+ * Goi mo hinh mot lan. `daGoi` = da nhan duoc mot phan hoi HTTP (ke ca loi).
+ *
+ * ═══ Vi sao gui `reasoning_effort: 'none'` ════════════════════════════════
+ *
+ * Mo hinh loai "suy nghi truoc khi tra loi" (Gemini 2.5, o-series, gpt-5) tieu
+ * token suy nghi VAO CUNG han muc `max_tokens` ma khong tra chung ve trong
+ * `content`. Do xay ra hai chuyen, ca hai deu im lang:
+ *
+ *   - Het han muc giua chung suy nghi -> `content` rong -> lop nay roi ve cau
+ *     mau, va man hinh trong y het luc chua cau hinh gi.
+ *   - Te hon: no suy nghi nhieu roi doi y. Do chinh xac tren Gemini 2.5 Flash,
+ *     cau "cai nay nang bao nhieu" voi ba truong: bat suy nghi -> tra ve 0
+ *     ("khong truong nao khop"); tat suy nghi -> tra ve 3 (Dung luong), dung.
+ *     Viec o day la chon mot muc trong danh sach, khong phai viec can suy luan.
+ *
+ * ═══ Vi sao THU LAI khi bi tu choi ════════════════════════════════════════
+ *
+ * `reasoning_effort` la tham so chuan cua OpenAI, nhung chi hop le voi mot so
+ * mo hinh; gui cho mo hinh khac co nha tra ve 400. Thu lai mot lan KHONG kem
+ * tham so do la cach tu do cau hinh cho moi nha, thay vi mot bang "nha nao
+ * nhan tham so nao" chac chan muc.
+ */
+export async function goiMoHinh(
+  messages: { role: string; content: string }[],
+  maxTokens: number,
+): Promise<{ noiDung: string | null; daGoi: boolean }> {
+  const than = (themSuyNghi: boolean): string =>
+    JSON.stringify({
+      model: env.LLM_MODEL,
+      temperature: 0,
+      max_tokens: maxTokens,
+      messages,
+      ...(themSuyNghi ? { reasoning_effort: 'none' } : {}),
+    });
+
+  try {
+    let res = await fetch(diaChiGoi(), {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${String(env.LLM_API_KEY)}`,
+      },
+      body: than(true),
+      signal: AbortSignal.timeout(8_000),
+    });
+
+    if (!res.ok) {
+      res = await fetch(diaChiGoi(), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${String(env.LLM_API_KEY)}`,
+        },
+        body: than(false),
+        signal: AbortSignal.timeout(8_000),
+      });
+    }
+
+    if (!res.ok) return { noiDung: null, daGoi: true };
+    return { noiDung: docCau(await res.json()), daGoi: true };
+  } catch {
+    return { noiDung: null, daGoi: false };
+  }
+}
+
 /** Mô hình được cấu hình đủ để gọi hay chưa. */
 export function coCauHinhLlm(): boolean {
   return (
@@ -74,55 +155,25 @@ const NHAC = [
 export async function dienDat(input: DienDatInput): Promise<string> {
   if (!coCauHinhLlm()) return input.cau;
 
-  try {
-    const res = await fetch(`${String(env.LLM_BASE_URL)}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${String(env.LLM_API_KEY)}`,
+  const { noiDung } = await goiMoHinh(
+    [
+      { role: 'system', content: NHAC },
+      {
+        role: 'user',
+        content: `Câu người dùng hỏi: ${input.cauHoi}\nCâu trả lời cần viết lại: ${input.cau}`,
       },
-      body: JSON.stringify({
-        model: env.LLM_MODEL,
-        // `temperature: 0`: việc ở đây là diễn đạt lại một câu đã có, không
-        // phải sáng tác. Nhiệt độ cao chỉ làm tăng khả năng nó thêm một ý không
-        // có trong dữ liệu — và khi đó luật đối chiếu bỏ cả câu, tức là tốn một
-        // lượt gọi để nhận lại đúng câu mẫu.
-        temperature: 0,
-        max_tokens: 300,
-        messages: [
-          { role: 'system', content: NHAC },
-          {
-            role: 'user',
-            content: `Câu người dùng hỏi: ${input.cauHoi}\nCâu trả lời cần viết lại: ${input.cau}`,
-          },
-        ],
-      }),
-      // Khung hỏi đáp là thao tác tương tác. Chờ quá vài giây thì câu mẫu đến
-      // ngay còn tốt hơn một vòng xoay dài rồi mới có chữ.
-      signal: AbortSignal.timeout(8_000),
-    });
+    ],
+    800,
+  );
+  if (noiDung === null || noiDung.trim() === '') return input.cau;
 
-    if (!res.ok) return input.cau;
-
-    const body: unknown = await res.json();
-    const moi = docCau(body);
-    if (moi === null) return input.cau;
-
-    // Luật canh gác. Không log con số ra ngoài — chỉ cần biết là đã bỏ.
-    if (!giuNguyenSo(moi, input.so)) {
-      console.warn('[chat] bỏ câu mô hình viết lại: có con số bị đổi');
-      return input.cau;
-    }
-
-    return moi;
-  } catch {
-    /*
-     * Nuốt MỌI lỗi, cố ý: hết lượt, DNS chết, JSON rác, hết thời gian chờ. Mỗi
-     * nhánh đó mà nổi lên thành 500 là biến một tính năng trang trí thành một
-     * thứ làm hỏng khung hỏi đáp.
-     */
+  // Luật canh gác. Không log con số ra ngoài — chỉ cần biết là đã bỏ.
+  if (!giuNguyenSo(noiDung, input.so)) {
+    console.warn('[chat] bỏ câu mô hình viết lại: có con số bị đổi');
     return input.cau;
   }
+
+  return noiDung.trim();
 }
 
 /** Rút câu trả lời khỏi body, chịu được mọi hình dạng lạ. */

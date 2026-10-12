@@ -19,6 +19,7 @@ async function napVoiEnv(bien: Record<string, string | undefined>): Promise<{
   dienDat: (i: { cauHoi: string; cau: string; so: string[] }) => Promise<string>;
   coCauHinhLlm: () => boolean;
   giuNguyenSo: (cau: string, so: string[]) => boolean;
+  diaChiGoi: () => string;
 }> {
   for (const [k, v] of Object.entries(bien)) {
     if (v === undefined) delete process.env[k];
@@ -222,5 +223,36 @@ describe('Chỉ gửi đi thứ đã nằm trong câu trả lời', () => {
     expect(than).not.toContain('rows');
     // Và nhiệt độ 0: việc ở đây là diễn đạt lại, không phải sáng tác.
     expect(JSON.parse(than)).toMatchObject({ temperature: 0 });
+  });
+});
+
+describe('Địa chỉ gọi', () => {
+  /*
+   * ⚠️ Người điền `.env` chép địa chỉ từ tài liệu của nhà cung cấp, và nhiều
+   * nhà viết nó KÈM dấu gạch cuối — endpoint tương thích OpenAI của Gemini là
+   * `.../v1beta/openai/`. Nối thẳng ra `…/openai//chat/completions`, và một dấu
+   * gạch thừa đủ để nhận 404.
+   *
+   * Lỗi đó rất đắt vì nó IM: cả hai lớp đều nuốt lỗi theo đúng thiết kế, nên
+   * màn hình trông y hệt lúc chưa cấu hình gì.
+   */
+  it('cắt dấu gạch thừa ở cuối LLM_BASE_URL', async () => {
+    const { diaChiGoi } = await napVoiEnv({
+      ...DU_CAU_HINH,
+      LLM_BASE_URL: 'https://generativelanguage.googleapis.com/v1beta/openai/',
+    });
+
+    expect(diaChiGoi()).toBe(
+      'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions',
+    );
+  });
+
+  it('không có dấu gạch thừa thì giữ nguyên', async () => {
+    const { diaChiGoi } = await napVoiEnv({
+      ...DU_CAU_HINH,
+      LLM_BASE_URL: 'https://api.groq.com/openai/v1',
+    });
+
+    expect(diaChiGoi()).toBe('https://api.groq.com/openai/v1/chat/completions');
   });
 });

@@ -190,3 +190,61 @@ describe('Thứ gửi lên mô hình', () => {
     expect(gui).not.toContain(`Trường số ${String(TRAN_NHAN + 1)}`);
   });
 });
+
+describe('Mô hình "suy nghĩ trước khi trả lời"', () => {
+  /*
+   * ⚠️ Gemini 2.5 Flash tiêu token suy nghĩ vào cùng `max_tokens`, và tệ hơn:
+   * nó nghĩ nhiều rồi ĐỔI Ý. Cùng câu hỏi, cùng ba trường — bật suy nghĩ trả
+   * về 0 ("không trường nào khớp"), tắt suy nghĩ trả về 3, đúng. Việc ở đây là
+   * chọn một mục trong danh sách, không phải việc cần suy luận.
+   */
+  it('bảo mô hình ĐỪNG suy nghĩ', async () => {
+    const { hieuY } = await napVoiEnv(DU_CAU_HINH);
+    const goi = vi.fn().mockResolvedValue(traVe('2'));
+    globalThis.fetch = goi;
+
+    await hieuY({ cauHoi: 'gì đó', nhan: NHAN });
+
+    const than = JSON.parse(String((goi.mock.calls[0]?.[1] as { body: string }).body)) as {
+      reasoning_effort?: string;
+    };
+    expect(than.reasoning_effort).toBe('none');
+  });
+
+  /*
+   * `reasoning_effort` là tham số chuẩn của OpenAI nhưng chỉ hợp lệ với một số
+   * mô hình; nhà khác trả về 400. Thử lại MỘT lần không kèm tham số đó là cách
+   * tự dò cấu hình cho mọi nhà, thay vì một bảng "nhà nào nhận tham số nào".
+   */
+  it('bị từ chối thì thử lại một lần KHÔNG kèm tham số đó', async () => {
+    const { hieuY } = await napVoiEnv(DU_CAU_HINH);
+    const goi = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 400,
+        json: async () => ({}),
+      } as unknown as Response)
+      .mockResolvedValueOnce(traVe('3'));
+    globalThis.fetch = goi;
+
+    expect((await hieuY({ cauHoi: 'gì đó', nhan: NHAN })).chon).toBe(2);
+    expect(goi).toHaveBeenCalledTimes(2);
+
+    const lan2 = JSON.parse(String((goi.mock.calls[1]?.[1] as { body: string }).body)) as {
+      reasoning_effort?: string;
+    };
+    expect(lan2.reasoning_effort).toBeUndefined();
+  });
+
+  it('thử lại cũng hỏng thì thôi, không thử nữa', async () => {
+    const { hieuY } = await napVoiEnv(DU_CAU_HINH);
+    const goi = vi
+      .fn()
+      .mockResolvedValue({ ok: false, status: 500, json: async () => ({}) } as unknown as Response);
+    globalThis.fetch = goi;
+
+    expect(await hieuY({ cauHoi: 'gì đó', nhan: NHAN })).toEqual({ chon: null, daHoi: true });
+    expect(goi).toHaveBeenCalledTimes(2);
+  });
+});

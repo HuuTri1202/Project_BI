@@ -19,8 +19,11 @@
  * vào issue, vào chat, vào báo cáo. Chỉ in ĐỘ DÀI để người đọc nhận ra trường
  * hợp dán hụt hay dán kèm dấu nháy.
  */
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+
 import { env } from '../config/env';
-import { coCauHinhLlm } from '../services/chat/dienDat';
+import { coCauHinhLlm, diaChiGoi } from '../services/chat/dienDat';
 import { hieuY } from '../services/chat/hieuY';
 
 const TICK = '✓';
@@ -33,6 +36,36 @@ function mienCua(url: string): string {
   } catch {
     return '(không phải một URL hợp lệ)';
   }
+}
+
+/**
+ * Co file `.env` nao KHAC dang giu bien ma `backend/.env` thieu khong?
+ */
+function timNhamFile(thieu: string[]): string[] {
+  const noiKhac = ['../.env', '../frontend/.env', '../infrastructure/.env'];
+  const thay: string[] = [];
+
+  for (const duong of noiKhac) {
+    let noiDung: string;
+    try {
+      noiDung = readFileSync(resolve(process.cwd(), duong), 'utf8');
+    } catch {
+      continue;
+    }
+    const ten = new Set(
+      noiDung
+        .split('\n')
+        .map((d) => d.trim())
+        .filter((d) => !d.startsWith('#'))
+        .flatMap((d) => {
+          const i = d.indexOf('=');
+          return i < 1 ? [] : [d.slice(0, i).trim()];
+        }),
+    );
+    const trung = thieu.filter((b) => ten.has(b));
+    if (trung.length > 0) thay.push(`${duong.replace('../', '')} ~ ${trung.join(', ')}`);
+  }
+  return thay;
 }
 
 function inCauHinh(): void {
@@ -59,7 +92,7 @@ function inCauHinh(): void {
  */
 async function goiTho(): Promise<{ ma: number; than: string } | { loi: string }> {
   try {
-    const res = await fetch(`${String(env.LLM_BASE_URL)}/chat/completions`, {
+    const res = await fetch(diaChiGoi(), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -71,7 +104,7 @@ async function goiTho(): Promise<{ ma: number; than: string } | { loi: string }>
         max_tokens: 8,
         messages: [{ role: 'user', content: 'Trả lời đúng một chữ: OK' }],
       }),
-      signal: AbortSignal.timeout(15_000),
+      signal: AbortSignal.timeout(20_000),
     });
     return { ma: res.status, than: (await res.text()).slice(0, 400) };
   } catch (e) {
@@ -93,7 +126,23 @@ async function main(): Promise<void> {
   inCauHinh();
 
   if (!coCauHinhLlm()) {
+    const thieu = (
+      [
+        ['LLM_BASE_URL', env.LLM_BASE_URL],
+        ['LLM_API_KEY', env.LLM_API_KEY],
+        ['LLM_MODEL', env.LLM_MODEL],
+      ] as const
+    )
+      .filter(([, gia]) => gia === undefined)
+      .map(([ten]) => ten);
+    const nham = timNhamFile(thieu);
+
     console.log(`\n${X} CHƯA NỐI. Thiếu biến ở trên, nên khung hỏi đáp chạy bằng câu mẫu.`);
+    if (nham.length > 0) {
+      console.log('\n   Nhung bien do CO trong mot file .env khac:\n');
+      for (const d of nham) console.log(`        ${d}`);
+      console.log('\n   Backend chi nap backend/.env. Chuyen may dong do sang dung file.');
+    }
     console.log('   Điền đủ cả ba biến trong backend/.env rồi KHỞI ĐỘNG LẠI backend.');
     console.log('   `tsx watch` chỉ theo dõi file .ts — sửa .env xong nó KHÔNG tự nạp lại.\n');
     process.exitCode = 1;

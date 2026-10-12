@@ -168,10 +168,11 @@ describe('Đổi nguồn', () => {
     dung(haiNguon);
     fireEvent.click(nutMo());
 
-    expect(screen.getByRole('button', { name: 'Khu vực nào cao nhất?' })).toBeInTheDocument();
+    const mau = 'Khu vực nào có Doanh thu cao nhất?';
+    expect(screen.getByRole('button', { name: mau })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Đơn hàng Q4' }));
-    expect(screen.queryByRole('button', { name: 'Khu vực nào cao nhất?' })).toBeNull();
+    expect(screen.queryByRole('button', { name: mau })).toBeNull();
     expect(screen.getByRole('button', { name: 'Số dòng của Đơn hàng Q4?' })).toBeInTheDocument();
   });
 });

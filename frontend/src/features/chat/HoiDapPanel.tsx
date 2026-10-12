@@ -4,14 +4,7 @@ import { KHONG_XUAT } from '../../services/danhDauXuat';
 import { dienDatLai, hieuCauHoi } from './api';
 import { useNguCanh } from './nguCanh';
 import type { Nguon } from './nguCanh';
-import {
-  duKienPhang,
-  goiYGan,
-  goiYSoSanh,
-  nhanDuyNhat,
-  traLoiTheoDuKien,
-  traLoiTrang,
-} from './traLoi';
+import { goiYGan, goiYSoSanh, luaChonTrang, nhanDuyNhat, traLoiTrang } from './traLoi';
 
 /**
  * Khung hỏi đáp nổi ở góc dưới-phải.
@@ -159,18 +152,18 @@ export function HoiDapPanel(): React.ReactElement | null {
    * cải thiện — người dùng không bao giờ nhìn một vòng xoay.
    */
   function nhoMoHinhChon(q: string, idBot: number): void {
-    const phang = duKienPhang(nguCanh.nguon, nguon);
-    if (phang.length === 0) return;
+    const luaChon = luaChonTrang(nguCanh.nguon, nguon, q);
+    if (luaChon.length === 0) return;
 
-    void hieuCauHoi({ cauHoi: q, nhan: phang.map((d) => d.nhan) })
+    void hieuCauHoi({ cauHoi: q, nhan: luaChon.map((lc) => lc.nhan) })
       .then(({ chon, daHoi }) => {
-        const d = chon === null ? undefined : phang[chon];
-        if (d === undefined) {
+        const kq = chon === null ? null : (luaChon[chon]?.chay() ?? null);
+        if (kq === null) {
           /*
-           * Mô hình đã đọc hết nhãn và không nhãn nào trả lời được. Đó là một
-           * câu KHÁC HẲN "tôi chưa hiểu câu này": nó nói trang này không có số
-           * liệu đó, chứ không phải người dùng gõ sai. Chỉ nói vậy khi mô hình
-           * thật sự đã được hỏi — máy chưa cấu hình thì chưa ai đọc gì cả.
+           * Mô hình đã đọc hết danh sách và không mục nào trả lời được. Đó là
+           * một câu KHÁC HẲN "tôi chưa hiểu câu này": nó nói trang này không có
+           * số liệu đó, chứ không phải người dùng gõ sai. Chỉ nói vậy khi mô
+           * hình thật sự đã được hỏi — máy chưa cấu hình thì chưa ai đọc gì cả.
            */
           if (!daHoi) return;
           setTinNhan((cu) =>
@@ -186,11 +179,10 @@ export function HoiDapPanel(): React.ReactElement | null {
           return;
         }
 
-        // Mô hình chỉ CHỌN được nhãn. Câu chữ và con số vẫn do `traLoiTheoDuKien`
-        // dựng từ chính dữ kiện đó — kể cả `luuY`, điều kiện của con số.
-        const moi = traLoiTheoDuKien(d);
+        // Mô hình chỉ CHỌN được một mục. Câu chữ và con số vẫn do `traLoi.ts`
+        // tính ra tại máy này — kể cả `luuY`, điều kiện của con số.
         setTinNhan((cu) =>
-          cu.map((t) => (t.id === idBot ? { id: t.id, ai: t.ai, cau: moi.cau, luc: t.luc } : t)),
+          cu.map((t) => (t.id === idBot ? { id: t.id, ai: t.ai, cau: kq.cau, luc: t.luc } : t)),
         );
       })
       .catch(() => {
@@ -462,17 +454,10 @@ function ChaoHoi({
  * chưa hiểu".
  */
 function cauMau(nguon: Nguon, soSanh: string[]): string[] {
-  if (nguon.bang !== undefined) {
-    return [
-      `${nguon.bang.dimensionLabel} nào cao nhất?`,
-      `Tổng ${nguon.bang.measureLabel} là bao nhiêu?`,
-      `Top 3 ${nguon.bang.dimensionLabel}`,
-      `Có mấy ${nguon.bang.dimensionLabel}?`,
-    ];
-  }
-  // Câu so sánh đứng TRƯỚC: đó là nhóm câu hỏi người dùng không đoán được là
-  // hỏi được, còn "Số dòng của X?" thì nhìn chip là nghĩ ra.
-  return [...soSanh, ...nguon.duKien.map((d) => `${d.nhan}?`)].slice(0, 4);
+  // Câu so sánh giữa các mục đứng TRƯỚC: đó là nhóm câu hỏi người dùng không
+  // đoán được là hỏi được, còn "Số dòng của X?" thì nhìn chip là nghĩ ra.
+  const tu = luaChonTrang([nguon], nguon, '').map((lc) => `${lc.nhan}?`);
+  return [...soSanh, ...tu].slice(0, 4);
 }
 
 /**

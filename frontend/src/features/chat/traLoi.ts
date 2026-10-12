@@ -35,6 +35,7 @@ export type YDinh =
   | 'so_sanh'
   | 'ti_trong'
   | 'xu_huong'
+  | 'loc'
   | 'chua_co';
 
 export interface TraLoi {
@@ -86,6 +87,13 @@ const TU_KHOA: { y: YDinh; tu: string[] }[] = [
   { y: 'top_n', tu: ['top ', 'cao nhat la nhung', 'xep hang'] },
   { y: 'cao_nhat', tu: ['cao nhat', 'lon nhat', 'nhieu nhat', 'dat nhat', 'dinh cao', 'max'] },
   { y: 'thap_nhat', tu: ['thap nhat', 'nho nhat', 'it nhat', 're nhat', 'min'] },
+  /*
+   * `loc` đứng SAU các từ so sánh: "liệt kê sản phẩm có số lượng cao nhất" là
+   * câu hỏi về cái cao nhất, không phải một phép lọc. Executor của nó tự trả
+   * `null` khi câu hỏi không có con số nào, nên nhận nhầm ở đây không nuốt mất
+   * câu trả lời — nó rơi xuống nhánh tra cứu như trước.
+   */
+  { y: 'loc', tu: ['liet ke', 'gom nhung', 'nhung nao', 'nao co', 'co gia tri'] },
   { y: 'trung_binh', tu: ['trung binh', 'binh quan'] },
   { y: 'tong', tu: ['tong', 'cong lai', 'tat ca la bao nhieu'] },
   { y: 'dem', tu: ['bao nhieu nhom', 'co may', 'so luong nhom', 'may nhom', 'bao nhieu muc'] },
@@ -227,7 +235,13 @@ function ghep(cau: string, luuY: string | null): string {
 }
 
 /** Nhóm câu hỏi TÍNH TOÁN, chỉ dùng được khi nguồn có `bang`. */
-function tinhBang(bang: ReportDataDto, cauHoi: string, y: YDinh | null): TraLoi | null {
+function tinhBang(
+  bang: ReportDataDto,
+  cauHoi: string,
+  y: YDinh | null,
+  /** `undefined` = tu doc tu cau hoi; `null` = ep KHONG gop. */
+  chieuEp?: 'label' | 'series' | null,
+): TraLoi | null {
   const { rows, measureLabel, dimensionLabel } = bang;
   if (rows.length === 0) return { cau: 'Biểu đồ này hiện không có dòng nào để tính.', so: [] };
 
@@ -240,7 +254,7 @@ function tinhBang(bang: ReportDataDto, cauHoi: string, y: YDinh | null): TraLoi 
     case 'thap_nhat': {
       const lon = y === 'cao_nhat';
 
-      const chieu = chieuHoi(bang, cauHoi);
+      const chieu = chieuEp === undefined ? chieuHoi(bang, cauHoi) : chieuEp;
       if (chieu !== null) {
         const nhom = gopTheo(rows, chieu);
         const dinh = nhom.reduce((a, b) =>
@@ -292,7 +306,7 @@ function tinhBang(bang: ReportDataDto, cauHoi: string, y: YDinh | null): TraLoi 
     }
 
     case 'top_n': {
-      const chieu = chieuHoi(bang, cauHoi);
+      const chieu = chieuEp === undefined ? chieuHoi(bang, cauHoi) : chieuEp;
       if (chieu !== null) {
         const nhom = gopTheo(rows, chieu).sort((a, b) => b.value - a.value);
         const n = Math.min(docSo(cauHoi) ?? 5, nhom.length);
@@ -348,6 +362,53 @@ function tinhBang(bang: ReportDataDto, cauHoi: string, y: YDinh | null): TraLoi 
       };
     }
 
+    case 'loc': {
+      const dk = docDieuKien(cauHoi);
+      // Không có con số nào thì đây không phải câu hỏi lọc. Trả `null` để rơi
+      // xuống nhánh tra cứu, thay vì trả lời một phép lọc không có ngưỡng.
+      if (dk === null) return null;
+
+      const chieu = chieuEp === undefined ? chieuHoi(bang, cauHoi) : chieuEp;
+      const nhom =
+        chieu === null
+          ? rows.map((r) => ({ ten: tenDong(r), value: r.value }))
+          : gopTheo(rows, chieu);
+      /*
+       * Không gộp thì mỗi mục là một DÒNG của biểu đồ, không phải một giá trị
+       * của chiều nào cả. Gọi nó bằng tên chiều là nói sai: "2 Customer Name"
+       * trong khi danh sách liệt kê ra hai CẶP (khách, sản phẩm).
+       */
+      const tenChieu =
+        chieu === null
+          ? 'mục trên biểu đồ'
+          : chieu === 'series'
+            ? (bang.seriesLabel ?? dimensionLabel)
+            : dimensionLabel;
+
+      const hop = nhom.filter((g) => dung(g.value, dk.toanTu, dk.nguong));
+      const dieu = `${measureLabel} ${CHU_TOAN_TU[dk.toanTu]} ${doc(dk.nguong)}`;
+
+      if (hop.length === 0) {
+        return {
+          cau: ghep(`Không ${tenChieu} nào có ${dieu}.`, cat),
+          so: [doc(dk.nguong)],
+        };
+      }
+      // Trần 20 tên: dài hơn thế thì câu trả lời thành một cái bảng đổ mà không
+      // ai đọc — và ở đó con số đếm được còn ích hơn danh sách.
+      const hien = hop.slice(0, 20);
+      const con = hop.length - hien.length;
+      return {
+        cau: ghep(
+          `${String(hop.length)} ${tenChieu} có ${dieu}: ${hien
+            .map((g) => `${g.ten} (${doc(g.value)})`)
+            .join('; ')}${con > 0 ? `; … và ${String(con)} mục nữa` : ''}.`,
+          cat,
+        ),
+        so: [String(hop.length)],
+      };
+    }
+
     case 'xu_huong': {
       const dau = rows[0];
       const cuoi = rows[rows.length - 1];
@@ -374,6 +435,55 @@ function tinhBang(bang: ReportDataDto, cauHoi: string, y: YDinh | null): TraLoi 
       const gia = doc(dong.value);
       return { cau: `${measureLabel} của ${tenDong(dong)} là ${gia}.`, so: [gia] };
     }
+  }
+}
+
+export type ToanTu = '=' | '>' | '<' | '>=' | '<=';
+
+/**
+ * Điều kiện lọc đọc được từ câu hỏi: toán tử + ngưỡng. `null` = không có số nào.
+ *
+ * Ngưỡng lấy từ CHÍNH câu người dùng gõ, không phải từ một mô hình nào — nên
+ * con số trong câu trả lời luôn là con số họ vừa nói ra.
+ */
+export function docDieuKien(cauHoi: string): { toanTu: ToanTu; nguong: number } | null {
+  const q = chuanHoa(cauHoi);
+  const nguong = docSo(q);
+  if (nguong === null) return null;
+
+  // Từ DÀI trước: "lớn hơn hoặc bằng" chứa "lớn hơn".
+  const bang: [RegExp, ToanTu][] = [
+    [/(lon hon hoac bang|khong nho hon|tro len|it nhat la)/, '>='],
+    [/(nho hon hoac bang|khong lon hon|tro xuong|toi da la|nhieu nhat la)/, '<='],
+    [/(lon hon|cao hon|nhieu hon|tren|vuot qua)/, '>'],
+    [/(nho hon|thap hon|it hon|duoi)/, '<'],
+  ];
+  for (const [re, op] of bang) {
+    if (re.test(q)) return { toanTu: op, nguong };
+  }
+  return { toanTu: '=', nguong };
+}
+
+const CHU_TOAN_TU: Record<ToanTu, string> = {
+  '=': 'bằng',
+  '>': 'lớn hơn',
+  '<': 'nhỏ hơn',
+  '>=': 'từ … trở lên',
+  '<=': 'từ … trở xuống',
+};
+
+function dung(gia: number, toanTu: ToanTu, nguong: number): boolean {
+  switch (toanTu) {
+    case '>':
+      return gia > nguong;
+    case '<':
+      return gia < nguong;
+    case '>=':
+      return gia >= nguong;
+    case '<=':
+      return gia <= nguong;
+    default:
+      return gia === nguong;
   }
 }
 
@@ -801,20 +911,12 @@ export function goiYGan(tatCa: Nguon[], chon: Nguon, cauHoi: string): string[] {
   const tuHoi = tuNoiDung(cauHoi);
   if (tuHoi.size === 0) return [];
 
-  const diem = new Map<string, number>();
-  for (const n of [chon, ...tatCa.filter((x) => x !== chon)]) {
-    for (const d of n.duKien) {
-      const dm = [...tuNoiDung(d.nhan)].filter((t) => tuHoi.has(t)).length;
-      if (dm === 0) continue;
-      const cu = diem.get(d.nhan);
-      if (cu === undefined || dm > cu) diem.set(d.nhan, dm);
-    }
-  }
+  const diem = luaChonTrang(tatCa, chon, cauHoi)
+    .map((lc) => ({ lc, diem: [...tuNoiDung(lc.nhan)].filter((t) => tuHoi.has(t)).length }))
+    .filter((x) => x.diem > 0)
+    .sort((a, b) => b.diem - a.diem);
 
-  return [...diem.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 3)
-    .map(([nhan]) => `${nhan}?`);
+  return diem.slice(0, 3).map((x) => `${x.lc.nhan}?`);
 }
 
 /**
@@ -881,4 +983,100 @@ export function traLoiTrang(tatCa: Nguon[], chon: Nguon, cauHoi: string): TraLoi
     (goiTen === null ? null : traLoi(goiTen, cauHoi)) ??
     traLoi(chon, cauHoi)
   );
+}
+
+/* ═══ Danh sách LỰA CHỌN: mọi thứ trang này trả lời được ════════════════════
+ *
+ * ═══ Vì sao gom tra cứu và tính toán vào MỘT danh sách ═════════════════════
+ *
+ * Lớp hiểu câu hỏi (`services/chat/hieuY.ts`) cho mô hình đúng một việc: chọn
+ * một mục trong danh sách đánh số. Danh sách đó trước đây chỉ có dữ kiện tra
+ * cứu, nên mô hình không bao giờ chọn được một PHÉP TÍNH — và "liệt kê sản
+ * phẩm có số lượng là 4" nhận về "tôi chưa hiểu" ngay cạnh một biểu đồ có sẵn
+ * câu trả lời.
+ *
+ * Gom cả hai vào một danh sách giữ nguyên cơ chế: vẫn một chỉ số, vẫn một luật
+ * kiểm, không thêm JSON nào để phân tích, không thêm chỗ nào để bịa. Mô hình
+ * chỉ chọn được thứ chỗ này đã dựng sẵn và đã biết cách chạy.
+ *
+ * ═══ Mỗi lựa chọn tự biết cách chạy chính nó ═══════════════════════════════
+ *
+ * `chay()` là một closure đóng gói sẵn nguồn, ý định và chiều cần gộp. Nhờ vậy
+ * nơi gọi chỉ cần `luaChon[i].chay()` — không có bảng tra "chỉ số này ứng với
+ * phép nào" để lệch với danh sách nhãn đã gửi đi.
+ *
+ * ═══ Cùng danh sách này dùng cho GỢI Ý ═════════════════════════════════════
+ *
+ * Bong bóng "chưa hiểu" gợi ý mấy mục gần nhất, và màn chào gợi ý mấy mục đầu.
+ * Dùng chung một nguồn nghĩa là bấm một gợi ý thì chắc chắn có câu trả lời —
+ * nhãn gợi ý chính là nhãn mà phép so từ khoá sẽ khớp lại.
+ */
+
+export interface LuaChon {
+  /** Câu mô tả, vừa là thứ gửi cho mô hình chọn, vừa là câu gợi ý bấm được. */
+  nhan: string;
+  /** Chạy ngay trên máy này. `null` = không ra kết quả (ví dụ lọc thiếu ngưỡng). */
+  chay: () => TraLoi | null;
+}
+
+/** Các phép tính một biểu đồ trả lời được, sinh từ chính nhãn trục của nó. */
+function phepCuaBieuDo(nguon: Nguon, cauHoi: string): LuaChon[] {
+  const bang = nguon.bang;
+  if (bang === undefined) return [];
+
+  const { dimensionLabel: truc, measureLabel: thuoc, seriesLabel: chuoi } = bang;
+  const ds: LuaChon[] = [];
+
+  /** Một phép, đã chốt sẵn chiều cần gộp. */
+  const them = (nhan: string, y: YDinh, chieu: 'label' | 'series' | null): void => {
+    ds.push({ nhan, chay: () => tinhBang(bang, cauHoi, y, chieu) });
+  };
+
+  // Hai chiều thì mỗi chiều là một câu hỏi khác hẳn — xem `chieuHoi`.
+  const chieu: ['label' | 'series', string][] =
+    chuoi === undefined
+      ? [['label', truc]]
+      : [
+          ['label', truc],
+          ['series', chuoi],
+        ];
+
+  for (const [c, ten] of chieu) {
+    them(`${ten} nào có ${thuoc} cao nhất`, 'cao_nhat', c);
+    them(`${ten} nào có ${thuoc} thấp nhất`, 'thap_nhat', c);
+    them(`Xếp hạng ${ten} theo ${thuoc}`, 'top_n', c);
+    them(`Liệt kê ${ten} theo ${thuoc} (lọc theo con số trong câu hỏi)`, 'loc', c);
+    them(`Có bao nhiêu ${ten}`, 'dem', c);
+  }
+
+  them(`Tổng ${thuoc}`, 'tong', null);
+  them(`${thuoc} trung bình`, 'trung_binh', null);
+  them(`${thuoc} đang tăng hay giảm`, 'xu_huong', null);
+
+  return ds;
+}
+
+/**
+ * Mọi thứ trang này trả lời được, nguồn ĐANG CHỌN xếp trước.
+ *
+ * Thứ tự quan trọng: backend chỉ lấy 60 nhãn đầu, nên nó phải là nhãn của thứ
+ * người dùng đang nhìn.
+ */
+export function luaChonTrang(tatCa: Nguon[], chon: Nguon, cauHoi: string): LuaChon[] {
+  const ds: LuaChon[] = [];
+  const daCo = new Set<string>();
+
+  for (const n of [chon, ...tatCa.filter((x) => x !== chon)]) {
+    for (const lc of phepCuaBieuDo(n, cauHoi)) {
+      if (daCo.has(lc.nhan)) continue;
+      daCo.add(lc.nhan);
+      ds.push(lc);
+    }
+    for (const d of n.duKien) {
+      if (daCo.has(d.nhan)) continue;
+      daCo.add(d.nhan);
+      ds.push({ nhan: d.nhan, chay: () => traLoiTheoDuKien(d) });
+    }
+  }
+  return ds;
 }

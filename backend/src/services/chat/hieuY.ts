@@ -1,5 +1,4 @@
-import { env } from '../../config/env';
-import { coCauHinhLlm } from './dienDat';
+import { coCauHinhLlm, goiMoHinh } from './dienDat';
 
 /**
  * Hiểu câu hỏi bằng mô hình ngôn ngữ — nhưng chỉ cho nó CHỌN, không cho nó viết.
@@ -109,42 +108,19 @@ export async function hieuY(input: HieuYInput): Promise<HieuYKetQua> {
 
   const danhSach = nhan.map((n, i) => `${String(i + 1)}. ${n}`).join('\n');
 
-  try {
-    const res = await fetch(`${String(env.LLM_BASE_URL)}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${String(env.LLM_API_KEY)}`,
-      },
-      body: JSON.stringify({
-        model: env.LLM_MODEL,
-        temperature: 0,
-        // Câu trả lời đúng dài nhất là hai chữ số. Trần thấp vừa rẻ vừa cắt
-        // sớm những lần mô hình định viết cả một đoạn giải thích.
-        max_tokens: 8,
-        messages: [
-          { role: 'system', content: NHAC },
-          { role: 'user', content: `Câu hỏi: ${input.cauHoi}\n\nCác trường:\n${danhSach}` },
-        ],
-      }),
-      signal: AbortSignal.timeout(8_000),
-    });
+  const { noiDung, daGoi } = await goiMoHinh(
+    [
+      { role: 'system', content: NHAC },
+      { role: 'user', content: `Câu hỏi: ${input.cauHoi}\n\nCác trường:\n${danhSach}` },
+    ],
+    /*
+     * Câu trả lời đúng dài nhất là hai chữ số, nhưng hạn mức KHÔNG đặt sát: mô
+     * hình nào vẫn suy nghĩ dù đã được bảo đừng thì nó tiêu token vào đây, và
+     * hết hạn mức giữa chừng nghĩa là `content` rỗng. Luật đọc chỉ số vẫn
+     * nghiêm như cũ nên nới hạn mức không nới chỗ cho một câu dài lọt qua.
+     */
+    400,
+  );
 
-    if (!res.ok) return { chon: null, daHoi: true };
-
-    const body: unknown = await res.json();
-    const raw = docCau(body);
-    return { chon: raw === null ? null : chonHopLe(raw, nhan.length), daHoi: true };
-  } catch {
-    return { chon: null, daHoi: false };
-  }
-}
-
-/** Rút nội dung khỏi body, chịu được mọi hình dạng lạ. */
-function docCau(body: unknown): string | null {
-  if (typeof body !== 'object' || body === null) return null;
-  const choices = (body as { choices?: unknown }).choices;
-  if (!Array.isArray(choices) || choices.length === 0) return null;
-  const content = (choices[0] as { message?: { content?: unknown } }).message?.content;
-  return typeof content === 'string' ? content : null;
+  return { chon: noiDung === null ? null : chonHopLe(noiDung, nhan.length), daHoi: daGoi };
 }
