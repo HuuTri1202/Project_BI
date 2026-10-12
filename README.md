@@ -10,23 +10,24 @@ mà **không cần viết SQL**.
 
 ## Trạng thái hiện tại
 
-| Phần                                                                                      | Trạng thái                                             |
-| ----------------------------------------------------------------------------------------- | ------------------------------------------------------ |
-| Hạ tầng dev — 6 container (MySQL, Redis, MinIO, ClickHouse, Cube.js, MinIO-init)          | ✅ chạy được                                           |
-| Backend (Express) + Frontend (React + Vite + Tailwind v4)                                 | ✅ chạy được                                           |
-| **Xác thực** — đăng ký, đăng nhập, JWT, đổi & quên mật khẩu, đổi tổ chức                  | ✅ xong — xem mục _Xác thực_                           |
-| **Console vận hành hệ thống** (`/admin`) — nhìn xuyên mọi tổ chức                         | ✅ xong                                                |
-| **Khu người dùng** — trang chủ, project, workspace, thành viên, hồ sơ                     | ✅ xong                                                |
-| **Phân quyền Casbin** — 8 tài nguyên × 4 hành động, policy trong database                 | ✅ xong                                                |
-| **Kết nối CSDL & Kho dữ liệu** (§8) — MySQL, ClickHouse (SSL/TLS, xem trước dữ liệu)      | ✅ xong                                                |
-| **Nạp dữ liệu vào ClickHouse** (§9) — bảng `raw_*`, nạp nền, nạp lại nguyên tử            | ✅ xong                                                |
-| **Mô hình dữ liệu** (§10) — Cube schema, quan hệ, thước đo, Explorer                      | ✅ xong — xem mục _Mô hình dữ liệu_                    |
-| **Trình dựng biểu đồ** (§10.9) — kéo thả chiều/thước đo, 8 loại biểu đồ Vega-Lite         | ✅ xong — xem mục _Trình dựng biểu đồ_                 |
-| **Khu Báo cáo & khung nhiều biểu đồ** (§10.10) — mục sidebar riêng, tối đa 12 ô một khung | ✅ xong — xem mục _Khu Báo cáo_                        |
-| **Xuất báo cáo** — ảnh PNG và tệp PDF, mọi vai trò xuất được                              | ✅ xong                                                |
-| **Thư mục báo cáo** (§10.25) — gom báo cáo theo chủ đề, mặc định nằm ở Chung              | ✅ xong — xem mục _Thư mục báo cáo_                    |
-| **Gói cước & thanh toán** (§11) — VietQR, đối soát Sepay, hạn mức theo gói                | ✅ xong — xem [docs/thanh-toan.md](docs/thanh-toan.md) |
-| Bộ lọc dùng chung cả khung, chia sẻ báo cáo ra ngoài                                      | ⏳ chưa làm                                            |
+| Phần                                                                                         | Trạng thái                                             |
+| -------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
+| Hạ tầng dev — 6 container (MySQL, Redis, MinIO, ClickHouse, Cube.js, MinIO-init)             | ✅ chạy được                                           |
+| Backend (Express) + Frontend (React + Vite + Tailwind v4)                                    | ✅ chạy được                                           |
+| **Xác thực** — đăng ký, đăng nhập, JWT, đổi & quên mật khẩu, đổi tổ chức                     | ✅ xong — xem mục _Xác thực_                           |
+| **Console vận hành hệ thống** (`/admin`) — nhìn xuyên mọi tổ chức                            | ✅ xong                                                |
+| **Khu người dùng** — trang chủ, project, workspace, thành viên, hồ sơ                        | ✅ xong                                                |
+| **Phân quyền Casbin** — 8 tài nguyên × 4 hành động, policy trong database                    | ✅ xong                                                |
+| **Kết nối CSDL & Kho dữ liệu** (§8) — MySQL, ClickHouse (SSL/TLS, xem trước dữ liệu)         | ✅ xong                                                |
+| **Nạp dữ liệu vào ClickHouse** (§9) — bảng `raw_*`, nạp nền, nạp lại nguyên tử               | ✅ xong                                                |
+| **Mô hình dữ liệu** (§10) — Cube schema, quan hệ, thước đo, Explorer                         | ✅ xong — xem mục _Mô hình dữ liệu_                    |
+| **Trình dựng biểu đồ** (§10.9) — kéo thả chiều/thước đo, 8 loại biểu đồ Vega-Lite            | ✅ xong — xem mục _Trình dựng biểu đồ_                 |
+| **Khu Báo cáo & khung nhiều biểu đồ** (§10.10) — mục sidebar riêng, tối đa 12 ô một khung    | ✅ xong — xem mục _Khu Báo cáo_                        |
+| **Xuất báo cáo** — ảnh PNG và tệp PDF, mọi vai trò xuất được                                 | ✅ xong                                                |
+| **Thư mục báo cáo** (§10.25) — gom báo cáo theo chủ đề, mặc định nằm ở Chung                 | ✅ xong — xem mục _Thư mục báo cáo_                    |
+| **Gói cước & thanh toán** (§11) — VietQR, đối soát Sepay, hạn mức theo gói                   | ✅ xong — xem [docs/thanh-toan.md](docs/thanh-toan.md) |
+| **Trợ lý hỏi đáp dữ liệu** — khung nổi ở mọi trang, trả lời bằng chính số liệu trang đang mở | ✅ xong — xem mục _Trợ lý hỏi đáp_                     |
+| Bộ lọc dùng chung cả khung, chia sẻ báo cáo ra ngoài                                         | ⏳ chưa làm                                            |
 
 Xem lộ trình đầy đủ và phân công theo tính năng trong tài liệu kế hoạch của nhóm.
 
@@ -3074,6 +3075,38 @@ dùng một khung khác thứ họ vừa dựng, mà không nói gì.
 Không ca nào cần ClickHouse trả số thật. Việc đó đã được chứng minh bằng tay
 trên dữ liệu thật; buộc nó vào CI sẽ biến một bộ test cấu hình thành một bộ test
 hạ tầng.
+
+---
+
+## Trợ lý hỏi đáp
+
+Khung nổi ở góc dưới-phải của **mọi** trang có dữ liệu. Hỏi bằng tiếng Việt về
+thứ đang hiện trên màn hình: _"datamodel nào được dùng nhiều nhất"_, _"mô hình
+nào chưa nối quan hệ"_, _"số dòng của bộ dữ liệu này"_, _"khu vực nào cao nhất"_.
+
+**Nó không bịa được.** Mọi con số trong câu trả lời là một phép tính trên dữ
+liệu mà CHÍNH TRANG ĐÓ đã tải về — không có endpoint riêng để hỏi thêm, nên
+không có chỗ nào để bịa. Hệ quả là quyền được thừa hưởng miễn phí: `viewer`
+không vào được Kho dữ liệu thì khung cũng không trả lời gì về Kho dữ liệu, mà
+không cần thêm một lớp chặn nào.
+
+Câu trả lời luôn nói rõ nó đứng trên cái gì — _"so trên 9 mục đang hiện trên
+trang này"_, _"tệp đã bị cắt khi tải lên nên đây chưa phải toàn bộ"_. Không hiểu
+thì nói chưa hiểu, kèm vài câu bấm được, chứ không đoán.
+
+**Mô hình ngôn ngữ là lớp phủ, không phải điều kiện chạy.** Chưa điền
+`LLM_BASE_URL` / `LLM_API_KEY` / `LLM_MODEL` trong `backend/.env` thì khung vẫn
+chạy đủ chức năng bằng câu mẫu. Khi có cấu hình, mô hình chỉ **viết lại cho
+mượt** và bị đối chiếu ở backend: con số nào biến mất khỏi câu nó viết thì câu
+đó bị bỏ, trả lại câu mẫu. Thứ gửi lên mô hình chỉ gồm câu hỏi và mấy dữ kiện
+của riêng câu trả lời — không gửi bảng số liệu, không gửi số tài khoản ngân hàng.
+
+| Nơi ở                                        | Việc                                             |
+| -------------------------------------------- | ------------------------------------------------ |
+| `frontend/src/features/chat/duKienTrang.ts`  | Mỗi trang một hàm: DTO đã tải → dữ kiện hỏi được |
+| `frontend/src/features/chat/traLoi.ts`       | Lõi trả lời — hàm thuần, không React, không mạng |
+| `frontend/src/features/chat/HoiDapPanel.tsx` | Khung, con robot, bong bóng, gợi ý               |
+| `backend/src/services/chat/dienDat.ts`       | Lớp viết lại + luật đối chiếu số                 |
 
 ---
 
