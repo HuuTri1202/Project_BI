@@ -1046,3 +1046,18 @@ export const dienDatBodySchema = z.object({
   cau: z.string().min(1).max(2000),
   so: z.array(z.string().min(1).max(100)).max(20),
 });
+
+/**
+ * Khung hỏi đáp nhờ mô hình CHỌN một nhãn — `POST /chat/hieu-y`.
+ *
+ * ⚠️ Chỉ có `nhan`, không có giá trị, và đó là chính cái làm lớp này an toàn:
+ * mô hình chỉ thấy TÊN TRƯỜNG trên màn hình, không thấy số liệu nào, nên không
+ * có con số nào để nó sửa hay bịa. Xem `services/chat/hieuY.ts`.
+ *
+ * Trần 60 nhãn khớp `TRAN_NHAN`; schema chặn sớm để một thân request vài trăm
+ * nhãn không đi tới tận nơi mới bị cắt.
+ */
+export const hieuYBodySchema = z.object({
+  cauHoi: z.string().min(1).max(500),
+  nhan: z.array(z.string().min(1).max(300)).min(1).max(60),
+});

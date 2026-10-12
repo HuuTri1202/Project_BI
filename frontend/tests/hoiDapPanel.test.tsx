@@ -26,9 +26,10 @@ import { THUOC_TINH_KHONG_XUAT } from '../src/services/danhDauXuat';
  *      có dữ liệu đó, trong khi chỉ là khung không đọc tới trang đó.
  */
 
-vi.mock('../src/features/chat/api', () => ({ dienDatLai: vi.fn() }));
+vi.mock('../src/features/chat/api', () => ({ dienDatLai: vi.fn(), hieuCauHoi: vi.fn() }));
 
 const dienDatLai = vi.mocked(chatApi.dienDatLai);
+const hieuCauHoi = vi.mocked(chatApi.hieuCauHoi);
 
 beforeEach(() => {
   /*
@@ -40,6 +41,11 @@ beforeEach(() => {
    */
   dienDatLai.mockReset();
   dienDatLai.mockRejectedValue(new Error('chưa cấu hình'));
+
+  // Mặc định: mô hình KHÔNG được hỏi — đúng trạng thái máy chưa có khoá, và
+  // cũng là trạng thái mà mọi ca về phép so từ khoá muốn kiểm.
+  hieuCauHoi.mockReset();
+  hieuCauHoi.mockResolvedValue({ chon: null, daHoi: false });
 });
 
 function bang(): ReportDataDto {
@@ -335,5 +341,105 @@ describe('Chip chọn nguồn', () => {
     hoi('số bảng trong mô hình này');
 
     expect(screen.getByText('Số bảng trong mô hình này: 2.')).toBeInTheDocument();
+  });
+});
+
+describe('Mô hình chọn nhãn khi phép so từ khoá trượt', () => {
+  const trang: Nguon[] = [
+    {
+      ten: 'Đơn hàng Q4',
+      duKien: [
+        { nhan: 'Số dòng của Đơn hàng Q4', gia: '12.431', luuY: 'tệp đã bị cắt khi tải lên' },
+        { nhan: 'Dung lượng của Đơn hàng Q4', gia: '4,2 MB' },
+      ],
+    },
+  ];
+
+  /*
+   * "nặng bao nhiêu" không trùng từ nào với "Dung lượng của Đơn hàng Q4", nên
+   * phép so từ khoá trượt — đúng cảnh lớp này sinh ra để xử.
+   */
+  it('bong bóng "chưa hiểu" tự nâng cấp thành câu trả lời', async () => {
+    hieuCauHoi.mockResolvedValue({ chon: 1, daHoi: true });
+    dung(trang);
+    fireEvent.click(nutMo());
+
+    hoi('cái này nặng bao nhiêu');
+    expect(screen.getByText(/Tôi chưa hiểu câu này/)).toBeInTheDocument();
+
+    expect(await screen.findByText('Dung lượng của Đơn hàng Q4: 4,2 MB.')).toBeInTheDocument();
+    expect(screen.queryByText(/Tôi chưa hiểu câu này/)).not.toBeInTheDocument();
+  });
+
+  /*
+   * ⚠️ Mô hình chỉ CHỌN được nhãn. Câu chữ và con số vẫn do `traLoiTheoDuKien`
+   * dựng — kể cả `luuY`, điều kiện của con số. Mất `luuY` ở nhánh này là con số
+   * mất điều kiện của nó đúng ở chỗ không ai nghĩ là phải kiểm.
+   */
+  it('câu dựng ra vẫn mang điều kiện của con số', async () => {
+    hieuCauHoi.mockResolvedValue({ chon: 0, daHoi: true });
+    dung(trang);
+    fireEvent.click(nutMo());
+
+    hoi('cái này to cỡ nào');
+
+    expect(
+      await screen.findByText('Số dòng của Đơn hàng Q4: 12.431. — tệp đã bị cắt khi tải lên'),
+    ).toBeInTheDocument();
+  });
+
+  it('chỉ gửi NHÃN lên, không gửi giá trị nào', async () => {
+    hieuCauHoi.mockResolvedValue({ chon: null, daHoi: true });
+    dung(trang);
+    fireEvent.click(nutMo());
+
+    hoi('cái này nặng bao nhiêu');
+
+    const than = JSON.stringify(hieuCauHoi.mock.calls[0]?.[0]);
+    expect(than).toContain('Dung lượng của Đơn hàng Q4');
+    expect(than).not.toContain('4,2 MB');
+    expect(than).not.toContain('12.431');
+  });
+
+  /*
+   * "Đã đọc hết và không có" là một câu KHÁC HẲN "tôi chưa hiểu câu này": một
+   * câu nói trang này không có số liệu đó, câu kia nói người dùng gõ sai.
+   */
+  it('mô hình đọc hết mà không có thì nói đúng câu đó', async () => {
+    hieuCauHoi.mockResolvedValue({ chon: null, daHoi: true });
+    dung(trang);
+    fireEvent.click(nutMo());
+
+    hoi('giá cổ phiếu hôm nay');
+
+    expect(await screen.findByText(/đã đọc hết số liệu/)).toBeInTheDocument();
+  });
+
+  it('máy chưa cấu hình mô hình thì giữ nguyên câu "chưa hiểu"', async () => {
+    hieuCauHoi.mockResolvedValue({ chon: null, daHoi: false });
+    dung(trang);
+    fireEvent.click(nutMo());
+
+    hoi('giá cổ phiếu hôm nay');
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    // Chưa ai đọc gì cả, nên không được khẳng định là đã đọc hết.
+    expect(screen.getByText(/Tôi chưa hiểu câu này/)).toBeInTheDocument();
+    expect(screen.queryByText(/đã đọc hết số liệu/)).not.toBeInTheDocument();
+  });
+
+  it('gọi hỏng thì bong bóng "chưa hiểu" vẫn ở đó', async () => {
+    hieuCauHoi.mockRejectedValue(new Error('mất mạng'));
+    dung(trang);
+    fireEvent.click(nutMo());
+
+    hoi('cái này nặng bao nhiêu');
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(screen.getByText(/Tôi chưa hiểu câu này/)).toBeInTheDocument();
   });
 });

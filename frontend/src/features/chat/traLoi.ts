@@ -351,10 +351,7 @@ function traCuu(duKien: DuKien[], cauHoi: string): TraLoi | null {
   if (nhat === undefined || nhat.diem < 2) return null;
   if (nhi !== undefined && nhi.diem === nhat.diem) return null;
 
-  return {
-    cau: ghep(`${nhat.d.nhan}: ${nhat.d.gia}.`, nhat.d.luuY ?? null),
-    so: [nhat.d.gia],
-  };
+  return traLoiTheoDuKien(nhat.d);
 }
 
 /**
@@ -650,6 +647,45 @@ export function soSanhNguon(tatCa: Nguon[], cauHoi: string): TraLoi | null {
 function noiTen(ten: string[]): string {
   const cuoi = ten[ten.length - 1] ?? '';
   return ten.length < 2 ? cuoi : `${ten.slice(0, -1).join(', ')} và ${cuoi}`;
+}
+
+/**
+ * Mọi dữ kiện của trang, phẳng thành một danh sách — để mô hình CHỌN một cái.
+ *
+ * ═══ Vì sao danh sách này tồn tại ══════════════════════════════════════════
+ *
+ * `traCuu` so câu hỏi với nhãn bằng cách đếm từ trùng: chính xác, miễn phí, và
+ * mù trước cách nói khác. "Cái này nặng bao nhiêu" không trùng từ nào với
+ * "Dung lượng của Đơn hàng Q4" dù hai câu nói về đúng một thứ. Người dùng gõ
+ * như họ nghĩ, không gõ theo nhãn trên màn hình.
+ *
+ * Khi đó khung gửi DANH SÁCH NÀY — chỉ nhãn, không có giá trị nào — cho mô hình
+ * và hỏi "nhãn số mấy". Mô hình chỉ chọn được; câu trả lời vẫn do
+ * `traLoiTheoDuKien` dựng từ chính `DuKien` đó. Xem `services/chat/hieuY.ts`.
+ *
+ * Nguồn ĐANG CHỌN xếp trước, và nhãn trùng thì giữ cái đầu: trang chi tiết một
+ * mô hình nhiều bảng sinh ra hàng trăm dữ kiện, mà backend chỉ lấy 60 nhãn đầu.
+ * Thứ tự này quyết định 60 nhãn đó là của thứ người dùng đang nhìn.
+ */
+export function duKienPhang(tatCa: Nguon[], chon: Nguon): DuKien[] {
+  const theoNhan = new Map<string, DuKien>();
+  for (const n of [chon, ...tatCa.filter((x) => x !== chon)]) {
+    for (const d of n.duKien) {
+      if (!theoNhan.has(d.nhan)) theoNhan.set(d.nhan, d);
+    }
+  }
+  return [...theoNhan.values()];
+}
+
+/**
+ * Dựng câu trả lời từ MỘT dữ kiện.
+ *
+ * Dùng chung cho nhánh so từ khoá và nhánh mô hình chọn nhãn, và đó là chỗ
+ * then chốt: dù ai chọn ra dữ kiện này, câu chữ và con số vẫn do đây dựng —
+ * kể cả `luuY`, điều kiện của con số. Mô hình không đổi được một ký tự nào.
+ */
+export function traLoiTheoDuKien(d: DuKien): TraLoi {
+  return { cau: ghep(`${d.nhan}: ${d.gia}.`, d.luuY ?? null), so: [d.gia] };
 }
 
 /**

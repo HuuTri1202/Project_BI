@@ -88,6 +88,7 @@ import {
   warehouseSchema,
 } from '../../services/ingest/loadService';
 import { dienDat } from '../../services/chat/dienDat';
+import { hieuY } from '../../services/chat/hieuY';
 import { chTableName } from '../../services/ingest/buildDdl';
 import { cubeTypeOf } from '../../services/datamodel/classifyColumn';
 import { addDatasets, createDataModel } from '../../services/datamodel/createDataModel';
@@ -124,6 +125,7 @@ import { badRequest, HttpError, notFound } from '../../utils/httpError';
 import { buildPageResult, paginationSchema, resolveSortColumn } from '../../utils/pagination';
 import {
   dienDatBodySchema,
+  hieuYBodySchema,
   addDatasetsBodySchema,
   commitDatasetsBodySchema,
   createDatasetFolderBodySchema,
@@ -3809,5 +3811,25 @@ v1Router.post(
   asyncHandler(async (req, res) => {
     const body = dienDatBodySchema.parse(req.body);
     res.json({ cau: await dienDat(body) });
+  }),
+);
+
+/*
+ * Nhờ mô hình CHỌN một nhãn dữ kiện cho câu hỏi — xem `services/chat/hieuY.ts`.
+ *
+ * Cùng lý do không gác `authorize` như trên: nhãn trong thân request là thứ
+ * người gọi vừa đọc được trên màn hình của chính họ, nên quyền đã được quyết ở
+ * chỗ họ lấy được dữ liệu đó. Endpoint này KHÔNG đọc gì của tổ chức cả.
+ *
+ * Trần thấp hơn `/chat/dien-dat` (40 so với 60): lớp này chỉ chạy khi phép so
+ * từ khoá ở máy người dùng đã trượt, nên một người gõ bình thường gần như không
+ * chạm tới nó. Chạm trần ở đây nghĩa là đang gõ linh tinh hàng loạt.
+ */
+v1Router.post(
+  '/chat/hieu-y',
+  rateLimit({ bucket: 'chat-hieu-y', max: 40, windowSeconds: 600 }),
+  asyncHandler(async (req, res) => {
+    const body = hieuYBodySchema.parse(req.body);
+    res.json(await hieuY(body));
   }),
 );

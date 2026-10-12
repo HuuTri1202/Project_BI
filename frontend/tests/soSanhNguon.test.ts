@@ -3,7 +3,13 @@ import { describe, expect, it } from 'vitest';
 
 import { duKienDanhSachMoHinh } from '../src/features/chat/duKienTrang';
 import type { Nguon } from '../src/features/chat/nguCanh';
-import { goiYGan, goiYSoSanh, soSanhNguon, traLoiTrang } from '../src/features/chat/traLoi';
+import {
+  duKienPhang,
+  goiYGan,
+  goiYSoSanh,
+  soSanhNguon,
+  traLoiTrang,
+} from '../src/features/chat/traLoi';
 
 /**
  * So GIỮA các mục của một danh sách — "mô hình nào được dùng nhiều nhất".
@@ -466,5 +472,46 @@ describe('goiYGan — lối ra của "tôi chưa hiểu"', () => {
   it('không trùng từ nào thì không gợi ý gì — để khung rơi về câu mẫu', () => {
     expect(goiYGan(trang, trang[0]!, 'zzz qqq')).toEqual([]);
     expect(goiYGan(trang, trang[0]!, '')).toEqual([]);
+  });
+});
+
+describe('duKienPhang — danh sách nhãn gửi cho mô hình chọn', () => {
+  const trang: Nguon[] = [
+    {
+      ten: 'Global-Superstore',
+      duKien: [
+        { nhan: 'Số bảng trong mô hình Global-Superstore', gia: '4' },
+        { nhan: 'Người tạo mô hình Global-Superstore', gia: 'Thái' },
+      ],
+    },
+    { ten: 'doanh thu', duKien: [{ nhan: 'Số bảng trong mô hình doanh thu', gia: '9' }] },
+  ];
+
+  /*
+   * Backend chỉ lấy 60 nhãn đầu. Trang chi tiết một mô hình nhiều bảng sinh ra
+   * hàng trăm dữ kiện, nên thứ tự này quyết định 60 nhãn đó là của thứ người
+   * dùng ĐANG NHÌN hay của một mục nào đó ở cuối danh sách.
+   */
+  it('dữ kiện của nguồn đang chọn xếp trước', () => {
+    const chonDoanhThu = trang[1]!;
+
+    expect(duKienPhang(trang, chonDoanhThu)[0]?.nhan).toBe('Số bảng trong mô hình doanh thu');
+    expect(duKienPhang(trang, trang[0]!)[0]?.nhan).toBe('Số bảng trong mô hình Global-Superstore');
+  });
+
+  /*
+   * Hai mục trùng TÊN thì nhãn dữ kiện cũng trùng từng chữ, mà giá trị thì
+   * khác. Mô hình chọn một nhãn, nên hai dòng giống hệt nhau là một lựa chọn
+   * tung đồng xu. Giữ cái của nguồn đang chọn là cách duy nhất đoán có cơ sở.
+   */
+  it('nhãn trùng thì giữ cái của nguồn đang chọn', () => {
+    const haiTrung: Nguon[] = [
+      { ten: 'Kho', duKien: [{ nhan: 'Số bảng trong mô hình Kho', gia: '4' }] },
+      { ten: 'Kho', duKien: [{ nhan: 'Số bảng trong mô hình Kho', gia: '9' }] },
+    ];
+
+    expect(duKienPhang(haiTrung, haiTrung[1]!)).toEqual([
+      { nhan: 'Số bảng trong mô hình Kho', gia: '9' },
+    ]);
   });
 });

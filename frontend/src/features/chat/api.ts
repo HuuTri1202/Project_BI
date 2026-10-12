@@ -28,3 +28,23 @@ export async function dienDatLai(input: {
   const { data } = await apiClient.post<{ cau: string }>('/v1/chat/dien-dat', input);
   return data.cau;
 }
+
+/**
+ * Nhờ mô hình chọn xem câu hỏi ứng với nhãn dữ kiện nào.
+ *
+ * Chỉ gọi khi phép so từ khoá ở máy đã trượt — nên nó không nằm trên đường đi
+ * của câu hỏi bình thường, và không tốn gì khi khung đã tự trả lời được.
+ *
+ * Gửi đi CHỈ CÓ NHÃN, không có giá trị nào: mô hình chọn trường, nó không cần
+ * thấy số liệu để làm việc đó. Xem `services/chat/hieuY.ts` bên backend.
+ */
+export async function hieuCauHoi(input: {
+  cauHoi: string;
+  nhan: string[];
+}): Promise<{ chon: number | null; daHoi: boolean }> {
+  const { data } = await apiClient.post<{ chon: number | null; daHoi: boolean }>(
+    '/v1/chat/hieu-y',
+    input,
+  );
+  return data;
+}

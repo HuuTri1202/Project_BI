@@ -1,10 +1,17 @@
 import { useEffect, useRef, useState } from 'react';
 
 import { KHONG_XUAT } from '../../services/danhDauXuat';
-import { dienDatLai } from './api';
+import { dienDatLai, hieuCauHoi } from './api';
 import { useNguCanh } from './nguCanh';
 import type { Nguon } from './nguCanh';
-import { goiYGan, goiYSoSanh, nhanDuyNhat, traLoiTrang } from './traLoi';
+import {
+  duKienPhang,
+  goiYGan,
+  goiYSoSanh,
+  nhanDuyNhat,
+  traLoiTheoDuKien,
+  traLoiTrang,
+} from './traLoi';
 
 /**
  * Khung hỏi đáp nổi ở góc dưới-phải.
@@ -128,7 +135,11 @@ export function HoiDapPanel(): React.ReactElement | null {
       },
     ]);
     setCauHoi('');
-    if (kq === null) return;
+
+    if (kq === null) {
+      nhoMoHinhChon(q, idBot);
+      return;
+    }
 
     // Rồi mới nhờ viết lại, và vá vào đúng tin đó THEO `id`.
     void dienDatLai({ cauHoi: q, cau: kq.cau, so: kq.so })
@@ -137,6 +148,53 @@ export function HoiDapPanel(): React.ReactElement | null {
       })
       .catch(() => {
         // Cố ý im lặng: câu mẫu đang hiện vẫn là một câu trả lời đúng và đủ.
+      });
+  }
+
+  /**
+   * So từ khoá đã trượt — nhờ mô hình CHỌN một nhãn trong số dữ kiện trang giữ.
+   *
+   * Bong bóng "chưa hiểu" đã hiện rồi, và nó tự nâng cấp tại chỗ khi câu trả
+   * lời về. Cùng khuôn với lớp viết lại: hiện ngay thứ máy này biết, rồi mới
+   * cải thiện — người dùng không bao giờ nhìn một vòng xoay.
+   */
+  function nhoMoHinhChon(q: string, idBot: number): void {
+    const phang = duKienPhang(nguCanh.nguon, nguon);
+    if (phang.length === 0) return;
+
+    void hieuCauHoi({ cauHoi: q, nhan: phang.map((d) => d.nhan) })
+      .then(({ chon, daHoi }) => {
+        const d = chon === null ? undefined : phang[chon];
+        if (d === undefined) {
+          /*
+           * Mô hình đã đọc hết nhãn và không nhãn nào trả lời được. Đó là một
+           * câu KHÁC HẲN "tôi chưa hiểu câu này": nó nói trang này không có số
+           * liệu đó, chứ không phải người dùng gõ sai. Chỉ nói vậy khi mô hình
+           * thật sự đã được hỏi — máy chưa cấu hình thì chưa ai đọc gì cả.
+           */
+          if (!daHoi) return;
+          setTinNhan((cu) =>
+            cu.map((t) =>
+              t.id === idBot
+                ? {
+                    ...t,
+                    cau: `Tôi đã đọc hết số liệu đang có trên ${nguCanh.trang} và không có mục nào trả lời được câu này.`,
+                  }
+                : t,
+            ),
+          );
+          return;
+        }
+
+        // Mô hình chỉ CHỌN được nhãn. Câu chữ và con số vẫn do `traLoiTheoDuKien`
+        // dựng từ chính dữ kiện đó — kể cả `luuY`, điều kiện của con số.
+        const moi = traLoiTheoDuKien(d);
+        setTinNhan((cu) =>
+          cu.map((t) => (t.id === idBot ? { id: t.id, ai: t.ai, cau: moi.cau, luc: t.luc } : t)),
+        );
+      })
+      .catch(() => {
+        // Cố ý im lặng: bong bóng "chưa hiểu" kèm gợi ý vẫn đang ở đó.
       });
   }
 

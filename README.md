@@ -3096,16 +3096,29 @@ thì nói chưa hiểu, kèm vài câu bấm được, chứ không đoán.
 
 **Mô hình ngôn ngữ là lớp phủ, không phải điều kiện chạy.** Chưa điền
 `LLM_BASE_URL` / `LLM_API_KEY` / `LLM_MODEL` trong `backend/.env` thì khung vẫn
-chạy đủ chức năng bằng câu mẫu. Khi có cấu hình, mô hình chỉ **viết lại cho
-mượt** và bị đối chiếu ở backend: con số nào biến mất khỏi câu nó viết thì câu
-đó bị bỏ, trả lại câu mẫu. Thứ gửi lên mô hình chỉ gồm câu hỏi và mấy dữ kiện
-của riêng câu trả lời — không gửi bảng số liệu, không gửi số tài khoản ngân hàng.
+chạy đủ chức năng bằng phép so từ khoá. Khi có cấu hình, mô hình làm đúng hai
+việc, và **không việc nào cho phép nó tạo ra nội dung**:
+
+1. **Hiểu câu hỏi.** Phép so từ khoá mù trước cách nói khác — _"cái này nặng bao
+   nhiêu"_ không trùng từ nào với _"Dung lượng của Đơn hàng Q4"_. Khi nó trượt,
+   mô hình nhận một **danh sách đánh số các nhãn** mà trang đang giữ (chỉ nhãn,
+   không có giá trị nào) và chỉ trả về **một con số**: nhãn nào khớp, hoặc 0.
+   Chỉ số ngoài khoảng bị bỏ ngay ở backend, và câu trả lời vẫn do code dựng từ
+   chính dữ kiện đó — kể cả điều kiện của con số.
+2. **Viết lại cho mượt.** Câu nó viết bị đối chiếu: con số nào biến mất thì bỏ
+   cả câu, trả lại câu mẫu.
+
+Thứ tệ nhất mô hình làm được là **chọn nhầm nhãn** — và khi đó câu trả lời hiện
+ra kèm nguyên văn cái nhãn nó chọn, nên người đọc thấy ngay là nó đang nói
+chuyện khác. Thứ gửi lên mô hình chỉ gồm câu hỏi, tên trường, và mấy dữ kiện của
+riêng câu trả lời — không gửi bảng số liệu, không gửi số tài khoản ngân hàng.
 
 | Nơi ở                                        | Việc                                             |
 | -------------------------------------------- | ------------------------------------------------ |
 | `frontend/src/features/chat/duKienTrang.ts`  | Mỗi trang một hàm: DTO đã tải → dữ kiện hỏi được |
 | `frontend/src/features/chat/traLoi.ts`       | Lõi trả lời — hàm thuần, không React, không mạng |
 | `frontend/src/features/chat/HoiDapPanel.tsx` | Khung, con robot, bong bóng, gợi ý               |
+| `backend/src/services/chat/hieuY.ts`         | Lớp hiểu câu hỏi — mô hình chỉ CHỌN một nhãn     |
 | `backend/src/services/chat/dienDat.ts`       | Lớp viết lại + luật đối chiếu số                 |
 
 ---
