@@ -10,7 +10,7 @@ import {
   REPORT_NAME_MAX,
   type ReportDto,
 } from '@bi/shared';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 
 import { usePermissions } from '../../auth/usePermissions';
@@ -77,6 +77,8 @@ import {
   type VisualDraft,
 } from '../../features/reports/builder/visual';
 import { getApiError } from '../../services/apiClient';
+import { duKienMoHinh } from '../../features/chat/duKienTrang';
+import { useKhaiNguCanh } from '../../features/chat/nguCanh';
 
 /**
  * Còn bao nhiêu chỗ trống thì mới nhắc tới trần 12 trên thanh tiêu đề.
@@ -247,6 +249,20 @@ function Builder({
     editingId !== null ? (loaded?.datamodelId ?? null) : (shortcutModel ?? pickedModel);
 
   const model = useDataModel(modelId);
+
+  /*
+   * Khai dữ kiện cho khung hỏi đáp: ở trình dựng, thứ đáng hỏi là MÔ HÌNH —
+   * bảng nào, cột kiểu gì, thước đo nào có sẵn. Số liệu của từng ô thì chưa
+   * lưu, nên không khai; muốn hỏi về số thì sang trang xem.
+   */
+  const nguCanh = useMemo(
+    () => ({
+      trang: model.data === undefined ? 'trình dựng báo cáo' : `mô hình ${model.data.name}`,
+      nguon: model.data === undefined ? [] : duKienMoHinh(model.data),
+    }),
+    [model.data],
+  );
+  useKhaiNguCanh(nguCanh);
   const status = useExplorerStatus(modelId);
   const fields = useExplorerFields(modelId);
 

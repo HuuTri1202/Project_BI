@@ -1,5 +1,5 @@
 import type { BillingCycle, PlanDto } from '@bi/shared';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import { Badge } from '../../../components/ui/Badge';
@@ -12,6 +12,8 @@ import {
   usePlans,
 } from '../../../features/billing/hooks';
 import { getApiError } from '../../../services/apiClient';
+import { duKienBangGia } from '../../../features/chat/duKienTrang';
+import { useKhaiNguCanh } from '../../../features/chat/nguCanh';
 
 /**
  * Bảng giá — §11.
@@ -112,6 +114,13 @@ export default function PlansPage(): React.ReactElement {
   const navigate = useNavigate();
 
   const { data: plans, isPending, isError, error } = usePlans();
+
+  // Khai dữ kiện cho khung hỏi đáp — xem `features/chat/duKienTrang.ts`.
+  const nguCanh = useMemo(
+    () => ({ trang: 'bảng giá', nguon: duKienBangGia(plans ?? []) }),
+    [plans],
+  );
+  useKhaiNguCanh(nguCanh);
   const summary = useBillingSummary();
   const methods = usePaymentMethods();
 

@@ -1,6 +1,6 @@
 import { companyNameRule } from '@bi/shared';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
 import { useAuth } from '../../auth/useAuth';
@@ -9,6 +9,8 @@ import { Field } from '../../components/ui/Field';
 import { ErrorState } from '../../components/ui/states';
 import { useTenant, useUpdateTenant } from '../../features/tenant/hooks';
 import { getApiError } from '../../services/apiClient';
+import { duKienToChuc } from '../../features/chat/duKienTrang';
+import { useKhaiNguCanh } from '../../features/chat/nguCanh';
 
 /**
  * Tab "Tổ chức" — đổi tên công ty.
@@ -28,6 +30,13 @@ type FormValues = z.infer<typeof formSchema>;
 export default function OrganizationProfilePage(): React.ReactElement {
   const { role } = useAuth();
   const { data: tenant, isPending, isError, error } = useTenant();
+
+  // Khai dữ kiện cho khung hỏi đáp — xem `features/chat/duKienTrang.ts`.
+  const nguCanh = useMemo(
+    () => ({ trang: 'thông tin tổ chức', nguon: tenant === undefined ? [] : duKienToChuc(tenant) }),
+    [tenant],
+  );
+  useKhaiNguCanh(nguCanh);
   const update = useUpdateTenant();
 
   const [formError, setFormError] = useState<string | null>(null);

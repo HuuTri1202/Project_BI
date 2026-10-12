@@ -1,5 +1,5 @@
 import type { PlatformOverviewDto } from '@bi/shared';
-import { lazy, Suspense } from 'react';
+import { Suspense, lazy, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { Badge } from '../../components/ui/Badge';
 import { Page, PageBody, PageHeader } from '../../components/ui/Page';
@@ -8,6 +8,8 @@ import { ErrorState } from '../../components/ui/states';
 import { useOverview } from '../../features/admin/hooks';
 import { dinhDangTien } from '../../features/billing/format';
 import { getApiError } from '../../services/apiClient';
+import { duKienTongQuanHeThong } from '../../features/chat/duKienTrang';
+import { useKhaiNguCanh } from '../../features/chat/nguCanh';
 
 const GrowthChart = lazy(() => import('../../features/admin/charts/GrowthChart'));
 const PaidOrdersChart = lazy(() => import('../../features/admin/charts/PaidOrdersChart'));
@@ -47,6 +49,16 @@ const KPI_CARDS: KpiCard[] = [
 /** Tổng quan hệ thống — chỉ số toàn nền tảng và biểu đồ tăng trưởng. */
 export default function OverviewPage(): React.ReactElement {
   const { data, isPending, isError, error } = useOverview();
+
+  // Khai dữ kiện cho khung hỏi đáp — xem `features/chat/duKienTrang.ts`.
+  const nguCanh = useMemo(
+    () => ({
+      trang: 'tổng quan hệ thống',
+      nguon: data === undefined ? [] : duKienTongQuanHeThong(data),
+    }),
+    [data],
+  );
+  useKhaiNguCanh(nguCanh);
 
   const hasGrowth =
     data?.growth.some((p) => p.tenants > 0 || p.users > 0 || p.workspaces > 0) ?? false;

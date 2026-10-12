@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { Link } from 'react-router-dom';
 
 import { Badge } from '../../../components/ui/Badge';
@@ -7,6 +8,8 @@ import { UsageBar } from '../../../features/billing/UsageBar';
 import { dinhDangNgay, dinhDangTien } from '../../../features/billing/format';
 import { useBillingSummary, useSubscriptionHistory } from '../../../features/billing/hooks';
 import { getApiError } from '../../../services/apiClient';
+import { duKienThanhToan } from '../../../features/chat/duKienTrang';
+import { useKhaiNguCanh } from '../../../features/chat/nguCanh';
 
 /**
  * Tab Tổng quan của trang Thanh toán — §11.
@@ -32,6 +35,13 @@ const NGUONG_SAP_HET = 7;
 
 export default function BillingOverviewPage(): React.ReactElement {
   const { data, isPending, isError, error } = useBillingSummary();
+
+  // Khai dữ kiện cho khung hỏi đáp — xem `features/chat/duKienTrang.ts`.
+  const nguCanh = useMemo(
+    () => ({ trang: 'trang thanh toán', nguon: data === undefined ? [] : duKienThanhToan(data) }),
+    [data],
+  );
+  useKhaiNguCanh(nguCanh);
   const history = useSubscriptionHistory();
 
   if (isError) return <ErrorState message={getApiError(error).message} />;

@@ -1,5 +1,5 @@
 import { PAYMENT_PROVIDER_LABELS } from '@bi/shared';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
@@ -14,6 +14,8 @@ import {
 } from '../../features/admin/billing/hooks';
 import { StaticQrImage } from '../../features/billing/StaticQrImage';
 import { getApiError } from '../../services/apiClient';
+import { duKienPhuongThucThanhToan } from '../../features/chat/duKienTrang';
+import { useKhaiNguCanh } from '../../features/chat/nguCanh';
 
 /**
  * Cấu hình phương thức thanh toán — §11 mục 3.2.
@@ -282,6 +284,13 @@ function ActiveToggle({ method }: { method: AdminPaymentMethodDto }): React.Reac
 
 export default function BillingMethodsPage(): React.ReactElement {
   const { data, isPending, isError, error } = useAdminPaymentMethods();
+
+  // Khai dữ kiện cho khung hỏi đáp — xem `features/chat/duKienTrang.ts`.
+  const nguCanh = useMemo(
+    () => ({ trang: 'phương thức thanh toán', nguon: duKienPhuongThucThanhToan(data ?? []) }),
+    [data],
+  );
+  useKhaiNguCanh(nguCanh);
   const [editing, setEditing] = useState<AdminPaymentMethodDto | null>(null);
 
   return (

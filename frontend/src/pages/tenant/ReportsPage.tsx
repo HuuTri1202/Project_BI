@@ -9,7 +9,7 @@ import {
   type ReportDto,
   type ReportFolderDto,
 } from '@bi/shared';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 
 import { usePermissions } from '../../auth/usePermissions';
@@ -37,6 +37,8 @@ import { MoveToFolderDialog } from '../../features/folders/MoveToFolderDialog';
 import { CreateReportMenu } from '../../features/tenant/CreateReportMenu';
 import { useListQueryState } from '../../hooks/useListQueryState';
 import { getApiError } from '../../services/apiClient';
+import { duKienDanhSachBaoCao } from '../../features/chat/duKienTrang';
+import { useKhaiNguCanh } from '../../features/chat/nguCanh';
 
 /**
  * Danh sách báo cáo — §10.10.
@@ -92,6 +94,16 @@ export default function ReportsPage(): React.ReactElement {
   const canDelete = permissions.can('report', 'delete');
 
   const { data, isPending, isError, error, isPlaceholderData } = useReports(query);
+
+  // Khai dữ kiện cho khung hỏi đáp — xem `features/chat/duKienTrang.ts`.
+  const nguCanh = useMemo(
+    () => ({
+      trang: 'danh sách báo cáo',
+      nguon: duKienDanhSachBaoCao(data?.items ?? [], data?.total ?? 0),
+    }),
+    [data],
+  );
+  useKhaiNguCanh(nguCanh);
   const remove = useDeleteReport();
 
   /* ─── Thư mục — §10.25 ─────────────────────────────────────────────────── */

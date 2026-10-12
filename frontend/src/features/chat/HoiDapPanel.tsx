@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import { KHONG_XUAT } from '../../services/danhDauXuat';
 import { dienDatLai } from './api';
@@ -17,6 +17,17 @@ import { traLoi } from './traLoi';
  * mà người ta đang hỏi về — tức là lấy đi thứ duy nhất giúp họ kiểm lại câu trả
  * lời. Nên đây là một hộp `fixed` thường, và trang vẫn đọc được, vẫn cuộn được.
  *
+ * ═══ Màu: MƯỢN của hệ thống, không mang bảng màu riêng ═════════════════════
+ *
+ * Khung chỉ dùng `brand-*` và `slate-*` — đúng hai thang màu mà mọi màn hình
+ * khác đang dùng. Một khung chat mang tông màu riêng (tím, cam…) sẽ đọc ra như
+ * một tiện ích của bên thứ ba dán vào góc màn hình, chứ không phải một phần của
+ * sản phẩm.
+ *
+ * Đúng MỘT chỗ lệch có chủ ý: chấm xanh lá "đang đọc". Nó mượn màu dải trạng
+ * thái trên bụng con robot, và nó là thứ duy nhất trong khung cần được nhận ra
+ * mà không phải đọc chữ.
+ *
  * ═══ Vì sao `KHONG_XUAT` ═══════════════════════════════════════════════════
  *
  * Trang báo cáo xuất được ra PNG/PDF, và việc chụp quét cả vùng. Thiếu dấu này
@@ -28,13 +39,44 @@ import { traLoi } from './traLoi';
  * để trả lời "tôi không biết gì về trang này" thì tệ hơn là không có khung. Nó
  * sẽ tự hiện khi trang đó được khai.
  */
+
+interface TinNhan {
+  /**
+   * Mã riêng của từng tin.
+   *
+   * Bản viết lại của mô hình về MUỘN, và nó phải đáp xuống ĐÚNG bong bóng đã
+   * sinh ra nó — không phải bong bóng cuối cùng. Hỏi câu thứ hai trong lúc câu
+   * thứ nhất còn đang bay là chuyện bình thường, và khi đó "cập nhật tin cuối"
+   * sẽ dán câu trả lời của câu một vào dưới câu hỏi hai: một câu đúng, cho một
+   * câu hỏi khác, ở chỗ không ai nghi ngờ.
+   */
+  id: number;
+  ai: 'nguoi' | 'bot';
+  cau: string;
+  luc: string;
+  /** Bot không hiểu câu hỏi — vẽ khác, và đọc bằng `role="status"`. */
+  chuaHieu?: boolean;
+}
+
+function gioBayGio(): string {
+  return new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+}
+
 export function HoiDapPanel(): React.ReactElement | null {
   const nguCanh = useNguCanh();
   const [mo, setMo] = useState(false);
   const [chon, setChon] = useState(0);
   const [cauHoi, setCauHoi] = useState('');
-  const [daHoi, setDaHoi] = useState<{ hoi: string; cau: string | null } | null>(null);
-  const luot = useRef(0);
+  const [tinNhan, setTinNhan] = useState<TinNhan[]>([]);
+  const demId = useRef(0);
+  const dayCuon = useRef<HTMLDivElement>(null);
+
+  // Tin mới nhất phải nằm trong tầm mắt. Không có cái này thì từ câu thứ ba trở
+  // đi câu trả lời rơi xuống dưới mép khung, và người dùng tưởng không có gì
+  // xảy ra.
+  useEffect(() => {
+    dayCuon.current?.scrollTo({ top: dayCuon.current.scrollHeight });
+  }, [tinNhan]);
 
   if (nguCanh.nguon.length === 0) return null;
 
@@ -48,23 +90,35 @@ export function HoiDapPanel(): React.ReactElement | null {
     if (q === '') return;
 
     const kq = traLoi(nguon, q);
-    // Hiện câu mẫu NGAY. Nó đã tính xong trên máy này; bắt người dùng nhìn một
-    // vòng xoay để đọc một con số đã có là lấy đi thứ duy nhất lớp LLM không
-    // làm cho tốt hơn được — tốc độ.
-    setDaHoi({ hoi: q, cau: kq?.cau ?? null });
+    demId.current += 2;
+    const idBot = demId.current;
+    const luc = gioBayGio();
+
+    /*
+     * Hiện câu mẫu NGAY. Nó đã tính xong trên máy này; bắt người dùng nhìn một
+     * vòng xoay để đọc một con số đã có là lấy đi thứ duy nhất mà lớp mô hình
+     * ngôn ngữ không làm tốt hơn được — tốc độ.
+     */
+    setTinNhan((cu) => [
+      ...cu,
+      { id: idBot - 1, ai: 'nguoi', cau: q, luc },
+      {
+        id: idBot,
+        ai: 'bot',
+        luc,
+        cau:
+          kq?.cau ??
+          `Tôi chưa hiểu câu này. Tôi chỉ trả lời bằng số liệu đang có trên ${nguCanh.trang} — không tra ở đâu khác.`,
+        ...(kq === null ? { chuaHieu: true } : {}),
+      },
+    ]);
     setCauHoi('');
     if (kq === null) return;
 
-    /*
-     * Rồi mới nhờ viết lại. `luot` chặn câu trả lời VỀ MUỘN: hỏi câu thứ hai
-     * trong lúc câu thứ nhất còn đang bay thì bản viết lại của câu một không
-     * được phép đè lên câu hai — nó trả lời một câu hỏi khác.
-     */
-    const cuaLuot = luot.current + 1;
-    luot.current = cuaLuot;
+    // Rồi mới nhờ viết lại, và vá vào đúng tin đó THEO `id`.
     void dienDatLai({ cauHoi: q, cau: kq.cau, so: kq.so })
       .then((moi) => {
-        if (luot.current === cuaLuot) setDaHoi({ hoi: q, cau: moi });
+        setTinNhan((cu) => cu.map((t) => (t.id === idBot ? { ...t, cau: moi } : t)));
       })
       .catch(() => {
         // Cố ý im lặng: câu mẫu đang hiện vẫn là một câu trả lời đúng và đủ.
@@ -79,19 +133,16 @@ export function HoiDapPanel(): React.ReactElement | null {
         onClick={() => setMo(true)}
         aria-label="Mở khung hỏi đáp về dữ liệu đang xem"
         title="Hỏi về dữ liệu đang xem"
-        className="fixed right-4 bottom-4 z-50 flex h-12 w-12 items-center justify-center rounded-full bg-brand-600 text-white shadow-lg transition-colors hover:bg-brand-700"
+        /*
+         * Nền SÁNG, không phải nền thương hiệu đặc.
+         *
+         * Con robot màu trắng, nên đặt nó lên nền xanh đặc là bôi mất chính nó —
+         * chỉ còn một khối trắng nhoè. Nền trắng + viền mảnh + bóng đổ giữ được
+         * hình, và vẫn nổi khỏi mặt trang vì mọi trang ở đây đều là `bg-slate-50`.
+         */
+        className="group fixed right-4 bottom-4 z-50 flex h-14 w-14 items-center justify-center rounded-full border border-slate-200 bg-white shadow-lg transition-transform hover:scale-105 focus-visible:ring-2 focus-visible:ring-brand-200 focus-visible:outline-none"
       >
-        <svg
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.8"
-          strokeLinecap="round"
-          className="h-6 w-6"
-          aria-hidden="true"
-        >
-          <path d="M21 11.5a8.4 8.4 0 0 1-8.5 8.3 9 9 0 0 1-3.8-.8L3 21l1.9-5a8.2 8.2 0 0 1-.9-3.7A8.4 8.4 0 0 1 12.5 4 8.4 8.4 0 0 1 21 11.5Z" />
-        </svg>
+        <BieuTuongRobot className="h-9 w-9 transition-transform group-hover:-translate-y-0.5" />
       </button>
     );
   }
@@ -100,17 +151,26 @@ export function HoiDapPanel(): React.ReactElement | null {
     <section
       {...KHONG_XUAT}
       aria-label="Hỏi đáp về dữ liệu đang xem"
-      className="fixed right-4 bottom-4 z-50 flex max-h-[32rem] w-[22rem] flex-col rounded-xl border border-slate-200 bg-white shadow-2xl"
+      className="fixed right-4 bottom-4 z-50 flex h-[34rem] max-h-[calc(100vh-2rem)] w-[23rem] max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl"
     >
-      <header className="flex shrink-0 items-center gap-2 border-b border-slate-200 px-3 py-2">
-        <p className="min-w-0 flex-1 truncate text-sm font-semibold text-slate-900">
-          Hỏi về {nguCanh.trang}
-        </p>
+      <header className="flex shrink-0 items-center gap-2.5 border-b border-slate-200 px-3.5 py-3">
+        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand-50">
+          <BieuTuongRobot className="h-7 w-7" />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block text-sm font-bold text-slate-900">Trợ lý dữ liệu</span>
+          {/* Phạm vi nằm ngay dưới tên, không giấu trong câu trả lời: đây là thứ
+              phân biệt khung này với một con chatbot biết tuốt. */}
+          <span className="flex items-center gap-1.5 text-xs text-slate-500">
+            <span className="h-2 w-2 shrink-0 rounded-full bg-green-500" aria-hidden="true" />
+            <span className="truncate">Đang đọc {nguCanh.trang}</span>
+          </span>
+        </span>
         <button
           type="button"
           onClick={() => setMo(false)}
           aria-label="Thu khung hỏi đáp"
-          className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+          className="shrink-0 rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
         >
           <svg
             viewBox="0 0 24 24"
@@ -129,7 +189,7 @@ export function HoiDapPanel(): React.ReactElement | null {
       {/* Một nguồn thì không có gì để chọn, và một dãy chip có đúng một chip chỉ
           chiếm chỗ mà không nói thêm điều gì. */}
       {nguCanh.nguon.length > 1 && (
-        <div className="flex shrink-0 flex-wrap gap-1 border-b border-slate-100 px-3 py-2">
+        <div className="flex shrink-0 flex-wrap gap-1 border-b border-slate-100 px-3.5 py-2">
           {nguCanh.nguon.map((n, i) => (
             <button
               key={n.ten}
@@ -137,11 +197,12 @@ export function HoiDapPanel(): React.ReactElement | null {
               aria-pressed={i === chon}
               onClick={() => {
                 setChon(i);
-                // Xoá câu trả lời cũ: nó nói về nguồn KHÁC, và để nó nằm lại
-                // dưới một chip vừa đổi là mời người đọc gán nó cho nguồn mới.
-                setDaHoi(null);
+                // Xoá cuộc trò chuyện cũ: nó nói về nguồn KHÁC, và để nó nằm lại
+                // dưới một chip vừa đổi là mời người đọc gán nó cho nguồn mới —
+                // bằng những con số có thật, nên không có gì báo là đã nhầm.
+                setTinNhan([]);
               }}
-              className={`max-w-full truncate rounded-full border px-2 py-0.5 text-xs ${
+              className={`max-w-full truncate rounded-full border px-2 py-0.5 text-xs transition-colors ${
                 i === chon
                   ? 'border-brand-500 bg-brand-50 font-medium text-brand-700'
                   : 'border-slate-200 text-slate-500 hover:bg-slate-50'
@@ -153,33 +214,18 @@ export function HoiDapPanel(): React.ReactElement | null {
         </div>
       )}
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3 text-sm">
-        {daHoi === null ? (
-          <CauMau nguon={nguon} onChon={setCauHoi} />
+      {/* Nền xám để bong bóng trắng nổi lên — cùng cách mọi trang dùng
+          `bg-slate-50` làm nền cho thẻ trắng. */}
+      <div ref={dayCuon} className="min-h-0 flex-1 space-y-3 overflow-y-auto bg-slate-50 p-3.5">
+        {tinNhan.length === 0 ? (
+          <ChaoHoi nguon={nguon} onChon={setCauHoi} />
         ) : (
-          <>
-            <p className="mb-2 text-right">
-              <span className="inline-block rounded-lg bg-slate-100 px-2.5 py-1.5 text-slate-700">
-                {daHoi.hoi}
-              </span>
-            </p>
-            {daHoi.cau === null ? (
-              <div role="status" className="text-slate-600">
-                <p className="mb-2">
-                  Tôi chưa hiểu câu này. Tôi chỉ trả lời bằng số liệu đang có trên {nguCanh.trang} —
-                  không tra ở đâu khác.
-                </p>
-                <CauMau nguon={nguon} onChon={setCauHoi} />
-              </div>
-            ) : (
-              <p className="whitespace-pre-line text-slate-800">{daHoi.cau}</p>
-            )}
-          </>
+          tinNhan.map((t) => <BongBong key={t.id} tin={t} />)
         )}
       </div>
 
       <form
-        className="flex shrink-0 items-center gap-2 border-t border-slate-200 p-2"
+        className="flex shrink-0 items-center gap-2 border-t border-slate-200 bg-white p-2.5"
         onSubmit={(e) => {
           e.preventDefault();
           hoi();
@@ -190,28 +236,69 @@ export function HoiDapPanel(): React.ReactElement | null {
           onChange={(e) => setCauHoi(e.target.value)}
           placeholder="Hỏi về số liệu đang xem…"
           aria-label="Câu hỏi"
-          className="min-w-0 flex-1 rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200"
+          className="min-w-0 flex-1 rounded-full border border-slate-300 px-3.5 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200"
         />
         <button
           type="submit"
           disabled={cauHoi.trim() === ''}
-          className="shrink-0 rounded-lg bg-brand-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-brand-700 disabled:bg-slate-200 disabled:text-slate-400"
+          aria-label="Hỏi"
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand-600 text-white transition-colors hover:bg-brand-700 disabled:bg-slate-200 disabled:text-slate-400"
         >
-          Hỏi
+          <svg viewBox="0 0 24 24" fill="currentColor" className="h-4 w-4" aria-hidden="true">
+            <path d="M3.4 20.4 21 12 3.4 3.6 3.4 10.2 15.6 12 3.4 13.8Z" />
+          </svg>
         </button>
       </form>
     </section>
   );
 }
 
+/** Một bong bóng tin nhắn. */
+function BongBong({ tin }: { tin: TinNhan }): React.ReactElement {
+  if (tin.ai === 'nguoi') {
+    return (
+      <div className="flex flex-col items-end gap-0.5">
+        <p className="max-w-[85%] rounded-2xl rounded-br-md bg-brand-600 px-3 py-2 text-sm whitespace-pre-line text-white">
+          {tin.cau}
+        </p>
+        <span className="text-[11px] text-slate-400">{tin.luc}</span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex items-start gap-2">
+      <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-white">
+        <BieuTuongRobot className="h-5 w-5" />
+      </span>
+      <div className="flex min-w-0 flex-col items-start gap-0.5">
+        <p
+          /* `role="status"` CHỈ cho câu không hiểu: trình đọc màn hình cần được
+             báo ngay rằng câu hỏi không đi tới đâu, còn một câu trả lời bình
+             thường thì người dùng tự đọc theo nhịp của họ. */
+          {...(tin.chuaHieu === true ? { role: 'status' } : {})}
+          className={`max-w-full rounded-2xl rounded-tl-md border px-3 py-2 text-sm whitespace-pre-line ${
+            tin.chuaHieu === true
+              ? 'border-amber-200 bg-amber-50 text-amber-900'
+              : 'border-slate-200 bg-white text-slate-800'
+          }`}
+        >
+          {tin.cau}
+        </p>
+        <span className="text-[11px] text-slate-400">{tin.luc}</span>
+      </div>
+    </div>
+  );
+}
+
 /**
- * Câu mẫu — sinh từ CHÍNH nguồn đang chọn, không phải một danh sách cố định.
+ * Màn chào + câu mẫu, sinh từ CHÍNH nguồn đang chọn.
  *
  * Đây là chỗ nói ra năng lực thật của khung. Một danh sách viết cứng sẽ gợi ý
  * "khu vực nào cao nhất" trên một trang không có biểu đồ nào, tức là dạy người
  * dùng hỏi những câu chắc chắn nhận về "tôi chưa hiểu".
  */
-function CauMau({
+function ChaoHoi({
   nguon,
   onChon,
 }: {
@@ -229,21 +316,104 @@ function CauMau({
       : nguon.duKien.slice(0, 4).map((d) => `${d.nhan}?`);
 
   return (
-    <div>
-      <p className="mb-1.5 text-xs text-slate-400">Thử hỏi:</p>
-      <ul className="space-y-1">
-        {mau.map((q) => (
-          <li key={q}>
-            <button
-              type="button"
-              onClick={() => onChon(q)}
-              className="hover:border-brand-300 w-full rounded-lg border border-slate-200 px-2 py-1 text-left text-xs text-slate-600 hover:bg-brand-50"
-            >
-              {q}
-            </button>
-          </li>
-        ))}
-      </ul>
+    <div className="flex items-start gap-2">
+      <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-white">
+        <BieuTuongRobot className="h-5 w-5" />
+      </span>
+      <div className="min-w-0 flex-1 rounded-2xl rounded-tl-md border border-slate-200 bg-white px-3 py-2.5">
+        <p className="text-sm text-slate-800">
+          Chào bạn! Tôi đọc số liệu <strong className="font-semibold">{nguon.ten}</strong> đang hiện
+          trên màn hình và trả lời bằng chính số đó.
+        </p>
+        <p className="mt-2 mb-1.5 text-xs text-slate-400">Thử hỏi:</p>
+        <ul className="space-y-1">
+          {mau.map((q) => (
+            <li key={q}>
+              <button
+                type="button"
+                onClick={() => onChon(q)}
+                className="w-full rounded-lg border border-slate-200 px-2 py-1 text-left text-xs text-slate-600 transition-colors hover:border-brand-400 hover:bg-brand-50"
+              >
+                {q}
+              </button>
+            </li>
+          ))}
+        </ul>
+      </div>
     </div>
+  );
+}
+
+/**
+ * Con robot của khung hỏi đáp.
+ *
+ * ═══ Vì sao vẽ tay bằng SVG ════════════════════════════════════════════════
+ *
+ * Cùng lý do đã ghi ở `components/ui/Field.tsx`: không kéo cả một thư viện icon
+ * về cho đúng một hình. Nhưng ở đây còn hai lý do nữa:
+ *
+ *   - Nó phải đọc được ở 20px (trong bong bóng) lẫn 36px (nút nổi). Một ảnh PNG
+ *     dựng 3D nhìn đẹp ở 720px sẽ thành một vệt xám ở cỡ đó, và vẫn ăn vài trăm
+ *     KB của mọi lần tải trang.
+ *   - Nó nằm trong vùng bị CHỤP khi xuất báo cáo. Hình vector thì nét ở mọi
+ *     thang đo; ảnh bitmap phóng theo devicePixelRatio của `modern-screenshot`
+ *     sẽ rỗ.
+ *
+ * `currentColor` KHÔNG dùng ở đây: con robot có bảng màu riêng của nó (trắng,
+ * xám, đỏ má, xanh dải). Màu chữ của nút không nói gì về nó.
+ */
+function BieuTuongRobot({ className }: { className?: string }): React.ReactElement {
+  return (
+    <svg viewBox="0 0 48 48" className={className} aria-hidden="true">
+      {/* Ăng-ten: hai vòng rỗng trên hai cái cọc mảnh. */}
+      <path d="M17 11v4M31 11v4" stroke="#94a3b8" strokeWidth="2.4" strokeLinecap="round" />
+      <circle cx="17" cy="8" r="3.4" fill="none" stroke="#e2e8f0" strokeWidth="2.6" />
+      <circle cx="31" cy="8" r="3.4" fill="none" stroke="#e2e8f0" strokeWidth="2.6" />
+
+      {/* Hai chân: cẳng ngắn, bàn chân xám. Vẽ trước thân để thân che gốc chân. */}
+      <path d="M18.5 38v3.4M29.5 38v3.4" stroke="#e2e8f0" strokeWidth="4.6" strokeLinecap="round" />
+      <ellipse cx="18.5" cy="42.6" rx="3.6" ry="2.3" fill="#94a3b8" />
+      <ellipse cx="29.5" cy="42.6" rx="3.6" ry="2.3" fill="#94a3b8" />
+
+      {/* Thân. */}
+      <rect
+        x="7"
+        y="14"
+        width="34"
+        height="27"
+        rx="8"
+        fill="#fff"
+        stroke="#e2e8f0"
+        strokeWidth="1.6"
+      />
+
+      {/* Màn hình mặt. */}
+      <rect x="12.5" y="18.5" width="23" height="13.5" rx="4" fill="#3f4753" />
+      <rect x="18.5" y="22.5" width="2.8" height="5" rx="1.4" fill="#fff" />
+      <rect x="26.7" y="22.5" width="2.8" height="5" rx="1.4" fill="#fff" />
+      <path
+        d="M21.6 29.3a3 3 0 0 0 4.8 0"
+        fill="none"
+        stroke="#f87171"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+      />
+      {/* Hai má hồng — thứ làm nó trông thân thiện chứ không phải một cái máy. */}
+      <rect x="14.4" y="26.6" width="3" height="1.9" rx="0.95" fill="#f87171" />
+      <rect x="30.6" y="26.6" width="3" height="1.9" rx="0.95" fill="#f87171" />
+
+      {/* Dải trạng thái xanh dưới màn hình. */}
+      <rect x="14" y="34.6" width="20" height="2.8" rx="1.4" fill="#e2e8f0" />
+      <rect x="14" y="34.6" width="13" height="2.8" rx="1.4" fill="#4ade80" />
+
+      {/*
+        Hai tay vẽ SAU thân, và thò hẳn ra ngoài mép thân.
+        Bản đầu vẽ chúng trước thân với biên độ 2,4px — thân che sạch, và ở 36px
+        con robot thành ra cụt tay. Dựng ảnh ra xem mới thấy.
+      */}
+      <path d="M7 27.5h-3.2M41 27.5h3.2" stroke="#e2e8f0" strokeWidth="4" strokeLinecap="round" />
+      <circle cx="3.2" cy="27.5" r="2.9" fill="#f8fafc" stroke="#e2e8f0" strokeWidth="1.2" />
+      <circle cx="44.8" cy="27.5" r="2.9" fill="#f8fafc" stroke="#e2e8f0" strokeWidth="1.2" />
+    </svg>
   );
 }

@@ -1,5 +1,5 @@
 import type { PlanDto } from '@bi/shared';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
@@ -18,6 +18,8 @@ import {
 } from '../../features/admin/billing/hooks';
 import { dinhDangDungLuong, dinhDangHanMuc, dinhDangTien } from '../../features/billing/format';
 import { getApiError } from '../../services/apiClient';
+import { duKienBangGia } from '../../features/chat/duKienTrang';
+import { useKhaiNguCanh } from '../../features/chat/nguCanh';
 
 /**
  * Quản lý bảng giá — §11 mục 3.1.
@@ -429,6 +431,13 @@ export function PlanModal({
 
 export default function BillingPlansPage(): React.ReactElement {
   const { data, isPending, isError, error } = useAdminPlans();
+
+  // Khai dữ kiện cho khung hỏi đáp — xem `features/chat/duKienTrang.ts`.
+  const nguCanh = useMemo(
+    () => ({ trang: 'bảng giá (console)', nguon: duKienBangGia(data ?? []) }),
+    [data],
+  );
+  useKhaiNguCanh(nguCanh);
   const remove = useDeletePlan();
 
   const [editing, setEditing] = useState<PlanDto | null>(null);

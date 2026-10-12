@@ -1,5 +1,5 @@
 ﻿import type { PlatformTenantDto } from '@bi/shared';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import { Page, PageBody, PageHeader } from '../../components/ui/Page';
@@ -14,6 +14,8 @@ import { useDeleteTenant, useSetTenantActive, useTenants } from '../../features/
 import { useListQueryState } from '../../hooks/useListQueryState';
 import type { TenantListQuery } from '../../features/admin/api';
 import { getApiError } from '../../services/apiClient';
+import { duKienDanhSachToChuc } from '../../features/chat/duKienTrang';
+import { useKhaiNguCanh } from '../../features/chat/nguCanh';
 
 // Khai kiểu tường minh chứ KHÔNG dùng `as const`: `as const` thu hẹp `order`
 // xuống đúng literal `'desc'`, nên đổi sang `'asc'` thành lỗi biên dịch và mọi
@@ -55,6 +57,16 @@ const KIND_OPTIONS = [
 export default function TenantsPage(): React.ReactElement {
   const { query, update, reset } = useListQueryState<TenantListQuery>({ ...DEFAULTS }, ALLOWED);
   const { data, isPending, isError, error, isPlaceholderData } = useTenants(query);
+
+  // Khai dữ kiện cho khung hỏi đáp — xem `features/chat/duKienTrang.ts`.
+  const nguCanh = useMemo(
+    () => ({
+      trang: 'danh sách tổ chức',
+      nguon: duKienDanhSachToChuc(data?.items ?? [], data?.total ?? 0),
+    }),
+    [data],
+  );
+  useKhaiNguCanh(nguCanh);
 
   const [detailId, setDetailId] = useState<number | null>(null);
   const [lockTarget, setLockTarget] = useState<PlatformTenantDto | null>(null);

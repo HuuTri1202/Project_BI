@@ -1,5 +1,5 @@
 ﻿import type { PlatformUserDto } from '@bi/shared';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useAuth } from '../../auth/useAuth';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
@@ -14,6 +14,8 @@ import { useDeleteUser, useSetUserActive, useTenants, useUsers } from '../../fea
 import { useListQueryState } from '../../hooks/useListQueryState';
 import type { UserListQuery } from '../../features/admin/api';
 import { getApiError } from '../../services/apiClient';
+import { duKienDanhSachNguoiDung } from '../../features/chat/duKienTrang';
+import { useKhaiNguCanh } from '../../features/chat/nguCanh';
 
 // Khai kiểu tường minh chứ KHÔNG dùng `as const`: nó thu hẹp mỗi trường xuống
 // đúng một literal, khiến đổi giá trị thành lỗi biên dịch và phải ép kiểu khắp nơi.
@@ -47,6 +49,16 @@ export default function UsersPage(): React.ReactElement {
     platformRole: query.platformRole as '' | 'superadmin' | 'user',
     tenantId: query.tenantId === '' ? '' : Number(query.tenantId),
   });
+
+  // Khai dữ kiện cho khung hỏi đáp — xem `features/chat/duKienTrang.ts`.
+  const nguCanh = useMemo(
+    () => ({
+      trang: 'danh sách người dùng',
+      nguon: duKienDanhSachNguoiDung(data?.items ?? [], data?.total ?? 0),
+    }),
+    [data],
+  );
+  useKhaiNguCanh(nguCanh);
 
   // Danh sách tổ chức để đổ vào ô lọc. Lấy trang đầu 100 tổ chức là đủ cho quy
   // mô hiện tại; khi nào vượt thì đổi ô select này thành ô tìm kiếm có gợi ý.

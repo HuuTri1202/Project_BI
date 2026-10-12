@@ -1,5 +1,5 @@
 import { MEMBER_STATUS_LABELS, TENANT_ROLE_LABELS, type AdminUserDto } from '@bi/shared';
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { useAuth } from '../../auth/useAuth';
 import { Button } from '../../components/ui/Button';
 import { FilterSelect, ListToolbar } from '../../components/ui/ListToolbar';
@@ -25,6 +25,8 @@ import {
 } from '../../features/tenant/members/tempPasswordStore';
 import { useListQueryState } from '../../hooks/useListQueryState';
 import { getApiError } from '../../services/apiClient';
+import { duKienThanhVien } from '../../features/chat/duKienTrang';
+import { useKhaiNguCanh } from '../../features/chat/nguCanh';
 
 /**
  * Quản lý thành viên trong tổ chức — §4.7.
@@ -70,6 +72,16 @@ export default function MembersPage(): React.ReactElement {
   const { user, tenant } = useAuth();
   const { query, update, reset } = useListQueryState<MemberListQuery>(DEFAULTS, ALLOWED);
   const { data, isPending, isError, error } = useMembers(query);
+
+  // Khai dữ kiện cho khung hỏi đáp — xem `features/chat/duKienTrang.ts`.
+  const nguCanh = useMemo(
+    () => ({
+      trang: 'danh sách thành viên',
+      nguon: duKienThanhVien(data?.items ?? [], data?.total ?? 0),
+    }),
+    [data],
+  );
+  useKhaiNguCanh(nguCanh);
 
   const [createOpen, setCreateOpen] = useState(false);
   const [changingRole, setChangingRole] = useState<AdminUserDto | null>(null);

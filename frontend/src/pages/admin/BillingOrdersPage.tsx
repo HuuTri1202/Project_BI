@@ -1,5 +1,5 @@
 import { ORDER_STATUSES, ORDER_STATUS_LABELS, PAYMENT_PROVIDER_LABELS } from '@bi/shared';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 
 import { Button } from '../../components/ui/Button';
 import { Field } from '../../components/ui/Field';
@@ -19,6 +19,8 @@ import { OrderStatusBadge } from '../../features/billing/OrderStatusBadge';
 import { dinhDangNgayGio, dinhDangTien } from '../../features/billing/format';
 import { useListQueryState } from '../../hooks/useListQueryState';
 import { getApiError } from '../../services/apiClient';
+import { duKienDonHang } from '../../features/chat/duKienTrang';
+import { useKhaiNguCanh } from '../../features/chat/nguCanh';
 
 /**
  * Đơn hàng của MỌI tổ chức, và nút xác nhận đã nhận tiền — §11 mục 3.3.
@@ -225,6 +227,16 @@ function ConfirmModal({
 export default function BillingOrdersPage(): React.ReactElement {
   const { query, update, reset } = useListQueryState<OrderQuery>({ ...DEFAULTS }, ALLOWED);
   const { data, isPending, isError, error, isPlaceholderData } = useAdminOrders(query);
+
+  // Khai dữ kiện cho khung hỏi đáp — xem `features/chat/duKienTrang.ts`.
+  const nguCanh = useMemo(
+    () => ({
+      trang: 'đơn hàng (console)',
+      nguon: duKienDonHang(data?.items ?? [], data?.total ?? 0),
+    }),
+    [data],
+  );
+  useKhaiNguCanh(nguCanh);
   const [confirming, setConfirming] = useState<AdminOrderDto | null>(null);
 
   const coLoc = query.status !== '' || query.provider !== '' || query.q !== '';

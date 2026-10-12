@@ -1,5 +1,5 @@
 ﻿import type { PlatformWorkspaceDto } from '@bi/shared';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import { Page, PageBody, PageHeader } from '../../components/ui/Page';
@@ -18,6 +18,8 @@ import {
 import { useListQueryState } from '../../hooks/useListQueryState';
 import type { WorkspaceListQuery } from '../../features/admin/api';
 import { getApiError } from '../../services/apiClient';
+import { duKienWorkspaceHeThong } from '../../features/chat/duKienTrang';
+import { useKhaiNguCanh } from '../../features/chat/nguCanh';
 
 // Khai kiểu tường minh chứ KHÔNG dùng `as const`: nó thu hẹp mỗi trường xuống
 // đúng một literal, khiến đổi giá trị thành lỗi biên dịch và phải ép kiểu khắp nơi.
@@ -49,6 +51,16 @@ export default function WorkspacesPage(): React.ReactElement {
     kind: query.kind as WorkspaceListQuery['kind'],
     tenantId: query.tenantId === '' ? '' : Number(query.tenantId),
   });
+
+  // Khai dữ kiện cho khung hỏi đáp — xem `features/chat/duKienTrang.ts`.
+  const nguCanh = useMemo(
+    () => ({
+      trang: 'danh sách workspace hệ thống',
+      nguon: duKienWorkspaceHeThong(data?.items ?? [], data?.total ?? 0),
+    }),
+    [data],
+  );
+  useKhaiNguCanh(nguCanh);
 
   // Chỉ công ty thật — xem ghi chú cùng chỗ này ở UsersPage.
   const { data: tenantPage } = useTenants({

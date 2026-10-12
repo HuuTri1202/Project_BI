@@ -1,5 +1,5 @@
 import { CHART_TYPE_LABELS, REPORT_SOURCE_LABELS, type ReportDto } from '@bi/shared';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../auth/useAuth';
 import { usePermissions } from '../auth/usePermissions';
@@ -10,6 +10,8 @@ import { CreateReportMenu } from '../features/tenant/CreateReportMenu';
 import { useHome } from '../features/tenant/hooks';
 import { getApiError } from '../services/apiClient';
 import { useWorkspace } from '../workspace/useWorkspace';
+import { duKienTrangChu } from '../features/chat/duKienTrang';
+import { useKhaiNguCanh } from '../features/chat/nguCanh';
 
 type ViewMode = 'grid' | 'list';
 
@@ -40,6 +42,13 @@ export default function HomePage(): React.ReactElement {
   const permissions = usePermissions();
   const { current, isLoading: wsLoading } = useWorkspace();
   const { data, isPending, isError, error } = useHome();
+
+  // Khai dữ kiện cho khung hỏi đáp — xem `features/chat/duKienTrang.ts`.
+  const nguCanh = useMemo(
+    () => ({ trang: 'trang chủ', nguon: data === undefined ? [] : duKienTrangChu(data) }),
+    [data],
+  );
+  useKhaiNguCanh(nguCanh);
 
   const [view, setView] = useState<ViewMode>(readView);
 

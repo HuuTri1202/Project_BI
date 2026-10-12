@@ -93,8 +93,8 @@ describe('Khung chỉ hiện khi trang có gì để hỏi', () => {
 
     fireEvent.click(nutMo());
     expect(screen.getByLabelText('Hỏi đáp về dữ liệu đang xem')).toBeInTheDocument();
-    // Tiêu đề nói rõ đang hỏi về đâu — đó là cách người dùng biết phạm vi.
-    expect(screen.getByText('Hỏi về Kho dữ liệu')).toBeInTheDocument();
+    // Tiêu đề nói rõ đang đọc gì — đó là cách người dùng biết phạm vi.
+    expect(screen.getByText('Đang đọc Kho dữ liệu')).toBeInTheDocument();
   });
 });
 
@@ -220,11 +220,14 @@ describe('Lớp viết lại câu không được làm hỏng câu trả lời',
     expect(screen.queryByRole('alert')).toBeNull();
   });
 
-  it('bản viết lại VỀ MUỘN không được đè lên câu hỏi mới', async () => {
+  it('bản viết lại VỀ MUỘN vá vào ĐÚNG bong bóng của nó', async () => {
     /*
-     * Hỏi câu thứ hai trong lúc câu thứ nhất còn đang bay. Không có chốt lượt
-     * thì bản viết lại của câu MỘT đáp xuống dưới câu hỏi HAI — một câu trả lời
-     * đúng, cho một câu hỏi khác, nằm ở chỗ không ai nghi ngờ.
+     * Hỏi câu thứ hai trong lúc câu thứ nhất còn đang bay.
+     *
+     * Khung giữ cả cuộc trò chuyện, nên cả hai bong bóng đều còn trên màn hình.
+     * Vá "tin cuối cùng" sẽ dán câu trả lời của câu MỘT xuống dưới câu hỏi HAI
+     * — một câu đúng, cho một câu hỏi khác, ở chỗ không ai nghi ngờ. Nên tin
+     * được vá theo `id`, không theo vị trí.
      */
     let giaiPhong: (cau: string) => void = () => undefined;
     dienDatLai
@@ -244,13 +247,16 @@ describe('Lớp viết lại câu không được làm hỏng câu trả lời',
     expect(await screen.findByText('Tổng là 800 Doanh thu.')).toBeInTheDocument();
 
     // Giờ mới cho câu một về, và XẢ hết để React áp mọi cập nhật còn chờ.
-    // Thiếu `act` ở đây thì bài test xanh kể cả khi chốt lượt bị gỡ — đã kiểm
-    // bằng đột biến.
+    // Thiếu `act` ở đây thì bài test xanh kể cả khi luật vá sai — đã kiểm bằng
+    // đột biến.
     await act(async () => {
       giaiPhong('Miền Nam dẫn đầu với 500 Doanh thu.');
     });
 
-    expect(screen.queryByText(/Miền Nam dẫn đầu/)).toBeNull();
-    expect(screen.getByText('Tổng là 800 Doanh thu.')).toBeInTheDocument();
+    // Bản viết lại của câu MỘT nằm ở bong bóng của câu một...
+    const bong = screen.getAllByText(/Doanh thu\.$/);
+    expect(bong[0]).toHaveTextContent('Miền Nam dẫn đầu với 500 Doanh thu.');
+    // ...và câu HAI không bị nó đè lên.
+    expect(bong[1]).toHaveTextContent('Tổng là 800 Doanh thu.');
   });
 });
