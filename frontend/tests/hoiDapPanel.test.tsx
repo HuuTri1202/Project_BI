@@ -1,9 +1,10 @@
 import type { ReportDataDto } from '@bi/shared';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { useMemo } from 'react';
 import { MemoryRouter } from 'react-router-dom';
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import * as chatApi from '../src/features/chat/api';
 import { NguCanhProvider } from '../src/features/chat/NguCanhProvider';
 import { useKhaiNguCanh, type NguCanh, type Nguon } from '../src/features/chat/nguCanh';
 import { THUOC_TINH_KHONG_XUAT } from '../src/services/danhDauXuat';
@@ -24,6 +25,22 @@ import { THUOC_TINH_KHONG_XUAT } from '../src/services/danhDauXuat';
  *   4. Câu chưa hiểu mà không nói rõ phạm vi → người dùng tưởng hệ thống không
  *      có dữ liệu đó, trong khi chỉ là khung không đọc tới trang đó.
  */
+
+vi.mock('../src/features/chat/api', () => ({ dienDatLai: vi.fn() }));
+
+const dienDatLai = vi.mocked(chatApi.dienDatLai);
+
+beforeEach(() => {
+  /*
+   * Mặc định: CHƯA cấu hình mô hình, nên lời gọi hỏng và câu mẫu ở lại.
+   *
+   * Đó là trạng thái của một máy chưa điền `LLM_API_KEY` — tức là trạng thái mà
+   * phần lớn ca ở đây muốn kiểm, và cũng là trạng thái khung phải chạy được
+   * trong đó. Ca nào cần bản viết lại thì tự khai `mockResolvedValue`.
+   */
+  dienDatLai.mockReset();
+  dienDatLai.mockRejectedValue(new Error('chưa cấu hình'));
+});
 
 function bang(): ReportDataDto {
   return {
@@ -165,5 +182,75 @@ describe('Không lọt vào ảnh xuất', () => {
     expect(screen.getByLabelText('Hỏi đáp về dữ liệu đang xem')).toHaveAttribute(
       THUOC_TINH_KHONG_XUAT,
     );
+  });
+});
+
+describe('Lớp viết lại câu không được làm hỏng câu trả lời', () => {
+  it('viết lại THÀNH CÔNG -> khung thay bằng câu mượt hơn', async () => {
+    dienDatLai.mockResolvedValue('Miền Nam dẫn đầu với 500 Doanh thu.');
+    dung([{ ten: 'Doanh thu theo Khu vực', duKien: [], bang: bang() }]);
+    fireEvent.click(nutMo());
+
+    hoi('khu vực nào cao nhất');
+
+    // Câu mẫu hiện NGAY, trước khi lời gọi về — người dùng không chờ mạng để
+    // đọc một con số máy họ đã tính xong.
+    expect(screen.getByText(/Cao nhất là Miền Nam/)).toBeInTheDocument();
+
+    expect(await screen.findByText('Miền Nam dẫn đầu với 500 Doanh thu.')).toBeInTheDocument();
+  });
+
+  it('viết lại THẤT BẠI -> câu mẫu ở lại, không có hộp lỗi nào', async () => {
+    /*
+     * Mất mạng, hết lượt, chưa có khoá — tất cả đi qua đây. Một hộp đỏ ở chỗ
+     * này là biến một lớp trang trí thành thứ làm hỏng khung hỏi đáp.
+     */
+    dienDatLai.mockRejectedValue(new Error('mất mạng'));
+    dung([{ ten: 'Doanh thu theo Khu vực', duKien: [], bang: bang() }]);
+    fireEvent.click(nutMo());
+
+    hoi('khu vực nào cao nhất');
+
+    // `act` bất đồng bộ: nó xả hết microtask RỒI mới áp cập nhật. Một
+    // `await Promise.resolve()` trần thì không áp — và khi đó bài test xanh vì
+    // React chưa kịp làm gì, chứ không vì code đúng.
+    await act(async () => undefined);
+
+    expect(screen.getByText(/Cao nhất là Miền Nam/)).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it('bản viết lại VỀ MUỘN không được đè lên câu hỏi mới', async () => {
+    /*
+     * Hỏi câu thứ hai trong lúc câu thứ nhất còn đang bay. Không có chốt lượt
+     * thì bản viết lại của câu MỘT đáp xuống dưới câu hỏi HAI — một câu trả lời
+     * đúng, cho một câu hỏi khác, nằm ở chỗ không ai nghi ngờ.
+     */
+    let giaiPhong: (cau: string) => void = () => undefined;
+    dienDatLai
+      .mockImplementationOnce(
+        () =>
+          new Promise<string>((resolve) => {
+            giaiPhong = resolve;
+          }),
+      )
+      .mockResolvedValueOnce('Tổng là 800 Doanh thu.');
+
+    dung([{ ten: 'Doanh thu theo Khu vực', duKien: [], bang: bang() }]);
+    fireEvent.click(nutMo());
+
+    hoi('khu vực nào cao nhất');
+    hoi('tổng doanh thu');
+    expect(await screen.findByText('Tổng là 800 Doanh thu.')).toBeInTheDocument();
+
+    // Giờ mới cho câu một về, và XẢ hết để React áp mọi cập nhật còn chờ.
+    // Thiếu `act` ở đây thì bài test xanh kể cả khi chốt lượt bị gỡ — đã kiểm
+    // bằng đột biến.
+    await act(async () => {
+      giaiPhong('Miền Nam dẫn đầu với 500 Doanh thu.');
+    });
+
+    expect(screen.queryByText(/Miền Nam dẫn đầu/)).toBeNull();
+    expect(screen.getByText('Tổng là 800 Doanh thu.')).toBeInTheDocument();
   });
 });

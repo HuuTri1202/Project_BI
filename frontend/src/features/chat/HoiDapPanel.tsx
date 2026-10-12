@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 
 import { KHONG_XUAT } from '../../services/danhDauXuat';
+import { dienDatLai } from './api';
 import { useNguCanh } from './nguCanh';
 import type { Nguon } from './nguCanh';
 import { traLoi } from './traLoi';
@@ -33,6 +34,7 @@ export function HoiDapPanel(): React.ReactElement | null {
   const [chon, setChon] = useState(0);
   const [cauHoi, setCauHoi] = useState('');
   const [daHoi, setDaHoi] = useState<{ hoi: string; cau: string | null } | null>(null);
+  const luot = useRef(0);
 
   if (nguCanh.nguon.length === 0) return null;
 
@@ -44,9 +46,29 @@ export function HoiDapPanel(): React.ReactElement | null {
   function hoi(): void {
     const q = cauHoi.trim();
     if (q === '') return;
+
     const kq = traLoi(nguon, q);
+    // Hiện câu mẫu NGAY. Nó đã tính xong trên máy này; bắt người dùng nhìn một
+    // vòng xoay để đọc một con số đã có là lấy đi thứ duy nhất lớp LLM không
+    // làm cho tốt hơn được — tốc độ.
     setDaHoi({ hoi: q, cau: kq?.cau ?? null });
     setCauHoi('');
+    if (kq === null) return;
+
+    /*
+     * Rồi mới nhờ viết lại. `luot` chặn câu trả lời VỀ MUỘN: hỏi câu thứ hai
+     * trong lúc câu thứ nhất còn đang bay thì bản viết lại của câu một không
+     * được phép đè lên câu hai — nó trả lời một câu hỏi khác.
+     */
+    const cuaLuot = luot.current + 1;
+    luot.current = cuaLuot;
+    void dienDatLai({ cauHoi: q, cau: kq.cau, so: kq.so })
+      .then((moi) => {
+        if (luot.current === cuaLuot) setDaHoi({ hoi: q, cau: moi });
+      })
+      .catch(() => {
+        // Cố ý im lặng: câu mẫu đang hiện vẫn là một câu trả lời đúng và đủ.
+      });
   }
 
   if (!mo) {

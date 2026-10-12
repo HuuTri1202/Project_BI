@@ -87,6 +87,7 @@ import {
   queueLoad,
   warehouseSchema,
 } from '../../services/ingest/loadService';
+import { dienDat } from '../../services/chat/dienDat';
 import { chTableName } from '../../services/ingest/buildDdl';
 import { cubeTypeOf } from '../../services/datamodel/classifyColumn';
 import { addDatasets, createDataModel } from '../../services/datamodel/createDataModel';
@@ -122,6 +123,7 @@ import { asyncHandler } from '../../utils/asyncHandler';
 import { badRequest, HttpError, notFound } from '../../utils/httpError';
 import { buildPageResult, paginationSchema, resolveSortColumn } from '../../utils/pagination';
 import {
+  dienDatBodySchema,
   addDatasetsBodySchema,
   commitDatasetsBodySchema,
   createDatasetFolderBodySchema,
@@ -3789,3 +3791,23 @@ function asDuplicateName(err: unknown): unknown {
   }
   return err;
 }
+
+// ─── Khung hỏi đáp: viết lại câu trả lời ─────────────────────────────────────
+//
+// Con số do FRONTEND tính từ dữ liệu trang đang mở; endpoint này chỉ nhờ mô
+// hình diễn đạt lại cho mượt, rồi ĐỐI CHIẾU để chắc không con số nào bị đổi.
+// Xem `services/chat/dienDat.ts` cho ba luật của nó.
+//
+// Không gác `authorize`: nó không đọc dữ liệu nào của tổ chức cả. Thân request
+// mang theo đúng câu mà người gọi vừa tự tính ra trên máy họ, nên quyền đã được
+// quyết ở chỗ họ lấy được dữ liệu đó. `authenticate` +
+// `requireFreshMembership` vẫn áp vì cả router đã khai ở trên — đủ để một người
+// ngoài không tiêu lượt gọi của hệ thống.
+v1Router.post(
+  '/chat/dien-dat',
+  rateLimit({ bucket: 'chat-dien-dat', max: 60, windowSeconds: 600 }),
+  asyncHandler(async (req, res) => {
+    const body = dienDatBodySchema.parse(req.body);
+    res.json({ cau: await dienDat(body) });
+  }),
+);
