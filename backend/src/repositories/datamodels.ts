@@ -1,6 +1,7 @@
 import type {
   ColumnRole,
   DataModelDto,
+  DatasetSource,
   DataModelMeasureDto,
   DataModelRelationshipDto,
   MeasureAgg,
@@ -294,6 +295,20 @@ export interface ModelDatasetRow extends RowDataPacket {
   primary_column_id: number | null;
   /** Tên cột khoá chính, giải sẵn để giao diện khỏi phải tự dò. */
   primary_column_name: string | null;
+  /**
+   * Nguồn GỐC của bảng — lấy kèm từ `datasets` và `connections`.
+   *
+   * Câu `JOIN datasets` đã có sẵn ở đây để lấy `dataset_name`, nên mấy cột này
+   * chỉ là thêm tên cột vào `SELECT`: không thêm lượt khứ hồi nào. Thiếu chúng
+   * thì giao diện phải gọi `GET /datasets/:id` cho TỪNG bảng của mô hình chỉ để
+   * trả lời "mô hình này dựng từ tệp nào" — n request cho một câu hỏi mà câu
+   * JOIN này trả lời được.
+   */
+  source: DatasetSource;
+  original_filename: string | null;
+  source_schema: string | null;
+  source_table: string | null;
+  connection_name: string | null;
   canvas_x: number;
   canvas_y: number;
 }
@@ -310,10 +325,16 @@ export async function listDatasets(
     `SELECT dmd.id, dmd.datamodel_id, dmd.dataset_id, d.name AS dataset_name,
             dmd.display_name, dmd.description, dmd.primary_column_id,
             pk.column_name AS primary_column_name,
+            d.source, d.original_filename, d.source_schema, d.source_table,
+            c.name AS connection_name,
             dmd.canvas_x, dmd.canvas_y
        FROM datamodel_datasets dmd
        JOIN datasets d ON d.id = dmd.dataset_id
        LEFT JOIN datamodel_columns pk ON pk.id = dmd.primary_column_id
+       -- Điều kiện nối kèm luôn tenant_id, không chỉ c.id = d.connection_id:
+       -- cùng khuôn với datasets.list, để một id kết nối của tổ chức khác
+       -- không bao giờ ghép được tên vào đây.
+       LEFT JOIN connections c ON c.id = d.connection_id AND c.tenant_id = d.tenant_id
       WHERE dmd.tenant_id = ? AND dmd.datamodel_id = ?
       ORDER BY dmd.id ASC`,
     [tenantId, dataModelId],

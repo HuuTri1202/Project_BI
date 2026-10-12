@@ -1813,3 +1813,105 @@ describe('§10.21 trường trùng tên', () => {
     ]);
   });
 });
+
+describe('Bảng trong mô hình mang theo NGUỒN GỐC của nó', () => {
+  /*
+   * ═══ Vì sao mấy trường này phải có ═════════════════════════════════════════
+   *
+   * `DataModelDatasetDto` trước đây chỉ mang `datasetName` và `chTable`, mà cả
+   * hai đều KHÔNG trả lời được "mô hình này dựng từ tệp nào":
+   *
+   *   - `datasetName` là tên người dùng đặt, đổi được, không dính gì tới tệp.
+   *   - `chTable` là `chTableName(tenantId, datasetId)` — hai con số.
+   *
+   * Nên câu hỏi đó chỉ trả lời được bằng cách mở sang Kho dữ liệu rồi đối chiếu
+   * từng bộ một. Giờ nó đi kèm luôn, trong CÙNG câu truy vấn đã `JOIN datasets`
+   * để lấy `dataset_name`.
+   */
+
+  /** Bộ dữ liệu đồng bộ từ CSDL khách hàng, kèm một kết nối thật. */
+  async function makeConnectedDataset(
+    tenantId: number,
+    workspaceId: number,
+    name: string,
+  ): Promise<number> {
+    // `connections` nằm ở cấp TỔ CHỨC, không có `workspace_id` — nó phân phạm vi
+    // bằng `visibility` + `created_by`. Dùng 'shared' để cột sinh `name_scope`
+    // ra 's:0:<tên>' thay vì phải có một user thật.
+    const [conn] = await mysqlPool.query(
+      `INSERT INTO connections
+         (tenant_id, name, kind, host, port, database_name, username, password_cipher, visibility)
+       VALUES (?, 'Kho MySQL nội bộ', 'mysql', 'db.local', 3306, 'erp', 'bi', 'x', 'shared')`,
+      [tenantId],
+    );
+    const connectionId = (conn as unknown as { insertId: number }).insertId;
+
+    const [ds] = await mysqlPool.query(
+      `INSERT INTO datasets
+         (tenant_id, source, workspace_id, name, connection_id, source_schema, source_table,
+          status, load_status, column_count, row_count)
+       VALUES (?, 'connection', ?, ?, ?, 'erp', 'don_hang', 'ready', 'loaded', 4, 20)`,
+      [tenantId, workspaceId, name, connectionId],
+    );
+    return (ds as unknown as { insertId: number }).insertId;
+  }
+
+  it('bảng từ TỆP nói ra tên tệp gốc', async () => {
+    // `makeLoadedDataset` đặt `original_filename` = '<tên>.csv'.
+    await attachDataset(f.tenantA, f.modelA, f.datasetA);
+
+    const res = await request(app)
+      .get(`/api/v1/datamodels/${f.modelA}`)
+      .set(bearer(f.tokenAdminA))
+      .expect(200);
+
+    const bang = res.body.datasets[0];
+    expect(bang.source).toBe('file');
+    expect(bang.originalFilename).toBe('don-hang.csv');
+    // Nguồn tệp thì ba trường của nhánh kết nối phải TRỐNG, không phải chuỗi
+    // rỗng: giao diện chọn câu để hiện dựa vào chính chỗ này.
+    expect(bang.sourceTable).toBeNull();
+    expect(bang.connectionName).toBeNull();
+  });
+
+  it('bảng từ KẾT NỐI nói ra bảng gốc và tên kết nối', async () => {
+    const datasetId = await makeConnectedDataset(f.tenantA, f.workspaceA, 'Đơn hàng ERP');
+    await attachDataset(f.tenantA, f.modelA, datasetId);
+
+    const res = await request(app)
+      .get(`/api/v1/datamodels/${f.modelA}`)
+      .set(bearer(f.tokenAdminA))
+      .expect(200);
+
+    const bang = res.body.datasets[0];
+    expect(bang.source).toBe('connection');
+    expect(bang.sourceSchema).toBe('erp');
+    expect(bang.sourceTable).toBe('don_hang');
+    expect(bang.connectionName).toBe('Kho MySQL nội bộ');
+    expect(bang.originalFilename).toBeNull();
+  });
+
+  it('hai nguồn nằm cạnh nhau trong một mô hình vẫn ra đúng từng cái', async () => {
+    /*
+     * Ca đối chứng. Thiếu nó thì một phép ghép sai — lấy nguồn của bảng đầu rồi
+     * gán cho cả danh sách — vẫn cho hai bài trên màu xanh, vì ở đó mô hình chỉ
+     * có một bảng.
+     */
+    await attachDataset(f.tenantA, f.modelA, f.datasetA);
+    const ketNoi = await makeConnectedDataset(f.tenantA, f.workspaceA, 'Đơn hàng ERP');
+    await attachDataset(f.tenantA, f.modelA, ketNoi);
+
+    const res = await request(app)
+      .get(`/api/v1/datamodels/${f.modelA}`)
+      .set(bearer(f.tokenAdminA))
+      .expect(200);
+
+    const theoId = new Map<number, Record<string, unknown>>(
+      res.body.datasets.map((d: Record<string, unknown>) => [d['datasetId'] as number, d]),
+    );
+    expect(theoId.get(f.datasetA)?.['originalFilename']).toBe('don-hang.csv');
+    expect(theoId.get(f.datasetA)?.['connectionName']).toBeNull();
+    expect(theoId.get(ketNoi)?.['connectionName']).toBe('Kho MySQL nội bộ');
+    expect(theoId.get(ketNoi)?.['originalFilename']).toBeNull();
+  });
+});
