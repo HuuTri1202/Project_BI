@@ -26,7 +26,7 @@ mà **không cần viết SQL**.
 | **Xuất báo cáo** — ảnh PNG và tệp PDF, mọi vai trò xuất được                                 | ✅ xong                                                |
 | **Thư mục báo cáo** (§10.25) — gom báo cáo theo chủ đề, mặc định nằm ở Chung                 | ✅ xong — xem mục _Thư mục báo cáo_                    |
 | **Gói cước & thanh toán** (§11) — VietQR, đối soát Sepay, hạn mức theo gói                   | ✅ xong — xem [docs/thanh-toan.md](docs/thanh-toan.md) |
-| **Trợ lý hỏi đáp dữ liệu** — khung nổi ở mọi trang, trả lời bằng chính số liệu trang đang mở | ✅ xong — xem mục _Trợ lý hỏi đáp_                     |
+| **Trợ lý hỏi đáp dữ liệu** — khung nổi ở mọi trang, trả lời theo trang đang mở và cả tổ chức | ✅ xong — xem mục _Trợ lý hỏi đáp_                     |
 | Bộ lọc dùng chung cả khung, chia sẻ báo cáo ra ngoài                                         | ⏳ chưa làm                                            |
 
 Xem lộ trình đầy đủ và phân công theo tính năng trong tài liệu kế hoạch của nhóm.
@@ -3085,14 +3085,29 @@ thứ đang hiện trên màn hình: _"datamodel nào được dùng nhiều nh�
 nào chưa nối quan hệ"_, _"số dòng của bộ dữ liệu này"_, _"khu vực nào cao nhất"_.
 
 **Nó không bịa được.** Mọi con số trong câu trả lời là một phép tính trên dữ
-liệu mà CHÍNH TRANG ĐÓ đã tải về — không có endpoint riêng để hỏi thêm, nên
-không có chỗ nào để bịa. Hệ quả là quyền được thừa hưởng miễn phí: `viewer`
-không vào được Kho dữ liệu thì khung cũng không trả lời gì về Kho dữ liệu, mà
-không cần thêm một lớp chặn nào.
+liệu mà chính trang đó đã tải về, hoặc trên hai danh sách xuyên hệ thống nói
+dưới đây — **không có endpoint nào riêng cho khung**, nên không có chỗ nào để
+bịa. Hệ quả là quyền được thừa hưởng miễn phí: `viewer` không có `dataset:read`
+thì hai lời gọi kia trả 403, khung không có nguồn nào của Kho dữ liệu, và không
+cần thêm một lớp chặn nào.
+
+**Hai phạm vi, và khung luôn nói rõ nó đang đọc phạm vi nào.** Trang đang mở trả
+lời trước; chỉ khi trang không trả lời được thì khung mới tra **danh sách bộ dữ
+liệu và mô hình dữ liệu của cả tổ chức** (`GET /datasets` + `GET /datamodels`,
+gọi khi khung được mở, bỏ trống `workspaceId`). Nhờ vậy _"có bao nhiêu bộ dữ
+liệu"_, _"mô hình nào nhiều bảng nhất"_ trả lời được từ bất cứ trang nào — và
+câu trả lời mang sẵn vế _"tra trên toàn bộ tổ chức, không phải trên trang đang
+mở"_, vì danh sách đó KHÔNG ở trên màn hình để người đọc đối chiếu.
 
 Câu trả lời luôn nói rõ nó đứng trên cái gì — _"so trên 9 mục đang hiện trên
-trang này"_, _"tệp đã bị cắt khi tải lên nên đây chưa phải toàn bộ"_. Không hiểu
-thì nói chưa hiểu, kèm vài câu bấm được, chứ không đoán.
+trang này"_, _"tệp đã bị cắt khi tải lên nên đây chưa phải toàn bộ"_, _"tính
+trên 5 nhóm đang hiện trên biểu đồ"_. Không hiểu thì nói chưa hiểu, kèm vài câu
+bấm được, chứ không đoán.
+
+**Hỏi bằng lời thường, trả lời bằng chữ.** _"Có những sản phẩm nào trên biểu
+đồ"_, _"liệt kê các sản phẩm có số lượng 10"_ — khung đọc ra đủ tên kèm giá trị
+của từng tên, chứ không chỉ một con số. Ngưỡng lọc lấy từ chính câu người dùng
+gõ; không có con số nào trong câu thì nó liệt kê hết, chứ không tự đặt ngưỡng.
 
 **Mô hình ngôn ngữ là lớp phủ, không phải điều kiện chạy.** Chưa điền
 `LLM_BASE_URL` / `LLM_API_KEY` / `LLM_MODEL` trong `backend/.env` thì khung vẫn
@@ -3105,8 +3120,10 @@ việc, và **không việc nào cho phép nó tạo ra nội dung**:
    không có giá trị nào) và chỉ trả về **một con số**: nhãn nào khớp, hoặc 0.
    Chỉ số ngoài khoảng bị bỏ ngay ở backend, và câu trả lời vẫn do code dựng từ
    chính dữ kiện đó — kể cả điều kiện của con số.
-2. **Viết lại cho mượt.** Câu nó viết bị đối chiếu: con số nào biến mất thì bỏ
-   cả câu, trả lại câu mẫu.
+2. **Viết lại thành câu.** Câu mẫu do code ghép chuỗi nên nó đọc như một dòng
+   bảng (_"Số quan hệ của mô hình Bán hàng: 3."_); mô hình biến nó thành một câu
+   tiếng Việt có chủ ngữ vị ngữ. Cả HAI đường ra câu trả lời đều đi qua đây.
+   Câu nó viết bị đối chiếu: con số nào biến mất thì bỏ cả câu, trả lại câu mẫu.
 
 **Kiểm tra đã nối được mô hình chưa:**
 
@@ -3127,13 +3144,14 @@ ra kèm nguyên văn cái nhãn nó chọn, nên người đọc thấy ngay là
 chuyện khác. Thứ gửi lên mô hình chỉ gồm câu hỏi, tên trường, và mấy dữ kiện của
 riêng câu trả lời — không gửi bảng số liệu, không gửi số tài khoản ngân hàng.
 
-| Nơi ở                                        | Việc                                             |
-| -------------------------------------------- | ------------------------------------------------ |
-| `frontend/src/features/chat/duKienTrang.ts`  | Mỗi trang một hàm: DTO đã tải → dữ kiện hỏi được |
-| `frontend/src/features/chat/traLoi.ts`       | Lõi trả lời — hàm thuần, không React, không mạng |
-| `frontend/src/features/chat/HoiDapPanel.tsx` | Khung, con robot, bong bóng, gợi ý               |
-| `backend/src/services/chat/hieuY.ts`         | Lớp hiểu câu hỏi — mô hình chỉ CHỌN một nhãn     |
-| `backend/src/services/chat/dienDat.ts`       | Lớp viết lại + luật đối chiếu số                 |
+| Nơi ở                                          | Việc                                             |
+| ---------------------------------------------- | ------------------------------------------------ |
+| `frontend/src/features/chat/duKienTrang.ts`    | Mỗi trang một hàm: DTO đã tải → dữ kiện hỏi được |
+| `frontend/src/features/chat/nguCanhHeThong.ts` | Hai danh sách xuyên hệ thống, kéo khi khung mở   |
+| `frontend/src/features/chat/traLoi.ts`         | Lõi trả lời — hàm thuần, không React, không mạng |
+| `frontend/src/features/chat/HoiDapPanel.tsx`   | Khung, con robot, bong bóng, gợi ý               |
+| `backend/src/services/chat/hieuY.ts`           | Lớp hiểu câu hỏi — mô hình chỉ CHỌN một nhãn     |
+| `backend/src/services/chat/dienDat.ts`         | Lớp viết lại + luật đối chiếu số                 |
 
 ---
 

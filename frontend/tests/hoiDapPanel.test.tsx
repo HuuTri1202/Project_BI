@@ -5,6 +5,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import * as chatApi from '../src/features/chat/api';
+import * as heThongHook from '../src/features/chat/nguCanhHeThong';
 import { NguCanhProvider } from '../src/features/chat/NguCanhProvider';
 import { useKhaiNguCanh, type NguCanh, type Nguon } from '../src/features/chat/nguCanh';
 import { THUOC_TINH_KHONG_XUAT } from '../src/services/danhDauXuat';
@@ -28,8 +29,20 @@ import { THUOC_TINH_KHONG_XUAT } from '../src/services/danhDauXuat';
 
 vi.mock('../src/features/chat/api', () => ({ dienDatLai: vi.fn(), hieuCauHoi: vi.fn() }));
 
+/*
+ * Lớp xuyên hệ thống bị thay bằng một hàm thường.
+ *
+ * Nó là HAI lời gọi react-query thật, nên để nguyên thì mọi ca ở đây phải dựng
+ * một `QueryClientProvider` và chịu hai request mạng cho những ca chẳng liên
+ * quan. Phần hỏi-đáp của nó đã có bộ riêng (`traLoi.test.ts`), hàm thuần,
+ * không cần DOM; còn ở đây chỉ cần nói được "khung nhận bao nhiêu nguồn hệ
+ * thống" — đúng thứ một mock khai ra được.
+ */
+vi.mock('../src/features/chat/nguCanhHeThong', () => ({ useNguCanhHeThong: vi.fn() }));
+
 const dienDatLai = vi.mocked(chatApi.dienDatLai);
 const hieuCauHoi = vi.mocked(chatApi.hieuCauHoi);
+const useNguCanhHeThong = vi.mocked(heThongHook.useNguCanhHeThong);
 
 beforeEach(() => {
   /*
@@ -46,6 +59,11 @@ beforeEach(() => {
   // cũng là trạng thái mà mọi ca về phép so từ khoá muốn kiểm.
   hieuCauHoi.mockReset();
   hieuCauHoi.mockResolvedValue({ chon: null, daHoi: false });
+
+  // Mặc định: KHÔNG có nguồn xuyên hệ thống — đúng trạng thái của một viewer
+  // (không có `dataset:read`) và của mọi ca chỉ nói về trang đang mở.
+  useNguCanhHeThong.mockReset();
+  useNguCanhHeThong.mockReturnValue([]);
 });
 
 function bang(): ReportDataDto {
@@ -442,5 +460,133 @@ describe('Mô hình chọn nhãn khi phép so từ khoá trượt', () => {
     });
 
     expect(screen.getByText(/Tôi chưa hiểu câu này/)).toBeInTheDocument();
+  });
+});
+
+describe('Trả lời xuyên hệ thống', () => {
+  /** Đúng hình dạng `useNguCanhHeThong` dựng ra: tóm tắt trước, từng mục sau. */
+  const toanToChuc: Nguon[] = [
+    {
+      ten: 'Tổng quan toàn tổ chức',
+      duKien: [{ nhan: 'Số bộ dữ liệu trong toàn bộ tổ chức', gia: '12' }],
+    },
+    { ten: 'Bán hàng', duKien: [{ nhan: 'Số bảng trong mô hình Bán hàng', gia: '5' }] },
+    { ten: 'Kho vận', duKien: [{ nhan: 'Số bảng trong mô hình Kho vận', gia: '9' }] },
+  ];
+
+  const trangMotNguon: Nguon[] = [
+    { ten: 'Đơn hàng Q4', duKien: [{ nhan: 'Số dòng của Đơn hàng Q4', gia: '12.431' }] },
+  ];
+
+  it('trả lời được câu mà trang đang mở không giữ số liệu', async () => {
+    useNguCanhHeThong.mockReturnValue(toanToChuc);
+    dung(trangMotNguon);
+    fireEvent.click(nutMo());
+
+    hoi('có bao nhiêu bộ dữ liệu');
+
+    expect(await screen.findByText(/12/)).toBeInTheDocument();
+    // Phải nói ra là nó đọc ở đâu: danh sách này KHÔNG ở trên màn hình, nên
+    // người đọc không có gì để đối chiếu.
+    expect(screen.getByText(/không phải trên trang đang mở/)).toBeInTheDocument();
+  });
+
+  /*
+   * ⚠️ TRANG trước, HỆ THỐNG sau. Đảo thứ tự là một câu hỏi về thứ đang hiện
+   * trên màn hình được trả lời bằng một con số của workspace khác — đúng số,
+   * sai chỗ, và không có cách nào thấy bằng mắt.
+   */
+  it('trang đang mở LUÔN được trả lời trước danh sách hệ thống', () => {
+    useNguCanhHeThong.mockReturnValue([
+      {
+        ten: 'Tổng quan toàn tổ chức',
+        duKien: [{ nhan: 'Số dòng của Đơn hàng Q4', gia: '999' }],
+      },
+    ]);
+    dung(trangMotNguon);
+    fireEvent.click(nutMo());
+
+    hoi('đơn hàng q4 có bao nhiêu dòng');
+
+    expect(screen.getByText(/12\.431/)).toBeInTheDocument();
+    expect(screen.queryByText(/999/)).toBeNull();
+  });
+
+  it('phạm vi rộng hơn được nói ra ở tiêu đề và ở câu chưa hiểu', () => {
+    useNguCanhHeThong.mockReturnValue(toanToChuc);
+    dung(trangMotNguon);
+    fireEvent.click(nutMo());
+
+    expect(screen.getByText(/Đang đọc Kho dữ liệu \+ toàn tổ chức/)).toBeInTheDocument();
+
+    hoi('hôm nay trời thế nào');
+    expect(
+      screen.getByText(/cộng danh sách bộ dữ liệu và mô hình của tổ chức/),
+    ).toBeInTheDocument();
+  });
+
+  /*
+   * Một viewer không có `dataset:read` nên hai lời gọi kia trả 403 và danh sách
+   * hệ thống rỗng. Khung không được hứa thứ nó không với tới.
+   */
+  it('không kéo được danh sách hệ thống thì KHÔNG hứa gì về nó', () => {
+    useNguCanhHeThong.mockReturnValue([]);
+    dung(trangMotNguon);
+    fireEvent.click(nutMo());
+
+    expect(screen.getByText('Đang đọc Kho dữ liệu')).toBeInTheDocument();
+
+    hoi('hôm nay trời thế nào');
+    expect(screen.queryByText(/mô hình của tổ chức/)).toBeNull();
+  });
+
+  /*
+   * Mô hình phải được thấy cả mấy câu xuyên hệ thống, không chỉ nhãn của trang
+   * — nếu không thì đúng những câu mà không trang nào trả lời được lại là
+   * những câu nó không bao giờ chọn tới.
+   */
+  it('danh sách gửi cho mô hình có cả câu xuyên hệ thống, trang xếp TRƯỚC', async () => {
+    useNguCanhHeThong.mockReturnValue(toanToChuc);
+    hieuCauHoi.mockResolvedValue({ chon: null, daHoi: true });
+    dung(trangMotNguon);
+    fireEvent.click(nutMo());
+
+    hoi('cái này nặng cỡ nào');
+    await screen.findByText(/đã đọc hết số liệu/);
+
+    const nhan = hieuCauHoi.mock.calls[0]?.[0].nhan ?? [];
+    expect(nhan[0]).toBe('Số dòng của Đơn hàng Q4');
+    expect(nhan).toContain('Số bộ dữ liệu trong toàn bộ tổ chức');
+  });
+});
+
+/*
+ * ⚠️ Đường mô hình-chọn-nhãn cũng phải đi qua lớp viết lại.
+ *
+ * Trước đây chỉ đường so-từ-khoá đi qua, nên đúng những câu hỏi KHÓ NHẤT —
+ * những câu phải nhờ mô hình mới hiểu được — lại nhận về câu khô nhất: một
+ * nhãn, một dấu hai chấm, một con số.
+ */
+describe('Câu trả lời được viết thành CHỮ, ở cả hai đường', () => {
+  const trang: Nguon[] = [
+    {
+      ten: 'Đơn hàng Q4',
+      duKien: [{ nhan: 'Dung lượng của Đơn hàng Q4', gia: '4,2 MB' }],
+    },
+  ];
+
+  it('mô hình chọn nhãn xong thì câu đó vẫn được nhờ viết lại', async () => {
+    hieuCauHoi.mockResolvedValue({ chon: 0, daHoi: true });
+    dienDatLai.mockResolvedValue('Tệp của Đơn hàng Q4 nặng 4,2 MB.');
+    dung(trang);
+    fireEvent.click(nutMo());
+
+    hoi('cái này nặng bao nhiêu');
+
+    expect(await screen.findByText('Tệp của Đơn hàng Q4 nặng 4,2 MB.')).toBeInTheDocument();
+    // Con số gửi đi để backend đối chiếu phải là con số của chính câu đó.
+    expect(dienDatLai).toHaveBeenCalledWith(
+      expect.objectContaining({ cau: 'Dung lượng của Đơn hàng Q4: 4,2 MB.', so: ['4,2 MB'] }),
+    );
   });
 });

@@ -3,7 +3,15 @@ import { describe, expect, it } from 'vitest';
 
 import { formatValue } from '../src/features/reports/nhanO';
 import type { Nguon } from '../src/features/chat/nguCanh';
-import { chuanHoa, docDieuKien, docYDinh, luaChonTrang, traLoi } from '../src/features/chat/traLoi';
+import {
+  chuanHoa,
+  docDieuKien,
+  docYDinh,
+  luaChonHeThong,
+  luaChonTrang,
+  traLoi,
+  traLoiHeThong,
+} from '../src/features/chat/traLoi';
 
 /**
  * Lõi trả lời của khung hỏi đáp.
@@ -451,15 +459,35 @@ describe('Lọc theo giá trị', () => {
   });
 
   /*
-   * "Liệt kê" mà không có con số thì đây không phải câu hỏi lọc. Trả lời bằng
-   * một phép lọc với ngưỡng tự nghĩ ra (0, hay giá trị đầu tiên) là bịa ra
-   * điều kiện mà người dùng chưa hề nói.
+   * "Liệt kê" mà không có con số là câu LIỆT KÊ HẾT, và tuyệt đối không được
+   * tự nghĩ ra một ngưỡng (0, hay giá trị đầu tiên): bịa ra một điều kiện mà
+   * người dùng chưa hề nói thì kết quả vẫn là một danh sách trông hợp lý.
    */
-  it('câu lọc không có ngưỡng thì rơi xuống nhánh khác, không tự đặt ngưỡng', () => {
+  it('câu lọc không có ngưỡng thì liệt kê HẾT, không tự đặt ngưỡng', () => {
     const kq = traLoi(hinhHai(), 'liệt kê product name');
 
     expect(kq?.cau ?? '').not.toContain('bằng 0');
     expect(kq?.cau ?? '').not.toContain('Product Name nào có Quantity bằng');
+    // Gộp theo Product Name: Boston 9, Staples 10, Acco 4.
+    expect(kq?.cau).toBe('3 Product Name trên biểu đồ này: Boston (9); Staples (10); Acco (4).');
+  });
+
+  /*
+   * ⚠️ "trên" có hai nghĩa, và cả hai gặp liên tục trong cùng một câu. Đọc
+   * "trên biểu đồ" thành toán tử `>` biến một câu lọc BẰNG 4 thành một danh
+   * sách LỚN HƠN 4 — khác hẳn, mà không mục nào trong đó sai.
+   */
+  it('"trên biểu đồ" không phải toán tử lớn hơn', () => {
+    expect(docDieuKien('liệt kê sản phẩm trên biểu đồ có số lượng 4')).toEqual({
+      toanTu: '=',
+      nguong: 4,
+    });
+    // Còn "trên 4" thì vẫn phải là lớn hơn.
+    expect(docDieuKien('sản phẩm có số lượng trên 4')).toEqual({ toanTu: '>', nguong: 4 });
+    expect(docDieuKien('sản phẩm dưới biểu đồ có số lượng 4')).toEqual({
+      toanTu: '=',
+      nguong: 4,
+    });
   });
 
   it('không mục nào khớp thì nói thẳng', () => {
@@ -517,5 +545,164 @@ describe('luaChonTrang — mọi thứ trang trả lời được', () => {
 
   it('nguồn không có biểu đồ thì chỉ góp dữ kiện', () => {
     expect(luaChonTrang([traCuu], traCuu, '')).toHaveLength(1);
+  });
+});
+
+describe('Liệt kê bằng CHỮ — "có những sản phẩm nào trên biểu đồ"', () => {
+  /*
+   * Câu hỏi tự nhiên nhất về một biểu đồ, và trước đây nó nhận về "tôi chưa
+   * hiểu" ngay cạnh một biểu đồ đang hiện đúng danh sách đó: không cụm từ khoá
+   * nào khớp "có những … nào", vì giữa "những" và "nào" còn chen tên chiều.
+   */
+  it('nhận ra ý định liệt kê qua mấy cách nói khác nhau', () => {
+    expect(docYDinh('có những sản phẩm nào trên biểu đồ')).toBe('loc');
+    expect(docYDinh('liệt kê các sản phẩm')).toBe('loc');
+    expect(docYDinh('danh sách khu vực')).toBe('loc');
+    expect(docYDinh('tên các khu vực')).toBe('loc');
+  });
+
+  it('đọc ra ĐỦ tên, kèm giá trị của từng tên', () => {
+    const kq = traLoi(nguonBieuDo(), 'có những khu vực nào trên biểu đồ');
+
+    expect(kq?.cau).toBe(
+      '3 Khu vực trên biểu đồ này: Miền Bắc (300); Miền Nam (500); Miền Trung (200).',
+    );
+    // Con số duy nhất mà câu này đứng trên là SỐ LƯỢNG mục. Tên và giá trị
+    // từng mục không nằm trong `so`, nên lớp viết lại được phép đọc chúng
+    // thành lời.
+    expect(kq?.so).toEqual(['3']);
+  });
+
+  /*
+   * ⚠️ Biểu đồ MỘT chiều thì `chieuHoi` trả `null` ngay từ dòng đầu, nên nhánh
+   * này từng gọi mọi mục là "mục trên biểu đồ". Với một chiều thì mỗi dòng
+   * đúng là một giá trị của chiều đó, và không gọi tên nó ra là bỏ mất thứ duy
+   * nhất nói cho người đọc biết danh sách này là danh sách GÌ.
+   */
+  it('một chiều thì gọi tên chiều, hai chiều mà không nói rõ thì không gọi', () => {
+    expect(traLoi(nguonBieuDo(), 'liệt kê tất cả')?.cau).toContain('3 Khu vực');
+
+    const hai = traLoi(
+      {
+        ten: 'Quantity theo Customer Name',
+        duKien: [],
+        bang: bang({
+          rows: [
+            { label: 'Jonathan', value: 9, series: 'Boston' },
+            { label: 'Laura', value: 4, series: 'Acco' },
+          ],
+          dimensionLabel: 'Customer Name',
+          measureLabel: 'Quantity',
+          seriesLabel: 'Product Name',
+        }),
+      },
+      'liệt kê tất cả các mục',
+    );
+    expect(hai?.cau).toContain('mục trên biểu đồ');
+    expect(hai?.cau).toContain('Jonathan (Boston)');
+  });
+
+  it('số liệu đã cắt bớt thì câu liệt kê vẫn mang cảnh báo', () => {
+    const kq = traLoi(nguonBieuDo({ grouped: true }), 'liệt kê các khu vực');
+
+    expect(kq?.cau).toContain('không phải toàn bộ dữ liệu');
+  });
+
+  /*
+   * Nhãn nói "tất cả" thì phải liệt kê tất cả. Mô hình chọn nhãn này cho một
+   * câu hỏi có con số lạc trong đó ("liệt kê tất cả sản phẩm, tôi có 3 biểu
+   * đồ") mà nó lại lọc theo 3 thì nó nói sai chính việc nó vừa làm.
+   */
+  it('lựa chọn "Liệt kê tất cả" KHÔNG lọc theo con số trong câu hỏi', () => {
+    const nguon = nguonBieuDo();
+    const ds = luaChonTrang([nguon], nguon, 'liệt kê tất cả khu vực, tôi có 3 biểu đồ');
+    const tatCa = ds.find((lc) => lc.nhan === 'Liệt kê tất cả Khu vực');
+
+    expect(tatCa).toBeDefined();
+    expect(tatCa?.chay()?.cau).toContain('3 Khu vực trên biểu đồ này');
+    expect(tatCa?.chay()?.cau).toContain('Miền Nam');
+  });
+});
+
+describe('Trả lời XUYÊN HỆ THỐNG', () => {
+  /** Đúng hình dạng `useNguCanhHeThong` dựng ra: tóm tắt trước, từng mục sau. */
+  function heThong(): Nguon[] {
+    return [
+      {
+        ten: 'Tổng quan toàn tổ chức',
+        duKien: [
+          { nhan: 'Số bộ dữ liệu trong toàn bộ tổ chức', gia: '12' },
+          { nhan: 'Số mô hình dữ liệu trong toàn bộ tổ chức', gia: '3' },
+        ],
+      },
+      { ten: 'Bán hàng', duKien: [{ nhan: 'Số bảng trong mô hình Bán hàng', gia: '5' }] },
+      { ten: 'Kho vận', duKien: [{ nhan: 'Số bảng trong mô hình Kho vận', gia: '9' }] },
+    ];
+  }
+
+  it('so cả danh sách, và nói rõ là so trên toàn tổ chức', () => {
+    const kq = traLoiHeThong(heThong(), 'mô hình nào nhiều bảng nhất');
+
+    expect(kq?.cau).toContain('Kho vận');
+    expect(kq?.so).toEqual(['9']);
+    /*
+     * ⚠️ Vế phạm vi là bắt buộc. Danh sách này KHÔNG ở trên màn hình, nên
+     * người đọc không có gì để đối chiếu; một câu "cao nhất là Kho vận" trơ
+     * trọi đọc ra y như một câu về thứ họ đang nhìn.
+     */
+    expect(kq?.cau).toContain('trong toàn bộ tổ chức');
+    expect(kq?.cau).not.toContain('trên trang này');
+  });
+
+  /*
+   * Bản tóm tắt không bao giờ được GỌI TÊN ("có bao nhiêu bộ dữ liệu" không
+   * nhắc tên nguồn nào), nên nếu thiếu bước so nhãn trên toàn bộ dữ kiện thì
+   * đúng câu hỏi đơn giản nhất của cả tính năng lại không trả lời được.
+   */
+  it('tổng số đếm được, dù câu hỏi không gọi tên nguồn nào', () => {
+    const kq = traLoiHeThong(heThong(), 'có bao nhiêu bộ dữ liệu');
+
+    expect(kq?.cau).toContain('12');
+    expect(kq?.cau).toContain('không phải trên trang đang mở');
+  });
+
+  it('gọi tên một mục thì trả lời về đúng mục đó', () => {
+    expect(traLoiHeThong(heThong(), 'mô hình Kho vận có mấy bảng')?.cau).toContain('9');
+  });
+
+  it('câu lạ thì chưa hiểu, không đoán', () => {
+    expect(traLoiHeThong(heThong(), 'hôm nay trời thế nào')).toBeNull();
+  });
+
+  it('chưa kéo được dữ liệu (ví dụ viewer bị 403) thì không trả lời gì', () => {
+    expect(traLoiHeThong([], 'mô hình nào nhiều bảng nhất')).toBeNull();
+  });
+
+  /*
+   * ⚠️ Mỗi nhãn gửi cho mô hình PHẢI chạy ra một câu trả lời. Một nhãn chọn
+   * được mà `chay()` trả `null` thì bong bóng "chưa hiểu" nằm lại y nguyên sau
+   * khi mô hình đã chọn đúng — trông như mô hình chưa được gọi.
+   */
+  it('mọi lựa chọn hệ thống đều chạy ra câu trả lời', () => {
+    const ds = luaChonHeThong(heThong());
+
+    expect(ds.length).toBeGreaterThan(2);
+    for (const lc of ds) {
+      expect(lc.chay(), lc.nhan).not.toBeNull();
+    }
+    expect(ds.map((lc) => lc.nhan)).toContain('Số bộ dữ liệu trong toàn bộ tổ chức');
+    expect(ds.some((lc) => lc.nhan.includes('(toàn bộ tổ chức)'))).toBe(true);
+  });
+
+  /*
+   * Danh sách hệ thống chỉ góp một chục nhãn, không phải sáu trăm: backend lấy
+   * 60 nhãn đầu, và dữ kiện của từng bộ dữ liệu sẽ đẩy sạch nhãn của trang
+   * người dùng đang nhìn ra khỏi danh sách đó.
+   */
+  it('không góp dữ kiện của từng mục vào danh sách cho mô hình chọn', () => {
+    const nhan = luaChonHeThong(heThong()).map((lc) => lc.nhan);
+
+    expect(nhan).not.toContain('Số bảng trong mô hình Bán hàng');
+    expect(nhan.length).toBeLessThan(15);
   });
 });

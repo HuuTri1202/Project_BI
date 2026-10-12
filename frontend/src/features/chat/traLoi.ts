@@ -93,7 +93,23 @@ const TU_KHOA: { y: YDinh; tu: string[] }[] = [
    * `null` khi câu hỏi không có con số nào, nên nhận nhầm ở đây không nuốt mất
    * câu trả lời — nó rơi xuống nhánh tra cứu như trước.
    */
-  { y: 'loc', tu: ['liet ke', 'gom nhung', 'nhung nao', 'nao co', 'co gia tri'] },
+  {
+    y: 'loc',
+    tu: [
+      'liet ke',
+      'gom nhung',
+      'nhung nao',
+      'nao co',
+      'co gia tri',
+      // "co nhung san pham nao tren bieu do" — cau hay duoc hoi nhat ve mot
+      // bieu do, va khong cum nao o tren khop no: giua "nhung" va "nao" con
+      // chen ten chieu.
+      'co nhung',
+      'danh sach',
+      'ten cac',
+      'nhung gi',
+    ],
+  },
   { y: 'trung_binh', tu: ['trung binh', 'binh quan'] },
   { y: 'tong', tu: ['tong', 'cong lai', 'tat ca la bao nhieu'] },
   { y: 'dem', tu: ['bao nhieu nhom', 'co may', 'so luong nhom', 'may nhom', 'bao nhieu muc'] },
@@ -363,10 +379,17 @@ function tinhBang(
     }
 
     case 'loc': {
+      /*
+       * Khong co con so nao trong cau thi day la cau LIET KE HET, khong phai
+       * mot phep loc thieu nguong.
+       *
+       * "co nhung san pham nao tren bieu do" la cau hoi tu nhien nhat ve mot
+       * bieu do, va truoc day no nhan ve "toi chua hieu" ngay canh mot bieu do
+       * dang hien dung danh sach do. Nguoc lai, doan ra mot nguong nguoi dung
+       * chua noi la kieu sai te nhat — ket qua van la mot danh sach trong hoan
+       * toan hop ly.
+       */
       const dk = docDieuKien(cauHoi);
-      // Không có con số nào thì đây không phải câu hỏi lọc. Trả `null` để rơi
-      // xuống nhánh tra cứu, thay vì trả lời một phép lọc không có ngưỡng.
-      if (dk === null) return null;
 
       const chieu = chieuEp === undefined ? chieuHoi(bang, cauHoi) : chieuEp;
       const nhom =
@@ -374,37 +397,48 @@ function tinhBang(
           ? rows.map((r) => ({ ten: tenDong(r), value: r.value }))
           : gopTheo(rows, chieu);
       /*
-       * Không gộp thì mỗi mục là một DÒNG của biểu đồ, không phải một giá trị
-       * của chiều nào cả. Gọi nó bằng tên chiều là nói sai: "2 Customer Name"
-       * trong khi danh sách liệt kê ra hai CẶP (khách, sản phẩm).
+       * Khong gop thi moi muc la mot DONG cua bieu do, khong phai mot gia tri
+       * cua chieu nao ca. Goi no bang ten chieu la noi sai: "2 Customer Name"
+       * trong khi danh sach liet ke ra hai CAP (khach, san pham).
+       *
+       * TRU khi bieu do chi co MOT chieu. `chieuHoi` tra `null` ngay tu dau cho
+       * ca do, nhung khi do moi dong dung la mot gia tri cua chieu — nen goi ten
+       * chieu ra moi la cau dung, va "7 muc tren bieu do" moi la cau mo ho.
        */
       const tenChieu =
-        chieu === null
-          ? 'mục trên biểu đồ'
-          : chieu === 'series'
-            ? (bang.seriesLabel ?? dimensionLabel)
-            : dimensionLabel;
+        chieu === 'series'
+          ? (bang.seriesLabel ?? dimensionLabel)
+          : chieu === 'label' || bang.seriesLabel === undefined
+            ? dimensionLabel
+            : 'mục trên biểu đồ';
+
+      /*
+       * Tran 20 ten: dai hon the thi cau tra loi thanh mot cai bang do ma khong
+       * ai doc — va o do con so dem duoc con ich hon danh sach.
+       */
+      const inTen = (ds: { ten: string; value: number }[]): string => {
+        const hien = ds.slice(0, 20);
+        const con = ds.length - hien.length;
+        return `${hien.map((g) => `${g.ten} (${doc(g.value)})`).join('; ')}${
+          con > 0 ? `; … và ${String(con)} mục nữa` : ''
+        }`;
+      };
+
+      if (dk === null) {
+        return {
+          cau: ghep(`${String(nhom.length)} ${tenChieu} trên biểu đồ này: ${inTen(nhom)}.`, cat),
+          so: [String(nhom.length)],
+        };
+      }
 
       const hop = nhom.filter((g) => dung(g.value, dk.toanTu, dk.nguong));
       const dieu = `${measureLabel} ${CHU_TOAN_TU[dk.toanTu]} ${doc(dk.nguong)}`;
 
       if (hop.length === 0) {
-        return {
-          cau: ghep(`Không ${tenChieu} nào có ${dieu}.`, cat),
-          so: [doc(dk.nguong)],
-        };
+        return { cau: ghep(`Không ${tenChieu} nào có ${dieu}.`, cat), so: [doc(dk.nguong)] };
       }
-      // Trần 20 tên: dài hơn thế thì câu trả lời thành một cái bảng đổ mà không
-      // ai đọc — và ở đó con số đếm được còn ích hơn danh sách.
-      const hien = hop.slice(0, 20);
-      const con = hop.length - hien.length;
       return {
-        cau: ghep(
-          `${String(hop.length)} ${tenChieu} có ${dieu}: ${hien
-            .map((g) => `${g.ten} (${doc(g.value)})`)
-            .join('; ')}${con > 0 ? `; … và ${String(con)} mục nữa` : ''}.`,
-          cat,
-        ),
+        cau: ghep(`${String(hop.length)} ${tenChieu} có ${dieu}: ${inTen(hop)}.`, cat),
         so: [String(hop.length)],
       };
     }
@@ -451,12 +485,21 @@ export function docDieuKien(cauHoi: string): { toanTu: ToanTu; nguong: number } 
   const nguong = docSo(q);
   if (nguong === null) return null;
 
-  // Từ DÀI trước: "lớn hơn hoặc bằng" chứa "lớn hơn".
+  /*
+   * Từ DÀI trước: "lớn hơn hoặc bằng" chứa "lớn hơn".
+   *
+   * ⚠️ `tren` và `duoi` phải ĐỨNG NGAY TRƯỚC một chữ số. Hai từ đó có hai
+   * nghĩa trong tiếng Việt, và nghĩa còn lại gặp liên tục ở đây: "liệt kê sản
+   * phẩm trên biểu đồ có số lượng 4" là một câu LỌC BẰNG 4, nhưng chữ "trên"
+   * của "trên biểu đồ" biến nó thành "lớn hơn 4" — một danh sách khác, không
+   * có mục nào sai, không có gì báo. Mấy toán tử nhiều từ thì không mơ hồ nên
+   * không cần kẹp.
+   */
   const bang: [RegExp, ToanTu][] = [
     [/(lon hon hoac bang|khong nho hon|tro len|it nhat la)/, '>='],
     [/(nho hon hoac bang|khong lon hon|tro xuong|toi da la|nhieu nhat la)/, '<='],
-    [/(lon hon|cao hon|nhieu hon|tren|vuot qua)/, '>'],
-    [/(nho hon|thap hon|it hon|duoi)/, '<'],
+    [/(lon hon|cao hon|nhieu hon|vuot qua|tren \d)/, '>'],
+    [/(nho hon|thap hon|it hon|duoi \d)/, '<'],
   ];
   for (const [re, op] of bang) {
     if (re.test(q)) return { toanTu: op, nguong };
@@ -785,7 +828,19 @@ function chonThuocTinh(tatCa: Nguon[], cauHoi: string): ThuocTinh | null {
  * thuộc tính khớp. Chặt như vậy vì hàm này chạy TRƯỚC `traLoi` — một lần nhận
  * nhầm ở đây là cướp mất câu trả lời đúng của nguồn đang chọn.
  */
-export function soSanhNguon(tatCa: Nguon[], cauHoi: string): TraLoi | null {
+export function soSanhNguon(
+  tatCa: Nguon[],
+  cauHoi: string,
+  /**
+   * Phạm vi của phép so, nối vào sau "so trên N mục …".
+   *
+   * Tham số vì cùng hàm này giờ chạy trên HAI danh sách: nguồn của trang đang
+   * mở, và danh sách xuyên hệ thống (xem `traLoiHeThong`). Viết cứng "trên
+   * trang này" thì câu trả lời về cả tổ chức nói sai chỗ nó đọc được — đúng
+   * kiểu sai mà cả vế này tồn tại để chặn.
+   */
+  pham = 'đang hiện trên trang này',
+): TraLoi | null {
   const q = chuanHoa(cauHoi);
   if (!q.split(' ').includes('nao')) return null;
   const y = docYDinh(cauHoi);
@@ -803,13 +858,13 @@ export function soSanhNguon(tatCa: Nguon[], cauHoi: string): TraLoi | null {
    * chặn ở nhánh biểu đồ.
    */
   const soMuc = String(tt.muc.length);
-  const tren = `so trên ${soMuc} mục đang hiện trên trang này`;
+  const tren = `so trên ${soMuc} mục ${pham}`;
 
   if (y === 'chua_co') {
     const thieu = tt.muc.filter((m) => laTrong(tt.gia.get(m.i)));
     if (thieu.length === 0) {
       return {
-        cau: `Không mục nào — cả ${soMuc} mục đang hiện trên trang này đều có "${tt.nhan}".`,
+        cau: `Không mục nào — cả ${soMuc} mục ${pham} đều có "${tt.nhan}".`,
         so: [soMuc],
       };
     }
@@ -926,14 +981,14 @@ export function goiYGan(tatCa: Nguon[], chon: Nguon, cauHoi: string): string[] {
  * gợi ý sai trên trang không có cột nào so được. Lấy thẳng tên cột ra là cách
  * duy nhất mà gợi ý luôn đúng với trang đang mở.
  */
-export function goiYSoSanh(tatCa: Nguon[]): string[] {
+export function goiYSoSanh(tatCa: Nguon[], tran = 2): string[] {
   const { cot, muc } = gomThuocTinh(tatCa);
   if (muc.length < 2) return [];
   // Chỉ gợi ý cột SO ĐƯỢC bằng phép so số. Gợi ý "cao nhất" trên một cột toàn
   // chữ là dạy người dùng hỏi một câu chắc chắn nhận về "tôi chưa hiểu".
   return cot
     .filter((g) => [...g.gia.values()].filter((d) => soVi(d.gia) !== null).length >= 2)
-    .slice(0, 2)
+    .slice(0, tran)
     .map((g) => `Mục nào có "${g.nhan}" cao nhất?`);
 }
 
@@ -1046,6 +1101,13 @@ function phepCuaBieuDo(nguon: Nguon, cauHoi: string): LuaChon[] {
     them(`${ten} nào có ${thuoc} thấp nhất`, 'thap_nhat', c);
     them(`Xếp hạng ${ten} theo ${thuoc}`, 'top_n', c);
     them(`Liệt kê ${ten} theo ${thuoc} (lọc theo con số trong câu hỏi)`, 'loc', c);
+    /*
+     * Cùng ý định `loc`, nhưng ÉP câu hỏi rỗng — `docDieuKien('')` không tìm
+     * thấy con số nào nên nhánh đó liệt kê hết. Nhãn nói "tất cả", và một nhãn
+     * nói "tất cả" mà lại lọc theo một con số lạc trong câu hỏi thì nó nói sai
+     * chính việc nó vừa làm.
+     */
+    ds.push({ nhan: `Liệt kê tất cả ${ten}`, chay: () => tinhBang(bang, '', 'loc', c) });
     them(`Có bao nhiêu ${ten}`, 'dem', c);
   }
 
@@ -1079,4 +1141,94 @@ export function luaChonTrang(tatCa: Nguon[], chon: Nguon, cauHoi: string): LuaCh
     }
   }
   return ds;
+}
+
+/* ═══ Trả lời XUYÊN HỆ THỐNG ════════════════════════════════════════════════
+ *
+ * Mọi thứ ở trên trả lời bằng dữ liệu của TRANG ĐANG MỞ. Nhưng câu hỏi tự
+ * nhiên thì không quan tâm người hỏi đang đứng ở trang nào: "mô hình nào được
+ * dùng nhiều nhất" hỏi từ giữa một báo cáo vẫn là một câu hỏi hợp lý, và bắt
+ * người dùng đi tìm đúng trang trước khi được trả lời là bắt họ làm việc của
+ * khung.
+ *
+ * ═══ Vì sao là một danh sách RIÊNG, không trộn vào `nguon` ═════════════════
+ *
+ * Vì câu trả lời phải nói ra nó đọc ở đâu. Trộn hai danh sách lại thì một con
+ * số của workspace khác đọc ra y hệt một con số đang hiện trên màn hình — và
+ * người dùng không còn cách nào kiểm lại, vì thứ để đối chiếu không ở trước
+ * mắt. Nên: TRANG trước, HỆ THỐNG sau, và mọi câu trả lời từ danh sách này
+ * luôn nói ra phạm vi của nó.
+ *
+ * Cùng lý do đó, chip chọn nguồn không có mục nào của hệ thống: chip trả lời
+ * câu "cái này là cái nào trên màn hình", mà mấy nguồn này không ở trên màn
+ * hình.
+ *
+ * ⚠️ QUY ƯỚC: nguồn ĐẦU TIÊN là bản tóm tắt (đếm tổng), các nguồn sau là từng
+ * mục. Cùng quy ước mà `duKienTrang.ts` đã dùng cho mọi trang danh sách.
+ */
+
+const PHAM_HE_THONG = 'trong toàn bộ tổ chức';
+const TRA_O_DAU = 'tra trên toàn bộ tổ chức, không phải trên trang đang mở';
+
+/** Nối vế "đọc ở đâu" vào một câu trả lời của danh sách hệ thống. */
+function noiPham(kq: TraLoi): TraLoi {
+  return { cau: ghep(kq.cau, TRA_O_DAU), so: kq.so };
+}
+
+/**
+ * Trả lời bằng danh sách xuyên hệ thống. `null` = chưa hiểu.
+ *
+ * Ba cửa, cùng thứ tự với `traLoiTrang` và cùng lý do:
+ *
+ *   1. Câu hỏi so cả danh sách ("mô hình nào nhiều bảng nhất").
+ *   2. Mục mà câu hỏi gọi thẳng tên ("bộ dữ liệu Orders có mấy dòng").
+ *   3. Cuối cùng mới so nhãn trên TOÀN BỘ dữ kiện — chỗ duy nhất trả lời được
+ *      "có bao nhiêu bộ dữ liệu", vì bản tóm tắt không bao giờ được gọi tên.
+ *
+ * Bước 3 lỏng hơn hai bước trên, nhưng luật "phải hơn hẳn ứng viên nhì" của
+ * `traCuu` vẫn giữ: một trăm bộ dữ liệu cùng có nhãn "Số dòng của …" thì câu
+ * "số dòng là bao nhiêu" hoà điểm và ra `null`, đúng như nó phải.
+ *
+ * Nhánh (1) KHÔNG nối thêm vế "đọc ở đâu": `soSanhNguon` đã tự nói ra phạm vi
+ * trong vế "so trên N mục …", và hai vế cùng nói một điều chỉ làm câu dài ra.
+ */
+export function traLoiHeThong(heThong: Nguon[], cauHoi: string): TraLoi | null {
+  const dau = heThong[0];
+  if (dau === undefined) return null;
+
+  const soSanh = soSanhNguon(heThong, cauHoi, PHAM_HE_THONG);
+  if (soSanh !== null) return soSanh;
+
+  const goiTen = nguonTheoTen(heThong, cauHoi);
+  const kq =
+    (goiTen === null ? null : traLoi(goiTen, cauHoi)) ?? traCuu(duKienPhang(heThong, dau), cauHoi);
+  return kq === null ? null : noiPham(kq);
+}
+
+/**
+ * Những câu xuyên hệ thống mà mô hình được phép chọn.
+ *
+ * Cố ý KHÔNG đưa dữ kiện của từng mục vào: một trăm bộ dữ liệu × sáu dữ kiện là
+ * sáu trăm nhãn, mà backend chỉ nhận 60 — chúng sẽ đẩy sạch nhãn của trang
+ * người dùng đang nhìn ra khỏi danh sách. Nên ở đây chỉ có bản tóm tắt và mấy
+ * câu SO CẢ DANH SÁCH, tức là đúng những câu mà không trang nào trả lời được.
+ *
+ * Dữ kiện của từng mục vẫn tới được, qua `nguonTheoTen` ở bước 2 của
+ * `traLoiHeThong` — người dùng gõ tên mục ra là đã nói rõ họ hỏi mục nào.
+ */
+export function luaChonHeThong(heThong: Nguon[]): LuaChon[] {
+  const tomTat = heThong[0];
+  if (tomTat === undefined) return [];
+  return [
+    ...tomTat.duKien.map((d) => ({
+      nhan: d.nhan,
+      chay: (): TraLoi => noiPham(traLoiTheoDuKien(d)),
+    })),
+    ...goiYSoSanh(heThong, 8).map((nhan) => ({
+      // Nhãn mang phạm vi, `chay` thì không: `soSanhNguon` chấm điểm câu hỏi
+      // theo tên cột, và thêm chữ vào câu hỏi là thêm nhiễu vào phép chấm đó.
+      nhan: `${nhan} (toàn bộ tổ chức)`,
+      chay: (): TraLoi | null => traLoiHeThong(heThong, nhan),
+    })),
+  ];
 }

@@ -4,7 +4,17 @@ import { KHONG_XUAT } from '../../services/danhDauXuat';
 import { dienDatLai, hieuCauHoi } from './api';
 import { useNguCanh } from './nguCanh';
 import type { Nguon } from './nguCanh';
-import { goiYGan, goiYSoSanh, luaChonTrang, nhanDuyNhat, traLoiTrang } from './traLoi';
+import { useNguCanhHeThong } from './nguCanhHeThong';
+import {
+  goiYGan,
+  goiYSoSanh,
+  luaChonHeThong,
+  luaChonTrang,
+  nhanDuyNhat,
+  traLoiHeThong,
+  traLoiTrang,
+} from './traLoi';
+import type { TraLoi } from './traLoi';
 
 /**
  * Khung hỏi đáp nổi ở góc dưới-phải.
@@ -73,6 +83,15 @@ export function HoiDapPanel(): React.ReactElement | null {
   const demId = useRef(0);
   const dayCuon = useRef<HTMLDivElement>(null);
 
+  /*
+   * Dữ kiện xuyên hệ thống — chỉ kéo về khi khung ĐANG MỞ.
+   *
+   * Hook phải đứng trước mọi `return` có điều kiện bên dưới: `nguon.length === 0`
+   * thoát sớm, và một hook gọi sau chỗ đó sẽ đổi số lượng hook giữa hai lần
+   * render.
+   */
+  const heThong = useNguCanhHeThong(mo);
+
   // Tin mới nhất phải nằm trong tầm mắt. Không có cái này thì từ câu thứ ba trở
   // đi câu trả lời rơi xuống dưới mép khung, và người dùng tưởng không có gì
   // xảy ra.
@@ -91,7 +110,15 @@ export function HoiDapPanel(): React.ReactElement | null {
     const q = cauHoi.trim();
     if (q === '') return;
 
-    const kq = traLoiTrang(nguCanh.nguon, nguon, q);
+    /*
+     * TRANG trước, HỆ THỐNG sau — thứ tự này là cả thiết kế.
+     *
+     * Trang đang mở là thứ người dùng đang nhìn và kiểm lại được bằng mắt. Một
+     * câu trả lời xuyên hệ thống thì không: nó nói về thứ không có trên màn
+     * hình, nên nó chỉ được dùng khi trang thật sự không trả lời được, và nó
+     * luôn tự khai ra là nó đọc ở đâu (xem `traLoiHeThong`).
+     */
+    const kq = traLoiTrang(nguCanh.nguon, nguon, q) ?? traLoiHeThong(heThong, q);
     demId.current += 2;
     const idBot = demId.current;
     const luc = gioBayGio();
@@ -110,7 +137,9 @@ export function HoiDapPanel(): React.ReactElement | null {
         luc,
         cau:
           kq?.cau ??
-          `Tôi chưa hiểu câu này. Tôi chỉ trả lời bằng số liệu đang có trên ${nguCanh.trang} — không tra ở đâu khác.`,
+          `Tôi chưa hiểu câu này. Tôi trả lời bằng số liệu đang có trên ${nguCanh.trang}${
+            heThong.length > 0 ? ', cộng danh sách bộ dữ liệu và mô hình của tổ chức' : ''
+          } — không tra ở đâu khác.`,
         /*
          * Bế tắc phải kèm đường đi tiếp. Gần nhất với câu vừa gõ trước; không
          * có gì gần thì rơi về đúng những câu mẫu của màn chào — thà gợi ý
@@ -134,7 +163,21 @@ export function HoiDapPanel(): React.ReactElement | null {
       return;
     }
 
-    // Rồi mới nhờ viết lại, và vá vào đúng tin đó THEO `id`.
+    vietLai(q, idBot, kq);
+  }
+
+  /**
+   * Nhờ mô hình viết lại thành câu tiếng Việt tự nhiên, rồi vá vào đúng tin đó.
+   *
+   * Dùng cho CẢ HAI đường ra câu trả lời — phép so từ khoá và đường mô hình
+   * chọn nhãn. Trước đây chỉ đường thứ nhất đi qua đây, nên đúng những câu hỏi
+   * khó nhất (những câu phải nhờ mô hình mới hiểu) lại nhận về câu khô nhất:
+   * một nhãn, một dấu hai chấm, một con số.
+   *
+   * Con số vẫn không đổi được: luật đối chiếu ở backend bỏ cả câu nếu một chuỗi
+   * trong `so` biến mất. Xem `services/chat/dienDat.ts`.
+   */
+  function vietLai(q: string, idBot: number, kq: TraLoi): void {
     void dienDatLai({ cauHoi: q, cau: kq.cau, so: kq.so })
       .then((moi) => {
         setTinNhan((cu) => cu.map((t) => (t.id === idBot ? { ...t, cau: moi } : t)));
@@ -152,7 +195,15 @@ export function HoiDapPanel(): React.ReactElement | null {
    * cải thiện — người dùng không bao giờ nhìn một vòng xoay.
    */
   function nhoMoHinhChon(q: string, idBot: number): void {
-    const luaChon = luaChonTrang(nguCanh.nguon, nguon, q);
+    /*
+     * Lựa chọn của TRANG xếp trước, rồi mới tới mấy câu xuyên hệ thống.
+     *
+     * Backend chỉ lấy 60 nhãn đầu, nên thứ tự này quyết định 60 nhãn đó là của
+     * thứ người dùng đang nhìn. `luaChonHeThong` cố ý chỉ góp một chục nhãn —
+     * bản tóm tắt và mấy câu so cả danh sách — chứ không góp dữ kiện của từng
+     * mục, vì sáu trăm nhãn sẽ đẩy sạch trang ra khỏi danh sách.
+     */
+    const luaChon = [...luaChonTrang(nguCanh.nguon, nguon, q), ...luaChonHeThong(heThong)];
     if (luaChon.length === 0) return;
 
     void hieuCauHoi({ cauHoi: q, nhan: luaChon.map((lc) => lc.nhan) })
@@ -184,6 +235,8 @@ export function HoiDapPanel(): React.ReactElement | null {
         setTinNhan((cu) =>
           cu.map((t) => (t.id === idBot ? { id: t.id, ai: t.ai, cau: kq.cau, luc: t.luc } : t)),
         );
+        // Rồi mới viết lại cho ra câu, y như đường kia.
+        vietLai(q, idBot, kq);
       })
       .catch(() => {
         // Cố ý im lặng: bong bóng "chưa hiểu" kèm gợi ý vẫn đang ở đó.
@@ -228,7 +281,14 @@ export function HoiDapPanel(): React.ReactElement | null {
               phân biệt khung này với một con chatbot biết tuốt. */}
           <span className="flex items-center gap-1.5 text-xs text-slate-500">
             <span className="h-2 w-2 shrink-0 rounded-full bg-green-500" aria-hidden="true" />
-            <span className="truncate">Đang đọc {nguCanh.trang}</span>
+            {/* Phạm vi nói ra ở đây, không giấu trong câu trả lời: vế thứ
+                hai chỉ hiện khi hai lời gọi xuyên hệ thống thật sự có dữ liệu
+                — một viewer không có `dataset:read` thì nó không hiện, và khung
+                không hứa thứ nó không với tới. */}
+            <span className="truncate">
+              Đang đọc {nguCanh.trang}
+              {heThong.length > 0 && ' + toàn tổ chức'}
+            </span>
           </span>
         </span>
         <button
@@ -294,7 +354,12 @@ export function HoiDapPanel(): React.ReactElement | null {
           `bg-slate-50` làm nền cho thẻ trắng. */}
       <div ref={dayCuon} className="min-h-0 flex-1 space-y-3 overflow-y-auto bg-slate-50 p-3.5">
         {tinNhan.length === 0 ? (
-          <ChaoHoi nguon={nguon} soSanh={goiYSoSanh(nguCanh.nguon)} onChon={setCauHoi} />
+          <ChaoHoi
+            nguon={nguon}
+            soSanh={goiYSoSanh(nguCanh.nguon)}
+            coHeThong={heThong.length > 0}
+            onChon={setCauHoi}
+          />
         ) : (
           tinNhan.map((t) => <BongBong key={t.id} tin={t} onChon={setCauHoi} />)
         )}
@@ -422,11 +487,14 @@ function NutGoiY({
 function ChaoHoi({
   nguon,
   soSanh,
+  coHeThong,
   onChon,
 }: {
   nguon: Nguon;
   /** Câu mẫu hỏi về CẢ danh sách, không riêng nguồn đang chọn. */
   soSanh: string[];
+  /** Hai lời gọi xuyên hệ thống có dữ liệu hay không — xem `useNguCanhHeThong`. */
+  coHeThong: boolean;
   onChon: (q: string) => void;
 }): React.ReactElement {
   return (
@@ -438,6 +506,8 @@ function ChaoHoi({
         <p className="text-sm text-slate-800">
           Chào bạn! Tôi đọc số liệu <strong className="font-semibold">{nguon.ten}</strong> đang hiện
           trên màn hình và trả lời bằng chính số đó.
+          {coHeThong &&
+            ' Ngoài trang này, tôi tra được cả danh sách bộ dữ liệu và mô hình dữ liệu của tổ chức.'}
         </p>
         <p className="mt-2 mb-1.5 text-xs text-slate-400">Thử hỏi:</p>
         <NutGoiY mau={cauMau(nguon, soSanh)} onChon={onChon} />

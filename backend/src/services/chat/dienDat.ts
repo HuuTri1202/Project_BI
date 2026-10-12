@@ -139,11 +139,27 @@ export function giuNguyenSo(cau: string, so: string[]): boolean {
   return so.every((s) => cau.includes(s));
 }
 
+/**
+ * ═══ Vì sao nhắc kỹ chuyện "viết thành CÂU" ════════════════════════════════
+ *
+ * Câu mẫu do frontend dựng ra là một khuôn ghép chuỗi, nên nó đọc như một dòng
+ * bảng: `Số quan hệ của mô hình Global-Superstore: 3.` Đúng, và không ai muốn
+ * đọc. Việc duy nhất mà lớp này làm tốt hơn `traLoi.ts` là biến dòng đó thành
+ * một câu tiếng Việt có chủ ngữ vị ngữ — nên nó phải được yêu cầu tường minh,
+ * không thì mô hình chỉ đổi vài chữ rồi trả lại đúng cái khuôn cũ.
+ *
+ * ⚠️ Yêu cầu dài hơn thì rủi ro mất một con số cũng cao hơn. Đó là lý do luật
+ * đối chiếu ở `giuNguyenSo` không được nới một chút nào: nới ra thì chỗ này
+ * thành đường duy nhất trong hệ thống mà một con số sai đi tới được người đọc.
+ */
 const NHAC = [
-  'Bạn viết lại một câu trả lời đã có sẵn cho người dùng Việt Nam, giọng tự nhiên và ngắn gọn.',
+  'Bạn viết lại một câu trả lời đã có sẵn cho người dùng Việt Nam.',
+  'Viết thành câu tiếng Việt hoàn chỉnh, tự nhiên, có chủ ngữ và vị ngữ — đừng để nó đọc như một dòng bảng kiểu "Nhãn: số".',
+  'Nêu rõ bằng CHỮ là con số đó nói về cái gì, rồi mới tới con số. Tối đa hai câu.',
+  'Nếu câu gốc liệt kê nhiều tên, hãy giữ đủ các tên đó và đọc chúng ra thành lời.',
   'TUYỆT ĐỐI giữ nguyên từng con số, đúng từng ký tự, kể cả dấu chấm và dấu phẩy.',
   'Không thêm con số nào. Không thêm nhận định hay suy luận nào không có trong câu gốc.',
-  'Nếu câu gốc có ghi điều kiện của con số (ví dụ chỉ tính trên các nhóm đang hiện) thì phải giữ lại.',
+  'Nếu câu gốc có ghi điều kiện của con số (ví dụ chỉ tính trên các nhóm đang hiện, hay tra trên toàn bộ tổ chức) thì PHẢI giữ lại.',
   'Chỉ trả về câu đã viết lại, không giải thích gì thêm.',
 ].join(' ');
 
