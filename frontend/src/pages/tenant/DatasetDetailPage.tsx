@@ -5,9 +5,11 @@ import {
   type DatasetCellValue,
   type DatasetColumnDto,
 } from '@bi/shared';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { usePermissions } from '../../auth/usePermissions';
+import { duKienChiTietDataset } from '../../features/chat/duKienTrang';
+import { useKhaiNguCanh } from '../../features/chat/nguCanh';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
@@ -77,6 +79,19 @@ export default function DatasetDetailPage(): React.ReactElement {
   const validId = Number.isInteger(datasetId) && datasetId > 0 ? datasetId : null;
 
   const { data, isPending, isError, error } = useDataset(validId);
+
+  /*
+   * Khai cho khung hỏi đáp. Trang này là nơi DUY NHẤT có kiểu của từng cột —
+   * `DatasetDetailDto.columns`. Trang danh sách chỉ có `columnCount`.
+   */
+  const nguCanh = useMemo(
+    () => ({
+      trang: data === undefined ? 'bộ dữ liệu' : `bộ dữ liệu ${data.name}`,
+      nguon: data === undefined ? [] : duKienChiTietDataset(data),
+    }),
+    [data],
+  );
+  useKhaiNguCanh(nguCanh);
 
   const [tab, setTab] = useState<Tab>('data');
   const [renaming, setRenaming] = useState(false);

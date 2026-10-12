@@ -1,6 +1,7 @@
 import { Navigate, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../auth/useAuth';
 import { FullPageLoader } from '../components/FullPageLoader';
+import { NguCanhProvider } from '../features/chat/NguCanhProvider';
 
 /**
  * Chặn route chưa đăng nhập — §2.6.
@@ -31,5 +32,20 @@ export function ProtectedRoute({
     return <Navigate to="/change-password" replace />;
   }
 
-  return <Outlet />;
+  /*
+   * `NguCanhProvider` bọc ở ĐÂY, không bọc trong `UserLayout`.
+   *
+   * Nó dựng khung hỏi đáp, và khung đó phải có mặt trên mọi trang đã đăng
+   * nhập — kể cả trang báo cáo, vốn CỐ Ý nằm ngoài `UserLayout` (xem khối chú
+   * thích ở `App.tsx`). Bọc trong `UserLayout` là bỏ sót đúng cái trang có
+   * nhiều số liệu nhất để hỏi; bọc hai chỗ là hai chỗ để quên khi thêm route.
+   *
+   * Chỗ này cũng là định nghĩa đúng của phạm vi: khung chỉ đọc dữ liệu trang đã
+   * tải được, nên nó không có nghĩa gì trước khi biết người dùng là ai.
+   */
+  return (
+    <NguCanhProvider>
+      <Outlet />
+    </NguCanhProvider>
+  );
 }

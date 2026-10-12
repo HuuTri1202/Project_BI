@@ -9,9 +9,11 @@ import {
   type DatasetDto,
   type FolderDto,
 } from '@bi/shared';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { usePermissions } from '../../auth/usePermissions';
+import { duKienKhoDuLieu } from '../../features/chat/duKienTrang';
+import { useKhaiNguCanh } from '../../features/chat/nguCanh';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
@@ -135,6 +137,20 @@ export default function DatasetsPage(): React.ReactElement {
      */
     folder: folderFilterValue(dangMo),
   });
+
+  /*
+   * Khai cho khung hỏi đáp — danh sách này trả lời được số dòng, số cột, nguồn
+   * gốc và trạng thái nạp của TỪNG bộ dữ liệu đang hiện.
+   *
+   * ⚠️ KHÔNG trả lời được "cột X kiểu gì": danh sách chỉ mang `columnCount`,
+   * danh sách cột chỉ có ở trang chi tiết. Khung nói "chưa hiểu" ở đó, đúng
+   * hơn là đoán.
+   */
+  const nguCanh = useMemo(
+    () => ({ trang: 'Kho dữ liệu', nguon: duKienKhoDuLieu(data?.items ?? []) }),
+    [data],
+  );
+  useKhaiNguCanh(nguCanh);
   const { data: connections } = useConnections();
 
   /* ─── Thư mục — §7.9 ───────────────────────────────────────────────────── */

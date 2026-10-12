@@ -12,6 +12,9 @@ import { useReportCanvasData, useReportData } from '../datasets/hooks';
 import { getApiError } from '../../services/apiClient';
 import { DANG_TAI, loiXuat } from '../../services/danhDauXuat';
 import { readSnapshot, snapshotIdOf, writeSnapshot } from '../../services/querySnapshots';
+import { useKhaiNguCanh } from '../chat/nguCanh';
+import type { NguCanh } from '../chat/nguCanh';
+import { tieuDeTuSoLieu } from './nhanO';
 import { previewConfigOfDto } from './builder/visual';
 import { CanvasView } from './CanvasView';
 import { PageTabs } from './PageTabs';
@@ -174,6 +177,43 @@ export function ReportViewer({
       writeSnapshot(cellSnapshotId(datamodelId, config), cell.data);
     }
   }, [activePage, datamodelId, canvasData.data]);
+
+  /**
+   * Khai cho khung hỏi đáp: mỗi ô biểu đồ là một nguồn hỏi được.
+   *
+   * ⚠️ Ghép ô với số liệu theo `visualId`, KHÔNG theo thứ tự mảng — cùng lý do
+   * đã ghi ở đầu `CanvasView`: backend chạy các ô song song, và dựa vào thứ tự
+   * trả về là dựa vào một chi tiết cài đặt. Sai ở đây thì khung trả lời bằng số
+   * của ô bên cạnh, đúng định dạng, không có gì báo.
+   *
+   * Tên nguồn dùng ĐÚNG công thức tên trên màn hình (`visual.title ??
+   * tieuDeTuSoLieu`), vì chip chọn nguồn và thẻ trên đầu ô phải gọi cùng một ô
+   * bằng cùng một tên — xem `nhanO.ts`.
+   *
+   * Ô nào người dùng đã lật sang trang nhóm khác thì số liệu trên màn hình nằm ở
+   * một lời gọi riêng của `ViewCard` mà chỗ này không thấy. Khung vì vậy trả lời
+   * theo trang nhóm ĐẦU, và `luuYCat` trong `traLoi` tự nói ra là số liệu chưa
+   * đầy đủ khi `paging.hasMore` bật.
+   */
+  const soLieuTrang = canvasData.data ?? saved;
+  const nguCanh = useMemo((): NguCanh => {
+    if (activePage !== undefined) {
+      const theoId = new Map(soLieuTrang?.visuals.map((v) => [v.visualId, v.data]) ?? []);
+      return {
+        trang: `báo cáo ${report.name}`,
+        nguon: activePage.visuals.flatMap((visual) => {
+          const bang = theoId.get(visual.id);
+          if (bang === undefined || bang === null) return [];
+          return [{ ten: visual.title ?? tieuDeTuSoLieu(bang), duKien: [], bang }];
+        }),
+      };
+    }
+    const bang = data.data;
+    if (bang === undefined) return { trang: `báo cáo ${report.name}`, nguon: [] };
+    return { trang: `báo cáo ${report.name}`, nguon: [{ ten: report.name, duKien: [], bang }] };
+  }, [activePage, soLieuTrang, data.data, report.name]);
+
+  useKhaiNguCanh(nguCanh);
 
   /**
    * Bộ dữ liệu chưa vào kho phân tích — trạng thái bình thường, không phải lỗi.

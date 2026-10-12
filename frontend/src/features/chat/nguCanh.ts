@@ -1,5 +1,5 @@
 import type { ReportDataDto } from '@bi/shared';
-import { createContext } from 'react';
+import { createContext, useContext, useEffect } from 'react';
 
 /**
  * NGỮ CẢNH — thứ trang đang mở tự khai là "những gì tôi đang biết".
@@ -91,3 +91,21 @@ export const NguCanhContext = createContext<{
   nguCanh: NguCanh;
   khai: (nguCanh: NguCanh) => void;
 }>({ nguCanh: NGU_CANH_RONG, khai: () => undefined });
+
+/**
+ * Trang gọi hook này để khai "đây là những gì tôi đang biết".
+ *
+ * ⚠️ `nguCanh` phải được `useMemo` ở phía gọi. Một object literal dựng mới mỗi
+ * lần render sẽ chạy lại effect này sau MỖI lần render, và mỗi lần là một
+ * `setState` ở provider — tức là một vòng render vô hạn.
+ */
+export function useKhaiNguCanh(nguCanh: NguCanh): void {
+  const { khai } = useContext(NguCanhContext);
+  useEffect(() => {
+    khai(nguCanh);
+  }, [khai, nguCanh]);
+}
+
+export function useNguCanh(): NguCanh {
+  return useContext(NguCanhContext).nguCanh;
+}
