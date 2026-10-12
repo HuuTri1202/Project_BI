@@ -11,6 +11,7 @@ import {
   bearer,
   capGoiKhongGioiHan,
   makeMembership,
+  makeReport,
   makeTenant,
   makeUser,
   makeWorkspace,
@@ -1913,5 +1914,74 @@ describe('Bảng trong mô hình mang theo NGUỒN GỐC của nó', () => {
     expect(theoId.get(f.datasetA)?.['connectionName']).toBeNull();
     expect(theoId.get(ketNoi)?.['connectionName']).toBe('Kho MySQL nội bộ');
     expect(theoId.get(ketNoi)?.['originalFilename']).toBeNull();
+  });
+});
+
+describe('số báo cáo đang dùng mô hình', () => {
+  /*
+   * ═══ Vì sao con số này phải có test riêng ════════════════════════════════
+   *
+   * `reports` nối sang hai bảng khác nhau — `dataset_id` HOẶC `datamodel_id`,
+   * loại trừ nhau bằng `ck_reports_one_source`. Đếm nhầm cột là ra một con số
+   * hợp lý: nó không âm, không vô lý, chỉ là đếm sai thứ. Và nó đi thẳng vào
+   * câu trả lời "mô hình nào được dùng nhiều nhất" của khung hỏi đáp, nơi
+   * không ai đối chiếu lại được.
+   */
+
+  /** Một báo cáo dựng THẲNG trên mô hình (nhánh `datamodel_id`). */
+  async function makeModelReport(
+    tenantId: number,
+    workspaceId: number,
+    datamodelId: number,
+    name: string,
+  ): Promise<number> {
+    const [r] = await mysqlPool.query(
+      `INSERT INTO reports (tenant_id, workspace_id, datamodel_id, name, chart_type)
+       VALUES (?, ?, ?, ?, 'bar')`,
+      [tenantId, workspaceId, datamodelId, name],
+    );
+    return (r as unknown as { insertId: number }).insertId;
+  }
+
+  async function docModel(id: number): Promise<Record<string, unknown>> {
+    const res = await request(app)
+      .get('/api/v1/datamodels')
+      .query({ workspaceId: f.workspaceA })
+      .set(bearer(f.tokenAdminA))
+      .expect(200);
+    const found = res.body.items.find((m: Record<string, unknown>) => m['id'] === id);
+    expect(found).toBeDefined();
+    return found as Record<string, unknown>;
+  }
+
+  it('đếm đúng số báo cáo dựng trên mô hình', async () => {
+    await makeModelReport(f.tenantA, f.workspaceA, f.modelA, 'Doanh thu theo vùng');
+    await makeModelReport(f.tenantA, f.workspaceA, f.modelA, 'Doanh thu theo tháng');
+
+    expect((await docModel(f.modelA))['reportCount']).toBe(2);
+  });
+
+  it('không đếm báo cáo dựng trên BỘ DỮ LIỆU', async () => {
+    // Ca đối chứng của phép nối sai cột: `makeReport` dựng báo cáo trên
+    // `dataset_id`, nên mô hình phải vẫn là 0.
+    await makeReport(f.tenantA, f.workspaceA, 'Báo cáo rời');
+
+    expect((await docModel(f.modelA))['reportCount']).toBe(0);
+  });
+
+  it('không đếm báo cáo đã xoá', async () => {
+    const id = await makeModelReport(f.tenantA, f.workspaceA, f.modelA, 'Bản nháp');
+    await makeModelReport(f.tenantA, f.workspaceA, f.modelA, 'Bản chính');
+    await mysqlPool.query('UPDATE reports SET deleted_at = NOW() WHERE id = ?', [id]);
+
+    expect((await docModel(f.modelA))['reportCount']).toBe(1);
+  });
+
+  it('báo cáo của mô hình khác không cộng sang', async () => {
+    const modelKhac = await makeModel(f.tenantA, f.workspaceA, 'Mô hình thứ hai');
+    await makeModelReport(f.tenantA, f.workspaceA, modelKhac, 'Của mô hình hai');
+
+    expect((await docModel(f.modelA))['reportCount']).toBe(0);
+    expect((await docModel(modelKhac))['reportCount']).toBe(1);
   });
 });

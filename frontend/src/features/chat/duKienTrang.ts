@@ -291,6 +291,7 @@ export function duKienDanhSachMoHinh(models: DataModelDto[], tong: number): Nguo
         ...dk(`Số bảng trong mô hình ${m.name}`, m.datasetCount),
         ...dk(`Số thước đo của mô hình ${m.name}`, m.measureCount),
         ...dk(`Số quan hệ của mô hình ${m.name}`, m.relationshipCount),
+        ...dk(`Số báo cáo đang dùng mô hình ${m.name}`, m.reportCount),
         ...dk(`Mô tả của mô hình ${m.name}`, m.description),
         ...dk(`Người tạo mô hình ${m.name}`, m.creatorName),
         ...dk(`Mô hình ${m.name} sửa lần cuối lúc nào`, dinhDangNgay(m.updatedAt)),

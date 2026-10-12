@@ -231,6 +231,7 @@ export default function DataModelsPage(): React.ReactElement {
                       một nhu cầu chưa ai có. */}
                   <Th>Thước đo</Th>
                   <Th>Quan hệ</Th>
+                  <Th>Báo cáo</Th>
                   <Th>Người tạo</Th>
                   <SortableTh
                     sortKey="updatedAt"
@@ -283,6 +284,12 @@ export default function DataModelsPage(): React.ReactElement {
                           <Badge tone="warning">chưa nối đủ</Badge>
                         </div>
                       )}
+                    </Td>
+                    <Td>
+                      {/* Số báo cáo đang dựng trên mô hình. Hiện ở đây vì đây là
+                          thứ phải biết TRƯỚC khi bấm xoá, và cột cuối cùng của
+                          dòng này chính là nút xoá. */}
+                      <span className="tabular-nums">{model.reportCount}</span>
                     </Td>
                     <Td>
                       <span className="text-slate-600">{model.creatorName ?? '—'}</span>

@@ -598,6 +598,16 @@ export interface DataModelDto {
   datasetCount: number;
   measureCount: number;
   relationshipCount: number;
+  /**
+   * Số báo cáo đang dựng trên mô hình này.
+   *
+   * Đây là câu trả lời cho "mô hình nào còn ai dùng" — thứ phải biết trước khi
+   * xoá, và thứ khung hỏi đáp cần để so giữa các mô hình. Đếm theo
+   * `reports.datamodel_id`, nên nó KHÔNG tính báo cáo dựng thẳng trên một bộ
+   * dữ liệu (`reports.dataset_id`) — hai nhánh đó loại trừ nhau bằng ràng buộc
+   * `CHECK` của bảng.
+   */
+  reportCount: number;
   creatorName: string | null;
   createdAt: string;
   updatedAt: string;

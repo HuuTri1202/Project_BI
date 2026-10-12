@@ -41,18 +41,24 @@ interface ModelRow extends RowDataPacket {
   dataset_count: number;
   measure_count: number;
   relationship_count: number;
+  report_count: number;
   creator_name: string | null;
   created_at: Date;
   updated_at: Date;
 }
 
 /**
- * Ba phép đếm bằng truy vấn con chứ không bằng ba câu LEFT JOIN.
+ * Bốn phép đếm bằng truy vấn con chứ không bằng bốn câu LEFT JOIN.
  *
- * JOIN cả ba bảng con vào một câu sẽ nhân bản dòng: một mô hình có 3 bộ dữ liệu
+ * JOIN cả bốn bảng con vào một câu sẽ nhân bản dòng: một mô hình có 3 bộ dữ liệu
  * và 4 thước đo cho ra 12 dòng, và `COUNT(*)` trên đó ra số vô nghĩa. Sửa bằng
  * `COUNT(DISTINCT ...)` được, nhưng truy vấn con đọc rõ hơn hẳn và mỗi cái là
  * một lần dò chỉ mục.
+ *
+ * `report_count` KHÔNG cần lọc `datasets.deleted_at` như `LIVE_WHERE` bên
+ * `repositories/reports.ts`: một báo cáo mang `datamodel_id` thì theo ràng buộc
+ * `CHECK` của bảng nó không mang `dataset_id`, nên nhánh kia luôn `NULL`. Điều
+ * kiện duy nhất còn lại là chính mô hình này, và nó đã sống vì là `dm`.
  */
 const MODEL_SELECT = `SELECT dm.id, dm.workspace_id, dm.name, dm.description,
          (SELECT COUNT(*) FROM datamodel_datasets x
@@ -61,6 +67,9 @@ const MODEL_SELECT = `SELECT dm.id, dm.workspace_id, dm.name, dm.description,
            WHERE x.datamodel_id = dm.id AND x.deleted_at IS NULL) AS measure_count,
          (SELECT COUNT(*) FROM datamodel_relationships x
            WHERE x.datamodel_id = dm.id AND x.deleted_at IS NULL) AS relationship_count,
+         (SELECT COUNT(*) FROM reports r
+           WHERE r.datamodel_id = dm.id AND r.tenant_id = dm.tenant_id
+             AND r.deleted_at IS NULL) AS report_count,
          u.full_name AS creator_name, dm.created_at, dm.updated_at
     FROM datamodels dm
     LEFT JOIN users u ON u.id = dm.created_by`;
@@ -74,6 +83,7 @@ function toModelDto(row: ModelRow): DataModelDto {
     datasetCount: Number(row.dataset_count),
     measureCount: Number(row.measure_count),
     relationshipCount: Number(row.relationship_count),
+    reportCount: Number(row.report_count),
     creatorName: row.creator_name,
     createdAt: row.created_at.toISOString(),
     updatedAt: row.updated_at.toISOString(),

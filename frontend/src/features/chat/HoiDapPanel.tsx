@@ -4,7 +4,7 @@ import { KHONG_XUAT } from '../../services/danhDauXuat';
 import { dienDatLai } from './api';
 import { useNguCanh } from './nguCanh';
 import type { Nguon } from './nguCanh';
-import { traLoi } from './traLoi';
+import { goiYSoSanh, traLoiTrang } from './traLoi';
 
 /**
  * Khung hỏi đáp nổi ở góc dưới-phải.
@@ -89,7 +89,7 @@ export function HoiDapPanel(): React.ReactElement | null {
     const q = cauHoi.trim();
     if (q === '') return;
 
-    const kq = traLoi(nguon, q);
+    const kq = traLoiTrang(nguCanh.nguon, nguon, q);
     demId.current += 2;
     const idBot = demId.current;
     const luc = gioBayGio();
@@ -218,7 +218,7 @@ export function HoiDapPanel(): React.ReactElement | null {
           `bg-slate-50` làm nền cho thẻ trắng. */}
       <div ref={dayCuon} className="min-h-0 flex-1 space-y-3 overflow-y-auto bg-slate-50 p-3.5">
         {tinNhan.length === 0 ? (
-          <ChaoHoi nguon={nguon} onChon={setCauHoi} />
+          <ChaoHoi nguon={nguon} soSanh={goiYSoSanh(nguCanh.nguon)} onChon={setCauHoi} />
         ) : (
           tinNhan.map((t) => <BongBong key={t.id} tin={t} />)
         )}
@@ -300,9 +300,12 @@ function BongBong({ tin }: { tin: TinNhan }): React.ReactElement {
  */
 function ChaoHoi({
   nguon,
+  soSanh,
   onChon,
 }: {
   nguon: Nguon;
+  /** Câu mẫu hỏi về CẢ danh sách, không riêng nguồn đang chọn. */
+  soSanh: string[];
   onChon: (q: string) => void;
 }): React.ReactElement {
   const mau =
@@ -313,7 +316,9 @@ function ChaoHoi({
           `Top 3 ${nguon.bang.dimensionLabel}`,
           `Có mấy ${nguon.bang.dimensionLabel}?`,
         ]
-      : nguon.duKien.slice(0, 4).map((d) => `${d.nhan}?`);
+      : // Câu so sánh đứng TRƯỚC: đó là nhóm câu hỏi người dùng không đoán được
+        // là hỏi được, còn "Số dòng của X?" thì nhìn chip là nghĩ ra.
+        [...soSanh, ...nguon.duKien.map((d) => `${d.nhan}?`)].slice(0, 4);
 
   return (
     <div className="flex items-start gap-2">
