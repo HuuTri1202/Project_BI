@@ -715,6 +715,65 @@ export function distinctFieldLabels(
   });
 }
 
+/**
+ * Toán tử LỌC mà một câu hỏi được dùng — §10.7.
+ *
+ * ═══ Vì sao là một ENUM ĐÓNG, không phải chuỗi tự do ═══════════════════════
+ *
+ * Cùng lý do với `MEASURE_AGGS`: đây là từ vựng của TA. Một enum đóng nghĩa là
+ * zod chặn mọi thứ ngoài danh sách ngay ở biên, trước khi có gì chạm tới Cube —
+ * nên không có đường nào để một toán tử lạ đi vào truy vấn, kể cả khi người gọi
+ * là một mô hình ngôn ngữ đang điền form (bước tiếp theo của khung hỏi đáp).
+ *
+ * Tên trùng với toán tử của Cube để khỏi phải có một bảng dịch; nhưng nó vẫn
+ * được kiểm theo danh sách này chứ không chuyển thẳng qua.
+ */
+export const FILTER_OPERATORS = [
+  'equals',
+  'notEquals',
+  'contains',
+  'notContains',
+  'gt',
+  'gte',
+  'lt',
+  'lte',
+  /** Có giá trị / để trống. Hai toán tử DUY NHẤT không nhận `values`. */
+  'set',
+  'notSet',
+] as const;
+export type FilterOperator = (typeof FILTER_OPERATORS)[number];
+
+/** Toán tử nào KHÔNG nhận giá trị — kiểm ở cả hai phía, xem `assertFilter`. */
+export const FILTER_OPERATORS_NO_VALUE: readonly FilterOperator[] = ['set', 'notSet'];
+
+export const FILTER_OPERATOR_LABELS: Record<FilterOperator, string> = {
+  equals: 'bằng',
+  notEquals: 'khác',
+  contains: 'chứa',
+  notContains: 'không chứa',
+  gt: 'lớn hơn',
+  gte: 'từ … trở lên',
+  lt: 'nhỏ hơn',
+  lte: 'từ … trở xuống',
+  set: 'có giá trị',
+  notSet: 'để trống',
+};
+
+/**
+ * Một điều kiện lọc trong câu hỏi.
+ *
+ * ⚠️ `dimensionId`, KHÔNG phải tên cột — cùng luật với cả `ExplorerQueryDto`.
+ * Backend tra id trong phạm vi mô hình đã lọc theo tổ chức rồi tự dựng tên
+ * cube, nên một id bịa ra rơi vào `FIELD_UNKNOWN` chứ không trỏ sang được mô
+ * hình của người khác.
+ */
+export interface ExplorerFilterDto {
+  dimensionId: number;
+  operator: FilterOperator;
+  /** Rỗng với `set`/`notSet`. Là CHUỖI kể cả khi lọc cột số — Cube tự ép kiểu. */
+  values: readonly string[];
+}
+
 export const TIME_GRANULARITIES = ['day', 'week', 'month', 'quarter', 'year'] as const;
 export type TimeGranularity = (typeof TIME_GRANULARITIES)[number];
 
@@ -756,6 +815,19 @@ export interface ExplorerQueryDto {
    * `Record<number, ...>` sẽ bắt cả hai đầu tự ép kiểu qua lại.
    */
   measureAggs?: readonly { id: number; agg: MeasureAgg }[] | undefined;
+  /**
+   * Bó câu hỏi vào những dòng thoả điều kiện — §10.7.
+   *
+   * Nhiều điều kiện nối bằng AND, đúng như Cube hiểu một mảng `filters`. Muốn
+   * OR thì dùng nhiều `values` trong CÙNG một điều kiện `equals`.
+   *
+   * ═══ Vì sao nó xứng đáng có mặt trong hợp đồng HTTP ════════════════════
+   *
+   * Thiếu nó thì "doanh thu tháng 3 của Miền Bắc" KHÔNG diễn đạt được, và đó
+   * là phần lớn câu hỏi tự nhiên. Bộ lọc vốn đã tồn tại bên trong
+   * (`QueryRestriction`, dựng cho phép cắt top-N), nhưng cố ý đóng với client.
+   */
+  filters?: readonly ExplorerFilterDto[] | undefined;
 }
 
 /** Kết quả đã dịch ngược về id — Explorer không cần biết Cube gọi chúng là gì. */

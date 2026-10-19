@@ -68,9 +68,26 @@ function sign(context: CubeSecurityContext): string {
  * không nhận trường này. Mở nó ra là mở một kênh gửi chuỗi tuỳ ý xuống tầng
  * truy vấn, đúng thứ mà cả §10 được thiết kế để tránh.
  */
+/**
+ * Một điều kiện trong `filters` của Cube.
+ *
+ * `member` LUÔN do ta dựng từ id (`${cubeName}.${dimensionNameFor(id)}`), nên
+ * không có tên bảng hay tên cột nào đi từ trình duyệt vào đây — đó là luật
+ * cứng của cả tầng này.
+ *
+ * `values` thì NGƯỢC LẠI, và chỗ khác nhau đó cần nói rõ: từ §10.7 nó nhận giá
+ * trị người dùng gõ. Nó an toàn vì nó là TOÁN HẠNG SO SÁNH, không phải một
+ * định danh: Cube đưa nó vào SQL dưới dạng tham số bind, nên nó không bao giờ
+ * được đọc như một mảnh câu lệnh. Kẹp độ dài và số lượng nằm ở zod, xem
+ * `explorerFilterSchema`.
+ */
 export type CubeFilter =
-  | { member: string; operator: 'equals'; values: string[] }
-  | { member: string; operator: 'notSet' }
+  | { member: string; operator: 'set' | 'notSet' }
+  | {
+      member: string;
+      operator: 'equals' | 'notEquals' | 'contains' | 'notContains' | 'gt' | 'gte' | 'lt' | 'lte';
+      values: string[];
+    }
   | { or: CubeFilter[] };
 
 export interface CubeQuery {

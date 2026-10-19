@@ -40,7 +40,10 @@ import { loadFromCube, sqlFromCube, type CubeQuery } from './cubeClient';
  * đổi alias của một cột không làm hỏng một truy vấn đã lưu.
  */
 
-interface ModelIndex {
+/**
+ * Xuất ra để `buildQuery` test được một mình — xem ghi chú ở `buildQuery`.
+ */
+export interface ModelIndex {
   /** id dòng `datamodel_columns` -> mọi thứ cần để dựng tên và nhãn. */
   columns: Map<number, { cubeName: string; label: string; chType: string; datasetName: string }>;
   measures: Map<
@@ -311,7 +314,18 @@ export async function loadModelContext(
   return { index, schemaVersion };
 }
 
-function buildQuery(
+/**
+ * Dựng câu hỏi Cube từ lựa chọn của người dùng.
+ *
+ * ⚠️ XUẤT RA để test được một mình, không phải để nơi khác gọi.
+ *
+ * Mọi luật khó của §10.7 nằm trong hàm này — tên cube dựng từ id, bộ lọc nối
+ * bằng AND, ô trống phải đi bằng toán tử riêng — và tất cả đều kiểm được bằng
+ * một `ModelIndex` dựng tay, không cần MySQL, ClickHouse hay Cube. Để nó private
+ * nghĩa là mấy luật đó chỉ được kiểm qua bộ tích hợp, tức là chậm hơn và chỉ
+ * chạy khi có container.
+ */
+export function buildQuery(
   index: ModelIndex,
   input: ExplorerQueryDto,
   internal: InternalQueryOptions = {},
@@ -437,6 +451,30 @@ function buildQuery(
     if (clauses.length === 1) filters.push(...clauses);
     else if (clauses.length > 1) filters.push({ or: clauses });
   }
+
+  /*
+   * Bộ lọc của CÂU HỎI — §10.7. Nối vào cùng mảng, nên Cube hiểu là AND với
+   * mấy bộ giới hạn ở trên: "nhóm nằm trong top-N VÀ vùng là Miền Bắc".
+   *
+   * `member` vẫn do đây dựng từ id, y như mọi chỗ khác trong hàm này; chỉ
+   * `values` là của người dùng, và nó là toán hạng so sánh mà Cube bind vào
+   * SQL. Xem `explorerFilterSchema` để biết vì sao đó là hai loại khác nhau.
+   *
+   * Một id không thuộc mô hình này rơi vào `unknownField` — cùng một cửa với
+   * `dimensionIds`, nên không có đường riêng nào để đi vòng qua phạm vi tổ chức.
+   */
+  for (const dk of input.filters ?? []) {
+    const found = index.columns.get(dk.dimensionId);
+    if (found === undefined) throw unknownField();
+    const member = `${found.cubeName}.${dimensionNameFor(dk.dimensionId)}`;
+
+    filters.push(
+      dk.operator === 'set' || dk.operator === 'notSet'
+        ? { member, operator: dk.operator }
+        : { member, operator: dk.operator, values: [...dk.values] },
+    );
+  }
+
   if (filters.length > 0) query.filters = filters;
 
   // Sắp theo thước đo ĐẦU TIÊN, giảm dần. Không sắp thì ClickHouse trả theo thứ

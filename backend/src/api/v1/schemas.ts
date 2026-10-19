@@ -21,6 +21,8 @@ import {
   GROUP_PICKS,
   LOAD_STATUSES,
   MAX_GROUP_PAGE,
+  FILTER_OPERATORS,
+  FILTER_OPERATORS_NO_VALUE,
   MEASURE_AGGS,
   MEASURE_FORMATS,
   MEASURE_NAME_MAX,
@@ -948,6 +950,41 @@ export const createRelationshipBodySchema = z.object({
  * DỰNG tên cube — cùng nguyên tắc `aggregateWarehouse` đang dùng: chuỗi đi vào
  * truy vấn lấy từ database của ta, không phải từ body request.
  */
+/**
+ * Một điều kiện lọc — §10.7.
+ *
+ * ═══ Vì sao `values` được phép là chuỗi người dùng gõ ══════════════════════
+ *
+ * Luật của tầng này là "chuỗi đi vào truy vấn lấy từ database của ta". Nó nói
+ * về ĐỊNH DANH — tên cube, tên cột — và luật đó không hề nới: `dimensionId` vẫn
+ * là một con số, và tên cube vẫn do Express dựng ra.
+ *
+ * `values` là một loại khác: nó là TOÁN HẠNG SO SÁNH. Cube đưa nó vào SQL dưới
+ * dạng tham số bind, nên nó không bao giờ được đọc như một mảnh câu lệnh. Thứ
+ * nó có thể làm là tốn tài nguyên, nên nó bị kẹp ở đây: 200 ký tự mỗi giá trị,
+ * 50 giá trị mỗi điều kiện, 10 điều kiện mỗi câu hỏi.
+ *
+ * ⚠️ `set`/`notSet` PHẢI không có giá trị, và các toán tử còn lại PHẢI có ít
+ * nhất một. Kiểm ngay ở đây chứ không để `buildQuery` lo: một `equals` với
+ * `values: []` được Cube đọc thành "không dòng nào khớp", tức một biểu đồ
+ * trắng không giải thích được — thay vì một lỗi 400 nói đúng chuyện gì sai.
+ */
+export const explorerFilterSchema = z
+  .object({
+    dimensionId: z.coerce.number().int().positive(),
+    operator: z.enum(FILTER_OPERATORS),
+    values: z.array(z.string().max(200)).max(50).default([]),
+  })
+  .refine(
+    (f) =>
+      FILTER_OPERATORS_NO_VALUE.includes(f.operator) ? f.values.length === 0 : f.values.length > 0,
+    {
+      message:
+        'Toán tử "có giá trị"/"để trống" không nhận giá trị; các toán tử khác cần ít nhất một',
+      path: ['values'],
+    },
+  );
+
 export const explorerQueryBodySchema = z
   .object({
     dimensionIds: z.array(z.coerce.number().int().positive()).max(20).default([]),
@@ -978,6 +1015,7 @@ export const explorerQueryBodySchema = z
       )
       .max(20)
       .optional(),
+    filters: z.array(explorerFilterSchema).max(10).optional(),
   })
   .refine((q) => q.dimensionIds.length + q.measureIds.length > 0, {
     message: 'Hãy chọn ít nhất một chiều hoặc một thước đo',
