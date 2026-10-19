@@ -112,7 +112,19 @@ const TU_KHOA: { y: YDinh; tu: string[] }[] = [
   },
   { y: 'trung_binh', tu: ['trung binh', 'binh quan'] },
   { y: 'tong', tu: ['tong', 'cong lai', 'tat ca la bao nhieu'] },
-  { y: 'dem', tu: ['bao nhieu nhom', 'co may', 'so luong nhom', 'may nhom', 'bao nhieu muc'] },
+  /*
+   * `co bao nhieu` là cách đếm tự nhiên nhất trong tiếng Việt, và trước đây
+   * bảng này bỏ sót nó: mọi cụm đều đòi chữ "nhóm" hay "mục" — tức chỉ nhận ra
+   * người đã nói theo từ vựng của hệ thống. "Có bao nhiêu sản phẩm" trượt sạch.
+   *
+   * Phải là `co bao nhieu`, KHÔNG phải `bao nhieu` trần. Chữ "có" là chỗ phân
+   * biệt: "có bao nhiêu sản phẩm" hỏi số lượng, còn "Boston bao nhiêu" hỏi giá
+   * trị của một nhóm. Một cụm `bao nhieu` trần sẽ nuốt luôn câu thứ hai.
+   */
+  {
+    y: 'dem',
+    tu: ['bao nhieu nhom', 'co may', 'so luong nhom', 'may nhom', 'bao nhieu muc', 'co bao nhieu'],
+  },
   { y: 'xu_huong', tu: ['xu huong', 'tang hay giam', 'tang khong', 'giam khong', 'dang tang'] },
   /*
    * `chua_co` đứng CUỐI, sau mọi từ khoá so sánh. "mô hình nào chưa có quan hệ
@@ -159,7 +171,22 @@ export function docYDinh(cauHoi: string): YDinh | null {
   for (const { y, tu } of TU_KHOA) {
     if (tu.some((t) => q.includes(t))) return y;
   }
-  return CO_NHAT.test(q) ? 'cao_nhat' : null;
+  if (CO_NHAT.test(q)) return 'cao_nhat';
+
+  /*
+   * Lưới hứng cuối: có chữ "nào" đứng riêng VÀ có một con số trong câu.
+   *
+   * Đó là khuôn của một câu lọc nói bằng lời thường — "có sản phẩm nào số
+   * lượng 99 không", "mục nào bằng 4". Bảng `TU_KHOA` so chuỗi liền nhau nên
+   * nó trượt hết: giữa "có" và "nào" còn chen tên chiều, và "… nào … không" bị
+   * xé làm hai đầu câu.
+   *
+   * Đứng SAU mọi luật khác, kể cả lưới `nhất`: "mô hình Q4 nào nhiều bảng
+   * nhất" cũng có chữ số, mà nó là câu hỏi về cái nhiều nhất. Và `tinhBang` tự
+   * trả `null` khi không đọc ra điều kiện, nên nhận nhầm ở đây không nuốt mất
+   * câu trả lời nào.
+   */
+  return /(^| )nao( |$)/.test(q) && /\d/.test(q) ? 'loc' : null;
 }
 
 /**
@@ -314,6 +341,17 @@ function tinhBang(
     }
 
     case 'dem': {
+      /*
+       * "Boston có bao nhiêu" GỌI TÊN một nhóm, nên nó hỏi GIÁ TRỊ của nhóm đó,
+       * không hỏi số lượng nhóm. Cùng luật nhường-cho-tên đã dùng ở `traLoiTrang`:
+       * gõ tên ra là đã nói rõ mình hỏi cái nào.
+       */
+      const goiTen = timDong(rows, cauHoi);
+      if (goiTen !== null) {
+        const gia = doc(goiTen.value);
+        return { cau: `${measureLabel} của ${tenDong(goiTen)} là ${gia}.`, so: [gia] };
+      }
+
       const soNhom = new Set(rows.map((r) => r.label)).size;
       return {
         cau: ghep(`Có ${String(soNhom)} ${dimensionLabel} trên biểu đồ này.`, cat),
@@ -672,9 +710,37 @@ const TU_DEM = new Set([
   'dang',
 ]);
 
+/**
+ * Những CỤM chỉ LOẠI mục, không chỉ thuộc tính nào.
+ *
+ * ═══ Lỗi đo được, và vì sao nó không trông như lỗi ═════════════════════════
+ *
+ * Câu "bộ dữ liệu nào nhiều dòng nhất" trên trang Kho dữ liệu được trả lời
+ * bằng "Cao nhất là Orders — Số mô hình DỮ LIỆU dùng: 2". Hai chữ "dữ liệu"
+ * của "bộ dữ liệu" trùng vào nhãn "Số mô hình dữ liệu dùng" và thắng 2-1 cột
+ * "Số dòng của" — nên câu trả lời là một con số CÓ THẬT, của một thuộc tính
+ * khác, không một dấu hiệu nào.
+ *
+ * Gốc của chuyện đó: trên một trang danh sách, MỌI mục đều cùng một loại. Nên
+ * mấy chữ gọi tên cái loại ấy không phân biệt được cột nào với cột nào — chúng
+ * là nhiễu, đúng nghĩa như "nào" và "nhất" trong `TU_DEM`.
+ *
+ * ⚠️ Bỏ ở CẢ HAI phía, câu hỏi lẫn nhãn. Bỏ một phía là tự tạo ra lệch điểm
+ * mới. Và cụm DÀI phải đứng trước cụm ngắn, nếu không "mô hình dữ liệu" bị
+ * "mô hình" xé làm hai và còn lại một chữ "dữ liệu" lơ lửng.
+ */
+const CUM_LOAI = ['mo hinh du lieu', 'bo du lieu', 'mo hinh', 'du lieu'];
+
+/** Bỏ các cụm chỉ loại khỏi một chuỗi ĐÃ chuẩn hoá. */
+function boCumLoai(q: string): string {
+  let con = q;
+  for (const c of CUM_LOAI) con = con.split(c).join(' ');
+  return con;
+}
+
 function tuNoiDung(s: string): Set<string> {
   return new Set(
-    chuanHoa(s)
+    boCumLoai(chuanHoa(s))
       .split(' ')
       .filter((t) => t.length > 1 && !TU_DEM.has(t)),
   );
@@ -1200,6 +1266,27 @@ export function traLoiHeThong(heThong: Nguon[], cauHoi: string): TraLoi | null {
   if (soSanh !== null) return soSanh;
 
   const goiTen = nguonTheoTen(heThong, cauHoi);
+
+  /*
+   * Câu ĐẾM hỏi về CẢ DANH SÁCH, nên bản tóm tắt được xét một mình trước.
+   *
+   * Trên danh sách phẳng nó không bao giờ thắng được: nhãn "Số mô hình dữ liệu
+   * trong toàn bộ tổ chức" và nhãn "Số mô hình dữ liệu dùng Orders" trùng nhau
+   * tới BỐN từ, nên chúng hoà điểm và luật "phải hơn hẳn ứng viên nhì" bỏ cả
+   * hai — đúng luật, nhưng câu hỏi đơn giản nhất của cả tính năng lại không
+   * trả lời được.
+   *
+   * ⚠️ Chỉ khi câu hỏi KHÔNG gọi tên mục nào. "Mô hình Kho vận có mấy bảng"
+   * cũng là ý định `dem`, nhưng nó hỏi về một mục — và bản tóm tắt vẫn khớp
+   * được hai chữ "mô hình" của nó, nên bỏ cửa này là trả lời bằng tổng số mô
+   * hình cho một câu hỏi về số BẢNG của một mô hình. Cùng luật nhường-cho-tên
+   * mà `traLoiTrang` và nhánh `dem` của `tinhBang` đang dùng.
+   */
+  if (goiTen === null && docYDinh(cauHoi) === 'dem') {
+    const tom = traCuu(dau.duKien, cauHoi);
+    if (tom !== null) return noiPham(tom);
+  }
+
   const kq =
     (goiTen === null ? null : traLoi(goiTen, cauHoi)) ?? traCuu(duKienPhang(heThong, dau), cauHoi);
   return kq === null ? null : noiPham(kq);

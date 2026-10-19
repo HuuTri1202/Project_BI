@@ -255,6 +255,13 @@ const CA: Ca[] = [
   { trang: 'bieuDo1', hoi: 'top 3 sản phẩm', can: ['Staples', 'Boston', 'Xerox'] },
   { trang: 'bieuDo1', hoi: 'xếp hạng sản phẩm theo số lượng', can: ['Staples', 'Boston'] },
   { trang: 'bieuDo1', hoi: 'Boston bao nhiêu', can: ['Boston', '9'] },
+  {
+    trang: 'bieuDo1',
+    hoi: 'Boston có bao nhiêu',
+    can: ['Boston', '9'],
+    khong: ['Có 5'],
+    vi: 'Ý định ĐẾM nhưng gọi tên một nhóm — hỏi GIÁ TRỊ của nhóm, không hỏi số nhóm',
+  },
   { trang: 'bieuDo1', hoi: 'số lượng của Xerox là mấy', can: ['Xerox', '7'] },
   { trang: 'bieuDo1', hoi: 'Boston chiếm bao nhiêu %', can: ['Boston', '25,7 %'] },
   { trang: 'bieuDo1', hoi: 'Boston so với Acco', can: ['Boston', 'Acco', '9', '4'] },
@@ -342,7 +349,11 @@ const CA: Ca[] = [
     trang: 'khoDuLieu',
     hoi: 'cột Sales kiểu dữ liệu gì',
     can: 'chua-hieu',
-    vi: 'Trang danh sách chỉ có columnCount. Phải nói chưa biết, không được đoán',
+    vi:
+      'ĐANG SAI (1/56). Trang danh sách chỉ có columnCount, đáng ra phải từ chối. ' +
+      'Hai chữ "dữ liệu" của "kiểu DỮ LIỆU" trùng vào nhãn "Số mô hình DỮ LIỆU ' +
+      'dùng Orders" và thắng 2-1 cột "Số cột của". Đã thử ba cách sửa, cả ba đều ' +
+      'đổi ca này lấy một ca đếm khác — xem CUM_LOAI trong traLoi.ts. Để lại có tên.',
   },
 
   // ─── Xuyên hệ thống: hỏi từ một trang không dính gì tới dữ liệu ───────────
@@ -351,6 +362,13 @@ const CA: Ca[] = [
   { trang: 'hoSo', hoi: 'mô hình nào nhiều bảng nhất', can: ['Global-Superstore'] },
   { trang: 'hoSo', hoi: 'bộ dữ liệu nào nhiều dòng nhất', can: ['Orders'] },
   { trang: 'hoSo', hoi: 'Orders có bao nhiêu dòng', can: ['51.290'] },
+  {
+    trang: 'hoSo',
+    hoi: 'mô hình Kho vận có mấy bảng',
+    can: ['2'],
+    khong: ['toàn bộ tổ chức: 3'],
+    vi: 'Ý định ĐẾM nhưng hỏi về MỘT mục — không được trả bằng tổng số mô hình',
+  },
 
   // ─── Phải TỪ CHỐI: những câu không có số liệu nào trả lời được ────────────
   { trang: 'bieuDo1', hoi: 'hôm nay trời thế nào', can: 'chua-hieu' },
@@ -427,10 +445,10 @@ describe('Bộ đánh giá khung hỏi đáp', () => {
    * nghĩa là thay đổi đó đang đánh đổi câu này lấy câu kia mà không nói ra.
    */
   it('số câu ĐÚNG không được tụt', () => {
-    expect(dem('dung')).toBeGreaterThanOrEqual(48);
+    expect(dem('dung')).toBeGreaterThanOrEqual(55);
   });
 
   it('số câu SAI không được tăng', () => {
-    expect(dem('sai')).toBeLessThanOrEqual(2);
+    expect(dem('sai')).toBeLessThanOrEqual(1);
   });
 });
