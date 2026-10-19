@@ -1,21 +1,22 @@
-import type {
-  AdminUserDto,
-  BillingCycle,
-  BillingSummaryDto,
-  ConnectionDto,
-  DataModelDetailDto,
-  DataModelDto,
-  DatasetDetailDto,
-  DatasetDto,
-  HomeDataDto,
-  OrderDto,
-  PaymentMethodDto,
-  PlanDto,
-  PlatformOverviewDto,
-  PlatformTenantDto,
-  PlatformUserDto,
-  PlatformWorkspaceDto,
-  ReportDto,
+import {
+  CHART_TYPE_LABELS,
+  type AdminUserDto,
+  type BillingCycle,
+  type BillingSummaryDto,
+  type ConnectionDto,
+  type DataModelDetailDto,
+  type DataModelDto,
+  type DatasetDetailDto,
+  type DatasetDto,
+  type HomeDataDto,
+  type OrderDto,
+  type PaymentMethodDto,
+  type PlanDto,
+  type PlatformOverviewDto,
+  type PlatformTenantDto,
+  type PlatformUserDto,
+  type PlatformWorkspaceDto,
+  type ReportDto,
 } from '@bi/shared';
 
 import { dinhDangDungLuong, dinhDangHanMuc, dinhDangNgay, dinhDangTien } from '../billing/format';
@@ -244,12 +245,43 @@ export function duKienTrangChu(home: HomeDataDto): Nguon[] {
         ...dk(`Báo cáo mở gần đây trong ${w}`, home.reports.map((r) => r.name).join('; ')),
       ],
     },
+    /*
+     * Mỗi thẻ báo cáo trên màn hình thành một nguồn, dùng lại NGUYÊN hàm của
+     * trang danh sách báo cáo.
+     *
+     * Trước đây trang chủ chỉ khai ba con số, nên mọi câu hỏi về mấy cái thẻ
+     * đang hiện rành rành đều nhận về "không có mục nào trả lời được". Dùng
+     * chung hàm thay vì viết lại nghĩa là mỗi dữ kiện thêm vào sau này có mặt ở
+     * cả hai trang, và hai trang không bao giờ trả lời khác nhau về cùng một
+     * báo cáo.
+     *
+     * `.slice(1)` bỏ bản tóm tắt của hàm kia: nhãn của nó nói "trong workspace
+     * này", mà bản tóm tắt của trang chủ ở trên đã gọi đích danh tên workspace.
+     * Giữ cả hai là hai bản tóm tắt cùng nói một chuyện bằng hai cách.
+     */
+    ...duKienDanhSachBaoCao(home.reports, home.stats.reports).slice(1),
   ];
 }
 
 /** Danh sách báo cáo. */
 export function duKienDanhSachBaoCao(reports: ReportDto[], tong: number): Nguon[] {
   const mot = (r: ReportDto): DuKien[] => [
+    /*
+     * Loại biểu đồ — thứ MẮT THƯỜNG đọc được ngay trên thẻ báo cáo.
+     *
+     * Thiếu nó là câu "liệt kê các báo cáo biểu đồ cột" nhận về "không có mục
+     * nào trả lời được", trong khi màn hình đang hiện đúng cái nhãn đó trên
+     * từng thẻ. Khung nói không biết một thứ người dùng đang nhìn thẳng vào là
+     * kiểu hỏng khó tha nhất — nó làm người ta thôi tin cả những câu nó trả lời
+     * đúng.
+     *
+     * `CHART_TYPE_LABELS` là cùng cái bảng mà thẻ báo cáo dùng, nên hai chỗ đọc
+     * ra cùng một chữ. Chép tay "Biểu đồ cột" ở đây là hẹn ngày hai bên lệch.
+     */
+    ...dk(
+      `Loại biểu đồ của báo cáo ${r.name}`,
+      r.chartType === null ? null : CHART_TYPE_LABELS[r.chartType],
+    ),
     ...dk(
       `Báo cáo ${r.name} dựng trên gì`,
       r.source === 'datamodel' ? `mô hình dữ liệu ${r.sourceName}` : `bộ dữ liệu ${r.sourceName}`,

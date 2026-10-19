@@ -3160,20 +3160,34 @@ chuyện** — lượt hỏi tiếp giữ lại bộ lọc của lượt trướ
 câu trước. Nới corpus, **không** bỏ luật: một giá trị không có trong câu nào vẫn
 bỏ cả form. Đổi chip nguồn, hay đổi sang mô hình khác, thì quên lượt trước.
 
+**Biết khung đang có mô hình hay đang chạy ngoại tuyến.** Ngay trên tiêu đề
+khung: nhãn _có mô hình_ hay _ngoại tuyến_. Và vì "đã cấu hình" khác "đang gọi
+được" — hết lượt miễn phí, mất mạng, khoá hết hạn đều **im lặng** theo đúng
+thiết kế — nên **từng câu trả lời tự khai ai dựng ra nó**: _mô hình viết lại_,
+_mô hình chọn mục_, _mô hình dựng truy vấn_, hoặc không dấu gì cả nghĩa là
+hoàn toàn do máy bạn tính. Cả loạt câu mất dấu trong khi nhãn vẫn xanh là dấu
+hiệu đọc được ngay rằng nhà cung cấp đang từ chối.
+
+**Hỏi tiếp được, không phải gõ lại từ đầu.** _"Nhóm hàng nào cao nhất"_ → _"ở
+miền nào"_. Chỉ chạy khi câu mới mang dấu hiệu nối tiếp (_còn…, vậy…, ở…_) VÀ
+tự nó không nhắc tới thứ gì của dữ liệu — một câu tự đủ nghĩa phải được trả lời
+bằng chính nó, không để lịch sử bẻ lái. Đổi chip nguồn thì quên, vì khi đó câu
+cũ không còn trên màn hình và một ngữ cảnh vô hình là thứ tệ nhất ở đây.
+
 **Đo xem khung trả lời đúng bao nhiêu phần trăm:**
 
 ```bash
 npm --workspace frontend run danh-gia
 ```
 
-71 câu hỏi thật, chạy qua đúng chuỗi thật của khung, và đếm ra **ba** kết cục
+89 câu hỏi thật, chạy qua đúng chuỗi thật của khung, và đếm ra **ba** kết cục
 chứ không hai:
 
 |                        |                                                |
 | ---------------------- | ---------------------------------------------- |
-| **ĐÚNG** 69/71 (97,2%) | trả lời, và con số/cái tên trong đó đúng       |
-| **CHƯA HIỂU** 1/71     | trả `null` — trượt, nhưng **trung thực**       |
-| **SAI** 1/71           | trả lời mà sai: kết cục **duy nhất** nguy hiểm |
+| **ĐÚNG** 86/89 (96,6%) | trả lời, và con số/cái tên trong đó đúng       |
+| **CHƯA HIỂU** 1/89     | trả `null` — trượt, nhưng **trung thực**       |
+| **SAI** 2/89           | trả lời mà sai: kết cục **duy nhất** nguy hiểm |
 
 Tách "chưa hiểu" khỏi "sai" là phần quan trọng nhất của cách đo: gộp hai thứ
 thành một con số "độ chính xác" là xoá đúng cái phân biệt mà cả thiết kế này

@@ -6,6 +6,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import * as chatApi from '../src/features/chat/api';
 import * as heThongHook from '../src/features/chat/nguCanhHeThong';
+import * as trangThaiHook from '../src/features/chat/trangThai';
 import { NguCanhProvider } from '../src/features/chat/NguCanhProvider';
 import { useKhaiNguCanh, type NguCanh, type Nguon } from '../src/features/chat/nguCanh';
 import { THUOC_TINH_KHONG_XUAT } from '../src/services/danhDauXuat';
@@ -44,10 +45,15 @@ vi.mock('../src/features/chat/api', () => ({
  */
 vi.mock('../src/features/chat/nguCanhHeThong', () => ({ useNguCanhHeThong: vi.fn() }));
 
+// Nhãn "có mô hình / ngoại tuyến" — một lời gọi react-query, thay bằng hàm
+// thường vì phần lớn ca ở đây không nói gì về nó.
+vi.mock('../src/features/chat/trangThai', () => ({ useCoMoHinh: vi.fn() }));
+
 const dienDatLai = vi.mocked(chatApi.dienDatLai);
 const hieuCauHoi = vi.mocked(chatApi.hieuCauHoi);
 const useNguCanhHeThong = vi.mocked(heThongHook.useNguCanhHeThong);
 const hoiTrenMoHinh = vi.mocked(chatApi.hoiTrenMoHinh);
+const useCoMoHinh = vi.mocked(trangThaiHook.useCoMoHinh);
 
 beforeEach(() => {
   /*
@@ -74,6 +80,11 @@ beforeEach(() => {
   // người không có `datamodel:read` (migration 26).
   hoiTrenMoHinh.mockReset();
   hoiTrenMoHinh.mockRejectedValue(new Error('403'));
+
+  // Mặc định: CHƯA cấu hình mô hình — đúng trạng thái của một máy mới clone về,
+  // và là trạng thái mà khung buộc phải chạy đủ chức năng trong đó.
+  useCoMoHinh.mockReset();
+  useCoMoHinh.mockReturnValue(false);
 });
 
 function bang(): ReportDataDto {
@@ -165,7 +176,7 @@ describe('Trả lời bằng dữ liệu đã khai', () => {
     expect(screen.getByText(/12\.431/)).toBeInTheDocument();
   });
 
-  it('câu chưa hiểu thì nói rõ PHẠM VI, không nói là không có dữ liệu', () => {
+  it('câu chưa hiểu thì nói rõ PHẠM VI, không nói là không có dữ liệu', async () => {
     /*
      * Khác biệt quan trọng: "tôi chỉ trả lời bằng số liệu trên trang này" khác
      * hẳn "hệ thống không có số liệu đó". Câu thứ hai sai, và nó khiến người
@@ -176,6 +187,9 @@ describe('Trả lời bằng dữ liệu đã khai', () => {
 
     hoi('thời tiết hôm nay thế nào');
 
+    // Chờ ba chấm nhường chỗ: "chưa hiểu" chỉ được nói ra SAU khi mọi lớp mô
+    // hình đã chạy xong — trước đó khung chưa biết nó hiểu hay không.
+    await screen.findByText(/Tôi chưa hiểu câu này/);
     expect(screen.getByRole('status')).toHaveTextContent('chưa hiểu');
     expect(screen.getByRole('status')).toHaveTextContent('Kho dữ liệu');
   });
@@ -325,7 +339,7 @@ describe('Chưa hiểu thì phải mở ra đường đi tiếp', () => {
    * sai ở đâu, thử thêm một câu nữa cũng chưa hiểu, rồi đóng khung lại. Thứ
    * chặn chuyện đó là mấy câu BẤM ĐƯỢC lấy từ chính dữ kiện trang đang giữ.
    */
-  it('câu chưa hiểu kèm gợi ý bấm được, lấy từ dữ kiện gần nhất', () => {
+  it('câu chưa hiểu kèm gợi ý bấm được, lấy từ dữ kiện gần nhất', async () => {
     dung([
       { ten: 'Đơn hàng', duKien: [{ nhan: 'Số dòng của bảng Đơn hàng', gia: '120' }] },
       { ten: 'Khách hàng', duKien: [{ nhan: 'Số cột của bảng Khách hàng', gia: '8' }] },
@@ -336,7 +350,7 @@ describe('Chưa hiểu thì phải mở ra đường đi tiếp', () => {
     // `traLoi` cố ý không đoán, còn gợi ý thì phải với sang nguồn bên cạnh.
     hoi('cột thì sao');
 
-    expect(screen.getByText(/Tôi chưa hiểu câu này/)).toBeInTheDocument();
+    expect(await screen.findByText(/Tôi chưa hiểu câu này/)).toBeInTheDocument();
     const goiY = screen.getByRole('button', { name: 'Số cột của bảng Khách hàng?' });
 
     // Bấm vào là nó điền thẳng vào ô nhập — không phải chép tay lại.
@@ -344,14 +358,14 @@ describe('Chưa hiểu thì phải mở ra đường đi tiếp', () => {
     expect(screen.getByLabelText('Câu hỏi')).toHaveValue('Số cột của bảng Khách hàng?');
   });
 
-  it('không có dữ kiện nào gần thì vẫn gợi ý câu mẫu của nguồn đang chọn', () => {
+  it('không có dữ kiện nào gần thì vẫn gợi ý câu mẫu của nguồn đang chọn', async () => {
     dung([{ ten: 'Đơn hàng', duKien: [{ nhan: 'Số dòng của Đơn hàng', gia: '120' }] }]);
     fireEvent.click(nutMo());
 
     // "zzz" không trùng từ nào với dữ kiện nào.
     hoi('zzz qqq');
 
-    expect(screen.getByText(/Tôi chưa hiểu câu này/)).toBeInTheDocument();
+    expect(await screen.findByText(/Tôi chưa hiểu câu này/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Số dòng của Đơn hàng?' })).toBeInTheDocument();
   });
 });
@@ -424,10 +438,19 @@ describe('Mô hình chọn nhãn khi phép so từ khoá trượt', () => {
     fireEvent.click(nutMo());
 
     hoi('cái kia ra sao');
-    expect(screen.getByText(/Tôi chưa hiểu câu này/)).toBeInTheDocument();
+
+    /*
+     * Trong lúc chờ: BA CHẤM, không phải "tôi chưa hiểu".
+     *
+     * Trước đây khung hiện thẳng "chưa hiểu" rồi vài trăm mili giây sau mới
+     * thay bằng câu trả lời — người dùng đọc được cả hai, và cái đầu là một
+     * lời nói dối ngắn: khung chưa đọc xong thì chưa biết nó hiểu hay không.
+     */
+    expect(screen.getByLabelText('Đang soạn câu trả lời')).toBeInTheDocument();
+    expect(screen.queryByText(/Tôi chưa hiểu câu này/)).toBeNull();
 
     expect(await screen.findByText('Dung lượng của Đơn hàng Q4: 4,2 MB.')).toBeInTheDocument();
-    expect(screen.queryByText(/Tôi chưa hiểu câu này/)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Đang soạn câu trả lời')).toBeNull();
   });
 
   /*
@@ -485,7 +508,7 @@ describe('Mô hình chọn nhãn khi phép so từ khoá trượt', () => {
     });
 
     // Chưa ai đọc gì cả, nên không được khẳng định là đã đọc hết.
-    expect(screen.getByText(/Tôi chưa hiểu câu này/)).toBeInTheDocument();
+    expect(await screen.findByText(/Tôi chưa hiểu câu này/)).toBeInTheDocument();
     expect(screen.queryByText(/đã đọc hết số liệu/)).not.toBeInTheDocument();
   });
 
@@ -499,7 +522,7 @@ describe('Mô hình chọn nhãn khi phép so từ khoá trượt', () => {
       await Promise.resolve();
     });
 
-    expect(screen.getByText(/Tôi chưa hiểu câu này/)).toBeInTheDocument();
+    expect(await screen.findByText(/Tôi chưa hiểu câu này/)).toBeInTheDocument();
   });
 });
 
@@ -552,7 +575,7 @@ describe('Trả lời xuyên hệ thống', () => {
     expect(screen.queryByText(/999/)).toBeNull();
   });
 
-  it('phạm vi rộng hơn được nói ra ở tiêu đề và ở câu chưa hiểu', () => {
+  it('phạm vi rộng hơn được nói ra ở tiêu đề và ở câu chưa hiểu', async () => {
     useNguCanhHeThong.mockReturnValue(toanToChuc);
     dung(trangMotNguon);
     fireEvent.click(nutMo());
@@ -561,7 +584,7 @@ describe('Trả lời xuyên hệ thống', () => {
 
     hoi('hôm nay trời thế nào');
     expect(
-      screen.getByText(/cộng danh sách bộ dữ liệu và mô hình của tổ chức/),
+      await screen.findByText(/cộng danh sách bộ dữ liệu và mô hình của tổ chức/),
     ).toBeInTheDocument();
   });
 
@@ -874,5 +897,180 @@ describe('Bộ nhớ hội thoại', () => {
     });
 
     expect(hoiTrenMoHinh).toHaveBeenLastCalledWith(7, 'còn tháng 4 thì sao', undefined);
+  });
+});
+
+/*
+ * BA TRẠNG THÁI của lớp mô hình, và cách người dùng đọc ra chúng.
+ *
+ * ═══ Vì sao chuyện này phải nhìn thấy được ═════════════════════════════════
+ *
+ * Khung CỐ Ý không bao giờ hỏng vì lớp mô hình — chưa có khoá, hết lượt, mất
+ * mạng đều ra cùng một kết quả là câu mẫu. Hệ quả: cùng một câu hỏi cho hai
+ * câu trả lời rất khác nhau tuỳ trạng thái, mà người dùng không có gì để biết
+ * mình đang ở trạng thái nào. Họ sẽ kết luận là khung lúc được lúc không.
+ *
+ *   1. CHƯA CẤU HÌNH   -> nhãn "ngoại tuyến", và không câu nào có dấu mô hình.
+ *   2. ĐÃ CẤU HÌNH     -> nhãn "có mô hình".
+ *   3. ĐÃ CẤU HÌNH NHƯNG ĐANG KHÔNG GỌI ĐƯỢC (hết lượt, mất mạng) -> nhãn vẫn
+ *      "có mô hình", nhưng câu trả lời KHÔNG còn dấu. Đó là chỗ duy nhất đọc
+ *      được trạng thái thật, vì nhãn chỉ nói về cấu hình.
+ */
+describe('Nhìn ra khung đang có mô hình hay đang ngoại tuyến', () => {
+  const trang: Nguon[] = [
+    { ten: 'Đơn hàng Q4', duKien: [{ nhan: 'Số dòng của Đơn hàng Q4', gia: '12.431' }] },
+  ];
+
+  it('chưa cấu hình: nhãn nói "ngoại tuyến"', () => {
+    useCoMoHinh.mockReturnValue(false);
+    dung(trang);
+    fireEvent.click(nutMo());
+
+    expect(screen.getByText('ngoại tuyến')).toBeInTheDocument();
+    expect(screen.queryByText('có mô hình')).toBeNull();
+  });
+
+  it('đã cấu hình: nhãn nói "có mô hình"', () => {
+    useCoMoHinh.mockReturnValue(true);
+    dung(trang);
+    fireEvent.click(nutMo());
+
+    expect(screen.getByText('có mô hình')).toBeInTheDocument();
+  });
+
+  /*
+   * ⚠️ Dấu chỉ được hiện khi mô hình THẬT SỰ đổi câu. Backend trả lại nguyên
+   * câu mẫu khi chưa cấu hình, khi gọi hỏng, VÀ khi luật đối chiếu số bỏ câu
+   * mô hình viết — cả ba đều không phải "mô hình đã viết lại", và đánh dấu
+   * chúng là nói rằng mô hình đang chạy trong khi nó không.
+   */
+  it('câu mẫu KHÔNG bị đánh dấu là do mô hình viết', async () => {
+    dienDatLai.mockResolvedValue('Số dòng của Đơn hàng Q4: 12.431.');
+    dung(trang);
+    fireEvent.click(nutMo());
+
+    hoi('đơn hàng q4 có bao nhiêu dòng');
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(screen.getByText(/12\.431/)).toBeInTheDocument();
+    expect(screen.queryByText(/mô hình viết lại/)).toBeNull();
+  });
+
+  it('mô hình đổi câu thì câu đó mang dấu', async () => {
+    dienDatLai.mockResolvedValue('Đơn hàng Q4 có 12.431 dòng.');
+    dung(trang);
+    fireEvent.click(nutMo());
+
+    hoi('đơn hàng q4 có bao nhiêu dòng');
+
+    expect(await screen.findByText('Đơn hàng Q4 có 12.431 dòng.')).toBeInTheDocument();
+    expect(screen.getByText(/mô hình viết lại/)).toBeInTheDocument();
+  });
+
+  it('mô hình CHỌN mục thì nói rõ là nó chọn, không phải nó viết', async () => {
+    hieuCauHoi.mockResolvedValue({ chon: 0, daHoi: true });
+    dung(trang);
+    fireEvent.click(nutMo());
+
+    hoi('cái kia ra sao');
+
+    expect(await screen.findByText(/mô hình chọn mục/)).toBeInTheDocument();
+  });
+
+  /*
+   * Trạng thái (3): nhãn vẫn "có mô hình" vì cấu hình không đổi, nhưng câu trả
+   * lời không mang dấu nào — đúng thứ người dùng cần thấy khi hết lượt.
+   */
+  it('đã cấu hình mà gọi hỏng: nhãn vẫn bật, nhưng câu không mang dấu', async () => {
+    useCoMoHinh.mockReturnValue(true);
+    dienDatLai.mockRejectedValue(new Error('429 hết lượt'));
+    dung(trang);
+    fireEvent.click(nutMo());
+
+    hoi('đơn hàng q4 có bao nhiêu dòng');
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(screen.getByText('có mô hình')).toBeInTheDocument();
+    expect(screen.getByText(/12\.431/)).toBeInTheDocument();
+    expect(screen.queryByText(/mô hình/)).not.toHaveTextContent('viết lại');
+  });
+});
+
+/*
+ * HỎI TIẾP ở lớp NGOẠI TUYẾN — không phải gõ lại từ đầu.
+ *
+ * ⚠️ Lỗi người dùng gặp thật: hỏi "nhóm hàng nào có số lượng cao nhất" rồi hỏi
+ * tiếp "ở miền nào", và khung trả lời "Có 3 khu vực là Miền Bắc, Miền Nam và
+ * Miền Trung" — nó quên sạch lượt vừa rồi.
+ *
+ * Phần hiểu câu đã có bộ riêng (`danhGia.test.ts`, hàm thuần). Ở đây chỉ canh
+ * đúng việc NỐI DÂY: khung có nhớ câu vừa hỏi và có quên đúng lúc không.
+ */
+describe('Hỏi tiếp trên số liệu đang xem', () => {
+  function cotChong(): Nguon[] {
+    const o = (label: string, series: string, value: number) => ({ label, series, value });
+    return [
+      {
+        ten: 'Số lượng theo Khu vực',
+        duKien: [],
+        bang: {
+          rows: [
+            o('Miền Bắc', 'Gia dụng', 100),
+            o('Miền Bắc', 'Điện tử', 80),
+            o('Miền Nam', 'Gia dụng', 102),
+            o('Miền Nam', 'Điện tử', 95),
+            o('Miền Trung', 'Gia dụng', 100),
+            o('Miền Trung', 'Điện tử', 115),
+          ],
+          dimensionLabel: 'Khu vực',
+          measureLabel: 'Số lượng',
+          seriesLabel: 'Nhóm hàng',
+          grouped: false,
+        },
+      },
+    ];
+  }
+
+  it('câu hỏi tiếp được trả lời bằng ngữ cảnh của lượt trước', () => {
+    dung(cotChong());
+    fireEvent.click(nutMo());
+
+    hoi('nhóm hàng nào có số lượng cao nhất');
+    expect(screen.getByText(/Gia dụng/)).toBeInTheDocument();
+
+    // "Ở miền nào" một mình không có nghĩa gì — nó chỉ sống nhờ lượt trước.
+    hoi('ở miền nào');
+    expect(screen.getByText(/Miền Trung/)).toBeInTheDocument();
+  });
+
+  /*
+   * ⚠️ Đổi chip XOÁ cuộc trò chuyện, nên câu hỏi cũ không còn trên màn hình.
+   * Giữ nó lại làm ngữ cảnh nghĩa là câu trả lời tiếp theo được lái bởi một
+   * câu người dùng KHÔNG CÒN NHÌN THẤY — đúng thứ mà cả thiết kế này dựng lên
+   * để chặn.
+   *
+   * Ca này cố ý dựng sao cho bộ nhớ cũ THẬT SỰ đổi câu trả lời: "còn bao nhiêu
+   * dòng" một mình không khớp dữ kiện nào của chip mới, nhưng nối với câu cũ
+   * thì `nguonTheoTen` tìm thấy "Đơn hàng Q4" và trả về 12.431.
+   */
+  it('đổi chip nguồn thì quên lượt trước', async () => {
+    dung([
+      { ten: 'Đơn hàng Q4', duKien: [{ nhan: 'Số dòng của Đơn hàng Q4', gia: '12.431' }] },
+      { ten: 'Khách hàng', duKien: [{ nhan: 'Số cột của Khách hàng', gia: '8' }] },
+    ]);
+    fireEvent.click(nutMo());
+
+    hoi('Đơn hàng Q4 có bao nhiêu dòng');
+    expect(screen.getByText(/12\.431/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Khách hàng' }));
+
+    hoi('còn bao nhiêu dòng');
+    await screen.findByText(/Tôi chưa hiểu câu này/);
+    expect(screen.queryByText(/12\.431/)).toBeNull();
   });
 });

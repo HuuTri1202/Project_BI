@@ -6,14 +6,14 @@ import { dienDatLai, hieuCauHoi, hoiTrenMoHinh } from './api';
 import { useNguCanh } from './nguCanh';
 import type { Nguon } from './nguCanh';
 import { useNguCanhHeThong } from './nguCanhHeThong';
+import { useCoMoHinh } from './trangThai';
 import {
   goiYGan,
   goiYSoSanh,
   luaChonHeThong,
   luaChonTrang,
   nhanDuyNhat,
-  traLoiHeThong,
-  traLoiTrang,
+  traLoiKhung,
 } from './traLoi';
 import type { TraLoi } from './traLoi';
 
@@ -70,6 +70,39 @@ interface TinNhan {
   /** Câu bấm được, chỉ có ở tin "chưa hiểu" — xem `goiYGan`. */
   goiY?: string[];
   /**
+   * Bot ĐANG soạn — vẽ ba chấm nhấp nháy thay cho chữ.
+   *
+   * ═══ Vì sao nó thay chỗ câu "chưa hiểu" ═══════════════════════════════════
+   *
+   * Trước đây khung hiện "Tôi chưa hiểu câu này" NGAY, rồi vài trăm mili giây
+   * sau mới thay bằng câu trả lời của lớp mô hình. Người dùng đọc được cả hai,
+   * và cái đầu là một lời nói dối ngắn: khung chưa đọc xong thì chưa biết nó
+   * hiểu hay không.
+   *
+   * Ba chấm nói đúng thứ đang xảy ra, và nó chỉ xuất hiện ở nhánh CÓ CHỜ THẬT.
+   * Nhánh trả lời được ngay vẫn hiện thẳng câu trả lời — tốc độ là thứ duy
+   * nhất mà lớp mô hình không làm tốt hơn được.
+   */
+  dangSoan?: true;
+  /**
+   * Lớp mô hình nào đã tham gia câu này — `undefined` = thuần ngoại tuyến.
+   *
+   * ═══ Vì sao nói ra ở TỪNG CÂU, không chỉ ở tiêu đề ════════════════════════
+   *
+   * Nhãn trên tiêu đề nói "đã cấu hình", mà đã cấu hình không có nghĩa là đang
+   * gọi được: hết lượt miễn phí, mất mạng, khoá hết hạn — ba thứ xảy ra liên
+   * tục và cả ba đều IM LẶNG theo đúng thiết kế của khung.
+   *
+   * Dấu ở từng câu là chỗ duy nhất đọc được trạng thái thật: còn thấy nó nghĩa
+   * là mô hình vẫn đang chạy; cả loạt câu không còn dấu nghĩa là nó đã tắt,
+   * dù tiêu đề vẫn xanh.
+   *
+   * Nó cũng trả lời câu hỏi quan trọng hơn: "con số này do ai tính ra". Không
+   * có dấu = hoàn toàn do máy người dùng. Có dấu = mô hình đã CHỌN hoặc đã
+   * VIẾT LẠI, và cả hai đều không chạm được vào con số.
+   */
+  doMoHinh?: string;
+  /**
    * Cách truy vấn đã được hiểu — chỉ có ở đường đặt câu hỏi MỚI.
    *
    * Nó không phải lời giải thích cho đẹp: đó là đường duy nhất trong khung mà
@@ -105,6 +138,15 @@ export function HoiDapPanel(): React.ReactElement | null {
    * Backend sẽ chặn (id lạ -> bỏ cả form), nên hậu quả chỉ là một câu "chưa
    * hiểu" vô cớ. Nhưng đó vẫn là một câu sai, nên kiểm ngay ở đây rẻ hơn.
    */
+  /**
+   * Câu NGƯỜI DÙNG hỏi ở lượt trước — bộ nhớ của lớp ngoại tuyến.
+   *
+   * Khác `boiCanh` bên dưới: cái kia nhớ một FORM truy vấn của lớp mô hình,
+   * cái này nhớ đúng mấy chữ người ta vừa gõ, để `traLoiKhung` nối vào một câu
+   * hỏi tiếp rỗng nghĩa. Hai thứ độc lập nhau vì hai lớp độc lập nhau.
+   */
+  const [cauTruoc, setCauTruoc] = useState<string | null>(null);
+
   const [boiCanh, setBoiCanh] = useState<{
     moHinhId: number;
     cauHoi: string;
@@ -119,6 +161,7 @@ export function HoiDapPanel(): React.ReactElement | null {
    * render.
    */
   const heThong = useNguCanhHeThong(mo);
+  const coMoHinh = useCoMoHinh(mo);
 
   // Tin mới nhất phải nằm trong tầm mắt. Không có cái này thì từ câu thứ ba trở
   // đi câu trả lời rơi xuống dưới mép khung, và người dùng tưởng không có gì
@@ -139,52 +182,32 @@ export function HoiDapPanel(): React.ReactElement | null {
     if (q === '') return;
 
     /*
-     * TRANG trước, HỆ THỐNG sau — thứ tự này là cả thiết kế.
-     *
-     * Trang đang mở là thứ người dùng đang nhìn và kiểm lại được bằng mắt. Một
-     * câu trả lời xuyên hệ thống thì không: nó nói về thứ không có trên màn
-     * hình, nên nó chỉ được dùng khi trang thật sự không trả lời được, và nó
-     * luôn tự khai ra là nó đọc ở đâu (xem `traLoiHeThong`).
+     * Một cửa vào duy nhất — trang, rồi hệ thống, rồi thử lại kèm lượt trước.
+     * Bộ đánh giá gọi đúng hàm này, nên thứ nó đo là thứ người dùng gặp.
      */
-    const kq = traLoiTrang(nguCanh.nguon, nguon, q) ?? traLoiHeThong(heThong, q);
+    const kq = traLoiKhung(nguCanh.nguon, nguon, heThong, q, cauTruoc);
     demId.current += 2;
     const idBot = demId.current;
     const luc = gioBayGio();
 
     /*
-     * Hiện câu mẫu NGAY. Nó đã tính xong trên máy này; bắt người dùng nhìn một
-     * vòng xoay để đọc một con số đã có là lấy đi thứ duy nhất mà lớp mô hình
-     * ngôn ngữ không làm tốt hơn được — tốc độ.
+     * Trả lời được ngay thì hiện NGAY. Nó đã tính xong trên máy này; bắt người
+     * dùng nhìn một vòng xoay để đọc một con số đã có là lấy đi thứ duy nhất
+     * mà lớp mô hình ngôn ngữ không làm tốt hơn được — tốc độ.
+     *
+     * Không trả lời được thì hiện BA CHẤM, không hiện "tôi chưa hiểu": mấy lớp
+     * mô hình còn chưa chạy xong, nên chưa biết là hiểu hay không.
      */
     setTinNhan((cu) => [
       ...cu,
       { id: idBot - 1, ai: 'nguoi', cau: q, luc },
-      {
-        id: idBot,
-        ai: 'bot',
-        luc,
-        cau:
-          kq?.cau ??
-          `Tôi chưa hiểu câu này. Tôi trả lời bằng số liệu đang có trên ${nguCanh.trang}${
-            heThong.length > 0 ? ', cộng danh sách bộ dữ liệu và mô hình của tổ chức' : ''
-          } — không tra ở đâu khác.`,
-        /*
-         * Bế tắc phải kèm đường đi tiếp. Gần nhất với câu vừa gõ trước; không
-         * có gì gần thì rơi về đúng những câu mẫu của màn chào — thà gợi ý
-         * chung chung còn hơn để người dùng tự đoán xem khung biết gì.
-         */
-        ...(kq === null
-          ? {
-              chuaHieu: true,
-              goiY: (() => {
-                const gan = goiYGan(nguCanh.nguon, nguon, q);
-                return gan.length > 0 ? gan : cauMau(nguon, goiYSoSanh(nguCanh.nguon)).slice(0, 3);
-              })(),
-            }
-          : {}),
-      },
+      kq === null
+        ? { id: idBot, ai: 'bot', luc, cau: '', dangSoan: true }
+        : { id: idBot, ai: 'bot', luc, cau: kq.cau },
     ]);
     setCauHoi('');
+    // Nhớ câu vừa hỏi cho lượt sau — xem `traLoiKhung`.
+    setCauTruoc(q);
 
     if (kq === null) {
       nhoMoHinhChon(q, idBot);
@@ -192,6 +215,35 @@ export function HoiDapPanel(): React.ReactElement | null {
     }
 
     vietLai(q, idBot, kq);
+  }
+
+  /**
+   * Hết đường: thay ba chấm bằng câu "chưa hiểu" kèm lối đi tiếp.
+   *
+   * MỌI nhánh bất thành của các lớp mô hình phải đi qua đây. Bỏ sót một nhánh
+   * là ba chấm nhấp nháy mãi mãi — một trạng thái chờ không bao giờ kết thúc,
+   * tệ hơn hẳn một câu "chưa hiểu" tử tế.
+   */
+  function hetDuong(q: string, idBot: number, cau?: string): void {
+    const chung = `Tôi chưa hiểu câu này. Tôi trả lời bằng số liệu đang có trên ${nguCanh.trang}${
+      heThong.length > 0 ? ', cộng danh sách bộ dữ liệu và mô hình của tổ chức' : ''
+    } — không tra ở đâu khác.`;
+
+    /*
+     * Bế tắc phải kèm đường đi tiếp. Gần nhất với câu vừa gõ trước; không có gì
+     * gần thì rơi về đúng những câu mẫu của màn chào — thà gợi ý chung chung
+     * còn hơn để người dùng tự đoán xem khung biết gì.
+     */
+    const gan = goiYGan(nguCanh.nguon, nguon, q);
+    const goiY = gan.length > 0 ? gan : cauMau(nguon, goiYSoSanh(nguCanh.nguon)).slice(0, 3);
+
+    setTinNhan((cu) =>
+      cu.map((t) =>
+        t.id === idBot
+          ? { id: t.id, ai: t.ai, luc: t.luc, cau: cau ?? chung, chuaHieu: true, goiY }
+          : t,
+      ),
+    );
   }
 
   /**
@@ -208,7 +260,18 @@ export function HoiDapPanel(): React.ReactElement | null {
   function vietLai(q: string, idBot: number, kq: TraLoi): void {
     void dienDatLai({ cauHoi: q, cau: kq.cau, so: kq.so })
       .then((moi) => {
-        setTinNhan((cu) => cu.map((t) => (t.id === idBot ? { ...t, cau: moi } : t)));
+        /*
+         * Chỉ đánh dấu khi câu THẬT SỰ đổi khác. Backend trả lại nguyên câu mẫu
+         * khi chưa cấu hình, khi gọi hỏng, và khi luật đối chiếu số bỏ câu mô
+         * hình viết — cả ba đều KHÔNG phải "mô hình đã viết lại".
+         */
+        setTinNhan((cu) =>
+          cu.map((t) =>
+            t.id === idBot
+              ? { ...t, cau: moi, ...(moi === kq.cau ? {} : { doMoHinh: 'mô hình viết lại' }) }
+              : t,
+          ),
+        );
       })
       .catch(() => {
         // Cố ý im lặng: câu mẫu đang hiện vẫn là một câu trả lời đúng và đủ.
@@ -236,6 +299,7 @@ export function HoiDapPanel(): React.ReactElement | null {
       // Không có gì để chọn thì bỏ hẳn lớp chọn-nhãn, nhưng đường đặt câu hỏi
       // mới không phụ thuộc vào danh sách đó.
       if (nguCanh.moHinhId !== undefined) nhoMoHinhHoi(q, idBot, nguCanh.moHinhId);
+      else hetDuong(q, idBot);
       return;
     }
 
@@ -258,16 +322,12 @@ export function HoiDapPanel(): React.ReactElement | null {
             nhoMoHinhHoi(q, idBot, nguCanh.moHinhId);
             return;
           }
-          if (!daHoi) return;
-          setTinNhan((cu) =>
-            cu.map((t) =>
-              t.id === idBot
-                ? {
-                    ...t,
-                    cau: `Tôi đã đọc hết số liệu đang có trên ${nguCanh.trang} và không có mục nào trả lời được câu này.`,
-                  }
-                : t,
-            ),
+          hetDuong(
+            q,
+            idBot,
+            daHoi
+              ? `Tôi đã đọc hết số liệu đang có trên ${nguCanh.trang} và không có mục nào trả lời được câu này.`
+              : undefined,
           );
           return;
         }
@@ -275,13 +335,19 @@ export function HoiDapPanel(): React.ReactElement | null {
         // Mô hình chỉ CHỌN được một mục. Câu chữ và con số vẫn do `traLoi.ts`
         // tính ra tại máy này — kể cả `luuY`, điều kiện của con số.
         setTinNhan((cu) =>
-          cu.map((t) => (t.id === idBot ? { id: t.id, ai: t.ai, cau: kq.cau, luc: t.luc } : t)),
+          cu.map((t) =>
+            t.id === idBot
+              ? { id: t.id, ai: t.ai, cau: kq.cau, luc: t.luc, doMoHinh: 'mô hình chọn mục' }
+              : t,
+          ),
         );
         // Rồi mới viết lại cho ra câu, y như đường kia.
         vietLai(q, idBot, kq);
       })
       .catch(() => {
-        // Cố ý im lặng: bong bóng "chưa hiểu" kèm gợi ý vẫn đang ở đó.
+        // Gọi hỏng (chưa cấu hình, mất mạng, hết lượt) — vẫn phải kết thúc ba
+        // chấm, nếu không nó nhấp nháy mãi.
+        hetDuong(q, idBot);
       });
   }
 
@@ -313,7 +379,10 @@ export function HoiDapPanel(): React.ReactElement | null {
 
     void hoiTrenMoHinh(moHinhId, q, truoc)
       .then(({ cau, so, hieuLa, truyVan }) => {
-        if (cau === null) return;
+        if (cau === null) {
+          hetDuong(q, idBot);
+          return;
+        }
 
         /*
          * Nhớ lượt này cho lượt sau.
@@ -335,7 +404,14 @@ export function HoiDapPanel(): React.ReactElement | null {
         setTinNhan((cu) =>
           cu.map((t) =>
             t.id === idBot
-              ? { id: t.id, ai: t.ai, luc: t.luc, cau, hieuLa: hieuLa ?? undefined }
+              ? {
+                  id: t.id,
+                  ai: t.ai,
+                  luc: t.luc,
+                  cau,
+                  hieuLa: hieuLa ?? undefined,
+                  doMoHinh: 'mô hình dựng truy vấn',
+                }
               : t,
           ),
         );
@@ -345,10 +421,11 @@ export function HoiDapPanel(): React.ReactElement | null {
       })
       .catch(() => {
         /*
-         * Im lặng, và đây là ca có thật chứ không phải phòng xa: `viewer` không
-         * có `datamodel:read` nên lời gọi này trả 403 với họ. Bong bóng "chưa
-         * hiểu" kèm gợi ý vẫn đúng và vẫn ở đó.
+         * Ca có thật chứ không phải phòng xa: `viewer` không có `datamodel:read`
+         * nên lời gọi này trả 403 với họ. Kết thúc ba chấm bằng câu "chưa
+         * hiểu" kèm gợi ý — y như khi không có mô hình nào.
          */
+        hetDuong(q, idBot);
       });
   }
 
@@ -397,6 +474,24 @@ export function HoiDapPanel(): React.ReactElement | null {
             <span className="truncate">
               Đang đọc {nguCanh.trang}
               {heThong.length > 0 && ' + toàn tổ chức'}
+            </span>
+            {/*
+              Có mô hình hay không — thứ trước đây chỉ biết được bằng cách chạy
+              `npm run llm:kiem` ở terminal. Cùng một câu hỏi cho hai câu trả
+              lời rất khác nhau tuỳ trạng thái này, nên giấu nó đi là để người
+              dùng kết luận rằng khung lúc được lúc không.
+            */}
+            <span
+              title={
+                coMoHinh
+                  ? 'Có mô hình ngôn ngữ: khung hiểu được cả cách hỏi khác chữ. Con số vẫn do máy bạn tính.'
+                  : 'Chưa cấu hình mô hình ngôn ngữ: khung chạy bằng phép so từ khoá trên máy bạn.'
+              }
+              className={`shrink-0 rounded px-1.5 py-px text-[10px] font-medium ${
+                coMoHinh ? 'bg-brand-50 text-brand-700' : 'bg-slate-100 text-slate-500'
+              }`}
+            >
+              {coMoHinh ? 'có mô hình' : 'ngoại tuyến'}
             </span>
           </span>
         </span>
@@ -449,6 +544,7 @@ export function HoiDapPanel(): React.ReactElement | null {
                 // Và quên luôn lượt hỏi trước: "còn tháng 4 thì sao" sau khi đổi
                 // chip là hỏi tiếp về một thứ người dùng vừa rời khỏi.
                 setBoiCanh(null);
+                setCauTruoc(null);
               }}
               className={`shrink-0 rounded-full border px-2 py-0.5 text-xs whitespace-nowrap transition-colors ${
                 i === chon
@@ -553,7 +649,10 @@ function BongBong({
               Tôi hiểu: {tin.hieuLa}
             </span>
           )}
-          {tin.cau}
+          {tin.dangSoan === true ? <BaCham /> : tin.cau}
+          {tin.doMoHinh !== undefined && (
+            <span className="mt-1.5 block text-[11px] text-slate-400">↳ {tin.doMoHinh}</span>
+          )}
           {tin.goiY !== undefined && tin.goiY.length > 0 && (
             <span className="mt-2 block">
               <span className="mb-1.5 block text-xs text-amber-700">Có phải bạn muốn hỏi:</span>
@@ -564,6 +663,40 @@ function BongBong({
         <span className="text-[11px] text-slate-400">{tin.luc}</span>
       </div>
     </div>
+  );
+}
+
+/**
+ * Ba chấm "đang soạn".
+ *
+ * ═══ Vì sao vẽ tay, không dùng một spinner ════════════════════════════════
+ *
+ * Vòng xoay nói "hệ thống đang bận"; ba chấm nói "người kia đang viết cho bạn".
+ * Ở một khung trò chuyện thì vế thứ hai mới đúng, và nó là quy ước mà ai cũng
+ * đọc được mà không phải học.
+ *
+ * `aria-label` để trình đọc màn hình nói ra điều đó thành lời — ba chấm nhấp
+ * nháy là một hình ảnh, và người không nhìn được màn hình sẽ chỉ gặp im lặng.
+ *
+ * Lệch pha bằng `animationDelay` chứ không bằng ba animation khác nhau: cùng
+ * một nhịp, chỉ vào sau nhau, nên không bao giờ trôi lệch khỏi nhau.
+ */
+function BaCham(): React.ReactElement {
+  return (
+    <span
+      className="flex items-center gap-1 py-0.5"
+      role="status"
+      aria-label="Đang soạn câu trả lời"
+    >
+      {[0, 150, 300].map((tre) => (
+        <span
+          key={tre}
+          aria-hidden="true"
+          style={{ animationDelay: `${String(tre)}ms` }}
+          className="h-1.5 w-1.5 animate-bounce rounded-full bg-slate-400"
+        />
+      ))}
+    </span>
   );
 }
 

@@ -299,29 +299,83 @@ function tenDong(row: ReportDataDto['rows'][number]): string {
 function chieuHoi(bang: ReportDataDto, cauHoi: string): 'label' | 'series' | null {
   if (bang.seriesLabel === undefined) return null;
   const q = chuanHoa(cauHoi);
-  const chuoi = chuanHoa(bang.seriesLabel);
-  const truc = chuanHoa(bang.dimensionLabel);
-  const coChuoi = chuoi !== '' && q.includes(chuoi);
-  const coTruc = truc !== '' && q.includes(truc);
 
-  if (coChuoi !== coTruc) return coChuoi ? 'series' : 'label';
+  const viTri = (ten: string, lay: (r: ReportDataDto['rows'][number]) => string): number => {
+    const a = viTriGoiTen(q, chuanHoa(ten));
+    const b = viTriQuaGiaTri(bang, q, lay);
+    return a < 0 ? b : b < 0 ? a : Math.min(a, b);
+  };
 
-  // Không gọi tên chiều nào: giữ cách cũ, trả lời bằng dòng lớn nhất.
-  if (!coChuoi) return null;
+  const vTruc = viTri(bang.dimensionLabel, (r) => r.label);
+  const vChuoi = viTri(bang.seriesLabel ?? '', (r) => r.series ?? '');
 
   /*
-   * Gọi tên CẢ HAI. Gần như luôn là vì một tên nằm lọt trong tên kia — chiều
-   * "Name" và chuỗi "Product Name" thì câu hỏi nào về cái sau cũng chứa cái
-   * trước. Tên DÀI hơn là tên người dùng thật sự gõ; cùng luật đã dùng ở
-   * `timDong` và `nguonTheoTen`.
+   * ⚠️ Gọi tên ĐẦY ĐỦ cả hai chiều, hai tên rời nhau, và không có chữ "nào"
+   * nào trỏ vào một trong hai — thì câu hỏi THẬT SỰ lẫn lộn.
    *
-   * Hai tên rời nhau mà cùng được gọi thì câu hỏi thật sự lẫn lộn — trả `null`
-   * để rơi về câu trả lời gọi đủ cả hai tên, thay vì chọn bừa một chiều rồi đưa
-   * ra một con số gộp mà không ai biết đã gộp theo gì.
+   * "Customer name với product name cái nào cao nhất" nêu hai chiều ngang
+   * hàng nhau; chọn cái đứng trước chỉ vì nó đứng trước là chọn bừa. Trả
+   * `null` để rơi về câu trả lời gọi đủ cả hai tên, thay vì đưa ra một con số
+   * gộp mà không ai biết đã gộp theo gì.
+   *
+   * Cửa này hẹp có chủ ý: nó đòi cả hai tên ĐẦY ĐỦ có mặt. "Miền nào có nhóm
+   * hàng cao nhất" không rơi vào đây — ở đó chỉ "nhóm hàng" là tên chiều, còn
+   * "miền" là một chữ trong giá trị, và chính nó đứng trước chữ "nào".
    */
-  if (chuoi !== truc && chuoi.includes(truc)) return 'series';
-  if (chuoi !== truc && truc.includes(chuoi)) return 'label';
-  return null;
+  const tenTruc = chuanHoa(bang.dimensionLabel);
+  const tenChuoi = chuanHoa(bang.seriesLabel ?? '');
+  const caHaiTen = viTriGoiTen(q, tenTruc) >= 0 && viTriGoiTen(q, tenChuoi) >= 0;
+  const long = tenTruc !== tenChuoi && (tenChuoi.includes(tenTruc) || tenTruc.includes(tenChuoi));
+  const coChuNao =
+    viTriQuaGiaTri(bang, q, (r) => r.label) >= 0 ||
+    viTriQuaGiaTri(bang, q, (r) => r.series ?? '') >= 0 ||
+    new RegExp(`(^| )(${tenTruc}|${tenChuoi}) nao( |$)`).test(q);
+  if (caHaiTen && !long && !coChuNao) return null;
+
+  if (vTruc < 0 && vChuoi < 0) return null;
+  if (vChuoi < 0) return 'label';
+  if (vTruc < 0) return 'series';
+
+  /*
+   * Hai chiều cùng được gọi tên ở CÙNG vị trí nghĩa là một tên nằm lọt trong
+   * tên kia ở đúng chỗ đó, và không có gì tách được chúng. Trả `null` để rơi về
+   * câu trả lời gọi đủ cả hai tên, thay vì chọn bừa rồi đưa ra một con số gộp
+   * mà không ai biết đã gộp theo gì.
+   */
+  return vTruc === vChuoi ? null : vTruc < vChuoi ? 'label' : 'series';
+}
+
+/** Vị trí chiều được gọi THẲNG TÊN trong câu, hoặc -1. So theo từ trọn vẹn. */
+function viTriGoiTen(q: string, ten: string): number {
+  return ten === '' ? -1 : ` ${q} `.indexOf(` ${ten} `);
+}
+
+/**
+ * Vị trí chiều được gọi qua một GIÁ TRỊ của nó, đứng ngay trước chữ "nào".
+ *
+ * "Miền" không phải tên chiều nào cả — tên chiều là "Khu vực" — nhưng nó có
+ * mặt trong MỌI giá trị của chiều đó ("Miền Bắc", "Miền Nam", "Miền Trung").
+ * Đó chính là cách người ta gọi tên một chiều khi không nhìn vào nhãn trục, và
+ * nó đọc được từ chính dữ liệu nên không cần một bảng đồng nghĩa nào.
+ *
+ * Đòi chữ đó có ở MỌI giá trị, không phải một vài: lỏng hơn thế thì một chữ
+ * tình cờ trùng một giá trị sẽ đổi hẳn chiều của câu trả lời — và một con số
+ * gộp nhầm chiều vẫn là một con số có thật.
+ */
+function viTriQuaGiaTri(
+  bang: ReportDataDto,
+  q: string,
+  lay: (r: ReportDataDto['rows'][number]) => string,
+): number {
+  const gia = bang.rows.map((r) => chuanHoa(lay(r))).filter((g) => g !== '');
+  if (gia.length === 0) return -1;
+
+  for (const m of ` ${q} `.matchAll(/ ([^ ]+) nao(?= )/g)) {
+    const chu = m[1] ?? '';
+    if (chu.length < 2) continue;
+    if (gia.every((g) => g.split(' ').includes(chu))) return m.index;
+  }
+  return -1;
 }
 
 /** Cộng các dòng lại theo một chiều. */
@@ -568,6 +622,27 @@ function tinhBang(
       // "Miền Bắc bao nhiêu" không chứa từ khoá nào cả.
       const dong = timDong(rows, cauHoi);
       if (dong === null) return null;
+
+      /*
+       * ⚠️ Biểu đồ HAI chiều thì một nhãn trục có nhiều dòng, mỗi chuỗi một
+       * dòng. Trả về đúng dòng đầu tìm thấy là đưa ra con số của MỘT Ô trong
+       * cột chồng cho một câu hỏi về cả cột — "Số lượng của Miền Nam là 93"
+       * trong khi Miền Nam là 290. Đúng số, sai thứ được hỏi, và không có dấu
+       * hiệu nào vì 93 cũng là một con số có thật trên biểu đồ.
+       */
+      const cungNhan = rows.filter((r) => r.label === dong.label);
+      if (bang.seriesLabel !== undefined && cungNhan.length > 1) {
+        const tongNhom = cungNhan.reduce((t, r) => t + r.value, 0);
+        const giaNhom = doc(tongNhom);
+        return {
+          cau: ghep(
+            `${measureLabel} của ${dong.label} là ${giaNhom}, cộng qua ${String(cungNhan.length)} ${bang.seriesLabel}.`,
+            cat,
+          ),
+          so: [giaNhom],
+        };
+      }
+
       const gia = doc(dong.value);
       return { cau: `${measureLabel} của ${tenDong(dong)} là ${gia}.`, so: [gia] };
     }
@@ -677,18 +752,17 @@ function timHaiDong(
  * đủ rõ — cả hai đều phải ra `null` để khung nói "chưa hiểu" thay vì chọn bừa.
  */
 function traCuu(duKien: DuKien[], cauHoi: string): TraLoi | null {
-  const tuHoi = new Set(
-    chuanHoa(cauHoi)
+  const noiDung = (s: string): string[] =>
+    chuanHoa(s)
       .split(' ')
-      .filter((t) => t.length > 1),
-  );
+      .filter((t) => t.length > 1 && !TU_HOI.has(t));
+
+  const tuHoi = new Set(noiDung(cauHoi));
   if (tuHoi.size === 0) return null;
 
   const diem = duKien.map((d) => ({
     d,
-    diem: chuanHoa(d.nhan)
-      .split(' ')
-      .filter((t) => tuHoi.has(t)).length,
+    diem: noiDung(d.nhan).filter((t) => tuHoi.has(t)).length,
   }));
   diem.sort((a, b) => b.diem - a.diem);
 
@@ -715,6 +789,25 @@ export function traLoi(nguon: Nguon, cauHoi: string): TraLoi | null {
     const tinh = tinhBang(nguon.bang, cauHoi, y);
     if (tinh !== null) return tinh;
   }
+
+  /*
+   * Câu ĐẾM muốn một CON SỐ, nên chỉ chấm điểm trên những dữ kiện là số.
+   *
+   * Lỗi đo được: "có bao nhiêu báo cáo" trên trang chủ. Nhãn "Số báo cáo trong
+   * HR" và nhãn "Báo cáo mở gần đây trong HR" trùng nhau đúng hai chữ "báo
+   * cáo", nên chúng HOÀ điểm và luật "phải hơn hẳn ứng viên nhì" bỏ cả hai —
+   * đúng luật, mà câu hỏi thì đơn giản nhất có thể.
+   *
+   * Lọc theo giá trị chứ không theo nhãn: "Báo cáo mở gần đây" có giá trị là
+   * một chuỗi tên, còn "Số báo cáo" có giá trị là một con số. Đó là thứ phân
+   * biệt chúng, và nó đọc được từ chính dữ liệu.
+   */
+  if (y === 'dem') {
+    const soDuoc = nguon.duKien.filter((d) => soVi(d.gia) !== null);
+    const kq = soDuoc.length === 0 ? null : traCuu(soDuoc, cauHoi);
+    if (kq !== null) return kq;
+  }
+
   return traCuu(nguon.duKien, cauHoi);
 }
 
@@ -794,6 +887,30 @@ const TU_DEM = new Set([
  * "mô hình" xé làm hai và còn lại một chữ "dữ liệu" lơ lửng.
  */
 const CUM_LOAI = ['mo hinh du lieu', 'bo du lieu', 'mo hinh', 'du lieu'];
+
+/**
+ * Từ chỉ dùng để HỎI, không nói gì về nội dung.
+ *
+ * Nhãn của ta cũng được viết theo giọng câu hỏi — "Báo cáo X dựng trên GÌ",
+ * "Mô hình X đã nối đủ CHƯA", "Báo cáo X sửa lần cuối lúc NÀO". Nên mấy chữ
+ * này có mặt ở cả hai phía và chỉ làm nhiễu phép chấm điểm.
+ *
+ * Lỗi đo được: "báo cáo Số lượng theo Khu vực dùng mô hình NÀO" hoà điểm giữa
+ * nhãn "… dựng trên gì" và nhãn "… sửa lần cuối lúc NÀO", đúng vì chữ "nào"
+ * cho nhãn thứ hai thêm một điểm miễn phí. Hoà thì `traCuu` bỏ cả hai, nên câu
+ * hỏi mất câu trả lời vì một chữ không mang nội dung nào.
+ *
+ * Bỏ ĐỐI XỨNG ở cả câu hỏi lẫn nhãn — bỏ một phía là tự tạo ra lệch điểm mới.
+ */
+const TU_HOI = new Set(['nao', 'gi', 'chua', 'may']);
+
+/*
+ * ⚠️ KHÔNG có `bao` và `nhieu` trong danh sách trên, dù "bao nhiêu" là từ để
+ * hỏi điển hình nhất. Vì `chuanHoa('báo')` cũng ra `bao`: bỏ nó đi là xé đôi
+ * chữ "báo cáo", và mọi nhãn về báo cáo mất một nửa điểm của chúng.
+ *
+ * Cũng không có `khong`: "không có quan hệ" dùng nó để phủ định, không để hỏi.
+ */
 
 /** Bỏ các cụm chỉ loại khỏi một chuỗi ĐÃ chuẩn hoá. */
 function boCumLoai(q: string): string {
@@ -1029,6 +1146,81 @@ export function soSanhNguon(
   };
 }
 
+/**
+ * LỌC danh sách theo một thuộc tính CHỮ — "liệt kê các báo cáo biểu đồ cột".
+ *
+ * ═══ Vì sao `soSanhNguon` không làm được việc này ══════════════════════════
+ *
+ * `soSanhNguon` trả lời "mục nào CAO NHẤT" — nó so số. Câu hỏi ở đây khác hẳn:
+ * "những mục nào CÓ GIÁ TRỊ BẰNG cái này", trên một cột toàn chữ. Trang chủ
+ * hiện năm thẻ báo cáo kèm nhãn "Biểu đồ cột" ngay trên mặt thẻ, mà khung thì
+ * nói "không có mục nào trả lời được" — lỗi người dùng gặp thật.
+ *
+ * ═══ Hai cửa, và cả hai đều chặt ═══════════════════════════════════════════
+ *
+ *   1. Câu hỏi phải gọi tên đúng MỘT cột so được (`chonThuocTinh`, hoà thì bỏ).
+ *   2. Câu hỏi phải chứa NGUYÊN VĂN một giá trị của chính cột đó.
+ *
+ * Cửa (2) là thứ giữ hàm này khỏi đoán: nó không tự nghĩ ra điều kiện, nó chỉ
+ * nhận ra một giá trị người dùng vừa gõ ra. Không thấy giá trị nào thì trả
+ * `null` và nhường cho các nhánh sau.
+ *
+ * ⚠️ Giá trị phải dài TỪ NĂM ký tự và khớp theo cụm từ trọn vẹn. Một giá trị
+ * ngắn như tên người "dang" sẽ trùng với chữ "đang" trong "báo cáo nào đang
+ * chạy", và khi đó khung liệt kê báo cáo theo người tạo cho một câu hỏi về
+ * trạng thái — một danh sách có thật, trả lời một câu hỏi khác.
+ */
+export function locNguon(
+  tatCa: Nguon[],
+  cauHoi: string,
+  pham = 'đang hiện trên trang này',
+): TraLoi | null {
+  const { cot, muc } = gomThuocTinh(tatCa);
+  if (muc.length < 2) return null;
+
+  const q = ` ${chuanHoa(cauHoi)} `;
+
+  /*
+   * Cột được nhận ra qua GIÁ TRỊ khớp, KHÔNG qua tên cột.
+   *
+   * Bản đầu dùng `chonThuocTinh` và nó hoà: "Loại biểu đồ của báo cáo" và "Báo
+   * cáo có mấy biểu đồ" cùng trùng ba chữ với "liệt kê các báo cáo biểu đồ
+   * cột" — vì chữ phân biệt chúng là "cột", mà "cột" chỉ có trong GIÁ TRỊ.
+   *
+   * Giá trị khớp vừa là bằng chứng nhận ra cột, vừa là điều kiện lọc. Một cột
+   * mà không giá trị nào của nó được gõ ra thì không có gì để lọc theo.
+   */
+  const ungVien = cot.flatMap((g) =>
+    [...new Set([...g.gia.values()].map((d) => d.gia))]
+      .filter((v) => {
+        const c = chuanHoa(v);
+        return c.length >= 5 && q.includes(` ${c} `);
+      })
+      .map((v) => ({ g, v })),
+  );
+
+  // Giá trị DÀI NHẤT thắng, cùng luật đã ghi ở `timDong`: "Biểu đồ cột" và
+  // "Biểu đồ cột chồng" cùng nằm trong câu hỏi về cái thứ hai.
+  ungVien.sort((a, b) => b.v.length - a.v.length);
+  const chon = ungVien[0];
+  if (chon === undefined) return null;
+
+  const { g: tt, v: gia } = chon;
+  const hop = muc.filter((m) => tt.gia.get(m.i)?.gia === gia);
+  if (hop.length === 0) return null;
+
+  const hien = hop.slice(0, 20);
+  const con = hop.length - hien.length;
+  return {
+    cau:
+      `${String(hop.length)} mục có "${tt.nhan}" là ${gia}: ` +
+      `${hien.map((m) => m.ten).join(', ')}` +
+      `${con > 0 ? `, … và ${String(con)} mục nữa` : ''} — ` +
+      `so trên ${String(muc.length)} mục ${pham}.`,
+    so: [String(hop.length)],
+  };
+}
+
 /** "A, B và C" — không phải "A và B và C". */
 function noiTen(ten: string[]): string {
   const cuoi = ten[ten.length - 1] ?? '';
@@ -1166,6 +1358,18 @@ export function traLoiTrang(tatCa: Nguon[], chon: Nguon, cauHoi: string): TraLoi
   return (
     soSanhNguon(tatCa, cauHoi) ??
     (goiTen === null ? null : traLoi(goiTen, cauHoi)) ??
+    /*
+     * `locNguon` đứng SAU mục được gọi tên, khác `soSanhNguon`.
+     *
+     * Vì nó nhận ra cột qua một giá trị nằm trong câu hỏi, mà một câu hỏi về
+     * MỘT mục cũng chứa giá trị đó: "Bán hàng đã nối đủ quan hệ chưa" chứa
+     * nguyên văn giá trị "đã nối đủ". Để nó lên trước thì câu hỏi về một mô
+     * hình cụ thể bị trả lời bằng danh sách mọi mô hình đã nối đủ.
+     *
+     * Người dùng gõ tên mục ra là đã nói rõ họ hỏi mục nào — cùng luật nhường
+     * -cho-tên đã dùng ở nhánh `dem` của `tinhBang` và ở `traLoiHeThong`.
+     */
+    locNguon(tatCa, cauHoi) ??
     traLoi(chon, cauHoi)
   );
 }
@@ -1271,6 +1475,103 @@ export function luaChonTrang(tatCa: Nguon[], chon: Nguon, cauHoi: string): LuaCh
     }
   }
   return ds;
+}
+
+/**
+ * Câu hỏi có tự nhắc tới một thứ CỦA DỮ LIỆU không — tên chiều, giá trị, tên mục.
+ *
+ * Dùng để tách "câu nối tiếp tự đủ nghĩa" khỏi "câu nối tiếp rỗng nghĩa". Đọc
+ * từ chính dữ liệu trang đang giữ, nên nó đúng với mọi trang mà không cần biết
+ * trang đó nói về cái gì.
+ */
+function tuNhacDuLieu(tatCa: Nguon[], cauHoi: string): boolean {
+  const q = ` ${chuanHoa(cauHoi)} `;
+  const co = (ten: string): boolean => {
+    const c = chuanHoa(ten);
+    return c !== '' && q.includes(` ${c} `);
+  };
+
+  return tatCa.some((n) => {
+    if (co(n.ten)) return true;
+    if (n.duKien.some((d) => co(d.gia))) return true;
+    const b = n.bang;
+    if (b === undefined) return false;
+    return (
+      co(b.dimensionLabel) ||
+      co(b.measureLabel) ||
+      co(b.seriesLabel ?? '') ||
+      b.rows.some((r) => co(r.label) || co(r.series ?? ''))
+    );
+  });
+}
+
+/**
+ * Câu này có phải một lượt HỎI TIẾP không.
+ *
+ * ═══ Vì sao phải có dấu hiệu, không chỉ "câu ngắn thì nối" ════════════════
+ *
+ * Nối câu trước vào MỌI câu chưa trả lời được là mở đường cho một kiểu sai rất
+ * khó thấy: "hôm nay trời thế nào" nối sau "miền nào có nhóm hàng cao nhất"
+ * thành một câu CÓ trả lời được, và khung sẽ nói về Miền Trung cho một câu hỏi
+ * về thời tiết. Đếm số từ cũng không cứu được — hai câu đó dài bằng nhau.
+ *
+ * Tiếng Việt đánh dấu lượt hỏi tiếp bằng chính chữ MỞ ĐẦU: "còn…", "vậy…",
+ * "thế…", "ở…", "của…". Đó là dấu hiệu thật, và nó nằm đúng chỗ dễ kiểm nhất.
+ */
+export function laNoiTiep(cauHoi: string): boolean {
+  return /^(con|vay|the|o|cua|roi|va|nhung)( |$)/.test(chuanHoa(cauHoi));
+}
+
+/**
+ * Cửa vào DUY NHẤT của khung — trang, rồi hệ thống, rồi thử lại kèm lượt trước.
+ *
+ * ═══ Vì sao thử KHÔNG CÓ bộ nhớ trước ═════════════════════════════════════
+ *
+ * Một câu tự nó đủ nghĩa phải được trả lời bằng chính nó. Nối lượt trước vào
+ * mọi câu là để lịch sử bẻ lái một câu hỏi vốn đã rõ ràng — và người dùng
+ * không có cách nào biết câu trả lời vừa rồi được tính trên câu hỏi nào.
+ *
+ * Nên bộ nhớ chỉ là LƯỚI HỨNG: chạy khi và chỉ khi câu mới một mình không ra
+ * gì, và nó mang dấu hiệu của một lượt hỏi tiếp.
+ *
+ * Gom cả bốn bước vào một hàm để khung và bộ đánh giá đi CÙNG một đường. Tách
+ * ra thì bộ đánh giá đo một thứ, người dùng gặp một thứ khác.
+ */
+export function traLoiKhung(
+  tatCa: Nguon[],
+  chon: Nguon,
+  heThong: Nguon[],
+  cauHoi: string,
+  /** Câu NGƯỜI DÙNG hỏi ở lượt trước, hoặc `null` nếu đây là lượt đầu. */
+  cauTruoc: string | null,
+): TraLoi | null {
+  const mot = traLoiTrang(tatCa, chon, cauHoi) ?? traLoiHeThong(heThong, cauHoi);
+  if (cauTruoc === null || !laNoiTiep(cauHoi)) return mot;
+
+  /*
+   * Câu nối tiếp mà TỰ NÓ nhắc tới một thứ của dữ liệu thì tự nó đủ nghĩa.
+   *
+   * "Của Miền Nam là bao nhiêu" mở đầu bằng chữ nối tiếp, nhưng nó có chủ ngữ
+   * riêng — nối lượt cũ vào là để lượt cũ bẻ lái một câu hỏi vốn đã rõ.
+   *
+   * "Vậy thấp nhất thì sao" thì ngược lại: nó không nhắc tới một chiều nào,
+   * một giá trị nào, một mục nào. Nó TỰ NÓ trả lời được (bằng một ô trong cột
+   * chồng), và đó mới là chỗ nguy: câu trả lời đúng số, mà nó bỏ qua hẳn ngữ
+   * cảnh người dùng vừa dựng ra ở lượt trước.
+   */
+  if (mot !== null && tuNhacDuLieu(tatCa, cauHoi)) return mot;
+
+  /*
+   * Câu MỚI đứng TRƯỚC câu cũ.
+   *
+   * Luật chọn chiều lấy thứ được gọi tên SỚM NHẤT, nên đặt câu mới lên đầu là
+   * cho nó quyền ưu tiên mà không cần thêm một tham số nào. Đặt câu cũ trước
+   * thì "ở miền nào" hỏi tiếp sau "nhóm hàng nào cao nhất" vẫn trả lời về nhóm
+   * hàng — đúng cái lỗi mà bộ nhớ sinh ra để sửa.
+   */
+  const noi = `${cauHoi} ${cauTruoc}`;
+  // Rơi về câu trả lời không bộ nhớ nếu nối vào cũng không ra gì.
+  return traLoiTrang(tatCa, chon, noi) ?? traLoiHeThong(heThong, noi) ?? mot;
 }
 
 /* ═══ Trả lời XUYÊN HỆ THỐNG ════════════════════════════════════════════════
