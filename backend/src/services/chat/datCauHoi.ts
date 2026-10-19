@@ -53,6 +53,25 @@ export interface TruongChon {
 export interface DatCauHoiInput {
   cauHoi: string;
   truong: readonly TruongChon[];
+  /**
+   * Lượt hỏi TRƯỚC trong cùng cuộc trò chuyện — bộ nhớ hội thoại (bước 6).
+   *
+   * ═══ Vì sao giữ TRUY VẤN, không giữ đoạn chat ═════════════════════════════
+   *
+   * "Còn tháng 4 thì sao" chỉ có nghĩa khi biết lượt trước hỏi gì. Cách hiển
+   * nhiên là gửi cả lịch sử hội thoại lên cho mô hình đọc. Nó chạy được, và nó
+   * tốn dần theo độ dài cuộc trò chuyện, rồi mỗi lượt lại cho mô hình thêm một
+   * cơ hội lạc khỏi câu hỏi thật.
+   *
+   * Thứ thật sự cần nhớ là CÁI FORM: một lượt hỏi tiếp gần như luôn là "form
+   * cũ, sửa một ô". Giữ nó nghĩa là bộ nhớ có kích thước KHÔNG ĐỔI, và mô hình
+   * nhận một thứ đã được kiểm xong chứ không phải văn bản tự do.
+   *
+   * ⚠️ Nó ĐI TỪ CLIENT lên, nên nó phải qua `explorerQueryBodySchema` y như mọi
+   * thân request khác. Điều đó không thêm quyền cho ai: ai gọi được đường này
+   * đã có `datamodel:read`, tức đã gọi thẳng `/query` với bất kỳ form nào.
+   */
+  boiCanh?: { cauHoi: string; truyVan: ExplorerQueryDto } | undefined;
 }
 
 export interface DatCauHoiKetQua {
@@ -105,10 +124,20 @@ function chuanHoa(raw: string): string {
  * KHÔNG khớp — và từ chối là đúng, vì ta không biết "Q1" có phải cách dữ liệu
  * ghi quý một hay không.
  *
+ * ═══ Khi có bộ nhớ hội thoại, "lời người dùng" là CẢ CUỘC TRÒ CHUYỆN ══════
+ *
+ * Lượt hỏi tiếp giữ lại bộ lọc của lượt trước: "doanh thu Miền Bắc" rồi "còn
+ * tháng 4 thì sao" thì form mới vẫn phải lọc Miền Bắc, mà chữ đó nằm ở câu
+ * TRƯỚC. So chỉ với câu mới nhất là luật tự bác bỏ mọi lượt hỏi tiếp.
+ *
+ * Nên `loiNguoiDung` là câu mới NỐI câu trước. Luật vẫn giữ đúng nghĩa của nó:
+ * giá trị phải là chữ mà CHÍNH NGƯỜI DÙNG đã nói ra, ở đâu đó trong cuộc trò
+ * chuyện này — chỉ không còn đòi nó nằm trong câu cuối.
+ *
  * Xuất ra để test riêng: đây là luật canh gác, nên nó phải kiểm được một mình.
  */
-export function giuNguyenLoi(cauHoi: string, values: readonly string[]): boolean {
-  const q = chuanHoa(cauHoi);
+export function giuNguyenLoi(loiNguoiDung: string, values: readonly string[]): boolean {
+  const q = chuanHoa(loiNguoiDung);
   return values.every((v) => {
     const c = chuanHoa(v);
     return c !== '' && q.includes(c);
@@ -145,6 +174,11 @@ function soNguyenDuong(v: unknown): number | null {
  *
  * Bỏ cả form thì khung nói "chưa hiểu" — một kết cục nhìn thấy được.
  */
+/** Mọi chữ người dùng đã nói trong cuộc trò chuyện này. */
+function loiNguoiDung(input: DatCauHoiInput): string {
+  return input.boiCanh === undefined ? input.cauHoi : `${input.boiCanh.cauHoi} ${input.cauHoi}`;
+}
+
 export function kiemForm(tho: unknown, input: DatCauHoiInput): ExplorerQueryDto | null {
   if (typeof tho !== 'object' || tho === null) return null;
   const o = tho as Record<string, unknown>;
@@ -204,7 +238,7 @@ export function kiemForm(tho: unknown, input: DatCauHoiInput): ExplorerQueryDto 
       if (khongCanGiaTri ? values.length > 0 : values.length === 0) return null;
 
       // ⚠️ Luật canh gác: giá trị phải là lời của chính người dùng.
-      if (!giuNguyenLoi(input.cauHoi, values)) return null;
+      if (!giuNguyenLoi(loiNguoiDung(input), values)) return null;
 
       ra.push({ dimensionId: id, operator, values });
     }
@@ -214,6 +248,24 @@ export function kiemForm(tho: unknown, input: DatCauHoiInput): ExplorerQueryDto 
   }
 
   return truyVan;
+}
+
+/**
+ * Lượt hỏi trước, viết ra cho mô hình đọc.
+ *
+ * Gửi JSON của chính cái form, không phải văn xuôi: mô hình phải SỬA một
+ * object, và cho nó thấy đúng hình dạng mà nó sắp trả về là cách ngắn nhất để
+ * nói điều đó.
+ */
+function moTaLuotTruoc(input: DatCauHoiInput): string {
+  if (input.boiCanh === undefined) return '';
+  return (
+    `
+
+Lượt hỏi trước: ${input.boiCanh.cauHoi}` +
+    `
+Form của lượt đó: ${JSON.stringify(input.boiCanh.truyVan)}`
+  );
 }
 
 const NHAC = [
@@ -228,6 +280,8 @@ const NHAC = [
   'values PHẢI là chữ lấy nguyên từ câu hỏi của người dùng — không dịch, không viết tắt,',
   'không đổi cách viết. Không chắc giá trị viết thế nào trong dữ liệu thì bỏ filter đó đi.',
   'Câu hỏi không trả lời được bằng các trường này thì trả về {}.',
+  'Nếu có mục "Lượt hỏi trước", người dùng đang HỎI TIẾP: lấy form cũ rồi sửa',
+  'đúng phần họ vừa nói, giữ nguyên những phần họ không nhắc tới.',
 ].join(' ');
 
 /**
@@ -248,7 +302,13 @@ export async function datCauHoi(input: DatCauHoiInput): Promise<DatCauHoiKetQua>
   const { noiDung, daGoi } = await goiMoHinh(
     [
       { role: 'system', content: NHAC },
-      { role: 'user', content: `Câu hỏi: ${input.cauHoi}\n\nCác trường:\n${danhSach}` },
+      {
+        role: 'user',
+        content: `Câu hỏi: ${input.cauHoi}${moTaLuotTruoc(input)}
+
+Các trường:
+${danhSach}`,
+      },
     ],
     /*
      * Rộng hơn `hieuY` vì đầu ra là một object, không phải một con số — nhưng

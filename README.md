@@ -3150,6 +3150,16 @@ việc, và **không việc nào cho phép nó tạo ra nội dung**:
    hiện trên màn hình, nhưng không tự đặt được câu hỏi mới trên kho. Đó đúng là
    ranh giới migration 26 vẽ ra.
 
+**Hỏi tiếp được.** _"Doanh thu Miền Bắc"_ → _"còn tháng 4 thì sao"_. Thứ được
+nhớ là **cái form của lượt trước**, không phải đoạn chat: một lượt hỏi tiếp gần
+như luôn là "form cũ, sửa một ô", nên bộ nhớ có kích thước **không đổi** và mô
+hình nhận một thứ đã kiểm xong thay vì văn bản tự do.
+
+Luật "giá trị phải là lời người dùng" khi đó nới corpus ra **cả cuộc trò
+chuyện** — lượt hỏi tiếp giữ lại bộ lọc của lượt trước, mà chữ "Miền Bắc" nằm ở
+câu trước. Nới corpus, **không** bỏ luật: một giá trị không có trong câu nào vẫn
+bỏ cả form. Đổi chip nguồn, hay đổi sang mô hình khác, thì quên lượt trước.
+
 **Đo xem khung trả lời đúng bao nhiêu phần trăm:**
 
 ```bash

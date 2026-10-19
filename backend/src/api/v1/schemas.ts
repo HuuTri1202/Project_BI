@@ -969,19 +969,6 @@ export const createRelationshipBodySchema = z.object({
  * `values: []` được Cube đọc thành "không dòng nào khớp", tức một biểu đồ
  * trắng không giải thích được — thay vì một lỗi 400 nói đúng chuyện gì sai.
  */
-/**
- * Câu hỏi tự nhiên gửi cho lớp ĐIỀN FORM — §chat, bước (4).
- *
- * CỐ Ý chỉ có câu hỏi. Danh sách trường thì backend tự nạp từ mô hình trên
- * đường dẫn, không nhận từ client: nhận nó nghĩa là ai cũng gửi được một danh
- * sách trường tự bịa rồi bảo mô hình điền form trên đó — và dù id lạ sẽ bị
- * `kiemForm` chặn, cho client quyết "mô hình được thấy những trường nào" vẫn là
- * một cái cửa không có lý do gì để mở.
- */
-export const chatCauHoiBodySchema = z.object({
-  cauHoi: z.string().trim().min(1).max(500),
-});
-
 export const explorerFilterSchema = z
   .object({
     dimensionId: z.coerce.number().int().positive(),
@@ -1034,6 +1021,36 @@ export const explorerQueryBodySchema = z
     message: 'Hãy chọn ít nhất một chiều hoặc một thước đo',
     path: ['dimensionIds'],
   });
+
+/**
+ * Câu hỏi tự nhiên gửi cho lớp ĐIỀN FORM — §chat, bước (4).
+ *
+ * CỐ Ý chỉ có câu hỏi. Danh sách trường thì backend tự nạp từ mô hình trên
+ * đường dẫn, không nhận từ client: nhận nó nghĩa là ai cũng gửi được một danh
+ * sách trường tự bịa rồi bảo mô hình điền form trên đó — và dù id lạ sẽ bị
+ * `kiemForm` chặn, cho client quyết "mô hình được thấy những trường nào" vẫn là
+ * một cái cửa không có lý do gì để mở.
+ */
+export const chatCauHoiBodySchema = z.object({
+  cauHoi: z.string().trim().min(1).max(500),
+  /**
+   * Lượt hỏi trước — bộ nhớ hội thoại. Vắng mặt = câu hỏi độc lập.
+   *
+   * `truyVan` đi qua ĐÚNG `explorerQueryBodySchema` mà Explorer dùng, không
+   * phải một schema lỏng hơn: nó là một thân request như mọi thân request khác,
+   * và một form chỉ "đã từng được backend dựng ra" ở lượt trước thì lượt này
+   * vẫn phải kiểm lại từ đầu.
+   *
+   * CHỈ MỘT lượt, không phải cả lịch sử. Một lượt đủ cho "còn tháng 4 thì sao",
+   * và giữ bộ nhớ ở kích thước không đổi — xem `DatCauHoiInput.boiCanh`.
+   */
+  boiCanh: z
+    .object({
+      cauHoi: z.string().trim().min(1).max(500),
+      truyVan: explorerQueryBodySchema,
+    })
+    .optional(),
+});
 
 // ─── Gói dịch vụ & thanh toán (§11) ──────────────────────────────────────────
 

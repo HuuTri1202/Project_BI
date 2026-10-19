@@ -108,14 +108,24 @@ function TrangGiaLap({
   return <p>nội dung trang</p>;
 }
 
-function dung(nguon: Nguon[], moHinhId?: number): void {
-  render(
+function dung(nguon: Nguon[], moHinhId?: number): { doiMoHinh: (id: number) => void } {
+  const { rerender } = render(
     <MemoryRouter>
       <NguCanhProvider>
         <TrangGiaLap nguon={nguon} moHinhId={moHinhId} />
       </NguCanhProvider>
     </MemoryRouter>,
   );
+  return {
+    doiMoHinh: (id: number) =>
+      rerender(
+        <MemoryRouter>
+          <NguCanhProvider>
+            <TrangGiaLap nguon={nguon} moHinhId={id} />
+          </NguCanhProvider>
+        </MemoryRouter>,
+      ),
+  };
 }
 
 const nutMo = (): HTMLElement =>
@@ -663,7 +673,8 @@ describe('Đặt câu hỏi MỚI trên mô hình dữ liệu', () => {
     hoi('doanh thu miền bắc theo khu vực');
 
     expect(await screen.findByText(/1\.200\.000/)).toBeInTheDocument();
-    expect(hoiTrenMoHinh).toHaveBeenCalledWith(7, 'doanh thu miền bắc theo khu vực');
+    // Lượt ĐẦU không có bộ nhớ nào để mang theo.
+    expect(hoiTrenMoHinh).toHaveBeenCalledWith(7, 'doanh thu miền bắc theo khu vực', undefined);
   });
 
   /*
@@ -741,5 +752,127 @@ describe('Đặt câu hỏi MỚI trên mô hình dữ liệu', () => {
     });
 
     expect(screen.getByText(/Tôi chưa hiểu câu này/)).toBeInTheDocument();
+  });
+});
+
+/*
+ * BỘ NHỚ HỘI THOẠI — "còn tháng 4 thì sao".
+ *
+ * ═══ Bộ này canh gì ════════════════════════════════════════════════════════
+ *
+ * Thứ được nhớ là CÁI FORM của lượt trước, không phải đoạn chat: một lượt hỏi
+ * tiếp gần như luôn là "form cũ, sửa một ô", nên bộ nhớ có kích thước không
+ * đổi. Ba chỗ có thể sai:
+ *
+ *   1. Không nhớ gì -> mọi lượt hỏi tiếp thành một câu hỏi độc lập, và "còn
+ *      tháng 4 thì sao" không có nghĩa gì cả.
+ *   2. Nhớ QUÁ lâu. Khung không bị tháo khi đổi trang, nên một form của mô
+ *      hình số 7 có thể theo người dùng sang mô hình số 9 — nơi id trường của
+ *      nó trỏ vào những trường không còn tồn tại.
+ *   3. Nhớ một lượt KHÔNG ra câu trả lời: hỏi tiếp trên một form không chạy
+ *      được là dẫn cuộc trò chuyện đi vào chỗ đã tắc.
+ */
+describe('Bộ nhớ hội thoại', () => {
+  const trang: Nguon[] = [
+    { ten: 'Đơn hàng Q4', duKien: [{ nhan: 'Số dòng của Đơn hàng Q4', gia: '12.431' }] },
+  ];
+  const FORM = { dimensionIds: [11], measureIds: [21] };
+
+  function traLoiDuoc(cau: string): void {
+    hoiTrenMoHinh.mockResolvedValue({
+      cau,
+      so: [],
+      hieuLa: 'Doanh thu theo Khu vực',
+      daHoi: true,
+      truyVan: FORM,
+    });
+  }
+
+  it('lượt sau mang theo câu hỏi VÀ form của lượt trước', async () => {
+    hieuCauHoi.mockResolvedValue({ chon: null, daHoi: true });
+    traLoiDuoc('Khu vực: Doanh thu 1.200.000.');
+    dung(trang, 7);
+    fireEvent.click(nutMo());
+
+    hoi('doanh thu miền bắc');
+    await screen.findByText(/1\.200\.000/);
+
+    traLoiDuoc('Khu vực: Doanh thu 980.000.');
+    hoi('còn tháng 4 thì sao');
+    await screen.findByText(/980\.000/);
+
+    expect(hoiTrenMoHinh).toHaveBeenLastCalledWith(7, 'còn tháng 4 thì sao', {
+      cauHoi: 'doanh thu miền bắc',
+      truyVan: FORM,
+    });
+  });
+
+  /*
+   * ⚠️ Id trường của hai mô hình không liên quan gì nhau. Backend sẽ chặn (id
+   * lạ -> bỏ cả form), nên hậu quả chỉ là một câu "chưa hiểu" vô cớ — nhưng đó
+   * vẫn là một câu sai, nên quên ở đây rẻ hơn.
+   */
+  it('đổi sang mô hình khác thì KHÔNG mang form cũ theo', async () => {
+    hieuCauHoi.mockResolvedValue({ chon: null, daHoi: true });
+    traLoiDuoc('Khu vực: Doanh thu 1.200.000.');
+    const { doiMoHinh } = dung(trang, 7);
+    fireEvent.click(nutMo());
+
+    hoi('doanh thu miền bắc');
+    await screen.findByText(/1\.200\.000/);
+
+    doiMoHinh(9);
+    hoi('còn tháng 4 thì sao');
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(hoiTrenMoHinh).toHaveBeenLastCalledWith(9, 'còn tháng 4 thì sao', undefined);
+  });
+
+  it('lượt không ra câu trả lời thì không được nhớ', async () => {
+    hieuCauHoi.mockResolvedValue({ chon: null, daHoi: true });
+    hoiTrenMoHinh.mockResolvedValue({
+      cau: null,
+      so: [],
+      hieuLa: null,
+      daHoi: true,
+      truyVan: null,
+    });
+    dung(trang, 7);
+    fireEvent.click(nutMo());
+
+    hoi('hôm nay trời thế nào');
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    traLoiDuoc('Khu vực: Doanh thu 1.200.000.');
+    hoi('còn tháng 4 thì sao');
+    await screen.findByText(/1\.200\.000/);
+
+    expect(hoiTrenMoHinh).toHaveBeenLastCalledWith(7, 'còn tháng 4 thì sao', undefined);
+  });
+
+  it('đổi chip nguồn thì quên lượt trước', async () => {
+    const hai: Nguon[] = [
+      ...trang,
+      { ten: 'Đơn hàng Q3', duKien: [{ nhan: 'Số dòng của Đơn hàng Q3', gia: '9.000' }] },
+    ];
+    hieuCauHoi.mockResolvedValue({ chon: null, daHoi: true });
+    traLoiDuoc('Khu vực: Doanh thu 1.200.000.');
+    dung(hai, 7);
+    fireEvent.click(nutMo());
+
+    hoi('doanh thu miền bắc');
+    await screen.findByText(/1\.200\.000/);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Đơn hàng Q3' }));
+    hoi('còn tháng 4 thì sao');
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(hoiTrenMoHinh).toHaveBeenLastCalledWith(7, 'còn tháng 4 thì sao', undefined);
   });
 });

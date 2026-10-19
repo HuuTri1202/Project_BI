@@ -3861,8 +3861,8 @@ v1Router.post(
   asyncHandler(async (req, res) => {
     const auth = requireAuth(req);
     const { id } = idParamSchema.parse(req.params);
-    const { cauHoi } = chatCauHoiBodySchema.parse(req.body);
+    const body = chatCauHoiBodySchema.parse(req.body);
 
-    res.json(await hoiTrenMoHinh(auth.tenantId, auth.userId, id, cauHoi));
+    res.json(await hoiTrenMoHinh(auth.tenantId, auth.userId, id, body.cauHoi, body.boiCanh));
   }),
 );

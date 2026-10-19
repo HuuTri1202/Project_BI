@@ -1,3 +1,4 @@
+import type { ExplorerQueryDto } from '@bi/shared';
 import { useEffect, useRef, useState } from 'react';
 
 import { KHONG_XUAT } from '../../services/danhDauXuat';
@@ -90,6 +91,25 @@ export function HoiDapPanel(): React.ReactElement | null {
   const [tinNhan, setTinNhan] = useState<TinNhan[]>([]);
   const demId = useRef(0);
   const dayCuon = useRef<HTMLDivElement>(null);
+
+  /**
+   * Lượt hỏi trước của đường đặt-câu-hỏi-mới — bộ nhớ hội thoại.
+   *
+   * ═══ Vì sao mang theo `moHinhId` ══════════════════════════════════════════
+   *
+   * Khung được dựng ở `ProtectedRoute` nên nó KHÔNG bị tháo khi đổi trang —
+   * cuộc trò chuyện ở lại. Mà một form của mô hình số 7 thì vô nghĩa trên mô
+   * hình số 9: id trường của hai mô hình không liên quan gì nhau, và lượt hỏi
+   * tiếp sẽ sửa một form trỏ vào những trường không còn tồn tại.
+   *
+   * Backend sẽ chặn (id lạ -> bỏ cả form), nên hậu quả chỉ là một câu "chưa
+   * hiểu" vô cớ. Nhưng đó vẫn là một câu sai, nên kiểm ngay ở đây rẻ hơn.
+   */
+  const [boiCanh, setBoiCanh] = useState<{
+    moHinhId: number;
+    cauHoi: string;
+    truyVan: ExplorerQueryDto;
+  } | null>(null);
 
   /*
    * Dữ kiện xuyên hệ thống — chỉ kéo về khi khung ĐANG MỞ.
@@ -285,9 +305,25 @@ export function HoiDapPanel(): React.ReactElement | null {
    * có mô hình nào, nên ở đó khung dừng ở "chưa hiểu" như trước.
    */
   function nhoMoHinhHoi(q: string, idBot: number, moHinhId: number): void {
-    void hoiTrenMoHinh(moHinhId, q)
-      .then(({ cau, so, hieuLa }) => {
+    // Chỉ nhớ lượt trước khi nó thuộc ĐÚNG mô hình này.
+    const truoc =
+      boiCanh !== null && boiCanh.moHinhId === moHinhId
+        ? { cauHoi: boiCanh.cauHoi, truyVan: boiCanh.truyVan }
+        : undefined;
+
+    void hoiTrenMoHinh(moHinhId, q, truoc)
+      .then(({ cau, so, hieuLa, truyVan }) => {
         if (cau === null) return;
+
+        /*
+         * Nhớ lượt này cho lượt sau.
+         *
+         * `truyVan !== null` ở đây là THU HẸP KIỂU, không phải một luật: hợp
+         * đồng của endpoint buộc `cau` và `truyVan` cùng có hoặc cùng không, và
+         * `cau === null` đã thoát ở trên. Thứ canh chuyện "không ra câu trả lời
+         * thì không nhớ" là chính cái `return` đó.
+         */
+        if (truyVan !== null) setBoiCanh({ moHinhId, cauHoi: q, truyVan });
 
         /*
          * `hieuLa` đi TRƯỚC câu trả lời, trên một dòng riêng.
@@ -410,6 +446,9 @@ export function HoiDapPanel(): React.ReactElement | null {
                 // dưới một chip vừa đổi là mời người đọc gán nó cho nguồn mới —
                 // bằng những con số có thật, nên không có gì báo là đã nhầm.
                 setTinNhan([]);
+                // Và quên luôn lượt hỏi trước: "còn tháng 4 thì sao" sau khi đổi
+                // chip là hỏi tiếp về một thứ người dùng vừa rời khỏi.
+                setBoiCanh(null);
               }}
               className={`shrink-0 rounded-full border px-2 py-0.5 text-xs whitespace-nowrap transition-colors ${
                 i === chon

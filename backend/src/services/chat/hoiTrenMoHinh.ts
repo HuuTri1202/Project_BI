@@ -1,3 +1,5 @@
+import type { ExplorerQueryDto } from '@bi/shared';
+
 import { explorerFields, runExplorerQuery } from '../datamodel/explorer';
 import { datCauHoi, type TruongChon } from './datCauHoi';
 import { docKetQua } from './dienGiai';
@@ -18,10 +20,17 @@ import { docKetQua } from './dienGiai';
  *
  * ═══ Vì sao gộp ba bước vào MỘT lời gọi HTTP ═══════════════════════════════
  *
- * Tách ra thì frontend phải giữ `dimensionIds`/`measureIds` rồi gửi lại, và khi
- * đó id trường thành một thứ client sửa được giữa hai lời gọi. Gộp lại nghĩa là
- * cái form không bao giờ rời khỏi backend, và đường duy nhất tới nó đã đi qua
- * `authorize('datamodel', 'read')`.
+ * Để frontend không phải biết gì về id trường: nó gửi một câu hỏi và nhận một
+ * câu trả lời. Ít chỗ phải hiểu `dimensionIds` nghĩa là ít chỗ dựng sai nó.
+ *
+ * ⚠️ KHÔNG phải vì bảo mật. Bản đầu của chú thích này viết rằng gộp lại thì
+ * "form không bao giờ rời khỏi backend, nên client không sửa được nó" — câu đó
+ * SAI, và nó sai theo kiểu dễ tin: ai gọi được route này thì đã có
+ * `datamodel:read`, tức là đã gọi thẳng `POST /datamodels/:id/query` với bất kỳ
+ * form nào. Giữ form ở server không thêm một lớp chặn nào; nó chỉ gọn hơn.
+ *
+ * Nhận ra chỗ đó mới mở được bộ nhớ hội thoại (bước 6): trả form về cho client
+ * rồi nhận lại ở lượt sau không mất gì, vì chưa từng có gì để mất.
  *
  * Giá phải trả: một lời gọi mất cả thời gian của mô hình LẪN thời gian quét
  * ClickHouse. Chấp nhận được vì đây là đường CUỐI — khung chỉ tới đây khi mọi
@@ -37,6 +46,14 @@ export interface HoiTrenMoHinhKetQua {
   hieuLa: string | null;
   /** Mô hình có THẬT SỰ được hỏi không — xem `HieuYKetQua.daHoi`. */
   daHoi: boolean;
+  /**
+   * Form đã chạy, trả về để lượt hỏi TIẾP dùng lại — bộ nhớ hội thoại.
+   *
+   * Trả về cho client không mất gì: ai gọi được đường này đã có
+   * `datamodel:read`, tức đã gọi thẳng `/query` với bất kỳ form nào. Và lượt
+   * sau nó vẫn bị kiểm lại từ đầu bởi `explorerQueryBodySchema`.
+   */
+  truyVan: ExplorerQueryDto | null;
 }
 
 export async function hoiTrenMoHinh(
@@ -44,6 +61,8 @@ export async function hoiTrenMoHinh(
   userId: number,
   dataModelId: number,
   cauHoi: string,
+  /** Lượt hỏi trước — xem `DatCauHoiInput.boiCanh`. */
+  boiCanh?: { cauHoi: string; truyVan: ExplorerQueryDto },
 ): Promise<HoiTrenMoHinhKetQua> {
   const truongs = await explorerFields(tenantId, dataModelId);
 
@@ -66,8 +85,8 @@ export async function hoiTrenMoHinh(
     })),
   ];
 
-  const { truyVan, daHoi } = await datCauHoi({ cauHoi, truong });
-  if (truyVan === null) return { cau: null, so: [], hieuLa: null, daHoi };
+  const { truyVan, daHoi } = await datCauHoi({ cauHoi, truong, boiCanh });
+  if (truyVan === null) return { cau: null, so: [], hieuLa: null, daHoi, truyVan: null };
 
   const kq = await runExplorerQuery(tenantId, userId, dataModelId, truyVan);
 
@@ -80,5 +99,5 @@ export async function hoiTrenMoHinh(
   const nhanCua = new Map<number, string>(truong.map((t) => [t.id, t.nhan]));
   for (const c of kq.columns) nhanCua.set(c.id, c.label);
 
-  return { ...docKetQua(kq, truyVan, nhanCua), daHoi };
+  return { ...docKetQua(kq, truyVan, nhanCua), daHoi, truyVan };
 }

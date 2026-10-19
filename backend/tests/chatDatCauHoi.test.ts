@@ -463,3 +463,103 @@ describe('Mọi trục trặc đều ra truyVan: null', () => {
     expect(than).toContain('doanh thu theo khu vực');
   });
 });
+
+describe('Bộ nhớ hội thoại nới corpus của luật canh gác, KHÔNG bỏ nó', () => {
+  const FORM_TRUOC: ExplorerQueryDto = {
+    dimensionIds: [11],
+    measureIds: [21],
+    filters: [{ dimensionId: 11, operator: 'equals', values: ['Miền Bắc'] }],
+  };
+
+  function vaoTiep(cauHoi: string): DatCauHoiInput {
+    return {
+      cauHoi,
+      truong: TRUONG,
+      boiCanh: { cauHoi: 'doanh thu Miền Bắc', truyVan: FORM_TRUOC },
+    };
+  }
+
+  /*
+   * ⚠️ Ca then chốt. Lượt hỏi tiếp GIỮ LẠI bộ lọc của lượt trước, mà chữ "Miền
+   * Bắc" nằm ở câu TRƯỚC. So chỉ với câu mới nhất là luật tự bác bỏ mọi lượt
+   * hỏi tiếp — tức bộ nhớ hội thoại không bao giờ chạy được.
+   */
+  it('giá trị từ câu hỏi TRƯỚC vẫn được nhận', () => {
+    const kq = kiemForm(
+      {
+        dimensionIds: [12],
+        measureIds: [21],
+        filters: [{ dimensionId: 11, operator: 'equals', values: ['Miền Bắc'] }],
+      },
+      vaoTiep('còn theo sản phẩm thì sao'),
+    );
+
+    expect(kq?.filters).toEqual([{ dimensionId: 11, operator: 'equals', values: ['Miền Bắc'] }]);
+  });
+
+  /*
+   * ⚠️ Và đây là ca canh chuyện luật KHÔNG bị bỏ hẳn. Nới corpus ra "cả cuộc
+   * trò chuyện" rất dễ trượt thành "thôi không kiểm nữa", và khi đó mô hình lại
+   * bịa được giá trị — đúng cái mà `giuNguyenLoi` tồn tại để chặn.
+   */
+  it('giá trị KHÔNG có trong cả hai câu thì vẫn bỏ cả form', () => {
+    expect(
+      kiemForm(
+        {
+          dimensionIds: [11],
+          measureIds: [21],
+          filters: [{ dimensionId: 11, operator: 'equals', values: ['Miền Tây'] }],
+        },
+        vaoTiep('còn tháng 4 thì sao'),
+      ),
+    ).toBeNull();
+  });
+
+  it('không có bộ nhớ thì chỉ so với câu hiện tại', () => {
+    expect(
+      kiemForm(
+        {
+          dimensionIds: [11],
+          measureIds: [21],
+          filters: [{ dimensionId: 11, operator: 'equals', values: ['Miền Bắc'] }],
+        },
+        vao('còn tháng 4 thì sao'),
+      ),
+    ).toBeNull();
+  });
+
+  it('lượt trước đi lên mô hình dưới dạng JSON của chính cái form', async () => {
+    const { datCauHoi } = await napVoiEnv(DU_CAU_HINH);
+    const goi = vi.fn().mockResolvedValue(traVe('{}'));
+    globalThis.fetch = goi;
+
+    await datCauHoi(vaoTiep('còn tháng 4 thì sao'));
+
+    const than = String((goi.mock.calls[0]?.[1] as { body: string }).body);
+    expect(than).toContain('doanh thu Miền Bắc');
+    // Hình dạng mà mô hình sắp phải trả về, cho nó thấy nguyên văn.
+    expect(than).toContain('dimensionIds');
+    expect(than).toContain('Miền Bắc');
+  });
+
+  it('không có bộ nhớ thì KHÔNG gửi mục "Lượt hỏi trước"', async () => {
+    const { datCauHoi } = await napVoiEnv(DU_CAU_HINH);
+    const goi = vi.fn().mockResolvedValue(traVe('{}'));
+    globalThis.fetch = goi;
+
+    await datCauHoi(vao('doanh thu theo khu vực'));
+
+    /*
+     * ⚠️ Soi riêng tin của NGƯỜI DÙNG. Chỉ dẫn hệ thống có nhắc cụm "Lượt hỏi
+     * trước" để dạy mô hình cách xử lý nó, nên so trên cả thân request thì ca
+     * này đỏ mãi vì một lý do không liên quan gì tới thứ nó muốn kiểm.
+     */
+    const than = JSON.parse(String((goi.mock.calls[0]?.[1] as { body: string }).body)) as {
+      messages: { role: string; content: string }[];
+    };
+    const cuaNguoiDung = than.messages.filter((m) => m.role === 'user').map((m) => m.content);
+
+    expect(cuaNguoiDung.join(' ')).not.toContain('Lượt hỏi trước');
+    expect(cuaNguoiDung.join(' ')).toContain('doanh thu theo khu vực');
+  });
+});
