@@ -542,6 +542,37 @@ describe('Bộ nhớ hội thoại nới corpus của luật canh gác, KHÔNG b
     expect(than).toContain('Miền Bắc');
   });
 
+  /*
+   * ⚠️ Ca này sinh ra từ một lỗi ĐO ĐƯỢC, không phải phòng xa.
+   *
+   * Hạn mức đầu tiên là 700 — thừa gấp mười lăm lần cái object 40 token cần
+   * trả về. Và nó CẮT ĐÔI câu trả lời của một lượt hỏi tiếp:
+   *
+   *     {"dimensionIds":[12],"measureIds":[21],"filters":[{"dimensionId":11,
+   *      "operator":"equals","        <- hết hạn mức
+   *
+   * Vì mô hình "suy nghĩ trước khi trả lời" tiêu token suy nghĩ vào CÙNG hạn
+   * mức mà không trả chúng về trong `content`, và một lượt hỏi tiếp làm nó nghĩ
+   * nhiều hơn hẳn một câu độc lập. Đo lại với 2000 thì cả ba lượt hỏi tiếp đều
+   * ra JSON đủ.
+   *
+   * Hậu quả của việc tụt hạn mức này là IM LẶNG: `docJson` không tìm được `}`
+   * nên trả `null`, rồi khung nói "chưa hiểu" — trông y như mô hình không hiểu
+   * câu hỏi, trong khi nó hiểu và chỉ bị cắt lời.
+   */
+  it('hạn mức token phải rộng cho CẢ phần suy nghĩ, không chỉ cho JSON', async () => {
+    const { datCauHoi } = await napVoiEnv(DU_CAU_HINH);
+    const goi = vi.fn().mockResolvedValue(traVe('{}'));
+    globalThis.fetch = goi;
+
+    await datCauHoi(vaoTiep('còn tháng 4 thì sao'));
+
+    const than = JSON.parse(String((goi.mock.calls[0]?.[1] as { body: string }).body)) as {
+      max_tokens: number;
+    };
+    expect(than.max_tokens).toBeGreaterThanOrEqual(2000);
+  });
+
   it('không có bộ nhớ thì KHÔNG gửi mục "Lượt hỏi trước"', async () => {
     const { datCauHoi } = await napVoiEnv(DU_CAU_HINH);
     const goi = vi.fn().mockResolvedValue(traVe('{}'));

@@ -311,11 +311,26 @@ ${danhSach}`,
       },
     ],
     /*
-     * Rộng hơn `hieuY` vì đầu ra là một object, không phải một con số — nhưng
-     * vẫn có trần: một mô hình bắt đầu viết giải thích dài thì nó đã đi sai
-     * đường, và `docJson` sẽ bỏ phần thừa chứ không cố hiểu nó.
+     * ═══ Vì sao hạn mức RỘNG hẳn, không phải vừa đủ cho JSON ════════════════
+     *
+     * Object cần trả về dài chừng 40 token. Bản đầu đặt 700 — tưởng là thừa gấp
+     * mười lăm lần — và nó CẮT ĐÔI câu trả lời của một lượt hỏi tiếp:
+     *
+     *     {"dimensionIds":[12],"measureIds":[21],"filters":[{"dimensionId":11,
+     *      "operator":"equals","          <- hết hạn mức ở đây
+     *
+     * Vì mô hình loại "suy nghĩ trước khi trả lời" tiêu token suy nghĩ vào CÙNG
+     * hạn mức này mà không trả chúng về trong `content` — và một lượt hỏi tiếp
+     * làm nó nghĩ nhiều hơn hẳn một câu hỏi độc lập. `reasoning_effort: 'none'`
+     * giảm chuyện đó chứ không bỏ hẳn được; xem `goiMoHinh`.
+     *
+     * Đo thật: 700 thì "còn theo sản phẩm thì sao" bị cắt và "còn Miền Nam thì
+     * sao" trả về rỗng. 2000 thì cả hai ra JSON đủ.
+     *
+     * Nới hạn mức KHÔNG nới chỗ cho một câu dài lọt qua: `docJson` chỉ đọc đoạn
+     * giữa `{` đầu và `}` cuối, rồi `kiemForm` bỏ cả form nếu có một ô sai.
      */
-    700,
+    2000,
   );
 
   if (noiDung === null) return { truyVan: null, daHoi: daGoi };
