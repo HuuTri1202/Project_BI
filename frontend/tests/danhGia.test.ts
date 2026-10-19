@@ -67,6 +67,18 @@ function bangMotChieu(): ReportDataDto {
 }
 // Tổng 35 · cao nhất Staples 10 · thấp nhất Acco 4 · 5 nhóm · trung bình 7
 
+/**
+ * Cùng số liệu như `bangMotChieu`, nhưng nhãn trục đã được ĐẶT TÊN tiếng Việt.
+ *
+ * `dimensionLabel` của biểu đồ chính là `alias ?? columnName` của cột (xem
+ * `services/datamodel/explorer.ts`). Nên đặt tên hiển thị cho cột `Product
+ * Name` thành "Sản phẩm" là khung hỏi đáp hiểu tiếng Việt ngay trên máy, không
+ * cần mô hình ngôn ngữ — đó là cả nội dung bước (5b) phía trường của người dùng.
+ */
+function bangDatTenViet(): ReportDataDto {
+  return { ...bangMotChieu(), dimensionLabel: 'Sản phẩm', measureLabel: 'Số lượng' };
+}
+
 function bangHaiChieu(): ReportDataDto {
   return {
     rows: [
@@ -208,6 +220,12 @@ const TRANG = {
     chon: 0,
     heThong: HE_THONG,
   },
+  bieuDoViet: {
+    ten: 'Báo cáo — biểu đồ đã đặt tên tiếng Việt',
+    nguon: [{ ten: 'Số lượng theo Sản phẩm', duKien: [], bang: bangDatTenViet() }],
+    chon: 0,
+    heThong: HE_THONG,
+  },
   // Một trang KHÔNG dính gì tới dữ liệu — để đo nhóm câu hỏi xuyên hệ thống.
   hoSo: {
     ten: 'Hồ sơ cá nhân',
@@ -300,6 +318,19 @@ const CA: Ca[] = [
     vi: '"trên biểu đồ" KHÔNG phải toán tử lớn hơn',
   },
   { trang: 'bieuDo1', hoi: 'có sản phẩm nào số lượng 99 không', can: ['Không'] },
+
+  // ─── Cột đã đặt tên tiếng Việt: hiểu được NGAY TRÊN MÁY, không cần mô hình ─
+  //
+  // Nhóm này đo đường (5b) phía trường của NGƯỜI DÙNG. Ta không đoán được họ
+  // gọi `Product Name` là gì, nên họ tự khai — bằng ô "Tên hiển thị" ở tab Cấu
+  // trúc, thứ đã có từ trước và vừa được nói ra ở ngay trên bảng đó.
+  { trang: 'bieuDoViet', hoi: 'sản phẩm nào có số lượng cao nhất', can: ['Staples', '10'] },
+  { trang: 'bieuDoViet', hoi: 'sản phẩm nào ít nhất', can: ['Acco', '4'] },
+  { trang: 'bieuDoViet', hoi: 'có những sản phẩm nào', can: ['Staples', 'Acco', 'Avery'] },
+  { trang: 'bieuDoViet', hoi: 'có bao nhiêu sản phẩm', can: ['5'] },
+  { trang: 'bieuDoViet', hoi: 'tổng số lượng', can: ['35'] },
+  { trang: 'bieuDoViet', hoi: 'liệt kê sản phẩm có số lượng 4', can: ['Acco'], khong: ['Staples'] },
+  { trang: 'bieuDoViet', hoi: 'top 3 sản phẩm', can: ['Staples', 'Boston', 'Xerox'] },
 
   // ─── Biểu đồ hai chiều: phải gộp theo ĐÚNG chiều được hỏi ─────────────────
   {
@@ -464,7 +495,7 @@ describe('Bộ đánh giá khung hỏi đáp', () => {
    * nghĩa là thay đổi đó đang đánh đổi câu này lấy câu kia mà không nói ra.
    */
   it('số câu ĐÚNG không được tụt', () => {
-    expect(dem('dung')).toBeGreaterThanOrEqual(62);
+    expect(dem('dung')).toBeGreaterThanOrEqual(69);
   });
 
   it('số câu SAI không được tăng', () => {
