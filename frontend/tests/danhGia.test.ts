@@ -332,6 +332,25 @@ const CA: Ca[] = [
   // ─── Trang Kho dữ liệu ────────────────────────────────────────────────────
   { trang: 'khoDuLieu', hoi: 'Orders có bao nhiêu dòng', can: ['51.290'] },
   { trang: 'khoDuLieu', hoi: 'Orders có mấy cột', can: ['24'] },
+
+  // ─── Người dùng gõ từ của HỌ, không gõ từ trên nhãn ───────────────────────
+  //
+  // Nhóm này đo khoảng cách từ vựng. Mấy nhãn ở đây do CHÍNH hệ thống viết
+  // ("tệp", "dòng", "cột"), mà người dùng thì gõ "file", "row", "column" —
+  // hoặc nói vòng ("nặng bao nhiêu" thay cho "dung lượng").
+  { trang: 'khoDuLieu', hoi: 'Orders có bao nhiêu record', can: ['51.290'] },
+  { trang: 'khoDuLieu', hoi: 'Orders có bao nhiêu row', can: ['51.290'] },
+  { trang: 'khoDuLieu', hoi: 'Orders có mấy column', can: ['24'] },
+  {
+    trang: 'khoDuLieu',
+    hoi: 'Orders nặng bao nhiêu',
+    // 8.400.000 B / 1024² = 8,01 -> "8 MB". Con số phải khớp `dinhDangDungLuong`
+    // từng ký tự, không phải khớp phép chia thập phân trong đầu người viết ca.
+    can: ['8 MB'],
+  },
+  { trang: 'khoDuLieu', hoi: 'dataset nào nhiều dòng nhất', can: ['Orders', '51.290'] },
+  { trang: 'dsMoHinh', hoi: 'model nào nhiều table nhất', can: ['Global-Superstore', '5'] },
+  { trang: 'dsMoHinh', hoi: 'datamodel nào nhiều relationship nhất', can: ['Global-Superstore'] },
   { trang: 'khoDuLieu', hoi: 'bộ dữ liệu nào nhiều dòng nhất', can: ['Orders', '51.290'] },
   {
     trang: 'khoDuLieu',
@@ -445,7 +464,7 @@ describe('Bộ đánh giá khung hỏi đáp', () => {
    * nghĩa là thay đổi đó đang đánh đổi câu này lấy câu kia mà không nói ra.
    */
   it('số câu ĐÚNG không được tụt', () => {
-    expect(dem('dung')).toBeGreaterThanOrEqual(55);
+    expect(dem('dung')).toBeGreaterThanOrEqual(62);
   });
 
   it('số câu SAI không được tăng', () => {

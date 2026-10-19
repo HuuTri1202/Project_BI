@@ -75,8 +75,72 @@ export function chuanHoa(raw: string): string {
     .replace(/Đ/g, 'D')
     .toLowerCase()
     .replace(/[^\p{L}\p{N}%]+/gu, ' ')
-    .trim();
+    .trim()
+    .split(' ')
+    .map((t) => DONG_NGHIA.get(t) ?? t)
+    .join(' ');
 }
+
+/**
+ * Từ người dùng gõ → từ hệ thống viết trên nhãn.
+ *
+ * ═══ Vì sao bảng này CHÍNH ĐÁNG, mà một bảng đồng nghĩa nói chung thì không ═
+ *
+ * Mọi nhãn ở nhánh tra cứu do CHÍNH chỗ này viết ra — "Số dòng của X", "Dung
+ * lượng tệp của X", "Số quan hệ của mô hình X". Nên bảng dưới đây không đoán gì
+ * về dữ liệu của khách: nó chỉ nối từ người ta hay gõ về đúng chữ mà ta đã
+ * chọn. Hai phía đều của ta, nên không có chỗ nào để sai.
+ *
+ * Trường của NGƯỜI DÙNG (`Total amount`, `Product Name`) thì ngược lại — ta
+ * không biết họ gọi chúng là gì, và đoán thì chắc chắn sai. Khoảng cách đó phải
+ * do chính họ khai, bằng ô mô tả trường.
+ *
+ * ═══ Vì sao đặt trong `chuanHoa`, không phải ở từng phép so ════════════════
+ *
+ * `chuanHoa` chạy trên CẢ HAI phía — câu hỏi và nhãn. Gộp ở đây nghĩa là hai
+ * phía gặp nhau ở giữa, và mọi phép so trong file này (`docYDinh`, `chieuHoi`,
+ * `timDong`, `traCuu`, `tuNoiDung`, `nguonTheoTen`) được ăn theo miễn phí. Gộp
+ * ở từng phép so là sáu bản sao, và bản thứ sáu sẽ bị quên.
+ *
+ * ⚠️ `chuanHoa` chỉ dùng để SO, không bao giờ để in ra. Nhãn hiện trên màn hình
+ * luôn là `d.nhan` nguyên văn, nên bảng này không đổi một chữ nào người đọc thấy.
+ *
+ * ⚠️ So theo TỪ trọn vẹn, không theo chuỗi con: "profile" không được thành
+ * "protep", và "dong" trong "dòng" không được đụng tới.
+ */
+const DONG_NGHIA = new Map<string, string>([
+  ['file', 'tep'],
+  ['row', 'dong'],
+  ['rows', 'dong'],
+  ['record', 'dong'],
+  ['records', 'dong'],
+  ['column', 'cot'],
+  ['columns', 'cot'],
+  ['field', 'cot'],
+  ['fields', 'cot'],
+  ['table', 'bang'],
+  ['tables', 'bang'],
+  ['dataset', 'bo du lieu'],
+  ['datasets', 'bo du lieu'],
+  ['datamodel', 'mo hinh'],
+  ['datamodels', 'mo hinh'],
+  ['model', 'mo hinh'],
+  ['models', 'mo hinh'],
+  ['relationship', 'quan he'],
+  ['relationships', 'quan he'],
+  ['relation', 'quan he'],
+  ['measure', 'thuoc do'],
+  ['measures', 'thuoc do'],
+  ['metric', 'thuoc do'],
+  ['metrics', 'thuoc do'],
+  ['report', 'bao cao'],
+  ['reports', 'bao cao'],
+  // Nói vòng về dung lượng — "cái này nặng bao nhiêu" là ví dụ mà `llm:kiem`
+  // dùng để thử lớp mô hình, đúng vì phép so từ khoá không bao giờ bắt được nó.
+  ['nang', 'dung luong'],
+  ['nhe', 'dung luong'],
+  ['size', 'dung luong'],
+]);
 
 /** Từ khoá của từng ý định, thử theo THỨ TỰ này. */
 const TU_KHOA: { y: YDinh; tu: string[] }[] = [

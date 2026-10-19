@@ -59,6 +59,41 @@ describe('Bỏ dấu tiếng Việt', () => {
   });
 });
 
+describe('Từ người dùng gõ nối về từ trên nhãn', () => {
+  /*
+   * Mọi nhãn ở nhánh tra cứu do CHÍNH `duKienTrang.ts` viết ra, nên bảng đồng
+   * nghĩa không đoán gì về dữ liệu của khách — nó chỉ nối từ người ta hay gõ về
+   * đúng chữ ta đã chọn. Hai phía đều của ta.
+   */
+  it('nối được tiếng Anh và cách nói vòng về đúng chữ trên nhãn', () => {
+    expect(chuanHoa('Orders có bao nhiêu row')).toBe('orders co bao nhieu dong');
+    expect(chuanHoa('mấy column')).toBe('may cot');
+    expect(chuanHoa('model nào nhiều table nhất')).toBe('mo hinh nao nhieu bang nhat');
+    // "nặng bao nhiêu" là chính ví dụ mà `llm:kiem` dùng để thử lớp mô hình.
+    expect(chuanHoa('nặng bao nhiêu')).toBe('dung luong bao nhieu');
+  });
+
+  /*
+   * ⚠️ Phải so TỪ TRỌN VẸN. Thay theo chuỗi con là "profile" thành "protep" và
+   * "models" thành "mo hinhs" — rồi mọi phép so sau đó trượt vì một lý do không
+   * ai nghĩ tới khi đọc câu hỏi.
+   */
+  it('chỉ thay TỪ trọn vẹn, không thay chuỗi con', () => {
+    expect(chuanHoa('profile')).toBe('profile');
+    expect(chuanHoa('modeling')).toBe('modeling');
+    expect(chuanHoa('tablet')).toBe('tablet');
+  });
+
+  it('không đổi một chữ nào của nhãn hiện ra', () => {
+    // `chuanHoa` chỉ dùng để SO. Câu trả lời luôn dựng từ `nhan` nguyên văn.
+    const nguon: Nguon = {
+      ten: 'Orders',
+      duKien: [{ nhan: 'Số dòng của Orders', gia: '51.290' }],
+    };
+    expect(traLoi(nguon, 'Orders có bao nhiêu row')?.cau).toBe('Số dòng của Orders: 51.290.');
+  });
+});
+
 describe('Đọc ý định', () => {
   it('nhận ra từng dạng câu hỏi', () => {
     expect(docYDinh('vùng nào cao nhất')).toBe('cao_nhat');

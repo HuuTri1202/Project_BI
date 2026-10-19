@@ -375,15 +375,22 @@ describe('Mô hình chọn nhãn khi phép so từ khoá trượt', () => {
   ];
 
   /*
-   * "nặng bao nhiêu" không trùng từ nào với "Dung lượng của Đơn hàng Q4", nên
-   * phép so từ khoá trượt — đúng cảnh lớp này sinh ra để xử.
+   * Mấy ca ở đây cần một câu mà phép so từ khoá THẬT SỰ trượt.
+   *
+   * ⚠️ "nặng bao nhiêu" từng là câu đó, và giờ KHÔNG còn: bảng đồng nghĩa của
+   * `chuanHoa` nối "nặng" về "dung lượng", nên lớp ngoại tuyến tự trả lời được.
+   * Đổi câu thử chứ không đổi code — lớp ngoại tuyến thông minh thêm là điều
+   * đáng mừng, chỉ có cái minh hoạ của mấy ca này là phải đi tìm chỗ khác.
+   *
+   * "cái kia ra sao" không trùng từ nào với nhãn nào, và nó cũng không nằm
+   * trong bảng đồng nghĩa — vì nó không có nghĩa gì cả, đúng thứ cần ở đây.
    */
   it('bong bóng "chưa hiểu" tự nâng cấp thành câu trả lời', async () => {
     hieuCauHoi.mockResolvedValue({ chon: 1, daHoi: true });
     dung(trang);
     fireEvent.click(nutMo());
 
-    hoi('cái này nặng bao nhiêu');
+    hoi('cái kia ra sao');
     expect(screen.getByText(/Tôi chưa hiểu câu này/)).toBeInTheDocument();
 
     expect(await screen.findByText('Dung lượng của Đơn hàng Q4: 4,2 MB.')).toBeInTheDocument();
@@ -412,7 +419,7 @@ describe('Mô hình chọn nhãn khi phép so từ khoá trượt', () => {
     dung(trang);
     fireEvent.click(nutMo());
 
-    hoi('cái này nặng bao nhiêu');
+    hoi('cái kia ra sao');
 
     const than = JSON.stringify(hieuCauHoi.mock.calls[0]?.[0]);
     expect(than).toContain('Dung lượng của Đơn hàng Q4');
@@ -454,7 +461,7 @@ describe('Mô hình chọn nhãn khi phép so từ khoá trượt', () => {
     dung(trang);
     fireEvent.click(nutMo());
 
-    hoi('cái này nặng bao nhiêu');
+    hoi('cái kia ra sao');
     await act(async () => {
       await Promise.resolve();
     });
@@ -576,12 +583,21 @@ describe('Câu trả lời được viết thành CHỮ, ở cả hai đường'
   ];
 
   it('mô hình chọn nhãn xong thì câu đó vẫn được nhờ viết lại', async () => {
+    /*
+     * ⚠️ Câu hỏi phải là câu mà phép so từ khoá TRƯỢT, nếu không ca này xanh vì
+     * lý do khác hẳn tên nó: lớp ngoại tuyến trả lời ngay ở đường thứ nhất, và
+     * `dienDatLai` vẫn được gọi với đúng câu đó — nên cả hai `expect` dưới đây
+     * đều đúng mà đường mô hình chưa từng chạy.
+     *
+     * `chon: 0` vì nguồn ở khối này chỉ khai ĐÚNG MỘT dữ kiện, và nguồn không
+     * có biểu đồ nên danh sách lựa chọn chính là `duKien` theo thứ tự khai.
+     */
     hieuCauHoi.mockResolvedValue({ chon: 0, daHoi: true });
     dienDatLai.mockResolvedValue('Tệp của Đơn hàng Q4 nặng 4,2 MB.');
     dung(trang);
     fireEvent.click(nutMo());
 
-    hoi('cái này nặng bao nhiêu');
+    hoi('cái kia ra sao');
 
     expect(await screen.findByText('Tệp của Đơn hàng Q4 nặng 4,2 MB.')).toBeInTheDocument();
     // Con số gửi đi để backend đối chiếu phải là con số của chính câu đó.
