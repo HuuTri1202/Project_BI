@@ -48,3 +48,27 @@ export async function hieuCauHoi(input: {
   );
   return data;
 }
+
+/**
+ * Nhờ mô hình ĐẶT MỘT CÂU HỎI MỚI trên một mô hình dữ liệu.
+ *
+ * Đường CUỐI của khung, và là đường duy nhất tự chạy một truy vấn mới trên kho
+ * — nên nó cũng là đường duy nhất gác bằng `authorize('datamodel', 'read')`.
+ * `viewer` nhận 403, và khung quay về trả lời bằng thứ đang hiện trên màn hình.
+ *
+ * Gửi đi CHỈ CÓ CÂU HỎI. Danh sách trường do backend tự nạp từ mô hình trên
+ * đường dẫn: cho client quyết "mô hình được thấy những trường nào" là một cái
+ * cửa không có lý do gì để mở. Xem `services/chat/hoiTrenMoHinh.ts`.
+ */
+export async function hoiTrenMoHinh(
+  moHinhId: number,
+  cauHoi: string,
+): Promise<{ cau: string | null; so: string[]; hieuLa: string | null; daHoi: boolean }> {
+  const { data } = await apiClient.post<{
+    cau: string | null;
+    so: string[];
+    hieuLa: string | null;
+    daHoi: boolean;
+  }>(`/v1/datamodels/${String(moHinhId)}/chat/cau-hoi`, { cauHoi });
+  return data;
+}

@@ -89,6 +89,7 @@ import {
 } from '../../services/ingest/loadService';
 import { dienDat } from '../../services/chat/dienDat';
 import { hieuY } from '../../services/chat/hieuY';
+import { hoiTrenMoHinh } from '../../services/chat/hoiTrenMoHinh';
 import { chTableName } from '../../services/ingest/buildDdl';
 import { cubeTypeOf } from '../../services/datamodel/classifyColumn';
 import { addDatasets, createDataModel } from '../../services/datamodel/createDataModel';
@@ -125,6 +126,7 @@ import { badRequest, HttpError, notFound } from '../../utils/httpError';
 import { buildPageResult, paginationSchema, resolveSortColumn } from '../../utils/pagination';
 import {
   dienDatBodySchema,
+  chatCauHoiBodySchema,
   hieuYBodySchema,
   addDatasetsBodySchema,
   commitDatasetsBodySchema,
@@ -3831,5 +3833,36 @@ v1Router.post(
   asyncHandler(async (req, res) => {
     const body = hieuYBodySchema.parse(req.body);
     res.json(await hieuY(body));
+  }),
+);
+
+/**
+ * Hỏi một câu hỏi MỚI trên một mô hình — §chat, bước (4).
+ *
+ * ═══ Vì sao route này nằm dưới `/datamodels/:id/`, không phải `/chat/` ═════
+ *
+ * Vì nó ĐỌC dữ liệu của tổ chức, khác hẳn hai route `/chat/` ở trên. Hai route
+ * kia chỉ nhận lại thứ người gọi vừa đọc được trên màn hình của chính họ, nên
+ * quyền đã được quyết ở chỗ họ lấy được dữ liệu đó. Route này thì tự chạy một
+ * truy vấn mới trên kho — nên nó phải đi qua đúng cái cổng mà Explorer đi qua.
+ *
+ * `authorize('datamodel', 'read')`: `admin` và `creator` có, `viewer` KHÔNG
+ * (migration 26). Hệ quả đã cân nhắc: viewer vẫn hỏi được mọi câu về thứ đang
+ * hiện trên màn hình, nhưng không tự đặt được câu hỏi mới trên kho. Đó đúng là
+ * ranh giới mà migration 26 vẽ ra, và mở nó ở đây là một đường vòng quanh nó.
+ *
+ * Trần gọi thấp nhất trong ba route chat (20/10 phút): mỗi lần là một lượt gọi
+ * mô hình CỘNG một lượt quét ClickHouse, nên nó đắt hơn hẳn hai route kia.
+ */
+v1Router.post(
+  '/datamodels/:id/chat/cau-hoi',
+  authorize('datamodel', 'read'),
+  rateLimit({ bucket: 'chat-cau-hoi', max: 20, windowSeconds: 600 }),
+  asyncHandler(async (req, res) => {
+    const auth = requireAuth(req);
+    const { id } = idParamSchema.parse(req.params);
+    const { cauHoi } = chatCauHoiBodySchema.parse(req.body);
+
+    res.json(await hoiTrenMoHinh(auth.tenantId, auth.userId, id, cauHoi));
   }),
 );

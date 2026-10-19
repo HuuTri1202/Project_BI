@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 
 import { KHONG_XUAT } from '../../services/danhDauXuat';
-import { dienDatLai, hieuCauHoi } from './api';
+import { dienDatLai, hieuCauHoi, hoiTrenMoHinh } from './api';
 import { useNguCanh } from './nguCanh';
 import type { Nguon } from './nguCanh';
 import { useNguCanhHeThong } from './nguCanhHeThong';
@@ -68,6 +68,14 @@ interface TinNhan {
   chuaHieu?: boolean;
   /** Câu bấm được, chỉ có ở tin "chưa hiểu" — xem `goiYGan`. */
   goiY?: string[];
+  /**
+   * Cách truy vấn đã được hiểu — chỉ có ở đường đặt câu hỏi MỚI.
+   *
+   * Nó không phải lời giải thích cho đẹp: đó là đường duy nhất trong khung mà
+   * con số được tính bởi một truy vấn do mô hình dựng, nên nó là chỗ duy nhất
+   * một câu trả lời sai KHÔNG tự lộ ra. Xem `services/chat/dienGiai.ts`.
+   */
+  hieuLa?: string;
 }
 
 function gioBayGio(): string {
@@ -204,7 +212,12 @@ export function HoiDapPanel(): React.ReactElement | null {
      * mục, vì sáu trăm nhãn sẽ đẩy sạch trang ra khỏi danh sách.
      */
     const luaChon = [...luaChonTrang(nguCanh.nguon, nguon, q), ...luaChonHeThong(heThong)];
-    if (luaChon.length === 0) return;
+    if (luaChon.length === 0) {
+      // Không có gì để chọn thì bỏ hẳn lớp chọn-nhãn, nhưng đường đặt câu hỏi
+      // mới không phụ thuộc vào danh sách đó.
+      if (nguCanh.moHinhId !== undefined) nhoMoHinhHoi(q, idBot, nguCanh.moHinhId);
+      return;
+    }
 
     void hieuCauHoi({ cauHoi: q, nhan: luaChon.map((lc) => lc.nhan) })
       .then(({ chon, daHoi }) => {
@@ -216,6 +229,15 @@ export function HoiDapPanel(): React.ReactElement | null {
            * số liệu đó, chứ không phải người dùng gõ sai. Chỉ nói vậy khi mô
            * hình thật sự đã được hỏi — máy chưa cấu hình thì chưa ai đọc gì cả.
            */
+          /*
+           * Trang có mô hình thì còn một đường nữa: đặt một câu hỏi MỚI. Thử
+           * nó TRƯỚC khi kết luận là không có số liệu — câu "tôi đã đọc hết"
+           * mà vẫn còn một đường chưa đi là một câu nói sai.
+           */
+          if (nguCanh.moHinhId !== undefined) {
+            nhoMoHinhHoi(q, idBot, nguCanh.moHinhId);
+            return;
+          }
           if (!daHoi) return;
           setTinNhan((cu) =>
             cu.map((t) =>
@@ -240,6 +262,57 @@ export function HoiDapPanel(): React.ReactElement | null {
       })
       .catch(() => {
         // Cố ý im lặng: bong bóng "chưa hiểu" kèm gợi ý vẫn đang ở đó.
+      });
+  }
+
+  /**
+   * Đường CUỐI: nhờ mô hình ĐẶT MỘT CÂU HỎI MỚI trên mô hình dữ liệu.
+   *
+   * ═══ Vì sao nó đứng cuối, sau cả lớp chọn-nhãn ════════════════════════════
+   *
+   * Vì nó đắt nhất và nguy hiểm nhất.
+   *
+   * Đắt: một lần gọi là một lượt gọi mô hình CỘNG một lượt quét ClickHouse.
+   * Mấy đường trước đó miễn phí hoặc chỉ tốn một lượt gọi mô hình.
+   *
+   * Nguy hiểm: mọi đường trước đó chỉ CHỌN trong thứ đã tính xong, nên câu trả
+   * lời luôn kèm nguyên văn cái nhãn được chọn và người đọc thấy ngay nếu nó
+   * nói chuyện khác. Đường này thì tự dựng một truy vấn mới, và một truy vấn
+   * sai trường vẫn ra một con số đẹp. Đó là lý do câu trả lời của nó LUÔN mang
+   * theo `hieuLa` — xem `services/chat/dienGiai.ts`.
+   *
+   * ⚠️ Chỉ chạy khi trang khai `moHinhId`. Trang Kho dữ liệu hay Hồ sơ không
+   * có mô hình nào, nên ở đó khung dừng ở "chưa hiểu" như trước.
+   */
+  function nhoMoHinhHoi(q: string, idBot: number, moHinhId: number): void {
+    void hoiTrenMoHinh(moHinhId, q)
+      .then(({ cau, so, hieuLa }) => {
+        if (cau === null) return;
+
+        /*
+         * `hieuLa` đi TRƯỚC câu trả lời, trên một dòng riêng.
+         *
+         * Nó là thứ duy nhất cho người đọc đối chiếu "máy hiểu gì" với "tôi hỏi
+         * gì". Nhét nó vào cuối thì người ta đọc con số rồi tin luôn, và cái
+         * dòng giải thích thành ra để cho vui.
+         */
+        setTinNhan((cu) =>
+          cu.map((t) =>
+            t.id === idBot
+              ? { id: t.id, ai: t.ai, luc: t.luc, cau, hieuLa: hieuLa ?? undefined }
+              : t,
+          ),
+        );
+
+        // Viết lại cho mượt, vẫn bị đối chiếu số như hai đường kia.
+        vietLai(q, idBot, { cau, so });
+      })
+      .catch(() => {
+        /*
+         * Im lặng, và đây là ca có thật chứ không phải phòng xa: `viewer` không
+         * có `datamodel:read` nên lời gọi này trả 403 với họ. Bong bóng "chưa
+         * hiểu" kèm gợi ý vẫn đúng và vẫn ở đó.
+         */
       });
   }
 
@@ -430,6 +503,17 @@ function BongBong({
               : 'border-slate-200 bg-white text-slate-800'
           }`}
         >
+          {/*
+            "Tôi hiểu:" đứng TRƯỚC câu trả lời, và nhạt hơn nó.
+            Trước vì nó là thứ để đối chiếu — đọc con số rồi mới đọc cách nó
+            được tính thì người ta đã tin con số rồi. Nhạt hơn vì câu trả lời
+            vẫn là thứ chính; dòng này là chú thích, không phải tiêu đề.
+          */}
+          {tin.hieuLa !== undefined && (
+            <span className="mb-1.5 block border-l-2 border-slate-200 pl-2 text-xs text-slate-500">
+              Tôi hiểu: {tin.hieuLa}
+            </span>
+          )}
           {tin.cau}
           {tin.goiY !== undefined && tin.goiY.length > 0 && (
             <span className="mt-2 block">

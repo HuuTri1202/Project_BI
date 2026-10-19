@@ -969,6 +969,19 @@ export const createRelationshipBodySchema = z.object({
  * `values: []` được Cube đọc thành "không dòng nào khớp", tức một biểu đồ
  * trắng không giải thích được — thay vì một lỗi 400 nói đúng chuyện gì sai.
  */
+/**
+ * Câu hỏi tự nhiên gửi cho lớp ĐIỀN FORM — §chat, bước (4).
+ *
+ * CỐ Ý chỉ có câu hỏi. Danh sách trường thì backend tự nạp từ mô hình trên
+ * đường dẫn, không nhận từ client: nhận nó nghĩa là ai cũng gửi được một danh
+ * sách trường tự bịa rồi bảo mô hình điền form trên đó — và dù id lạ sẽ bị
+ * `kiemForm` chặn, cho client quyết "mô hình được thấy những trường nào" vẫn là
+ * một cái cửa không có lý do gì để mở.
+ */
+export const chatCauHoiBodySchema = z.object({
+  cauHoi: z.string().trim().min(1).max(500),
+});
+
 export const explorerFilterSchema = z
   .object({
     dimensionId: z.coerce.number().int().positive(),

@@ -27,7 +27,11 @@ import { THUOC_TINH_KHONG_XUAT } from '../src/services/danhDauXuat';
  *      có dữ liệu đó, trong khi chỉ là khung không đọc tới trang đó.
  */
 
-vi.mock('../src/features/chat/api', () => ({ dienDatLai: vi.fn(), hieuCauHoi: vi.fn() }));
+vi.mock('../src/features/chat/api', () => ({
+  dienDatLai: vi.fn(),
+  hieuCauHoi: vi.fn(),
+  hoiTrenMoHinh: vi.fn(),
+}));
 
 /*
  * Lớp xuyên hệ thống bị thay bằng một hàm thường.
@@ -43,6 +47,7 @@ vi.mock('../src/features/chat/nguCanhHeThong', () => ({ useNguCanhHeThong: vi.fn
 const dienDatLai = vi.mocked(chatApi.dienDatLai);
 const hieuCauHoi = vi.mocked(chatApi.hieuCauHoi);
 const useNguCanhHeThong = vi.mocked(heThongHook.useNguCanhHeThong);
+const hoiTrenMoHinh = vi.mocked(chatApi.hoiTrenMoHinh);
 
 beforeEach(() => {
   /*
@@ -64,6 +69,11 @@ beforeEach(() => {
   // (không có `dataset:read`) và của mọi ca chỉ nói về trang đang mở.
   useNguCanhHeThong.mockReset();
   useNguCanhHeThong.mockReturnValue([]);
+
+  // Mặc định: đường đặt câu hỏi MỚI bị từ chối — đúng trạng thái của `viewer`,
+  // người không có `datamodel:read` (migration 26).
+  hoiTrenMoHinh.mockReset();
+  hoiTrenMoHinh.mockRejectedValue(new Error('403'));
 });
 
 function bang(): ReportDataDto {
@@ -79,17 +89,30 @@ function bang(): ReportDataDto {
 }
 
 /** Một trang giả lập: khai ngữ cảnh rồi thôi, đúng như trang thật làm. */
-function TrangGiaLap({ nguon }: { nguon: Nguon[] }): React.ReactElement {
-  const nguCanh = useMemo((): NguCanh => ({ trang: 'Kho dữ liệu', nguon }), [nguon]);
+function TrangGiaLap({
+  nguon,
+  moHinhId,
+}: {
+  nguon: Nguon[];
+  moHinhId?: number;
+}): React.ReactElement {
+  const nguCanh = useMemo(
+    (): NguCanh => ({
+      trang: 'Kho dữ liệu',
+      nguon,
+      ...(moHinhId === undefined ? {} : { moHinhId }),
+    }),
+    [nguon, moHinhId],
+  );
   useKhaiNguCanh(nguCanh);
   return <p>nội dung trang</p>;
 }
 
-function dung(nguon: Nguon[]): void {
+function dung(nguon: Nguon[], moHinhId?: number): void {
   render(
     <MemoryRouter>
       <NguCanhProvider>
-        <TrangGiaLap nguon={nguon} />
+        <TrangGiaLap nguon={nguon} moHinhId={moHinhId} />
       </NguCanhProvider>
     </MemoryRouter>,
   );
@@ -604,5 +627,119 @@ describe('Câu trả lời được viết thành CHỮ, ở cả hai đường'
     expect(dienDatLai).toHaveBeenCalledWith(
       expect.objectContaining({ cau: 'Dung lượng của Đơn hàng Q4: 4,2 MB.', so: ['4,2 MB'] }),
     );
+  });
+});
+
+/*
+ * ĐƯỜNG CUỐI: mô hình tự đặt một câu hỏi MỚI trên mô hình dữ liệu.
+ *
+ * ═══ Bốn thứ được canh ở đây ═══════════════════════════════════════════════
+ *
+ *   1. Nó chỉ chạy khi trang khai `moHinhId`. Trang Kho dữ liệu hay Hồ sơ
+ *      không có mô hình nào.
+ *   2. Nó chỉ chạy SAU KHI mọi đường rẻ hơn đã trượt — mỗi lần gọi là một lượt
+ *      gọi mô hình cộng một lượt quét ClickHouse.
+ *   3. Câu trả lời LUÔN kèm "Tôi hiểu:". Đây là đường duy nhất mà con số được
+ *      tính bởi một truy vấn do mô hình dựng, nên là đường duy nhất mà một câu
+ *      trả lời sai không tự lộ ra.
+ *   4. Bị 403 (viewer) thì bong bóng "chưa hiểu" ở lại, không có hộp lỗi nào.
+ */
+describe('Đặt câu hỏi MỚI trên mô hình dữ liệu', () => {
+  const trang: Nguon[] = [
+    { ten: 'Đơn hàng Q4', duKien: [{ nhan: 'Số dòng của Đơn hàng Q4', gia: '12.431' }] },
+  ];
+
+  it('trả lời được câu mà không trang nào có sẵn số liệu', async () => {
+    hieuCauHoi.mockResolvedValue({ chon: null, daHoi: true });
+    hoiTrenMoHinh.mockResolvedValue({
+      cau: 'Khu vực: Doanh thu 1.200.000.',
+      so: ['1.200.000'],
+      hieuLa: 'Doanh thu theo Khu vực, lọc Khu vực bằng Miền Bắc',
+      daHoi: true,
+    });
+    dung(trang, 7);
+    fireEvent.click(nutMo());
+
+    hoi('doanh thu miền bắc theo khu vực');
+
+    expect(await screen.findByText(/1\.200\.000/)).toBeInTheDocument();
+    expect(hoiTrenMoHinh).toHaveBeenCalledWith(7, 'doanh thu miền bắc theo khu vực');
+  });
+
+  /*
+   * ⚠️ Ca quan trọng nhất của khối này. Không có dòng "Tôi hiểu:" thì người đọc
+   * không có cách nào đối chiếu "máy hiểu gì" với "tôi hỏi gì" — và một truy
+   * vấn sai trường vẫn cho ra một con số đẹp.
+   */
+  it('câu trả lời LUÔN kèm dòng "Tôi hiểu:"', async () => {
+    hieuCauHoi.mockResolvedValue({ chon: null, daHoi: true });
+    hoiTrenMoHinh.mockResolvedValue({
+      cau: 'Khu vực: Doanh thu 1.200.000.',
+      so: ['1.200.000'],
+      hieuLa: 'Doanh thu theo Khu vực, lọc Khu vực bằng Miền Bắc',
+      daHoi: true,
+    });
+    dung(trang, 7);
+    fireEvent.click(nutMo());
+
+    hoi('doanh thu miền bắc');
+
+    expect(await screen.findByText(/Tôi hiểu:/)).toBeInTheDocument();
+    expect(screen.getByText(/lọc Khu vực bằng Miền Bắc/)).toBeInTheDocument();
+  });
+
+  it('trang KHÔNG có mô hình thì không gọi tới nó', async () => {
+    hieuCauHoi.mockResolvedValue({ chon: null, daHoi: true });
+    dung(trang);
+    fireEvent.click(nutMo());
+
+    hoi('doanh thu miền bắc theo khu vực');
+    await screen.findByText(/đã đọc hết số liệu/);
+
+    expect(hoiTrenMoHinh).not.toHaveBeenCalled();
+  });
+
+  /*
+   * Mỗi lần gọi là một lượt gọi mô hình CỘNG một lượt quét ClickHouse. Gọi nó
+   * cho một câu mà máy đã tự trả lời được là tiêu tiền và tiêu thời gian của
+   * người dùng cho đúng con số họ đã có.
+   */
+  it('KHÔNG gọi khi phép so ngoại tuyến đã trả lời được', () => {
+    dung(trang, 7);
+    fireEvent.click(nutMo());
+
+    hoi('đơn hàng q4 có bao nhiêu dòng');
+
+    expect(screen.getByText(/12\.431/)).toBeInTheDocument();
+    expect(hoiTrenMoHinh).not.toHaveBeenCalled();
+  });
+
+  it('bị 403 (viewer) thì bong bóng "chưa hiểu" ở lại, không có hộp lỗi', async () => {
+    hieuCauHoi.mockResolvedValue({ chon: null, daHoi: true });
+    // `hoiTrenMoHinh` đã `mockRejectedValue` ở `beforeEach` — đúng trạng thái
+    // của một viewer không có `datamodel:read`.
+    dung(trang, 7);
+    fireEvent.click(nutMo());
+
+    hoi('doanh thu miền bắc theo khu vực');
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(screen.getByText(/Tôi chưa hiểu câu này/)).toBeInTheDocument();
+  });
+
+  it('mô hình không dựng được truy vấn nào thì giữ nguyên "chưa hiểu"', async () => {
+    hieuCauHoi.mockResolvedValue({ chon: null, daHoi: true });
+    hoiTrenMoHinh.mockResolvedValue({ cau: null, so: [], hieuLa: null, daHoi: true });
+    dung(trang, 7);
+    fireEvent.click(nutMo());
+
+    hoi('hôm nay trời thế nào');
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(screen.getByText(/Tôi chưa hiểu câu này/)).toBeInTheDocument();
   });
 });

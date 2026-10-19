@@ -536,8 +536,10 @@ function Builder({
           : [{ ten: tenO, duKien: [], bang: soLieuO.data }]),
         ...(model.data === undefined ? [] : duKienMoHinh(model.data)),
       ],
+      // Đặt được câu hỏi MỚI trên mô hình đang dựng — xem `features/chat/nguCanh.ts`.
+      ...(modelId === null ? {} : { moHinhId: modelId }),
     }),
-    [model.data, soLieuO.data, tenO],
+    [model.data, soLieuO.data, tenO, modelId],
   );
   useKhaiNguCanh(nguCanh);
 

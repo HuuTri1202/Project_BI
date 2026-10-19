@@ -3122,8 +3122,56 @@ việc, và **không việc nào cho phép nó tạo ra nội dung**:
    chính dữ kiện đó — kể cả điều kiện của con số.
 2. **Viết lại thành câu.** Câu mẫu do code ghép chuỗi nên nó đọc như một dòng
    bảng (_"Số quan hệ của mô hình Bán hàng: 3."_); mô hình biến nó thành một câu
-   tiếng Việt có chủ ngữ vị ngữ. Cả HAI đường ra câu trả lời đều đi qua đây.
-   Câu nó viết bị đối chiếu: con số nào biến mất thì bỏ cả câu, trả lại câu mẫu.
+   tiếng Việt có chủ ngữ vị ngữ. MỌI đường ra câu trả lời đều đi qua đây. Câu nó
+   viết bị đối chiếu: con số nào biến mất thì bỏ cả câu, trả lại câu mẫu.
+3. **Điền một FORM truy vấn**, để đặt được câu hỏi MỚI — _"doanh thu tháng 3 của
+   Miền Bắc"_, thứ không ô biểu đồ nào trên màn hình có sẵn. Đây KHÔNG phải
+   text-to-SQL: mô hình điền `explorerQueryBodySchema`, một form mà **toàn bộ
+   định danh là số nguyên** (`{dimensionIds:[12], measureIds:[34], filters:[…]}`).
+   Id không có trong danh sách trường → **bỏ cả form**, không vá từng ô. Toán tử
+   phải nằm trong `FILTER_OPERATORS`. Tên cube, tên cột và câu SQL vẫn do
+   `buildQuery` dựng từ id; mô hình không chạm tới một ký tự nào của chúng.
+
+   Chỗ **duy nhất** mô hình sinh ra chuỗi là `filters[].values` — nó phải viết
+   "Miền Bắc" để lọc theo Miền Bắc. Luật bịt: **mỗi giá trị phải xuất hiện trong
+   chính câu người dùng gõ** (so trên bản đã bỏ dấu, nên gõ không dấu vẫn khớp).
+   Thiếu luật đó thì một giá trị bịa ra làm truy vấn trả về rỗng, rồi khung nói
+   _"không có dòng nào thoả"_ — một câu **trung thực về truy vấn đã chạy**, mà
+   truy vấn đó thì sai.
+
+   Câu trả lời của đường này **luôn** kèm dòng _"Tôi hiểu: Doanh thu theo Khu
+   vực, lọc Khu vực bằng Miền Bắc"_. Mấy đường kia tự lộ khi chọn nhầm vì câu
+   trả lời mang nguyên văn cái nhãn được chọn; đường này thì một truy vấn sai
+   trường vẫn ra một con số đẹp, nên dòng đó là thứ duy nhất cho người đọc đối
+   chiếu lại.
+
+   ⚠️ Gác bằng `authorize('datamodel', 'read')` — `admin` và `creator` có,
+   `viewer` **không** (migration 26). Viewer vẫn hỏi được mọi câu về thứ đang
+   hiện trên màn hình, nhưng không tự đặt được câu hỏi mới trên kho. Đó đúng là
+   ranh giới migration 26 vẽ ra.
+
+**Đo xem khung trả lời đúng bao nhiêu phần trăm:**
+
+```bash
+npm --workspace frontend run danh-gia
+```
+
+71 câu hỏi thật, chạy qua đúng chuỗi thật của khung, và đếm ra **ba** kết cục
+chứ không hai:
+
+|                        |                                                |
+| ---------------------- | ---------------------------------------------- |
+| **ĐÚNG** 69/71 (97,2%) | trả lời, và con số/cái tên trong đó đúng       |
+| **CHƯA HIỂU** 1/71     | trả `null` — trượt, nhưng **trung thực**       |
+| **SAI** 1/71           | trả lời mà sai: kết cục **duy nhất** nguy hiểm |
+
+Tách "chưa hiểu" khỏi "sai" là phần quan trọng nhất của cách đo: gộp hai thứ
+thành một con số "độ chính xác" là xoá đúng cái phân biệt mà cả thiết kế này
+dựng lên để giữ. Hai ngưỡng trong bộ đo chỉ được sửa **lên** — một thay đổi
+"cải thiện câu A" mà lặng lẽ làm hỏng câu B sẽ đỏ ngay.
+
+Bộ này **không gọi mạng**: nó đo lớp ngoại tuyến, thứ phải chạy được khi chưa có
+khoá API nào. Ba lớp mô hình ở trên không nằm trong con số đó.
 
 **Kiểm tra đã nối được mô hình chưa:**
 
@@ -3151,7 +3199,11 @@ riêng câu trả lời — không gửi bảng số liệu, không gửi số t
 | `frontend/src/features/chat/traLoi.ts`         | Lõi trả lời — hàm thuần, không React, không mạng |
 | `frontend/src/features/chat/HoiDapPanel.tsx`   | Khung, con robot, bong bóng, gợi ý               |
 | `backend/src/services/chat/hieuY.ts`           | Lớp hiểu câu hỏi — mô hình chỉ CHỌN một nhãn     |
+| `backend/src/services/chat/datCauHoi.ts`       | Lớp điền FORM truy vấn + luật giá trị-là-lời-ai  |
+| `backend/src/services/chat/dienGiai.ts`        | Đọc kết quả thành câu, và dòng "Tôi hiểu:"       |
+| `backend/src/services/chat/hoiTrenMoHinh.ts`   | Ghép ba bước của đường đặt câu hỏi mới           |
 | `backend/src/services/chat/dienDat.ts`         | Lớp viết lại + luật đối chiếu số                 |
+| `frontend/tests/danhGia.test.ts`               | Bộ ĐO: 71 câu hỏi thật, ba kết cục               |
 
 ---
 

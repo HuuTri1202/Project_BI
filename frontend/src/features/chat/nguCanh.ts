@@ -76,6 +76,22 @@ export interface NguCanh {
   /** Tên trang, dùng trong câu "tôi chưa hiểu" để nói rõ đang ở đâu. */
   trang: string;
   nguon: Nguon[];
+  /**
+   * Mô hình dữ liệu mà trang này đang đứng trên — mở ra nhóm câu hỏi MỚI.
+   *
+   * ═══ Vì sao nó là một id, không phải thêm dữ liệu ═════════════════════════
+   *
+   * Mọi thứ khác trong `NguCanh` là dữ liệu trang ĐÃ TẢI VỀ, và đó là cả lời
+   * hứa của khung: nó chỉ đọc thứ đang ở trước mắt người dùng. Trường này phá
+   * lệ, nên nó cố ý chỉ mang một id: trang nói "có một mô hình ở đây", còn việc
+   * đặt câu hỏi mới trên mô hình đó là của backend, và nó đi qua đúng cái cổng
+   * `authorize('datamodel', 'read')` mà Explorer đi qua.
+   *
+   * `viewer` KHÔNG có quyền đó (migration 26), nên với họ lời gọi trả 403 và
+   * khung quay về đúng hành vi cũ — trả lời bằng thứ đang hiện trên màn hình.
+   * Không cần một lớp kiểm nào ở frontend, và không có chỗ nào để quên nó.
+   */
+  moHinhId?: number;
 }
 
 export const NGU_CANH_RONG: NguCanh = { trang: '', nguon: [] };
