@@ -919,11 +919,10 @@ function boCumLoai(q: string): string {
   return con;
 }
 
-function tuNoiDung(s: string): Set<string> {
+function tuNoiDung(s: string, boLoai = true): Set<string> {
+  const q = chuanHoa(s);
   return new Set(
-    boCumLoai(chuanHoa(s))
-      .split(' ')
-      .filter((t) => t.length > 1 && !TU_DEM.has(t)),
+    (boLoai ? boCumLoai(q) : q).split(' ').filter((t) => t.length > 1 && !TU_DEM.has(t)),
   );
 }
 
@@ -1048,16 +1047,12 @@ function gomThuocTinh(tatCa: Nguon[]): { cot: Cot[]; muc: Muc[] } {
   return { cot, muc };
 }
 
-/**
- * Cột mà câu hỏi đang nhắc tới. `null` = không nhận ra, hoặc hoà.
- */
-function chonThuocTinh(tatCa: Nguon[], cauHoi: string): ThuocTinh | null {
-  const { cot: soDuoc, muc } = gomThuocTinh(tatCa);
-  if (muc.length < 2) return null;
-
-  const tuHoi = tuNoiDung(cauHoi);
+/** Một lượt chấm. `null` = không cột nào khớp, hoặc hai cột bằng điểm. */
+function chamCot(soDuoc: Cot[], cauHoi: string, boLoai: boolean): Cot | null {
+  // Bỏ ĐỐI XỨNG ở cả hai phía — bỏ một phía là tự tạo ra lệch điểm mới.
+  const tuHoi = tuNoiDung(cauHoi, boLoai);
   const diem = soDuoc
-    .map((g) => ({ g, diem: [...tuNoiDung(g.nhan)].filter((t) => tuHoi.has(t)).length }))
+    .map((g) => ({ g, diem: [...tuNoiDung(g.nhan, boLoai)].filter((t) => tuHoi.has(t)).length }))
     .sort((a, b) => b.diem - a.diem);
 
   const [nhat, nhi] = diem;
@@ -1065,7 +1060,35 @@ function chonThuocTinh(tatCa: Nguon[], cauHoi: string): ThuocTinh | null {
   // Hoà nghĩa là câu hỏi chưa đủ rõ để biết nó hỏi cột nào. Chọn bừa một cột
   // sẽ cho ra một tên mục có thật, trả lời cho một câu hỏi khác.
   if (nhi !== undefined && nhi.diem === nhat.diem) return null;
-  return { ...nhat.g, muc };
+  return nhat.g;
+}
+
+/**
+ * Cột mà câu hỏi đang nhắc tới. `null` = không nhận ra, hoặc hoà.
+ *
+ * ═══ Hai lượt chấm, và lượt thứ hai chỉ chạy khi lượt đầu HOÀ ═════════
+ *
+ * `CUM_LOAI` bỏ mấy cụm chỉ LOẠI mục, và lí lẽ của nó là: trên một trang danh
+ * sách, mọi mục cùng một loại nên tên loại không phân biệt được cột nào với
+ * cột nào. Lí lẽ đó ĐÚNG với một trang, và SAI với danh sách xuyên hệ thống
+ * — ở đó bộ dữ liệu, mô hình, kết nối và báo cáo nằm chung một rổ.
+ *
+ * LỖI ĐO ĐƯỢC: "kết nối nào nhiều bộ dữ liệu nhất". Bỏ cụm "bộ dữ liệu" là
+ * câu hỏi chỉ còn hai chữ "kết nối", mà NĂM cột của một kết nối đều chứa hai
+ * chữ ấy — hoà năm đường, và câu hỏi mất câu trả lời vì đúng mấy chữ mang
+ * nội dung đã bị bỏ đi.
+ *
+ * Thứ tự này giữ được cả hai: lượt đầu vẫn bỏ cụm loại, nên "bộ dữ liệu nào
+ * nhiều dòng nhất" không bị nhãn "Số mô hình DỮ LIỆU dùng" cướp mất (lỗi đã
+ * ghi ở `CUM_LOAI`). Lượt hai chỉ chạy khi lượt đầu đã hoà — tức là khi khung
+ * đã sắp nói "chưa hiểu" — nên nó chỉ thêm câu trả lời, không đổi câu nào.
+ */
+function chonThuocTinh(tatCa: Nguon[], cauHoi: string): ThuocTinh | null {
+  const { cot: soDuoc, muc } = gomThuocTinh(tatCa);
+  if (muc.length < 2) return null;
+
+  const g = chamCot(soDuoc, cauHoi, true) ?? chamCot(soDuoc, cauHoi, false);
+  return g === null ? null : { ...g, muc };
 }
 
 /**
@@ -1089,9 +1112,27 @@ export function soSanhNguon(
   pham = 'đang hiện trên trang này',
 ): TraLoi | null {
   const q = chuanHoa(cauHoi);
-  if (!q.split(' ').includes('nao')) return null;
   const y = docYDinh(cauHoi);
   if (y !== 'cao_nhat' && y !== 'thap_nhat' && y !== 'chua_co') return null;
+
+  /*
+   * Hai cách hỏi cùng MỘT phép tính — "mục NÀO …" và "BAO NHIÊU mục …".
+   *
+   * Cửa "nào" là cửa duy nhất từ đầu, và nó bỏ sót hẳn một nửa số câu: người
+   * dùng hỏi "bao nhiêu datamodel chưa kết nối quan hệ" thì họ muốn đúng con số
+   * mà nhánh `chua_co` ngay dưới đã đếm xong, chỉ khác mỗi chữ để hỏi.
+   *
+   * LỖI ĐO ĐƯỢC, dựng từ ảnh chụp màn hình: câu ấy trượt hết mọi nhánh rồi
+   * rơi xuống `traCuu`, và ở đó nhãn "Tên các mô hình đang hiện" thắng 3-2 nhờ
+   * ba chữ "mô", "hình", "các" — nên câu trả lời là danh sách TÊN của cả ba mô
+   * hình, một danh sách có thật cho một câu hỏi khác.
+   *
+   * ⚠️ Chỉ mở cho `chua_co`. "Bao nhiêu mô hình nhiều bảng nhất" không phải một
+   * câu hỏi — đỉnh thì chỉ có một — nên hai ý định kia giữ nguyên cửa cũ.
+   */
+  const tu = q.split(' ');
+  const demDuoc = y === 'chua_co' && (q.includes('bao nhieu') || tu.includes('may'));
+  if (!tu.includes('nao') && !demDuoc) return null;
 
   const tt = chonThuocTinh(tatCa, cauHoi);
   if (tt === null) return null;
@@ -1612,13 +1653,27 @@ function noiPham(kq: TraLoi): TraLoi {
  * Ba cửa, cùng thứ tự với `traLoiTrang` và cùng lý do:
  *
  *   1. Câu hỏi so cả danh sách ("mô hình nào nhiều bảng nhất").
- *   2. Mục mà câu hỏi gọi thẳng tên ("bộ dữ liệu Orders có mấy dòng").
- *   3. Cuối cùng mới so nhãn trên TOÀN BỘ dữ kiện — chỗ duy nhất trả lời được
- *      "có bao nhiêu bộ dữ liệu", vì bản tóm tắt không bao giờ được gọi tên.
+ *   2. Câu ĐẾM không gọi tên mục nào — chỉ bản tóm tắt được xét.
+ *   3. Mục mà câu hỏi gọi thẳng tên ("bộ dữ liệu Orders có mấy dòng").
  *
- * Bước 3 lỏng hơn hai bước trên, nhưng luật "phải hơn hẳn ứng viên nhì" của
- * `traCuu` vẫn giữ: một trăm bộ dữ liệu cùng có nhãn "Số dòng của …" thì câu
- * "số dòng là bao nhiêu" hoà điểm và ra `null`, đúng như nó phải.
+ * ═══ Không có cửa thứ tư, và đó là một quyết định ══════════════════
+ *
+ * Bản đầu còn một cửa cuối: so nhãn trên TOÀN BỘ dữ kiện của mọi mục trong tổ
+ * chức. Cửa đó đã bị BỎ, vì nó hỏng dần theo số mục chứ không hỏng ngay:
+ *
+ *   LỖI ĐO ĐƯỢC — ngay khi danh sách xuyên hệ thống nhận thêm mấy thẻ báo cáo,
+ *   câu "doanh thu tháng 3 của Miền Bắc" hỏi trên MỘT BIỂU ĐỒ được trả lời bằng
+ *   "Thư mục của báo cáo doanh thu theo name: Chung" — ba chữ "doanh", "thu",
+ *   "của" đủ để một nhãn bất kỳ về một báo cáo bất kỳ về đích.
+ *
+ * Gốc của nó: luật "hai từ trùng và hơn hẳn ứng viên nhì" của `traCuu` được
+ * dựng cho một nguồn vài chục dữ kiện. Đổ vào đó vài nghìn dữ kiện của cả tổ
+ * chức thì hai từ trùng thành chuyện ngẫu nhiên, và càng nhiều dữ liệu thì càng
+ * hay trùng — tức là hệ thống dùng càng lâu thì trả lời càng bậy.
+ *
+ * Bỏ nó không mất câu nào: bộ đánh giá giữ nguyên số ca "chưa hiểu" sau khi
+ * bỏ. Ba cửa còn lại đều đòi một BẰNG CHỨNG rằng câu hỏi đang nói về cái gì —
+ * một cột so được, một ý định đếm, hay nguyên tên một mục.
  *
  * Nhánh (1) KHÔNG nối thêm vế "đọc ở đâu": `soSanhNguon` đã tự nói ra phạm vi
  * trong vế "so trên N mục …", và hai vế cùng nói một điều chỉ làm câu dài ra.
@@ -1647,13 +1702,25 @@ export function traLoiHeThong(heThong: Nguon[], cauHoi: string): TraLoi | null {
    * hình cho một câu hỏi về số BẢNG của một mô hình. Cùng luật nhường-cho-tên
    * mà `traLoiTrang` và nhánh `dem` của `tinhBang` đang dùng.
    */
-  if (goiTen === null && docYDinh(cauHoi) === 'dem') {
-    const tom = traCuu(dau.duKien, cauHoi);
+  /*
+   * `chua_co` đi cùng `dem`: "bao nhiêu mô hình chưa nối đủ quan hệ" cũng là một
+   * câu hỏi về CẢ DANH SÁCH muốn một con số, chỉ khác là nó còn kèm điều kiện.
+   * `soSanhNguon` ở trên đếm được nó khi một cột thắng rõ; khi hai cột hoà điểm
+   * thì bản tóm tắt là lưới hứng — và nó chỉ có ở đây.
+   *
+   * Dùng `traLoi` chứ không dùng thẳng `traCuu`: `traLoi` lọc trước về những dữ
+   * kiện LÀ SỐ cho ý định đếm. Thiếu phép lọc đó thì "có bao nhiêu báo cáo" hoà
+   * điểm giữa "Số báo cáo trong HR" và "Báo cáo mở gần đây trong HR" — đúng cái
+   * hoà mà nhánh `dem` của `traLoi` được viết ra để gỡ.
+   */
+  const yHoi = docYDinh(cauHoi);
+  if (goiTen === null && (yHoi === 'dem' || yHoi === 'chua_co')) {
+    const tom = traLoi(dau, cauHoi);
     if (tom !== null) return noiPham(tom);
   }
 
-  const kq =
-    (goiTen === null ? null : traLoi(goiTen, cauHoi)) ?? traCuu(duKienPhang(heThong, dau), cauHoi);
+  // Chỉ còn cửa "gọi thẳng tên mục" — xem khối chú thích trên.
+  const kq = goiTen === null ? null : traLoi(goiTen, cauHoi);
   return kq === null ? null : noiPham(kq);
 }
 

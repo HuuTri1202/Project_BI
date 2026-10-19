@@ -94,9 +94,113 @@ function duKienChung(ds: DatasetDto): DuKien[] {
   return d;
 }
 
-/** Trang Kho dữ liệu — mỗi bộ dữ liệu trong danh sách là một nguồn. */
-export function duKienKhoDuLieu(ds: DatasetDto[]): Nguon[] {
-  return ds.map((d) => ({ ten: d.name, duKien: duKienChung(d) }));
+/* ═══ BẢN TÓM TẮT của một danh sách — dùng chung cho TRANG vÀ cho TOÀN TỔ CHỨC ══
+ *
+ * Hai hàm dưới đây trả về `DuKien[]` chứ không trả về `Nguon`, và đó là cả
+ * lý do chúng tồn tại: CÙNG một phép đếm phải xuất hiện ở hai chỗ — trên trang
+ * danh sách (`duKienKhoDuLieu`) và trong bản tóm tắt xuyên hệ thống
+ * (`useNguCanhHeThong`) — vì người dùng hỏi câu đó từ BẤT KỲ trang nào. Chép tay
+ * hai bản là chúng lệch nhau ở lần sửa đầu tiên, và khi đó cùng một câu hỏi cho
+ * hai con số khác nhau tùy người dùng đang đứng ở đâu.
+ *
+ * `pham` là vế phạm vi dán vào cuối nhãn. Nó là tham số chứ không viết cứng vì
+ * đúng một phép đếm ấy mang hai phạm vi khác hẳn nhau, và một nhãn nói sai phạm
+ * vi thì mọi câu trả lời dựng từ nó cũng nói sai — cùng lý do `soSanhNguon` nhận
+ * `pham`.
+ */
+
+/** Tên dễ đọc của một đuôi tệp. Người dùng gõ "excel", không gõ "xlsx". */
+const TEN_DUOI = new Map<string, string>([
+  ['xlsx', 'Excel'],
+  ['xlsm', 'Excel'],
+  ['xls', 'Excel'],
+  ['csv', 'CSV'],
+  ['tsv', 'TSV'],
+  ['json', 'JSON'],
+  ['parquet', 'Parquet'],
+]);
+
+function loaiTep(ten: string): string {
+  const duoi = ten.toLowerCase().split('.').pop() ?? '';
+  return TEN_DUOI.get(duoi) ?? duoi.toUpperCase();
+}
+
+/**
+ * Vế điều kiện cho mọi con số ĐẾM TRÊN DANH SÁCH ĐANG CÓ TRONG TAY.
+ *
+ * ⚠️ Mọi danh sách đều phân trang. Trang Kho dữ liệu thật hiện 20 trên 24 bộ,
+ * nên "số tệp Excel" đếm ở đây là số tệp của 20 bộ ĐÃ TẢI, không phải của cả
+ * kho. Không nói ra thì nó đọc thành "toàn bộ", và đó là một con số có thật trả
+ * lời cho một câu hỏi khác — cùng lý do `luuYCat` và `truncated` tồn tại.
+ */
+function luuYChuaDu(hien: number, tong: number): string | undefined {
+  return tong > hien
+    ? `đếm trên ${hien.toLocaleString('vi-VN')} mục đang hiện, không phải toàn bộ ${tong.toLocaleString('vi-VN')}`
+    : undefined;
+}
+
+/** Dán hai vế điều kiện lại — bỏ vế nào không có. */
+function gopLuuY(...phan: (string | undefined)[]): string | undefined {
+  const co = phan.filter((x): x is string => x !== undefined && x !== '');
+  return co.length === 0 ? undefined : co.join('; ');
+}
+
+/**
+ * Bản tóm tắt của một danh sách bộ dữ liệu.
+ *
+ * Đếm TỆP chứ không đếm BỘ, và đó là phần quan trọng nhất ở đây: một tệp Excel
+ * bốn sheet sinh ra BỐN bộ dữ liệu trỏ vào cùng một tệp. Đếm dòng trong bảng rồi
+ * gọi đó là "số file excel" là một con số có thật trả lời cho một câu hỏi khác —
+ * nên số bộ đi theo trong `luuY`, không đi vào chỗ của con số chính.
+ */
+export function tomTatBoDuLieu(ds: DatasetDto[], tong: number, pham: string): DuKien[] {
+  const theoLoai = new Map<string, { tep: Set<string>; bo: number }>();
+  for (const d of ds) {
+    if (d.source !== 'file' || d.originalFilename === null) continue;
+    const loai = loaiTep(d.originalFilename);
+    const g = theoLoai.get(loai) ?? { tep: new Set<string>(), bo: 0 };
+    g.tep.add(d.originalFilename);
+    g.bo += 1;
+    theoLoai.set(loai, g);
+  }
+
+  const chuaDu = luuYChuaDu(ds.length, tong);
+
+  return [
+    ...dk(`Số bộ dữ liệu ${pham}`, tong),
+    ...dk('Tên các bộ dữ liệu đang hiện', ds.map((d) => d.name).join('; ')),
+    /*
+     * ⚠️ Nhãn cố ý KHÔNG chứa cụm "bộ dữ liệu". Cụm đó đã là của nhãn đầu
+     * tiên; dùng lại là hai nhãn hoà điểm trong `traCuu` cho câu "có bao nhiêu bộ
+     * dữ liệu", và hoà thì khung bỏ cả hai — hỏng câu đơn giản nhất của cả trang
+     * để thêm được một câu. Cùng luật đã ghi ở `duKienDanhSachMoHinh`.
+     */
+    ...[...theoLoai].flatMap(([loai, g]) =>
+      dk(
+        `Số tệp ${loai} ${pham}`,
+        g.tep.size,
+        gopLuuY(
+          `${g.bo.toLocaleString('vi-VN')} bộ dữ liệu dựng từ chúng — một tệp nhiều sheet sinh ra nhiều bộ`,
+          chuaDu,
+        ),
+      ),
+    ),
+  ];
+}
+
+/**
+ * Trang Kho dữ liệu — bản tóm tắt trước, rồi mỗi bộ dữ liệu là một nguồn.
+ *
+ * ⚠️ Nguồn TÓM TẮT phải đứng ĐẦU — cùng quy ước mọi danh sách khác đang dùng,
+ * và `traLoiHeThong` đọc nó theo đúng vị trí đó. Trước đây danh sách này là danh
+ * sách DUY NHẤT không có bản tóm tắt, nên câu "có bao nhiêu bộ dữ liệu" hỏi ngay
+ * trên trang Kho dữ liệu lại không có chỗ nào trả lời được.
+ */
+export function duKienKhoDuLieu(ds: DatasetDto[], tong = ds.length): Nguon[] {
+  return [
+    { ten: 'Danh sách bộ dữ liệu', duKien: tomTatBoDuLieu(ds, tong, 'trong workspace này') },
+    ...ds.map((d) => ({ ten: d.name, duKien: duKienChung(d) })),
+  ];
 }
 
 /**
@@ -308,15 +412,47 @@ export function duKienDanhSachBaoCao(reports: ReportDto[], tong: number): Nguon[
   ];
 }
 
+/**
+ * Mô hình này chưa nối đủ quan hệ chưa?
+ *
+ * CÙNG cận dưới mà cột "Quan hệ" trên màn hình đang dùng để treo thẻ "chưa nối
+ * đủ": N bảng cần ÍT NHẤT N−1 quan hệ. Một hàm chứ không phải hai phép so chép
+ * tay, vì màn hình và câu trả lời lệch nhau một cận là người dùng thấy thẻ cảnh
+ * báo rồi nghe khung nói không có gì.
+ */
+function chuaNoiDu(m: DataModelDto): boolean {
+  return m.relationshipCount < m.datasetCount - 1;
+}
+
+/** Bản tóm tắt của một danh sách mô hình — xem khối ở `tomTatBoDuLieu`. */
+export function tomTatMoHinh(models: DataModelDto[], tong: number, pham: string): DuKien[] {
+  const thieu = models.filter(chuaNoiDu);
+  return [
+    ...dk(`Số mô hình dữ liệu ${pham}`, tong),
+    ...dk('Tên các mô hình đang hiện', models.map((m) => m.name).join('; ')),
+    /*
+     * Câu "bao nhiêu mô hình chưa nối quan hệ" có HAI đường tới đích, và đó là chủ
+     * ý: `soSanhNguon` đếm bằng cách so cột giữa các mục (chạy trước), còn nhãn này
+     * là lưới hứng cho lúc người dùng đứng ở một trang KHÁC và hỏi xuyên hệ
+     * thống — ở đó chỉ bản tóm tắt này được xét.
+     */
+    ...dk(
+      'Số mô hình chưa nối đủ quan hệ',
+      thieu.length,
+      gopLuuY(
+        thieu.length === 0 ? undefined : `gồm ${thieu.map((m) => m.name).join('; ')}`,
+        luuYChuaDu(models.length, tong),
+      ),
+    ),
+  ];
+}
+
 /** Danh sách mô hình dữ liệu. */
 export function duKienDanhSachMoHinh(models: DataModelDto[], tong: number): Nguon[] {
   return [
     {
       ten: 'Danh sách mô hình dữ liệu',
-      duKien: [
-        ...dk('Số mô hình dữ liệu trong workspace này', tong),
-        ...dk('Tên các mô hình đang hiện', models.map((m) => m.name).join('; ')),
-      ],
+      duKien: tomTatMoHinh(models, tong, 'trong workspace này'),
     },
     ...models.map((m) => ({
       ten: m.name,
@@ -337,7 +473,7 @@ export function duKienDanhSachMoHinh(models: DataModelDto[], tong: number): Nguo
          */
         ...dk(
           `Mô hình ${m.name} đã nối đủ chưa`,
-          m.relationshipCount < m.datasetCount - 1
+          chuaNoiDu(m)
             ? `chưa nối đủ — ${String(m.relationshipCount)} quan hệ cho ${String(m.datasetCount)} bảng, cần ít nhất ${String(m.datasetCount - 1)}`
             : 'đã nối đủ',
         ),

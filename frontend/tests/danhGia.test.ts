@@ -1,12 +1,15 @@
-import type { DataModelDto, DatasetDto, ReportDataDto } from '@bi/shared';
+import type { ConnectionDto, DataModelDto, DatasetDto, ReportDataDto } from '@bi/shared';
 import { describe, expect, it } from 'vitest';
 
 import type { HomeDataDto, ReportDto } from '@bi/shared';
 
 import {
   duKienDanhSachMoHinh,
+  duKienKetNoi,
   duKienKhoDuLieu,
   duKienTrangChu,
+  tomTatBoDuLieu,
+  tomTatMoHinh,
 } from '../src/features/chat/duKienTrang';
 import type { Nguon } from '../src/features/chat/nguCanh';
 import { traLoiKhung } from '../src/features/chat/traLoi';
@@ -219,8 +222,40 @@ const BO_DU_LIEU: DatasetDto[] = [
     originalFilename: 'global-superstore.xlsx',
     sheetName: 'Orders',
   },
+  /*
+   * CÙNG một tệp với Orders, khác sheet.
+   *
+   * Cố ý, và nó là cả nội dung của ca "bao nhiêu file excel": một tệp Excel
+   * nhiều sheet sinh ra NHIỀU bộ dữ liệu, nên đếm bộ rồi gọi đó là số tệp là
+   * một con số có thật trả lời cho câu hỏi khác. Đúng hình trong ảnh chụp màn
+   * hình: 24 dòng trong danh sách mà cột NGUỒN chỉ có vài tệp.
+   */
   {
     id: 2,
+    name: 'People',
+    source: 'file',
+    rowCount: 2501,
+    columnCount: 8,
+    truncated: false,
+    datamodelCount: 0,
+    fileSizeBytes: 8_400_000,
+    originalFilename: 'global-superstore.xlsx',
+    sheetName: 'People',
+  },
+  {
+    id: 3,
+    name: 'Products',
+    source: 'file',
+    rowCount: 10292,
+    columnCount: 6,
+    truncated: false,
+    datamodelCount: 1,
+    fileSizeBytes: 900_000,
+    originalFilename: 'products.xlsx',
+    sheetName: 'Sheet1',
+  },
+  {
+    id: 4,
     name: 'Returns',
     source: 'file',
     rowCount: 1173,
@@ -244,18 +279,59 @@ const BO_DU_LIEU: DatasetDto[] = [
     }) as unknown as DatasetDto,
 );
 // Orders 51.290 dòng / 24 cột · Returns 1.173 dòng (ĐÃ CẮT) / 3 cột
+// 4 bộ dữ liệu, nhưng chỉ 3 TỆP: 2 Excel (global-superstore.xlsx, products.xlsx) + 1 CSV
 
-/** Danh sách xuyên hệ thống, đúng hình dạng `useNguCanhHeThong` dựng ra. */
+const KET_NOI: ConnectionDto[] = [
+  {
+    id: 1,
+    name: 'MySQL bán hàng',
+    kind: 'mysql',
+    host: 'db.local',
+    port: 3306,
+    databaseName: 'sales',
+    useSsl: false,
+    datasetCount: 2,
+    lastTestedAt: null,
+    lastTestError: null,
+  },
+  {
+    id: 2,
+    name: 'Postgres kho',
+    kind: 'postgres',
+    host: 'pg.local',
+    port: 5432,
+    databaseName: 'wh',
+    useSsl: true,
+    datasetCount: 0,
+    lastTestedAt: null,
+    lastTestError: null,
+  },
+].map((c) => c as unknown as ConnectionDto);
+
+/**
+ * Danh sách xuyên hệ thống, dựng bằng ĐÚNG mấy hàm mà `useNguCanhHeThong` dùng.
+ *
+ * Chép tay một bản "gần giống" là bộ này đo một khung khác với khung đang chạy
+ * thật — và chính những câu "hỏi từ trang bất kỳ" mới là thứ phụ thuộc vào
+ * danh sách này được dựng đúng.
+ *
+ * `tong` cố ý LỚN hơn số mục (12 so với 4): đó là chuyện bình thường của một
+ * danh sách phân trang, và nó bắt mọi phép đếm phải mang vế điều kiện.
+ */
 const HE_THONG: Nguon[] = [
   {
     ten: 'Tổng quan toàn tổ chức',
     duKien: [
-      { nhan: 'Số bộ dữ liệu trong toàn bộ tổ chức', gia: '12' },
-      { nhan: 'Số mô hình dữ liệu trong toàn bộ tổ chức', gia: '3' },
+      ...tomTatBoDuLieu(BO_DU_LIEU, 12, 'trong toàn bộ tổ chức'),
+      ...tomTatMoHinh(MO_HINH, 3, 'trong toàn bộ tổ chức'),
+      ...(duKienKetNoi(KET_NOI)[0]?.duKien ?? []),
+      ...(duKienTrangChu(trangChu())[0]?.duKien ?? []),
     ],
   },
-  ...duKienKhoDuLieu(BO_DU_LIEU),
+  ...duKienKhoDuLieu(BO_DU_LIEU, 12).slice(1),
   ...duKienDanhSachMoHinh(MO_HINH, 3).slice(1),
+  ...duKienKetNoi(KET_NOI).slice(1),
+  ...duKienTrangChu(trangChu()).slice(1),
 ];
 
 interface NguCanhThu {
@@ -320,8 +396,13 @@ const TRANG = {
 } satisfies Record<string, NguCanhThu>;
 
 /** ĐÚNG đường mà khung đi — cùng một hàm, xem `traLoiKhung`. */
-function traLoiThat(t: NguCanhThu, hoi: string, truoc: string | null = null): string | null {
-  const chon = t.nguon[t.chon];
+function traLoiThat(
+  t: NguCanhThu,
+  hoi: string,
+  truoc: string | null = null,
+  chip?: number,
+): string | null {
+  const chon = t.nguon[chip ?? t.chon];
   if (chon === undefined) return null;
   const kq = traLoiKhung(t.nguon, chon, t.heThong, hoi, truoc);
   return kq === null ? null : kq.cau;
@@ -342,6 +423,15 @@ interface Ca {
   vi?: string;
   /** Câu người dùng hỏi ở lượt TRƯỚC — để đo nhóm câu hỏi tiếp. */
   truoc?: string;
+  /**
+   * Chip đang chọn, khi ca này đo một chip CỤ THỂ chứ không phải chip mặc định.
+   *
+   * ⚠️ Cần vì chip mặc định ĐỔI ĐƯỢC. Thêm nguồn tóm tắt vào Kho dữ liệu đẩy
+   * `Orders` từ chip 0 xuống chip 1, và ca "cột Sales kiểu dữ liệu gì" lập tức
+   * chuyển xanh — không phải vì lỗi đã được sửa mà vì nó đang đo một chip khác.
+   * Ghim chỉ số lại là cách để một ca xanh vì đúng cái lí do tên nó nói.
+   */
+  chip?: number;
 }
 
 const CA: Ca[] = [
@@ -549,9 +639,60 @@ const CA: Ca[] = [
   { trang: 'dsMoHinh', hoi: 'mô hình Kho vận có mấy bảng', can: ['2'] },
   { trang: 'dsMoHinh', hoi: 'Bán hàng đã nối đủ quan hệ chưa', can: ['chưa nối đủ'] },
 
+  /*
+   * ─── DỰNG TỪ ẢNH CHỤP MÀN HÌNH (đợt 2) ───────────────────────────────
+   *
+   * Hai câu này cùng một hình dạng: "ĐẾM bao nhiêu mục thoả một điều kiện".
+   * Khung cũ không có hình dạng đó: nó trả lời được "mục NÀO chưa có X" nhưng
+   * không trả lời được "BAO NHIÊU mục chưa có X" — cùng một phép đếm, khác
+   * mỗi chữ để hỏi.
+   *
+   * Trong ảnh, câu dưới được trả lời bằng "Tên các mô hình đang hiện: …" —
+   * một danh sách CÓ THẬT cho một câu hỏi khác, do mô hình chọn bừa một nhãn
+   * khi mọi phép so ngoại tuyến đã trượt. Đúng kiểu SAI nguy hiểm nhất.
+   */
+  {
+    trang: 'dsMoHinh',
+    hoi: 'bao nhiêu datamodel chưa kết nối khóa chính và các quan hệ',
+    can: ['1', 'Bán hàng'],
+    khong: ['Kho vận'],
+    vi: 'Ảnh chụp màn hình: nhận về "Tên các mô hình đang hiện" — mô hình chọn bừa một nhãn',
+  },
+  { trang: 'dsMoHinh', hoi: 'có bao nhiêu mô hình chưa nối đủ quan hệ', can: ['1', 'Bán hàng'] },
+  /*
+   * Đếm trên một cột MÀ KHÔNG AI KHAI SẴN MỘT PHÉP ĐẾM CHO NÓ.
+   *
+   * Hai ca ngay trên được trả lời bằng dữ kiện "Số mô hình chưa nối đủ quan
+   * hệ" — một phép đếm viết tay trong `tomTatMoHinh`. Ca này thì không: không
+   * nguồn nào khai "số bộ dữ liệu chưa có mô hình nào dùng", nên nó chỉ ra
+   * được kết quả nếu `soSanhNguon` TỰ đếm trên cột đó.
+   *
+   * ⚠️ Câu cố ý KHÔNG có chữ "nào". Có "nào" thì cửa cũ đã mở, và ca này sẽ
+   * xanh dù cửa ĐẾM bị bỏ đi — một ca xanh vì lý do khác với tên nó nói.
+   */
+  {
+    trang: 'khoDuLieu',
+    hoi: 'bao nhiêu bộ dữ liệu chưa có mô hình dùng',
+    can: ['1', 'People'],
+  },
+
   // ─── Trang Kho dữ liệu ────────────────────────────────────────────────────
   { trang: 'khoDuLieu', hoi: 'Orders có bao nhiêu dòng', can: ['51.290'] },
   { trang: 'khoDuLieu', hoi: 'Orders có mấy cột', can: ['24'] },
+  {
+    trang: 'khoDuLieu',
+    hoi: 'kiểm tra xem nó có bao nhiêu file excel',
+    can: ['Excel', '2'],
+    // Một câu liệt kê tên bộ dữ liệu là dấu hiệu nó đã đếm BỘ thay vì đếm TỆP.
+    khong: ['Orders'],
+    vi: 'Ảnh chụp màn hình: "không có mục nào trả lời được" — trang không khai TỆP nào cả',
+  },
+  {
+    trang: 'khoDuLieu',
+    hoi: 'có bao nhiêu bộ dữ liệu',
+    can: ['4'],
+    vi: 'Kho dữ liệu là danh sách DUY NHẤT không có nguồn tóm tắt — lệch khỏi mọi trang khác',
+  },
 
   // ─── Người dùng gõ từ của HỌ, không gõ từ trên nhãn ───────────────────────
   //
@@ -587,6 +728,8 @@ const CA: Ca[] = [
   {
     trang: 'khoDuLieu',
     hoi: 'cột Sales kiểu dữ liệu gì',
+    // Chip `Orders`, không phải chip tóm tắt — xem `Ca.chip`.
+    chip: 1,
     can: 'chua-hieu',
     vi:
       'ĐANG SAI (1/56). Trang danh sách chỉ có columnCount, đáng ra phải từ chối. ' +
@@ -601,6 +744,25 @@ const CA: Ca[] = [
   { trang: 'hoSo', hoi: 'mô hình nào nhiều bảng nhất', can: ['Global-Superstore'] },
   { trang: 'hoSo', hoi: 'bộ dữ liệu nào nhiều dòng nhất', can: ['Orders'] },
   { trang: 'hoSo', hoi: 'Orders có bao nhiêu dòng', can: ['51.290'] },
+
+  /*
+   * ĐỨNG Ở MỘT TRANG CHẲNG LIÊN QUAN GÌ TỚI DỮ LIỆU MÀ HỎI.
+   *
+   * Đây là nhóm đo lời hứa "dù ở trang nào cũng trả lời được". Trước đây bản
+   * tóm tắt xuyên hệ thống chỉ biết đếm hai thứ — bộ dữ liệu và mô hình — nên bốn
+   * trong năm câu dưới đây không có chỗ nào trả lời.
+   */
+  {
+    trang: 'hoSo',
+    hoi: 'có bao nhiêu file excel',
+    can: ['2', 'đếm trên 4 mục'],
+    vi: 'CÙNG phép đếm với trang Kho dữ liệu, và phải mang vế điều kiện vì danh sách còn phân trang',
+  },
+  { trang: 'hoSo', hoi: 'bao nhiêu mô hình chưa nối đủ quan hệ', can: ['1'] },
+  { trang: 'hoSo', hoi: 'có bao nhiêu kết nối', can: ['2'] },
+  { trang: 'hoSo', hoi: 'có bao nhiêu báo cáo', can: ['7'] },
+  { trang: 'hoSo', hoi: 'có bao nhiêu thành viên', can: ['3'] },
+  { trang: 'hoSo', hoi: 'kết nối nào nhiều bộ dữ liệu nhất', can: ['MySQL bán hàng', '2'] },
   {
     trang: 'hoSo',
     hoi: 'mô hình Kho vận có mấy bảng',
@@ -631,7 +793,7 @@ const CA: Ca[] = [
 type KetCuc = 'dung' | 'chuaHieu' | 'sai';
 
 function xu(ca: Ca): { ketCuc: KetCuc; cau: string | null } {
-  const cau = traLoiThat(TRANG[ca.trang], ca.hoi, ca.truoc ?? null);
+  const cau = traLoiThat(TRANG[ca.trang], ca.hoi, ca.truoc ?? null, ca.chip);
 
   if (cau === null) return { ketCuc: ca.can === 'chua-hieu' ? 'dung' : 'chuaHieu', cau };
   // Trả lời một câu đáng ra phải từ chối là SAI, không phải "chưa hiểu".
@@ -684,11 +846,23 @@ describe('Bộ đánh giá khung hỏi đáp', () => {
    * nghĩa là thay đổi đó đang đánh đổi câu này lấy câu kia mà không nói ra.
    */
   it('số câu ĐÚNG không được tụt', () => {
-    expect(dem('dung')).toBeGreaterThanOrEqual(86);
+    expect(dem('dung')).toBeGreaterThanOrEqual(97);
   });
 
   /*
-   * ⚠️ Trần SAI đi từ 1 lên 2, và nới trần là chuyện phải nói ra.
+   * ⚠️ Trần SAI GIỮ NGUYÊN ở 2 qua đợt nâng cấp "hỏi từ trang nào cũng được".
+   *
+   * Đợt đó thêm 10 ca và đưa ĐÚNG từ 86 lên 96, nhưng giữa chừng nó CÓ làm
+   * sinh ra một ca SAI mới: thêm mấy thẻ báo cáo vào danh sách xuyên hệ thống
+   * khiến câu "doanh thu tháng 3 của Miền Bắc" được trả lời bằng "Thư mục của
+   * báo cáo doanh thu theo name: Chung". Nó không được nới trần mà được sửa tận
+   * gốc: nhánh so nhãn trên TOÀN BỘ dữ kiện của tổ chức đã bị bỏ hẳn — xem
+   * khối chú thích ở `traLoiHeThong`.
+   *
+   * Đó cũng là lý do trần này đáng giữ: nó bắt được lỗi đó trong cùng một lần
+   * chạy với thay đổi sinh ra nó.
+   *
+   * ⚠️ Trần đã đi từ 1 lên 2 ở đợt trước, và nới trần là chuyện phải nói ra.
    *
    * KHÔNG phải vì có gì hỏng thêm. Nó lên vì bộ này vừa nhận thêm một ca dựng
    * từ ảnh chụp màn hình người dùng gửi — "số báo cáo của sale" trên trang chủ

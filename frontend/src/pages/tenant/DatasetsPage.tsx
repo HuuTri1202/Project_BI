@@ -147,7 +147,11 @@ export default function DatasetsPage(): React.ReactElement {
    * hơn là đoán.
    */
   const nguCanh = useMemo(
-    () => ({ trang: 'Kho dữ liệu', nguon: duKienKhoDuLieu(data?.items ?? []) }),
+    // `total` chứ không phải `items.length`: danh sách này phân trang 20 một lần, nên
+    // "có bao nhiêu bộ dữ liệu" phải trả lời bằng tổng thật — đúng con số dòng
+    // "Hiện 1–20 trong 24" ở cuối bảng đang nói. Mấy phép đếm chỉ làm được trên
+    // trang đang tải thì tự mang vế điều kiện — xem `luuYChuaDu`.
+    () => ({ trang: 'Kho dữ liệu', nguon: duKienKhoDuLieu(data?.items ?? [], data?.total ?? 0) }),
     [data],
   );
   useKhaiNguCanh(nguCanh);
