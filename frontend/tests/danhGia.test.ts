@@ -678,7 +678,7 @@ const CA: Ca[] = [
     trang: 'trangChu',
     hoi: 'số báo cáo của sale',
     can: 'chua-hieu',
-    vi: 'KHÔNG có workspace nào tên Sales. Trả một con số ở đây là nói về thứ không tồn tại',
+    vi: 'KHÔNG có workspace nào tên Sales — "sale" không khớp chỗ nào, nên từ chối',
   },
 
   // ─── Trang danh sách mô hình: so GIỮA các mục ─────────────────────────────
@@ -733,6 +733,20 @@ const CA: Ca[] = [
   { trang: 'khoDuLieu', hoi: 'Orders có mấy cột', can: ['24'] },
   {
     trang: 'khoDuLieu',
+    hoi: 'liệt kê các bộ dữ liệu đang có',
+    can: ['Orders'],
+    vi: '"liệt" là từ khoá Ý ĐỊNH, không phải tên một thứ — không được coi là thực thể lạ',
+  },
+  {
+    trang: 'khoDuLieu',
+    hoi: 'Orders đang ở trạng thái phân tích nào',
+    can: ['đã nạp'],
+    vi:
+      '"phân", "tích" chỉ có trong GIÁ TRỊ ("đã nạp vào kho phân tích"), không có ' +
+      'trong nhãn nào. Không nạp giá trị vào vốn từ thì câu này bị từ chối oan.',
+  },
+  {
+    trang: 'khoDuLieu',
     hoi: 'kiểm tra xem nó có bao nhiêu file excel',
     can: ['Excel', '2'],
     // Một câu liệt kê tên bộ dữ liệu là dấu hiệu nó đã đếm BỘ thay vì đếm TỆP.
@@ -784,10 +798,10 @@ const CA: Ca[] = [
     chip: 1,
     can: 'chua-hieu',
     vi:
-      'ĐANG SAI (1/56). Trang danh sách chỉ có columnCount, đáng ra phải từ chối. ' +
-      'Hai chữ "dữ liệu" của "kiểu DỮ LIỆU" trùng vào nhãn "Số mô hình DỮ LIỆU ' +
-      'dùng Orders" và thắng 2-1 cột "Số cột của". Đã thử ba cách sửa, cả ba đều ' +
-      'đổi ca này lấy một ca đếm khác — xem CUM_LOAI trong traLoi.ts. Để lại có tên.',
+      'TỪNG SAI suốt bốn lần sửa. Trang danh sách chỉ có columnCount nên không có ' +
+      'cột Sales nào, nhưng hai chữ "dữ liệu" của "kiểu DỮ LIỆU" trùng vào nhãn ' +
+      '"Số mô hình DỮ LIỆU dùng Orders" và thắng 2-1. Giờ từ chối đúng: chữ ' +
+      '"sales" không có trong bất kỳ tên nguồn, nhãn hay giá trị nào — xem `nhacThuLa`.',
   },
 
   /*
@@ -907,6 +921,31 @@ const CA: Ca[] = [
   },
 
   // ─── Phải TỪ CHỐI: những câu không có số liệu nào trả lời được ────────────
+  /*
+   * CÂU HỎI GỌI TÊN MỘT THỨ KHÔNG TỒN TẠI.
+   *
+   * Đây là kiểu hỏng đã sống qua bốn lần sửa: mấy chữ chung chung ("số", "báo
+   * cáo", "dữ liệu") đủ kéo một nhãn khác về đích, trong khi thứ được gọi đích
+   * danh thì không có. Một con số có thật, cho một câu hỏi khác.
+   */
+  {
+    trang: 'dsMoHinh',
+    hoi: 'mô hình Marketing có mấy bảng',
+    can: 'chua-hieu',
+    vi: 'KHÔNG có mô hình nào tên Marketing — đừng trả bằng số bảng của mô hình khác',
+  },
+  {
+    trang: 'khoDuLieu',
+    hoi: 'bộ dữ liệu Invoices có bao nhiêu dòng',
+    can: 'chua-hieu',
+    vi: 'KHÔNG có bộ dữ liệu nào tên Invoices — đừng trả bằng số dòng của Orders',
+  },
+  {
+    trang: 'chiTietDataset',
+    hoi: 'cột Margin kiểu dữ liệu gì',
+    can: 'chua-hieu',
+    vi: 'CÓ khai kiểu của từng cột, nhưng không cột nào tên Margin',
+  },
   { trang: 'bieuDo1', hoi: 'hôm nay trời thế nào', can: 'chua-hieu' },
   { trang: 'bieuDo1', hoi: 'ai là người tạo báo cáo này', can: 'chua-hieu' },
   {
@@ -981,41 +1020,22 @@ describe('Bộ đánh giá khung hỏi đáp', () => {
    * nghĩa là thay đổi đó đang đánh đổi câu này lấy câu kia mà không nói ra.
    */
   it('số câu ĐÚNG không được tụt', () => {
-    expect(dem('dung')).toBeGreaterThanOrEqual(109);
+    expect(dem('dung')).toBeGreaterThanOrEqual(116);
   });
 
   /*
-   * ⚠️ Trần SAI GIỮ NGUYÊN ở 2 qua đợt nâng cấp "hỏi từ trang nào cũng được".
+   * ⚠️ Trần SAI xuống 0, và đây là một chiều KHÔNG được đi ngược lại.
    *
-   * Đợt đó thêm 10 ca và đưa ĐÚNG từ 86 lên 96, nhưng giữa chừng nó CÓ làm
-   * sinh ra một ca SAI mới: thêm mấy thẻ báo cáo vào danh sách xuyên hệ thống
-   * khiến câu "doanh thu tháng 3 của Miền Bắc" được trả lời bằng "Thư mục của
-   * báo cáo doanh thu theo name: Chung". Nó không được nới trần mà được sửa tận
-   * gốc: nhánh so nhãn trên TOÀN BỘ dữ kiện của tổ chức đã bị bỏ hẳn — xem
-   * khối chú thích ở `traLoiHeThong`.
+   * Hai ca SAI cuối cùng ("số báo cáo của sale", "cột Sales kiểu dữ liệu gì") cùng
+   * một gốc và đã sống qua BỐN lần sửa — cả bốn đều đi theo hướng siết phép
+   * chấm điểm, và cả bốn đều đổi chúng lấy một ca đếm khác. Lần thứ năm không
+   * đụng vào phép chấm: nó hỏi một câu khác hẳn — "câu hỏi có nhắc thứ gì khung
+   * chưa từng thấy không" (`nhacThuLa`). Không đổi ca nào.
    *
-   * Đó cũng là lý do trần này đáng giữ: nó bắt được lỗi đó trong cùng một lần
-   * chạy với thay đổi sinh ra nó.
-   *
-   * ⚠️ Trần đã đi từ 1 lên 2 ở đợt trước, và nới trần là chuyện phải nói ra.
-   *
-   * KHÔNG phải vì có gì hỏng thêm. Nó lên vì bộ này vừa nhận thêm một ca dựng
-   * từ ảnh chụp màn hình người dùng gửi — "số báo cáo của sale" trên trang chủ
-   * — và ca đó phơi ra một lỗi CÓ SẴN, thấy được trong chính ảnh đó.
-   *
-   * Hai ca SAI còn lại cùng MỘT gốc: câu hỏi gọi tên một thứ không tồn tại
-   * ("sale", "cột Sales"), và mấy chữ chung chung ("số", "báo cáo", "dữ liệu")
-   * đủ để kéo một nhãn khác về đích.
-   *
-   *   "số báo cáo của sale"       -> "Số báo cáo trong HR: 7."
-   *   "cột Sales kiểu dữ liệu gì" -> "Số mô hình dữ liệu dùng Orders: 2."
-   *
-   * Đã thử bốn cách sửa: siết luật hoà điểm, đòi tỉ lệ phủ câu hỏi, chấm theo
-   * độ hiếm của từ, và bỏ cụm chỉ loại ở cả `traCuu`. Cả bốn đều đổi hai ca
-   * này lấy một ca đếm khác — xem `CUM_LOAI` và `TU_HOI`. Một khoảng trống có
-   * tên và có cận trên tốt hơn một luật không bảo vệ được.
+   * SAI là kết cục nguy hiểm duy nhất — một con số có thật trả lời cho câu hỏi
+   * khác, không dấu hiệu nào. Giờ nó bằng 0, và ngưỡng này giữ cho nó ở đó.
    */
-  it('số câu SAI không được tăng', () => {
-    expect(dem('sai')).toBeLessThanOrEqual(2);
+  it('không được có câu SAI nào', () => {
+    expect(dem('sai')).toBe(0);
   });
 });

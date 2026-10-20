@@ -967,7 +967,18 @@ export function bangTuBangTho(
   };
 }
 
-export function traLoi(nguon: Nguon, cauHoi: string): TraLoi | null {
+export function traLoi(
+  nguon: Nguon,
+  cauHoi: string,
+  /**
+   * Mọi chữ khung đã thấy — xem `tuDaBiet`. Vắng mặt = không kiểm thực thể lạ.
+   *
+   * Tuỳ chọn vì chỉ chỗ nào CẦM CẢ DANH SÁCH mới dựng được tập này: một nguồn
+   * đơn lẻ không biết mấy nguồn kia có gì, nên tự nó chấm thì mọi tên mục khác
+   * đều thành "thực thể lạ".
+   */
+  biet?: Set<string>,
+): TraLoi | null {
   if (chuanHoa(cauHoi) === '') return null;
 
   const y = docYDinh(cauHoi);
@@ -1014,7 +1025,10 @@ export function traLoi(nguon: Nguon, cauHoi: string): TraLoi | null {
    * Sai cả nghìn lần, bằng một con số có thật, không dấu hiệu nào trên màn hình.
    * Nên ở nhánh đếm, dữ kiện ĐÃ KHAI là số được hỏi trước.
    */
-  if (y === 'dem') {
+  // Câu nhắc một thứ không tồn tại thì BỎ hẳn nhánh so nhãn — xem `nhacThuLa`.
+  const laLa = biet !== undefined && nhacThuLa(cauHoi, biet);
+
+  if (y === 'dem' && !laLa) {
     const soDuoc = nguon.duKien.filter((d) => soVi(d.gia) !== null);
     const kq = soDuoc.length === 0 ? null : traCuu(soDuoc, cauHoi);
     if (kq !== null) return kq;
@@ -1023,7 +1037,7 @@ export function traLoi(nguon: Nguon, cauHoi: string): TraLoi | null {
   const tuBang = tuBangTho();
   if (tuBang !== null) return tuBang;
 
-  return traCuu(nguon.duKien, cauHoi);
+  return laLa ? null : traCuu(nguon.duKien, cauHoi);
 }
 
 /* ═══ So GIỮA các mục của một danh sách ═════════════════════════════════════
@@ -1138,6 +1152,116 @@ function tuNoiDung(s: string, boLoai = true): Set<string> {
   const q = chuanHoa(s);
   return new Set(
     (boLoai ? boCumLoai(q) : q).split(' ').filter((t) => t.length > 1 && !TU_DEM.has(t)),
+  );
+}
+
+/* ═══ THỰC THỂ LẠ: câu hỏi gọi tên một thứ KHÔNG TỒN TẠI ══════════════
+ *
+ * Hai ca SAI còn lại của bộ đánh giá cùng MỘT gốc, và gốc đó không nằm ở phép
+ * chấm điểm:
+ *
+ *   "số báo cáo của sale"       -> "Số báo cáo trong HR: 7."
+ *   "cột Sales kiểu dữ liệu gì" -> "Số mô hình dữ liệu dùng Orders: 2."
+ *
+ * Cả hai câu đều gọi đích danh một thứ ("sale", "cột Sales") mà khung KHÔNG có,
+ * rồi mấy chữ chung chung còn lại đủ kéo một nhãn khác về đích. Bốn lần sửa trước
+ * đây đều đi theo hướng SIẾT CHẤM ĐIỂM (luật hoà, tỉ lệ phủ câu, độ hiếm của
+ * từ, bỏ cụm chỉ loại) và cả bốn đều đổi hai ca này lấy một ca đếm khác — vì
+ * chúng đang chừa một triệu chứng ở sai chỗ.
+ *
+ * Cửa này khác hẳn: nó không hỏi "nhãn nào hợp nhất" mà hỏi "câu hỏi có nhắc
+ * thứ gì khung chưa từng thấy không". Một chữ không có trong BẤT KỲ tên nguồn,
+ * nhãn hay giá trị nào của cả trang lẫn cả tổ chức thì nó đang nói về một thứ
+ * không tồn tại, và mọi câu trả lời cho nó đều là câu trả lời cho câu hỏi khác.
+ *
+ * ⚠️ Chỉ chặn nhánh TRA CỨU. `tinhBang`, `bangTho` và `soSanhNguon` đều đã đòi
+ * một bằng chứng cụ thể (một cột so được, một giá trị khớp), nên chúng không có
+ * kiểu hỏng này — thêm một cửa nữa vào đó chỉ làm mất câu trả lời đúng.
+ */
+
+/**
+ * Từ KHÔNG bao giờ được coi là một thực thể.
+ *
+ * Ba phần đầu SINH RA từ chính mấy bảng đã có, không chép tay: thêm một từ khoá
+ * ý định mới là nó tự được miễn ở đây, không ai phải nhớ sửa hai chỗ.
+ *
+ * Phần cuối là TỪ CHỨC NĂNG tiếng Việt — lớp từ ĐÓNG nhất có thể, và đó là
+ * điều phân biệt nó với một bảng đồng nghĩa nói chung: nó không bao giờ dài ra
+ * theo dữ liệu của khách hàng. Một từ lọt vào đây chỉ có nghĩa "đừng coi nó là
+ * tên riêng", không đổi một điểm nào của phép chấm.
+ */
+const TU_BO_QUA = new Set<string>([
+  ...TU_DEM,
+  ...TU_HOI,
+  ...TU_KHOA.flatMap((k) => k.tu).flatMap((t) => t.trim().split(' ')),
+  /*
+   * Từ chức năng TỪ BỐN KÝ TỰ trở lên — ngắn hơn thì cận độ dài bên dưới đã
+   * lo, không cần kể ra. Giữ danh sách ở đúng mấy từ thật sự cần là cách nó
+   * không lớn dần thành một bảng đồng nghĩa.
+   */
+  'tren',
+  'trong',
+  'theo',
+  'cung',
+  'giua',
+  'truoc',
+  'minh',
+  // Động từ nói về việc HỎI, không nói về dữ liệu: "kiểm tra xem…", "giúp tôi…".
+  'kiem',
+  'giup',
+  'muon',
+]);
+
+/** Mọi chữ khung ĐÃ THẤY: tên nguồn, nhãn dữ kiện, và giá trị. */
+function tuDaBiet(tatCa: Nguon[]): Set<string> {
+  const biet = new Set<string>();
+  const nap = (chu: string): void => {
+    for (const t of chuanHoa(chu).split(' ')) if (t !== '') biet.add(t);
+  };
+  for (const n of tatCa) {
+    nap(n.ten);
+    for (const d of n.duKien) {
+      nap(d.nhan);
+      nap(d.gia);
+    }
+    for (const c of n.bangTho?.cot ?? []) nap(c);
+    for (const r of n.bang?.rows ?? []) {
+      nap(r.label);
+      if (r.series !== undefined) nap(r.series);
+    }
+    if (n.bang !== undefined) {
+      nap(n.bang.dimensionLabel);
+      nap(n.bang.measureLabel);
+      nap(n.bang.seriesLabel ?? '');
+    }
+  }
+  return biet;
+}
+
+/**
+ * Câu hỏi có nhắc tên một thứ KHÔNG TỒN TẠI không?
+ *
+ * `true` nghĩa là đừng trả lời bằng phép so nhãn. Không phải "chưa hiểu câu này"
+ * mà là "câu này hỏi về một thứ tôi không có" — và hai thứ đó dẫn tới cùng một
+ * hành động: từ chối, kèm gợi ý.
+ */
+function nhacThuLa(cauHoi: string, biet: Set<string>): boolean {
+  return (
+    chuanHoa(cauHoi)
+      .split(' ')
+      /*
+       * ⚠️ CẬN BỐN KÝ TỰ. Tiếng Việt tách theo âm tiết, và gần như mọi từ chức
+       * năng đều một âm tiết ngắn ("đã", "nó", "tra", "xem", "cho"). Kể hết chúng ra
+       * là nuôi một danh sách dài mãi — và mỗi từ bỏ sót là một câu hỏi bình thường
+       * bị từ chối oạn. LỖI ĐO ĐƯỢC: "kiểm TRA xem NÓ có bao nhiêu file excel"
+       * mất câu trả lời vì đúng hai chữ "tra" và "nó".
+       *
+       * Cận độ dài làm việc đó mà không cần danh sách, và nó không nới lỏng cửa:
+       * hai ca SAI đều gọi tên thực thể bằng từ dài ("sale", "sales"). Một tên riêng
+       * ba ký tự lọt qua được — đánh đổi đã biết, và nó nghiêng về phía trả lời
+       * được nhiều câu hơn thay vì từ chối nhiều câu hơn.
+       */
+      .some((t) => t.length >= 4 && !TU_BO_QUA.has(t) && !biet.has(t))
   );
 }
 
@@ -1611,9 +1735,11 @@ function nguonTheoTen(tatCa: Nguon[], cauHoi: string): Nguon | null {
  */
 export function traLoiTrang(tatCa: Nguon[], chon: Nguon, cauHoi: string): TraLoi | null {
   const goiTen = nguonTheoTen(tatCa, cauHoi);
+  // Dựng MỘT lần cho cả danh sách — xem `tuDaBiet` và `nhacThuLa`.
+  const biet = tuDaBiet(tatCa);
   return (
     soSanhNguon(tatCa, cauHoi) ??
-    (goiTen === null ? null : traLoi(goiTen, cauHoi)) ??
+    (goiTen === null ? null : traLoi(goiTen, cauHoi, biet)) ??
     /*
      * `locNguon` đứng SAU mục được gọi tên, khác `soSanhNguon`.
      *
@@ -1626,7 +1752,7 @@ export function traLoiTrang(tatCa: Nguon[], chon: Nguon, cauHoi: string): TraLoi
      * -cho-tên đã dùng ở nhánh `dem` của `tinhBang` và ở `traLoiHeThong`.
      */
     locNguon(tatCa, cauHoi) ??
-    traLoi(chon, cauHoi)
+    traLoi(chon, cauHoi, biet)
   );
 }
 
@@ -2005,13 +2131,14 @@ export function traLoiHeThong(heThong: Nguon[], cauHoi: string): TraLoi | null {
    * hoà mà nhánh `dem` của `traLoi` được viết ra để gỡ.
    */
   const yHoi = docYDinh(cauHoi);
+  const biet = tuDaBiet(heThong);
   if (goiTen === null && (yHoi === 'dem' || yHoi === 'chua_co')) {
-    const tom = traLoi(dau, cauHoi);
+    const tom = traLoi(dau, cauHoi, biet);
     if (tom !== null) return noiPham(tom);
   }
 
   // Chỉ còn cửa "gọi thẳng tên mục" — xem khối chú thích trên.
-  const kq = goiTen === null ? null : traLoi(goiTen, cauHoi);
+  const kq = goiTen === null ? null : traLoi(goiTen, cauHoi, biet);
   return kq === null ? null : noiPham(kq);
 }
 

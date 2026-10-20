@@ -12,6 +12,7 @@ import {
   moHinhTheoTen,
   traLoi,
   traLoiHeThong,
+  traLoiTrang,
 } from '../src/features/chat/traLoi';
 
 /**
@@ -902,5 +903,42 @@ describe('Mô hình mà câu hỏi gọi tên', () => {
       { ten: 'Global-Superstore', duKien: [], moHinhId: 2 },
     ];
     expect(moHinhTheoTen(trung, 'doanh thu của Global-Superstore')).toBeNull();
+  });
+});
+
+/*
+ * TÊN NGUỒN cũng là chữ khung đã thấy.
+ *
+ * `tuDaBiet` góp tên nguồn, nhãn và giá trị. Nguồn nào cũng nhắc tên mình trong
+ * nhãn ("Số dòng của Orders") nên phần tên nguồn trông như thừa — trừ mấy nguồn
+ * TÓM TẮT, vốn cố ý KHÔNG để tên mình lọt vào nhãn nào (xem `boTenMuc`). Bỏ nó đi
+ * là mọi câu gọi tên một nguồn kiểu đó bị từ chối oan.
+ */
+describe('Vốn từ của phép kiểm thực thể lạ', () => {
+  it('tên nguồn được tính là đã biết, dù không nhãn nào nhắc tới nó', () => {
+    const n: Nguon = {
+      ten: 'Kho vận Miền Trung',
+      duKien: [{ nhan: 'Số bảng đang có', gia: '3' }],
+    };
+
+    // "Miền", "Trung" chỉ có trong TÊN nguồn, không có trong nhãn lẫn giá trị.
+    expect(traLoiTrang([n], n, 'số bảng đang có của Kho vận Miền Trung')?.cau).toContain('3');
+  });
+
+  it('gọi tên một thứ KHÔNG có thì từ chối, dù nhãn trùng đủ từ', () => {
+    const n: Nguon = {
+      ten: 'Kho vận Miền Trung',
+      duKien: [{ nhan: 'Số bảng đang có', gia: '3' }],
+    };
+
+    /*
+     * Ba chữ "số", "bảng", "đang" thừa sức kéo nhãn trên về đích — nhưng "Miền
+     * Đông" không tồn tại, nên con số 3 là câu trả lời cho một câu hỏi khác.
+     *
+     * ⚠️ "Đông" chứ không phải "Nam": cận bốn ký tự của `nhacThuLa` cố ý cho
+     * một tên riêng ba ký tự lọt qua — đánh đổi đã ghi ở đó. Viết ca bằng "Nam"
+     * là đo một lời hứa không ai hứa.
+     */
+    expect(traLoiTrang([n], n, 'số bảng đang có của Kho vận Miền Đông')).toBeNull();
   });
 });
