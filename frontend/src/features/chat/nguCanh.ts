@@ -101,6 +101,20 @@ export interface Nguon {
    * làm một là mất đúng chỗ phân biệt đó.
    */
   bangTho?: BangTho;
+  /**
+   * Mô hình dữ liệu mà nguồn này LÀ — mở ra nhóm câu hỏi MỚI trên chính nó.
+   *
+   * ═══ Khác `NguCanh.moHinhId` ở chỗ nào ══════════════════════════════
+   *
+   * `NguCanh.moHinhId` là mô hình mà TRANG đang đứng trên — người dùng không
+   * phải gọi tên nó, vì họ đang nhìn nó. Cái này thì ngược: nó gắn vào TẪNG
+   * MÔ HÌNH trong một danh sách, và chỉ dùng tới khi câu hỏi GỌI TÊN mô hình ấy.
+   *
+   * Nhờ nó, đứng ở Kho dữ liệu hay Trang chủ vẫn hỏi được một câu số liệu thật
+   * — miễn là nói rõ hỏi trên mô hình nào. Không ai gọi tên thì không đoán bừa
+   * một mô hình: một truy vấn chạy trên sai mô hình vẫn ra một con số đẹp.
+   */
+  moHinhId?: number;
 }
 
 export interface NguCanh {

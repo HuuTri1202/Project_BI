@@ -1908,6 +1908,37 @@ function noiPham(kq: TraLoi): TraLoi {
 }
 
 /**
+ * Mô hình dữ liệu mà câu hỏi GỌI TÊN, trong một danh sách. `null` = không ai gọi.
+ *
+ * ═══ Vì sao đòi GỌI TÊN, không đoán ═══════════════════════════════
+ *
+ * Đường hỏi-truy-vấn-mới tự dựng một truy vấn chưa ai thấy bao giờ, và một
+ * truy vấn chạy trên SAI mô hình vẫn ra một con số đẹp. Khi trang đang đứng trên
+ * một mô hình thì không có gì phải đoán — người dùng đang nhìn nó. Đứng ở chỗ
+ * khác thì thứ duy nhất nói được họ muốn mô hình nào là chính câu hỏi.
+ *
+ * Tên DÀI NHẤT thắng, cùng luật `nguonTheoTen` — "Global-Superstore" và
+ * "Global-Superstore 2026" cùng nằm trong câu hỏi về cái thứ hai.
+ *
+ * ⚠️ Trùng tên thì BỎ. Ba mô hình cùng tên "Global-Superstore" trong một tổ chức
+ * là chuyện có thật (xem `nhanDuyNhat`), và chọn một trong ba bằng cách tung đồng
+ * xu là đúng kiểu sai mà cả vế này tồn tại để chặn.
+ */
+export function moHinhTheoTen(tatCa: Nguon[], cauHoi: string): number | null {
+  const q = chuanHoa(cauHoi);
+  const hop = tatCa.filter(
+    (n) => n.moHinhId !== undefined && n.ten !== '' && q.includes(chuanHoa(n.ten)),
+  );
+  if (hop.length === 0) return null;
+
+  const dai = Math.max(...hop.map((n) => chuanHoa(n.ten).length));
+  const nhat = hop.filter((n) => chuanHoa(n.ten).length === dai);
+  const id = nhat[0]?.moHinhId ?? null;
+  // Cùng một mô hình lặp lại trong danh sách thì không phải là nhập nhằng.
+  return nhat.every((n) => n.moHinhId === id) ? id : null;
+}
+
+/**
  * Trả lời bằng danh sách xuyên hệ thống. `null` = chưa hiểu.
  *
  * Ba cửa, cùng thứ tự với `traLoiTrang` và cùng lý do:

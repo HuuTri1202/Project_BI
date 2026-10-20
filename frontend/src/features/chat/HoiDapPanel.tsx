@@ -13,6 +13,7 @@ import {
   luaChonHeThong,
   luaChonTrang,
   nhanDuyNhat,
+  moHinhTheoTen,
   traLoiKhung,
 } from './traLoi';
 import type { TraLoi } from './traLoi';
@@ -298,7 +299,8 @@ export function HoiDapPanel(): React.ReactElement | null {
     if (luaChon.length === 0) {
       // Không có gì để chọn thì bỏ hẳn lớp chọn-nhãn, nhưng đường đặt câu hỏi
       // mới không phụ thuộc vào danh sách đó.
-      if (nguCanh.moHinhId !== undefined) nhoMoHinhHoi(q, idBot, nguCanh.moHinhId);
+      const moHinh = moHinhHoiDuoc(q);
+      if (moHinh !== null) nhoMoHinhHoi(q, idBot, moHinh);
       else hetDuong(q, idBot);
       return;
     }
@@ -318,8 +320,9 @@ export function HoiDapPanel(): React.ReactElement | null {
            * nó TRƯỚC khi kết luận là không có số liệu — câu "tôi đã đọc hết"
            * mà vẫn còn một đường chưa đi là một câu nói sai.
            */
-          if (nguCanh.moHinhId !== undefined) {
-            nhoMoHinhHoi(q, idBot, nguCanh.moHinhId);
+          const moHinh = moHinhHoiDuoc(q);
+          if (moHinh !== null) {
+            nhoMoHinhHoi(q, idBot, moHinh);
             return;
           }
           hetDuong(
@@ -349,6 +352,23 @@ export function HoiDapPanel(): React.ReactElement | null {
         // chấm, nếu không nó nhấp nháy mãi.
         hetDuong(q, idBot);
       });
+  }
+
+  /**
+   * Mô hình dữ liệu để đặt một câu hỏi MỚI lên. `null` = không có cái nào.
+   *
+   * Hai nguồn, theo đúng thứ tự này:
+   *
+   *   1. Mô hình mà TRANG đang đứng trên. Người dùng đang nhìn nó, không phải
+   *      gọi tên nó ra mới được hỏi.
+   *   2. Mô hình mà CÂU HỎI gọi tên, trong danh sách xuyên hệ thống.
+   *
+   * (2) là thứ mở đường cho một câu số liệu THẬT hỏi từ BẤT KỲ trang nào. Trước
+   * đó chỉ ba màn khai `moHinhId`, nên đứng ở Kho dữ liệu hỏi "doanh thu Miền Bắc
+   * tháng 3" là bế tắc — dù danh sách mô hình đang nằm sẵn trong tay khung.
+   */
+  function moHinhHoiDuoc(q: string): number | null {
+    return nguCanh.moHinhId ?? moHinhTheoTen(heThong, q);
   }
 
   /**

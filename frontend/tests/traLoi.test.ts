@@ -9,6 +9,7 @@ import {
   docYDinh,
   luaChonHeThong,
   luaChonTrang,
+  moHinhTheoTen,
   traLoi,
   traLoiHeThong,
 } from '../src/features/chat/traLoi';
@@ -853,5 +854,53 @@ describe('Bảng dữ liệu thô: câu hỏi chọn cột', () => {
     for (const lc of ds) {
       expect(lc.chay()?.cau, lc.nhan).toBe(traLoi(n, lc.nhan)?.cau);
     }
+  });
+});
+
+/* ═══ MÔ HÌNH ĐƯỢC GỌI TÊN — cửa vào của đường hỏi truy vấn MỚI ═════════
+ *
+ * Đây là thứ cho phép đứng ở Kho dữ liệu hay Trang chủ mà vẫn hỏi được một câu
+ * số liệu thật. Nó cũng là cửa nguy hiểm nhất: một truy vấn chạy trên SAI mô
+ * hình vẫn ra một con số đẹp, không dấu hiệu nào.
+ */
+describe('Mô hình mà câu hỏi gọi tên', () => {
+  const ds: Nguon[] = [
+    { ten: 'Tổng quan toàn tổ chức', duKien: [] },
+    { ten: 'Bán hàng', duKien: [], moHinhId: 7 },
+    { ten: 'Bán hàng 2026', duKien: [], moHinhId: 9 },
+    { ten: 'Orders', duKien: [] },
+  ];
+
+  it('gọi tên thì ra đúng mô hình đó', () => {
+    expect(moHinhTheoTen(ds, 'doanh thu của Bán hàng tháng 3')).toBe(7);
+  });
+
+  /*
+   * Cùng luật `nguonTheoTen` và `timDong`: "Bán hàng" nằm lọt trong "Bán hàng
+   * 2026", nên lấy cái ngắn là chạy truy vấn trên một mô hình khác hẳn.
+   */
+  it('tên DÀI NHẤT thắng', () => {
+    expect(moHinhTheoTen(ds, 'doanh thu của Bán hàng 2026')).toBe(9);
+  });
+
+  it('không ai gọi tên thì KHÔNG đoán', () => {
+    expect(moHinhTheoTen(ds, 'doanh thu miền bắc tháng 3')).toBeNull();
+  });
+
+  it('nguồn không phải mô hình thì không mở đường này', () => {
+    expect(moHinhTheoTen(ds, 'Orders có bao nhiêu dòng')).toBeNull();
+  });
+
+  /*
+   * ⚠️ Ba mô hình cùng tên "Global-Superstore" trong một tổ chức là chuyện có
+   * thật — xem `nhanDuyNhat`. Chọn một trong ba bằng cách tung đồng xu rồi chạy
+   * một truy vấn trên nó là đúng kiểu sai mà cả cửa này tồn tại để chặn.
+   */
+  it('hai mô hình TRÙNG TÊN thì bỏ, không chọn bừa', () => {
+    const trung: Nguon[] = [
+      { ten: 'Global-Superstore', duKien: [], moHinhId: 1 },
+      { ten: 'Global-Superstore', duKien: [], moHinhId: 2 },
+    ];
+    expect(moHinhTheoTen(trung, 'doanh thu của Global-Superstore')).toBeNull();
   });
 });

@@ -722,7 +722,7 @@ describe('Đặt câu hỏi MỚI trên mô hình dữ liệu', () => {
     expect(screen.getByText(/lọc Khu vực bằng Miền Bắc/)).toBeInTheDocument();
   });
 
-  it('trang KHÔNG có mô hình thì không gọi tới nó', async () => {
+  it('trang KHÔNG có mô hình, câu hỏi cũng không gọi tên mô hình nào — không gọi tới nó', async () => {
     hieuCauHoi.mockResolvedValue({ chon: null, daHoi: true });
     dung(trang);
     fireEvent.click(nutMo());
@@ -731,6 +731,40 @@ describe('Đặt câu hỏi MỚI trên mô hình dữ liệu', () => {
     await screen.findByText(/đã đọc hết số liệu/);
 
     expect(hoiTrenMoHinh).not.toHaveBeenCalled();
+  });
+
+  /*
+   * ĐỨNG Ở MỘT TRANG KHÔNG CÓ MÔ HÌNH, GỌI TÊN MỘT MÔ HÌNH.
+   *
+   * Trước đó chỉ ba màn khai `moHinhId` (trang mô hình, trang dựng báo cáo, trang
+   * xem báo cáo), nên đứng ở Kho dữ liệu hỏi một câu số liệu thật là bế tắc —
+   * trong khi danh sách mô hình đang nằm sẵn trong tay khung.
+   */
+  it('gọi tên một mô hình thì hỏi được từ trang BẤT KỲ', async () => {
+    hieuCauHoi.mockResolvedValue({ chon: null, daHoi: true });
+    useNguCanhHeThong.mockReturnValue([
+      { ten: 'Tổng quan toàn tổ chức', duKien: [] },
+      { ten: 'Bán hàng', duKien: [], moHinhId: 7 },
+    ]);
+    hoiTrenMoHinh.mockResolvedValue({
+      cau: 'Khu vực: Doanh thu 1.200.000.',
+      so: ['1.200.000'],
+      hieuLa: 'Doanh thu theo Khu vực',
+      daHoi: true,
+    });
+
+    // `dung(trang)` — KHÔNG truyền `moHinhId`, đúng như trang Kho dữ liệu.
+    dung(trang);
+    fireEvent.click(nutMo());
+
+    hoi('doanh thu theo khu vực trên Bán hàng');
+
+    expect(await screen.findByText(/1\.200\.000/)).toBeInTheDocument();
+    expect(hoiTrenMoHinh).toHaveBeenCalledWith(
+      7,
+      'doanh thu theo khu vực trên Bán hàng',
+      undefined,
+    );
   });
 
   /*

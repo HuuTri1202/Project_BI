@@ -478,6 +478,9 @@ export function duKienDanhSachMoHinh(models: DataModelDto[], tong: number): Nguo
     },
     ...models.map((m) => ({
       ten: m.name,
+      // Mang theo id: câu hỏi gọi tên mô hình này thì khung hỏi được thẳng trên nó,
+      // dù người dùng đang đứng ở trang khác — xem `Nguon.moHinhId`.
+      moHinhId: m.id,
       duKien: [
         ...dk(`Số bảng trong mô hình ${m.name}`, m.datasetCount),
         ...dk(`Số thước đo của mô hình ${m.name}`, m.measureCount),
