@@ -84,16 +84,38 @@ export default function DatasetDetailPage(): React.ReactElement {
    * Khai cho khung hỏi đáp. Trang này là nơi DUY NHẤT có kiểu của từng cột —
    * `DatasetDetailDto.columns`. Trang danh sách chỉ có `columnCount`.
    */
+  /*
+   * CÙNG một truy vấn với `PreviewTab` — cùng `queryKey`, nên react-query gộp làm
+   * MỘT request, không phải hai.
+   *
+   * Đọc ở đây chứ không nâng truy vấn ra khỏi `PreviewTab`: học theo chính lý do
+   * tab đó được tách ra. Tab "Dữ liệu" là tab mặc định nên truy vấn này chạy sẵn
+   * ở mọi lần mở trang, và khung hỏi đáp chỉ đang đọc ghé cái đã có.
+   */
+  // Khai trước khối ngữ cảnh: `kho` bên dưới chỉ bật khi tab ấy đang mở.
+  const [tab, setTab] = useState<Tab>('data');
+
+  const xemTruoc = useDatasetPreview(validId);
+
+  /*
+   * Cấu trúc kho — CÙNG truy vấn với `SchemaTab`, và chỉ chạy khi tab đó đang mở.
+   *
+   * `tab === 'schema'` trong điều kiện bật là cố ý: thiếu nó thì mỗi lần mở trang
+   * chi tiết là thêm một truy vấn vào ClickHouse cho một tab phần lớn người dùng
+   * không bấm vào. Có bật thì `queryKey` trùng với `SchemaTab` nên react-query gộp
+   * làm một request — khung hỏi đáp đọc ghé cái đã có, không tự gọi thêm.
+   */
+  const kho = useWarehouseSchema(validId, tab === 'schema' && data?.loadStatus === 'loaded');
+
   const nguCanh = useMemo(
     () => ({
       trang: data === undefined ? 'bộ dữ liệu' : `bộ dữ liệu ${data.name}`,
-      nguon: data === undefined ? [] : duKienChiTietDataset(data),
+      nguon: data === undefined ? [] : duKienChiTietDataset(data, xemTruoc.data, kho.data),
     }),
-    [data],
+    [data, xemTruoc.data, kho.data],
   );
   useKhaiNguCanh(nguCanh);
 
-  const [tab, setTab] = useState<Tab>('data');
   const [renaming, setRenaming] = useState(false);
   const [deleting, setDeleting] = useState(false);
 

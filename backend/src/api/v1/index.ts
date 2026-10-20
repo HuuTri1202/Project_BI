@@ -87,8 +87,9 @@ import {
   queueLoad,
   warehouseSchema,
 } from '../../services/ingest/loadService';
-import { dienDat } from '../../services/chat/dienDat';
+import { coCauHinhLlm, dienDat } from '../../services/chat/dienDat';
 import { hieuY } from '../../services/chat/hieuY';
+import { hoiTrenMoHinh } from '../../services/chat/hoiTrenMoHinh';
 import { chTableName } from '../../services/ingest/buildDdl';
 import { cubeTypeOf } from '../../services/datamodel/classifyColumn';
 import { addDatasets, createDataModel } from '../../services/datamodel/createDataModel';
@@ -125,6 +126,7 @@ import { badRequest, HttpError, notFound } from '../../utils/httpError';
 import { buildPageResult, paginationSchema, resolveSortColumn } from '../../utils/pagination';
 import {
   dienDatBodySchema,
+  chatCauHoiBodySchema,
   hieuYBodySchema,
   addDatasetsBodySchema,
   commitDatasetsBodySchema,
@@ -3831,5 +3833,67 @@ v1Router.post(
   asyncHandler(async (req, res) => {
     const body = hieuYBodySchema.parse(req.body);
     res.json(await hieuY(body));
+  }),
+);
+
+/**
+ * Khung hỏi đáp có mô hình ngôn ngữ để nhờ hay không — §chat.
+ *
+ * ═══ Vì sao một endpoint cho đúng MỘT chữ true/false ══════════════════════
+ *
+ * Khung CỐ Ý không bao giờ hỏng vì lớp mô hình: chưa có khoá, sai khoá, hết
+ * lượt, mất mạng — tất cả đều ra cùng một kết quả là câu mẫu. Thiết kế đó đúng
+ * cho người dùng và nó làm một chuyện khác trở nên vô hình: người đang dùng
+ * không có cách nào biết họ đang được một mô hình giúp hay đang chạy thuần
+ * ngoại tuyến. Hai trạng thái đó trả lời khác nhau rõ rệt với cùng một câu hỏi.
+ *
+ * ⚠️ Trả về ĐÚNG một boolean. Không tên mô hình, không địa chỉ, và tuyệt đối
+ * không một phần nào của khoá — cùng luật đã ghi ở `scripts/kiem-llm.ts`.
+ *
+ * ⚠️ Nó nói "ĐÃ CẤU HÌNH", KHÔNG nói "đang gọi được". Hết lượt hay mất mạng
+ * vẫn ra `true` ở đây, vì biết chắc thì phải gọi thật — một lượt gọi tốn tiền
+ * cho mỗi lần mở khung. Trạng thái đó được nói ra ở chỗ khác: từng câu trả lời
+ * tự khai ai đã dựng ra nó, nên một loạt câu không còn dấu mô hình là dấu hiệu
+ * đọc được ngay.
+ *
+ * Không `authorize`: nó không đọc gì của tổ chức. `authenticate` thì cả router
+ * đã áp.
+ */
+v1Router.get(
+  '/chat/trang-thai',
+  asyncHandler((_req, res) => {
+    res.json({ coMoHinh: coCauHinhLlm() });
+    return Promise.resolve();
+  }),
+);
+
+/**
+ * Hỏi một câu hỏi MỚI trên một mô hình — §chat, bước (4).
+ *
+ * ═══ Vì sao route này nằm dưới `/datamodels/:id/`, không phải `/chat/` ═════
+ *
+ * Vì nó ĐỌC dữ liệu của tổ chức, khác hẳn hai route `/chat/` ở trên. Hai route
+ * kia chỉ nhận lại thứ người gọi vừa đọc được trên màn hình của chính họ, nên
+ * quyền đã được quyết ở chỗ họ lấy được dữ liệu đó. Route này thì tự chạy một
+ * truy vấn mới trên kho — nên nó phải đi qua đúng cái cổng mà Explorer đi qua.
+ *
+ * `authorize('datamodel', 'read')`: `admin` và `creator` có, `viewer` KHÔNG
+ * (migration 26). Hệ quả đã cân nhắc: viewer vẫn hỏi được mọi câu về thứ đang
+ * hiện trên màn hình, nhưng không tự đặt được câu hỏi mới trên kho. Đó đúng là
+ * ranh giới mà migration 26 vẽ ra, và mở nó ở đây là một đường vòng quanh nó.
+ *
+ * Trần gọi thấp nhất trong ba route chat (20/10 phút): mỗi lần là một lượt gọi
+ * mô hình CỘNG một lượt quét ClickHouse, nên nó đắt hơn hẳn hai route kia.
+ */
+v1Router.post(
+  '/datamodels/:id/chat/cau-hoi',
+  authorize('datamodel', 'read'),
+  rateLimit({ bucket: 'chat-cau-hoi', max: 20, windowSeconds: 600 }),
+  asyncHandler(async (req, res) => {
+    const auth = requireAuth(req);
+    const { id } = idParamSchema.parse(req.params);
+    const body = chatCauHoiBodySchema.parse(req.body);
+
+    res.json(await hoiTrenMoHinh(auth.tenantId, auth.userId, id, body.cauHoi, body.boiCanh));
   }),
 );

@@ -310,6 +310,24 @@ export default function SchemasTab(): React.ReactElement {
 
         {saveError !== null && <ErrorState message={saveError} />}
 
+        {/*
+         * Nói ra rằng "Tên hiển thị" cũng là từ TRỢ LÝ HỎI ĐÁP hiểu.
+         *
+         * Khung hỏi đáp so câu hỏi với nhãn trục của biểu đồ, mà nhãn đó chính
+         * là `alias ?? columnName`. Nên một cột tên `Product Name` đặt tên hiển
+         * thị là "Sản phẩm" thì câu "sản phẩm nào bán nhiều nhất" trả lời được
+         * ngay trên máy, không cần tới mô hình ngôn ngữ.
+         *
+         * Nó đã đúng như vậy từ trước, nhưng không ai đoán ra được — và một
+         * tính năng không ai đoán ra thì coi như không có.
+         */}
+        <p className="text-xs text-slate-500">
+          <strong className="font-medium text-slate-600">Tên hiển thị</strong> là tên đi lên trục
+          biểu đồ, chú giải và bảng số liệu — và cũng là từ mà trợ lý hỏi đáp hiểu. Đặt tiếng Việt
+          cho cột <code className="rounded bg-slate-100 px-1 py-0.5">Product Name</code> thành “Sản
+          phẩm” thì hỏi “sản phẩm nào bán nhiều nhất” là trả lời được.
+        </p>
+
         <TableWrap fill>
           <THead>
             <Tr>

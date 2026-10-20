@@ -197,9 +197,21 @@ export function ReportViewer({
    */
   const soLieuTrang = canvasData.data ?? saved;
   const nguCanh = useMemo((): NguCanh => {
+    /*
+     * Báo cáo dựng trên MÔ HÌNH thì khai luôn id của nó: khung được phép tự
+     * dựng một truy vấn mới khi mọi phép so ngoại tuyến đã trượt — "doanh thu
+     * tháng 3 của Miền Bắc" không có ô nào trên khung trả lời được.
+     *
+     * Báo cáo dựng trên BỘ DỮ LIỆU thì `datamodelId` là `null` và nhóm câu hỏi
+     * đó không mở ra; `viewer` thì nhận 403 ở backend. Hai chuyện đó không cần
+     * kiểm ở đây. Xem `features/chat/nguCanh.ts`.
+     */
+    const moHinh = report.datamodelId === null ? {} : { moHinhId: report.datamodelId };
+
     if (activePage !== undefined) {
       const theoId = new Map(soLieuTrang?.visuals.map((v) => [v.visualId, v.data]) ?? []);
       return {
+        ...moHinh,
         trang: `báo cáo ${report.name}`,
         nguon: activePage.visuals.flatMap((visual) => {
           const bang = theoId.get(visual.id);
@@ -209,9 +221,13 @@ export function ReportViewer({
       };
     }
     const bang = data.data;
-    if (bang === undefined) return { trang: `báo cáo ${report.name}`, nguon: [] };
-    return { trang: `báo cáo ${report.name}`, nguon: [{ ten: report.name, duKien: [], bang }] };
-  }, [activePage, soLieuTrang, data.data, report.name]);
+    if (bang === undefined) return { ...moHinh, trang: `báo cáo ${report.name}`, nguon: [] };
+    return {
+      ...moHinh,
+      trang: `báo cáo ${report.name}`,
+      nguon: [{ ten: report.name, duKien: [], bang }],
+    };
+  }, [activePage, soLieuTrang, data.data, report.name, report.datamodelId]);
 
   useKhaiNguCanh(nguCanh);
 

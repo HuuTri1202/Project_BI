@@ -9,8 +9,10 @@ import {
   docYDinh,
   luaChonHeThong,
   luaChonTrang,
+  moHinhTheoTen,
   traLoi,
   traLoiHeThong,
+  traLoiTrang,
 } from '../src/features/chat/traLoi';
 
 /**
@@ -56,6 +58,41 @@ describe('Bỏ dấu tiếng Việt', () => {
     expect(chuanHoa('Đếm')).toBe('dem');
     expect(chuanHoa('đồng')).toBe('dong');
     expect(chuanHoa('  Cao   NHẤT ')).toBe('cao nhat');
+  });
+});
+
+describe('Từ người dùng gõ nối về từ trên nhãn', () => {
+  /*
+   * Mọi nhãn ở nhánh tra cứu do CHÍNH `duKienTrang.ts` viết ra, nên bảng đồng
+   * nghĩa không đoán gì về dữ liệu của khách — nó chỉ nối từ người ta hay gõ về
+   * đúng chữ ta đã chọn. Hai phía đều của ta.
+   */
+  it('nối được tiếng Anh và cách nói vòng về đúng chữ trên nhãn', () => {
+    expect(chuanHoa('Orders có bao nhiêu row')).toBe('orders co bao nhieu dong');
+    expect(chuanHoa('mấy column')).toBe('may cot');
+    expect(chuanHoa('model nào nhiều table nhất')).toBe('mo hinh nao nhieu bang nhat');
+    // "nặng bao nhiêu" là chính ví dụ mà `llm:kiem` dùng để thử lớp mô hình.
+    expect(chuanHoa('nặng bao nhiêu')).toBe('dung luong bao nhieu');
+  });
+
+  /*
+   * ⚠️ Phải so TỪ TRỌN VẸN. Thay theo chuỗi con là "profile" thành "protep" và
+   * "models" thành "mo hinhs" — rồi mọi phép so sau đó trượt vì một lý do không
+   * ai nghĩ tới khi đọc câu hỏi.
+   */
+  it('chỉ thay TỪ trọn vẹn, không thay chuỗi con', () => {
+    expect(chuanHoa('profile')).toBe('profile');
+    expect(chuanHoa('modeling')).toBe('modeling');
+    expect(chuanHoa('tablet')).toBe('tablet');
+  });
+
+  it('không đổi một chữ nào của nhãn hiện ra', () => {
+    // `chuanHoa` chỉ dùng để SO. Câu trả lời luôn dựng từ `nhan` nguyên văn.
+    const nguon: Nguon = {
+      ten: 'Orders',
+      duKien: [{ nhan: 'Số dòng của Orders', gia: '51.290' }],
+    };
+    expect(traLoi(nguon, 'Orders có bao nhiêu row')?.cau).toBe('Số dòng của Orders: 51.290.');
   });
 });
 
@@ -704,5 +741,204 @@ describe('Trả lời XUYÊN HỆ THỐNG', () => {
 
     expect(nhan).not.toContain('Số bảng trong mô hình Bán hàng');
     expect(nhan.length).toBeLessThan(15);
+  });
+});
+
+/* ═══ BẢNG DỮ LIỆU THÔ — mấy luật không đo được qua bộ đánh giá ═══════════
+ *
+ * Bộ đánh giá chạy trên một bảng dựng sẵn, nên nó không đo được mấy CẬN dưới
+ * đây — chúng chỉ lộ ra với những bảng có hình dạng đặc biệt. Mỗi ca ở đây
+ * dựng đúng một hình dạng như vậy.
+ */
+describe('Bảng dữ liệu thô: câu hỏi chọn cột', () => {
+  const nguon = (cot: string[], dong: (string | number | boolean | null)[][]): Nguon => ({
+    ten: 'Bộ dữ liệu',
+    duKien: [],
+    bangTho: { cot, dong, luuY: 'tính trên 3 dòng xem trước' },
+  });
+
+  /*
+   * ⚠️ Giá trị NGẮN không được dùng để nhận ra cột.
+   *
+   * Một mã kho "A" có mặt trong gần như mọi câu tiếng Việt. Nhận cột qua nó là
+   * nhóm theo một cột chỉ vì một sự trùng ngẫu nhiên — rồi đưa ra một con số có
+   * thật cho một câu hỏi khác.
+   */
+  it('giá trị ngắn hơn bốn ký tự KHÔNG được dùng để nhận ra cột', () => {
+    const n = nguon(
+      ['Sản phẩm', 'Mã kho', 'Doanh thu'],
+      [
+        ['Staples', 'A', 100],
+        ['Staples', 'B', 50],
+        ['Boston', 'A', 70],
+      ],
+    );
+
+    /*
+     * Câu hỏi KHÔNG gọi tên cột chữ nào, và cũng không gọi giá trị dài nào —
+     * đúng cửa mà ngưỡng bốn ký tự đang canh. Chữ "a" thì nằm sẵn trong "cao",
+     * "nhất", "bao"; một ngưỡng lỏng sẽ nhận mã kho "A" làm cột nhãn và trả về
+     * 170 (tổng kho A) thay vì 150 (tổng của Staples).
+     */
+    const kq = traLoi(n, 'doanh thu cao nhất là bao nhiêu');
+
+    expect(kq?.cau).toContain('150');
+    expect(kq?.cau).not.toContain('170');
+  });
+
+  /** Cột toàn true/false không phải thước đo: cộng nó ra một con số không ai hỏi. */
+  it('cột boolean không được coi là cột đo', () => {
+    const n = nguon(
+      ['Sản phẩm', 'Đã giao'],
+      [
+        ['Staples', true],
+        ['Boston', false],
+      ],
+    );
+
+    // Không cột đo nào, và câu hỏi không gọi tên cột chữ nào — không tính được gì.
+    expect(traLoi(n, 'tổng là bao nhiêu')).toBeNull();
+  });
+
+  /*
+   * ⚠️ Dấu `.` trong ô thô là dấu THẬP PHÂN, không phải hàng nghìn.
+   *
+   * `soVi` đọc chuỗi ĐÃ định dạng theo `vi-VN` nên nó hiểu "1.5" là 15. Ô ở đây
+   * đến thẳng từ CSDL, nên dùng nhầm là sai mười lần bằng một con số hợp lệ.
+   */
+  it('ô "1.5" đọc là một phẩy năm, không phải mười lăm', () => {
+    const n = nguon(
+      ['Sản phẩm', 'Doanh thu'],
+      [
+        ['Staples', '1.5'],
+        ['Boston', '2.5'],
+      ],
+    );
+
+    const kq = traLoi(n, 'tổng doanh thu là bao nhiêu');
+    expect(kq?.cau).toContain('4');
+    expect(kq?.cau).not.toContain('40');
+  });
+
+  /** Vế điều kiện luôn đi kèm — bảng này là MẪU, không phải toàn bộ. */
+  it('mọi câu trả lời tính trên bảng thô đều mang vế điều kiện', () => {
+    const n = nguon(
+      ['Sản phẩm', 'Doanh thu'],
+      [
+        ['Staples', 100],
+        ['Boston', 50],
+      ],
+    );
+
+    for (const hoi of ['tổng doanh thu', 'sản phẩm nào doanh thu cao nhất']) {
+      expect(traLoi(n, hoi)?.cau, hoi).toContain('xem trước');
+    }
+  });
+
+  /*
+   * BẤM một gợi ý phải ra ĐÚNG câu mà GÕ nhãn đó ra cho.
+   *
+   * Nhãn gợi ý chính là câu hỏi — xem `phepCuaBangTho`. Hai đường cho hai kết quả
+   * khác nhau là người dùng bấm một đằng, gõ ra một nẻo.
+   */
+  it('bấm gợi ý cho ra đúng câu mà gõ nhãn đó cho ra', () => {
+    const n = nguon(
+      ['Sản phẩm', 'Doanh thu'],
+      [
+        ['Staples', 100],
+        ['Boston', 50],
+      ],
+    );
+
+    const ds = luaChonTrang([n], n, '');
+    expect(ds.length).toBeGreaterThan(2);
+    for (const lc of ds) {
+      expect(lc.chay()?.cau, lc.nhan).toBe(traLoi(n, lc.nhan)?.cau);
+    }
+  });
+});
+
+/* ═══ MÔ HÌNH ĐƯỢC GỌI TÊN — cửa vào của đường hỏi truy vấn MỚI ═════════
+ *
+ * Đây là thứ cho phép đứng ở Kho dữ liệu hay Trang chủ mà vẫn hỏi được một câu
+ * số liệu thật. Nó cũng là cửa nguy hiểm nhất: một truy vấn chạy trên SAI mô
+ * hình vẫn ra một con số đẹp, không dấu hiệu nào.
+ */
+describe('Mô hình mà câu hỏi gọi tên', () => {
+  const ds: Nguon[] = [
+    { ten: 'Tổng quan toàn tổ chức', duKien: [] },
+    { ten: 'Bán hàng', duKien: [], moHinhId: 7 },
+    { ten: 'Bán hàng 2026', duKien: [], moHinhId: 9 },
+    { ten: 'Orders', duKien: [] },
+  ];
+
+  it('gọi tên thì ra đúng mô hình đó', () => {
+    expect(moHinhTheoTen(ds, 'doanh thu của Bán hàng tháng 3')).toBe(7);
+  });
+
+  /*
+   * Cùng luật `nguonTheoTen` và `timDong`: "Bán hàng" nằm lọt trong "Bán hàng
+   * 2026", nên lấy cái ngắn là chạy truy vấn trên một mô hình khác hẳn.
+   */
+  it('tên DÀI NHẤT thắng', () => {
+    expect(moHinhTheoTen(ds, 'doanh thu của Bán hàng 2026')).toBe(9);
+  });
+
+  it('không ai gọi tên thì KHÔNG đoán', () => {
+    expect(moHinhTheoTen(ds, 'doanh thu miền bắc tháng 3')).toBeNull();
+  });
+
+  it('nguồn không phải mô hình thì không mở đường này', () => {
+    expect(moHinhTheoTen(ds, 'Orders có bao nhiêu dòng')).toBeNull();
+  });
+
+  /*
+   * ⚠️ Ba mô hình cùng tên "Global-Superstore" trong một tổ chức là chuyện có
+   * thật — xem `nhanDuyNhat`. Chọn một trong ba bằng cách tung đồng xu rồi chạy
+   * một truy vấn trên nó là đúng kiểu sai mà cả cửa này tồn tại để chặn.
+   */
+  it('hai mô hình TRÙNG TÊN thì bỏ, không chọn bừa', () => {
+    const trung: Nguon[] = [
+      { ten: 'Global-Superstore', duKien: [], moHinhId: 1 },
+      { ten: 'Global-Superstore', duKien: [], moHinhId: 2 },
+    ];
+    expect(moHinhTheoTen(trung, 'doanh thu của Global-Superstore')).toBeNull();
+  });
+});
+
+/*
+ * TÊN NGUỒN cũng là chữ khung đã thấy.
+ *
+ * `tuDaBiet` góp tên nguồn, nhãn và giá trị. Nguồn nào cũng nhắc tên mình trong
+ * nhãn ("Số dòng của Orders") nên phần tên nguồn trông như thừa — trừ mấy nguồn
+ * TÓM TẮT, vốn cố ý KHÔNG để tên mình lọt vào nhãn nào (xem `boTenMuc`). Bỏ nó đi
+ * là mọi câu gọi tên một nguồn kiểu đó bị từ chối oan.
+ */
+describe('Vốn từ của phép kiểm thực thể lạ', () => {
+  it('tên nguồn được tính là đã biết, dù không nhãn nào nhắc tới nó', () => {
+    const n: Nguon = {
+      ten: 'Kho vận Miền Trung',
+      duKien: [{ nhan: 'Số bảng đang có', gia: '3' }],
+    };
+
+    // "Miền", "Trung" chỉ có trong TÊN nguồn, không có trong nhãn lẫn giá trị.
+    expect(traLoiTrang([n], n, 'số bảng đang có của Kho vận Miền Trung')?.cau).toContain('3');
+  });
+
+  it('gọi tên một thứ KHÔNG có thì từ chối, dù nhãn trùng đủ từ', () => {
+    const n: Nguon = {
+      ten: 'Kho vận Miền Trung',
+      duKien: [{ nhan: 'Số bảng đang có', gia: '3' }],
+    };
+
+    /*
+     * Ba chữ "số", "bảng", "đang" thừa sức kéo nhãn trên về đích — nhưng "Miền
+     * Đông" không tồn tại, nên con số 3 là câu trả lời cho một câu hỏi khác.
+     *
+     * ⚠️ "Đông" chứ không phải "Nam": cận bốn ký tự của `nhacThuLa` cố ý cho
+     * một tên riêng ba ký tự lọt qua — đánh đổi đã ghi ở đó. Viết ca bằng "Nam"
+     * là đo một lời hứa không ai hứa.
+     */
+    expect(traLoiTrang([n], n, 'số bảng đang có của Kho vận Miền Đông')).toBeNull();
   });
 });

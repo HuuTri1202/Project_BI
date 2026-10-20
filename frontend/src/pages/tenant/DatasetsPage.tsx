@@ -12,7 +12,7 @@ import {
 import { useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { usePermissions } from '../../auth/usePermissions';
-import { duKienKhoDuLieu } from '../../features/chat/duKienTrang';
+import { duKienKhoDuLieu, duKienThuMuc, tomTatThuMuc } from '../../features/chat/duKienTrang';
 import { useKhaiNguCanh } from '../../features/chat/nguCanh';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
@@ -146,11 +146,6 @@ export default function DatasetsPage(): React.ReactElement {
    * danh sách cột chỉ có ở trang chi tiết. Khung nói "chưa hiểu" ở đó, đúng
    * hơn là đoán.
    */
-  const nguCanh = useMemo(
-    () => ({ trang: 'Kho dữ liệu', nguon: duKienKhoDuLieu(data?.items ?? []) }),
-    [data],
-  );
-  useKhaiNguCanh(nguCanh);
   const { data: connections } = useConnections();
 
   /* ─── Thư mục — §7.9 ───────────────────────────────────────────────────── */
@@ -161,6 +156,37 @@ export default function DatasetsPage(): React.ReactElement {
   const chuyenThuMuc = useMoveDatasets();
 
   const danhSachThuMuc = folders.data?.items ?? [];
+
+  /*
+   * THƯ MỤC đi vào BẢN TÓM TẮT, không thành chip riêng.
+   *
+   * Chip trên trang này là BỘ DỮ LIỆU; chen mấy chip thư mục vào giữa là người
+   * dùng không còn biết chip nào nói về cái gì. Mấy câu thực sự được hỏi — "có
+   * mấy thư mục", "thư mục Chung có bao nhiêu mục" — đều là câu về CẢ DANH SÁCH,
+   * đúng chỗ của bản tóm tắt.
+   *
+   * ⚠️ Nối ở ĐÂY chứ không sửa vào `duKienKhoDuLieu`: hàm đó còn chạy ở lớp
+   * xuyên hệ thống, nơi không có thư mục nào trong tay — và một nhãn nói về thư
+   * mục của workspace này mà nằm trong bản tóm tắt của cả tổ chức là nói sai phạm vi.
+   *
+   * `total` chứ không phải `items.length`: danh sách này phân trang 20 một lần, nên
+   * "có bao nhiêu bộ dữ liệu" phải trả lời bằng tổng thật — đúng con số dòng
+   * "Hiện 1–20 trong 24" ở cuối bảng đang nói. Mấy phép đếm chỉ làm được trên
+   * trang đang tải thì tự mang vế điều kiện — xem `luuYChuaDu`.
+   */
+  const nguCanh = useMemo(() => {
+    const nguon = duKienKhoDuLieu(data?.items ?? [], data?.total ?? 0);
+    const tm = folders.data?.items ?? [];
+    const tom = nguon[0];
+    const them = tomTatThuMuc(tm);
+    if (tom !== undefined && them.length > 0) {
+      nguon[0] = { ...tom, duKien: [...tom.duKien, ...them] };
+    }
+    // Thư mục đứng SAU cùng: chip đầu tiên vẫn phải là thứ người dùng đang nhìn.
+    nguon.push(...duKienThuMuc(tm));
+    return { trang: 'Kho dữ liệu', nguon };
+  }, [data, folders.data]);
+  useKhaiNguCanh(nguCanh);
 
   /** `undefined` = đóng; `null` = đang tạo mới; có giá trị = đang đổi tên. */
   const [suaThuMuc, setSuaThuMuc] = useState<FolderDto | null | undefined>(undefined);

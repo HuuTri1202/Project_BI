@@ -107,8 +107,15 @@ export default function DataModelPage(): React.ReactElement {
     () => ({
       trang: data === undefined ? 'mô hình dữ liệu' : `mô hình ${data.name}`,
       nguon: data === undefined ? [] : duKienMoHinh(data),
+      /*
+       * Khai `moHinhId` mở ra nhóm câu hỏi MỚI: khung được phép tự dựng một
+       * truy vấn trên mô hình này khi mọi phép so ngoại tuyến đã trượt. Xem
+       * `features/chat/nguCanh.ts` — và lưu ý rằng `viewer` nhận 403 ở đó, nên
+       * khai id không mở thêm quyền cho ai.
+       */
+      ...(activeId === null ? {} : { moHinhId: activeId }),
     }),
-    [data],
+    [data, activeId],
   );
   useKhaiNguCanh(nguCanh);
 

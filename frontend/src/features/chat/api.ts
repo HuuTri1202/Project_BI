@@ -1,3 +1,5 @@
+import type { ExplorerQueryDto } from '@bi/shared';
+
 import { apiClient } from '../../services/apiClient';
 
 /**
@@ -45,6 +47,45 @@ export async function hieuCauHoi(input: {
   const { data } = await apiClient.post<{ chon: number | null; daHoi: boolean }>(
     '/v1/chat/hieu-y',
     input,
+  );
+  return data;
+}
+
+/**
+ * Nhờ mô hình ĐẶT MỘT CÂU HỎI MỚI trên một mô hình dữ liệu.
+ *
+ * Đường CUỐI của khung, và là đường duy nhất tự chạy một truy vấn mới trên kho
+ * — nên nó cũng là đường duy nhất gác bằng `authorize('datamodel', 'read')`.
+ * `viewer` nhận 403, và khung quay về trả lời bằng thứ đang hiện trên màn hình.
+ *
+ * Gửi đi CHỈ CÓ CÂU HỎI. Danh sách trường do backend tự nạp từ mô hình trên
+ * đường dẫn: cho client quyết "mô hình được thấy những trường nào" là một cái
+ * cửa không có lý do gì để mở. Xem `services/chat/hoiTrenMoHinh.ts`.
+ */
+export interface HoiTrenMoHinhKetQua {
+  cau: string | null;
+  so: string[];
+  hieuLa: string | null;
+  daHoi: boolean;
+  /** Form đã chạy — gửi lại ở lượt sau để hỏi tiếp. */
+  truyVan: ExplorerQueryDto | null;
+}
+
+export async function hoiTrenMoHinh(
+  moHinhId: number,
+  cauHoi: string,
+  /**
+   * Lượt hỏi trước, để hiểu được "còn tháng 4 thì sao".
+   *
+   * Backend kiểm lại form này từ đầu bằng đúng `explorerQueryBodySchema` mà
+   * Explorer dùng — nó là một thân request như mọi thân request khác, không
+   * phải một thứ được tin vì "backend vừa tự dựng ra nó ở lượt trước".
+   */
+  boiCanh?: { cauHoi: string; truyVan: ExplorerQueryDto },
+): Promise<HoiTrenMoHinhKetQua> {
+  const { data } = await apiClient.post<HoiTrenMoHinhKetQua>(
+    `/v1/datamodels/${String(moHinhId)}/chat/cau-hoi`,
+    boiCanh === undefined ? { cauHoi } : { cauHoi, boiCanh },
   );
   return data;
 }
