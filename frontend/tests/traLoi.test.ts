@@ -741,3 +741,117 @@ describe('Trả lời XUYÊN HỆ THỐNG', () => {
     expect(nhan.length).toBeLessThan(15);
   });
 });
+
+/* ═══ BẢNG DỮ LIỆU THÔ — mấy luật không đo được qua bộ đánh giá ═══════════
+ *
+ * Bộ đánh giá chạy trên một bảng dựng sẵn, nên nó không đo được mấy CẬN dưới
+ * đây — chúng chỉ lộ ra với những bảng có hình dạng đặc biệt. Mỗi ca ở đây
+ * dựng đúng một hình dạng như vậy.
+ */
+describe('Bảng dữ liệu thô: câu hỏi chọn cột', () => {
+  const nguon = (cot: string[], dong: (string | number | boolean | null)[][]): Nguon => ({
+    ten: 'Bộ dữ liệu',
+    duKien: [],
+    bangTho: { cot, dong, luuY: 'tính trên 3 dòng xem trước' },
+  });
+
+  /*
+   * ⚠️ Giá trị NGẮN không được dùng để nhận ra cột.
+   *
+   * Một mã kho "A" có mặt trong gần như mọi câu tiếng Việt. Nhận cột qua nó là
+   * nhóm theo một cột chỉ vì một sự trùng ngẫu nhiên — rồi đưa ra một con số có
+   * thật cho một câu hỏi khác.
+   */
+  it('giá trị ngắn hơn bốn ký tự KHÔNG được dùng để nhận ra cột', () => {
+    const n = nguon(
+      ['Sản phẩm', 'Mã kho', 'Doanh thu'],
+      [
+        ['Staples', 'A', 100],
+        ['Staples', 'B', 50],
+        ['Boston', 'A', 70],
+      ],
+    );
+
+    /*
+     * Câu hỏi KHÔNG gọi tên cột chữ nào, và cũng không gọi giá trị dài nào —
+     * đúng cửa mà ngưỡng bốn ký tự đang canh. Chữ "a" thì nằm sẵn trong "cao",
+     * "nhất", "bao"; một ngưỡng lỏng sẽ nhận mã kho "A" làm cột nhãn và trả về
+     * 170 (tổng kho A) thay vì 150 (tổng của Staples).
+     */
+    const kq = traLoi(n, 'doanh thu cao nhất là bao nhiêu');
+
+    expect(kq?.cau).toContain('150');
+    expect(kq?.cau).not.toContain('170');
+  });
+
+  /** Cột toàn true/false không phải thước đo: cộng nó ra một con số không ai hỏi. */
+  it('cột boolean không được coi là cột đo', () => {
+    const n = nguon(
+      ['Sản phẩm', 'Đã giao'],
+      [
+        ['Staples', true],
+        ['Boston', false],
+      ],
+    );
+
+    // Không cột đo nào, và câu hỏi không gọi tên cột chữ nào — không tính được gì.
+    expect(traLoi(n, 'tổng là bao nhiêu')).toBeNull();
+  });
+
+  /*
+   * ⚠️ Dấu `.` trong ô thô là dấu THẬP PHÂN, không phải hàng nghìn.
+   *
+   * `soVi` đọc chuỗi ĐÃ định dạng theo `vi-VN` nên nó hiểu "1.5" là 15. Ô ở đây
+   * đến thẳng từ CSDL, nên dùng nhầm là sai mười lần bằng một con số hợp lệ.
+   */
+  it('ô "1.5" đọc là một phẩy năm, không phải mười lăm', () => {
+    const n = nguon(
+      ['Sản phẩm', 'Doanh thu'],
+      [
+        ['Staples', '1.5'],
+        ['Boston', '2.5'],
+      ],
+    );
+
+    const kq = traLoi(n, 'tổng doanh thu là bao nhiêu');
+    expect(kq?.cau).toContain('4');
+    expect(kq?.cau).not.toContain('40');
+  });
+
+  /** Vế điều kiện luôn đi kèm — bảng này là MẪU, không phải toàn bộ. */
+  it('mọi câu trả lời tính trên bảng thô đều mang vế điều kiện', () => {
+    const n = nguon(
+      ['Sản phẩm', 'Doanh thu'],
+      [
+        ['Staples', 100],
+        ['Boston', 50],
+      ],
+    );
+
+    for (const hoi of ['tổng doanh thu', 'sản phẩm nào doanh thu cao nhất']) {
+      expect(traLoi(n, hoi)?.cau, hoi).toContain('xem trước');
+    }
+  });
+
+  /*
+   * BẤM một gợi ý phải ra ĐÚNG câu mà GÕ nhãn đó ra cho.
+   *
+   * Nhãn gợi ý chính là câu hỏi — xem `phepCuaBangTho`. Hai đường cho hai kết quả
+   * khác nhau là người dùng bấm một đằng, gõ ra một nẻo.
+   */
+  it('bấm gợi ý cho ra đúng câu mà gõ nhãn đó cho ra', () => {
+    const n = nguon(
+      ['Sản phẩm', 'Doanh thu'],
+      [
+        ['Staples', 100],
+        ['Boston', 50],
+      ],
+    );
+
+    const ds = luaChonTrang([n], n, '');
+    expect(ds.length).toBeGreaterThan(2);
+    for (const lc of ds) {
+      expect(lc.chay()?.cau, lc.nhan).toBe(traLoi(n, lc.nhan)?.cau);
+    }
+  });
+});

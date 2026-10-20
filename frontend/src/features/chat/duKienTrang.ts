@@ -8,6 +8,7 @@ import {
   type DataModelDto,
   type DatasetDetailDto,
   type DatasetDto,
+  type DatasetPreviewDto,
   type HomeDataDto,
   type OrderDto,
   type PaymentMethodDto,
@@ -210,7 +211,7 @@ export function duKienKhoDuLieu(ds: DatasetDto[], tong = ds.length): Nguon[] {
  * X kiểu gì" chỉ trả lời được ở trang này, và ở trang danh sách khung sẽ nói
  * "chưa hiểu" thay vì đoán — xem luật hai-dữ-kiện-bằng-điểm trong `traLoi`.
  */
-export function duKienChiTietDataset(ds: DatasetDetailDto): Nguon[] {
+export function duKienChiTietDataset(ds: DatasetDetailDto, xemTruoc?: DatasetPreviewDto): Nguon[] {
   const d = duKienChung(ds);
 
   for (const c of ds.columns) {
@@ -231,7 +232,28 @@ export function duKienChiTietDataset(ds: DatasetDetailDto): Nguon[] {
     });
   }
 
-  return [{ ten: ds.name, duKien: d }];
+  /*
+   * BẢNG DỮ LIỆU THẬT — đúng cái đang hiện ở tab "Dữ liệu".
+   *
+   * Đây là chỗ duy nhất trong cả khung mà người dùng hỏi được về NỘI DUNG dữ
+   * liệu của họ mà không cần dựng mô hình trước. Tải lên một tệp rồi hỏi "sản
+   * phẩm nào số lượng cao nhất" là ra ngay, không phải qua §10.
+   *
+   * ⚠️ `luuY` BẮT BUỘC và luôn có. Bảng này là MẪU — doc của `DatasetPreviewDto`
+   * nói thẳng là nó không có tổng số dòng, vì `COUNT(*)` trên bảng vài chục triệu
+   * dòng là một lần quét toàn bảng. "Tổng doanh thu" tính trên 50 dòng đầu mà
+   * đọc thành tổng của cả bộ là sai cả nghìn lần, bằng một con số có thật.
+   */
+  const bangTho =
+    xemTruoc === undefined || xemTruoc.rows.length === 0
+      ? undefined
+      : {
+          cot: xemTruoc.columns,
+          dong: xemTruoc.rows,
+          luuY: `tính trên ${xemTruoc.rows.length.toLocaleString('vi-VN')} dòng xem trước đang hiện ở tab "Dữ liệu", không phải toàn bộ bộ dữ liệu`,
+        };
+
+  return [{ ten: ds.name, duKien: d, ...(bangTho === undefined ? {} : { bangTho }) }];
 }
 
 /**

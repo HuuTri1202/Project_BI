@@ -1,9 +1,17 @@
-import type { ConnectionDto, DataModelDto, DatasetDto, ReportDataDto } from '@bi/shared';
+import type {
+  ConnectionDto,
+  DataModelDto,
+  DatasetDetailDto,
+  DatasetDto,
+  DatasetPreviewDto,
+  ReportDataDto,
+} from '@bi/shared';
 import { describe, expect, it } from 'vitest';
 
 import type { HomeDataDto, ReportDto } from '@bi/shared';
 
 import {
+  duKienChiTietDataset,
   duKienDanhSachMoHinh,
   duKienKetNoi,
   duKienKhoDuLieu,
@@ -281,6 +289,43 @@ const BO_DU_LIEU: DatasetDto[] = [
 // Orders 51.290 dòng / 24 cột · Returns 1.173 dòng (ĐÃ CẮT) / 3 cột
 // 4 bộ dữ liệu, nhưng chỉ 3 TỆP: 2 Excel (global-superstore.xlsx, products.xlsx) + 1 CSV
 
+/**
+ * Đúng bảng đang hiện ở tab "Dữ liệu" của một bộ dữ liệu.
+ *
+ * Cột tiếng Việt, vì đó là thứ tệp Excel của người dùng thật mang theo.
+ *
+ * Một SẢN PHẨM nằm trên NHIỀU dòng — đó là cả nội dung của nhóm ca này: không
+ * gộp thì "sản phẩm nào bán nhiều nhất" trả về dòng đơn lẻ lớn nhất (Boston 9)
+ * thay vì tổng của cả sản phẩm (Staples 11) — một con số có thật, câu hỏi khác.
+ *
+ * Số lượng theo Sản phẩm: Staples 11 · Boston 10 · Acco 2   (tổng 23)
+ * Doanh thu theo Sản phẩm: Boston 340 · Staples 200 · Acco 50 (tổng 590)
+ * Doanh thu theo Nhóm hàng: Văn phòng 500 · Công nghệ 90
+ */
+const XEM_TRUOC: DatasetPreviewDto = {
+  columns: ['Mã đơn', 'Sản phẩm', 'Nhóm hàng', 'Số lượng', 'Doanh thu'],
+  rows: [
+    ['DH-1', 'Staples', 'Văn phòng', 6, 120],
+    ['DH-2', 'Boston', 'Văn phòng', 9, 300],
+    ['DH-3', 'Staples', 'Văn phòng', 5, 80],
+    ['DH-4', 'Acco', 'Công nghệ', 2, 50],
+    ['DH-5', 'Boston', 'Công nghệ', 1, 40],
+  ],
+  limit: 50,
+};
+
+const CHI_TIET: DatasetDetailDto = {
+  ...(BO_DU_LIEU[0] as DatasetDto),
+  columns: [
+    { name: 'Mã đơn', dataType: 'varchar(50)', semanticType: 'text' },
+    { name: 'Sản phẩm', dataType: 'varchar(255)', semanticType: 'text' },
+    { name: 'Nhóm hàng', dataType: 'varchar(100)', semanticType: 'text' },
+    { name: 'Số lượng', dataType: 'int', semanticType: 'number' },
+    { name: 'Doanh thu', dataType: 'decimal(18,2)', semanticType: 'number' },
+  ],
+  file: null,
+} as unknown as DatasetDetailDto;
+
 const KET_NOI: ConnectionDto[] = [
   {
     id: 1,
@@ -383,6 +428,13 @@ const TRANG = {
   trangChu: {
     ten: 'Trang chủ',
     nguon: duKienTrangChu(trangChu()),
+    chon: 0,
+    heThong: HE_THONG,
+  },
+  // Trang chi tiết một bộ dữ liệu, CÓ bảng dữ liệu thật đang hiện.
+  chiTietDataset: {
+    ten: 'Chi tiết bộ dữ liệu (có bảng dữ liệu)',
+    nguon: duKienChiTietDataset(CHI_TIET, XEM_TRUOC),
     chon: 0,
     heThong: HE_THONG,
   },
@@ -738,6 +790,89 @@ const CA: Ca[] = [
       'đổi ca này lấy một ca đếm khác — xem CUM_LOAI trong traLoi.ts. Để lại có tên.',
   },
 
+  /*
+   * ─── ĐỌC NỘI DUNG DỮ LIỆU NGƯỜI DÙNG VỪA TẢI LÊN ────────────────
+   *
+   * Trước nhóm này, khung chỉ trả lời được về THÔNG TIN của bộ dữ liệu (mấy
+   * dòng, mấy cột, từ tệp nào). NỘI DUNG bên trong thì phải dựng một mô hình
+   * dữ liệu trước đã — trong khi bảng đang hiện ngay trên màn hình.
+   *
+   * Mọi câu ở đây đều phải mang VẾ ĐIỀU KIỆN: bảng xem trước là một MẪU.
+   */
+  {
+    trang: 'chiTietDataset',
+    hoi: 'sản phẩm nào có số lượng cao nhất',
+    can: ['Staples', '11', 'xem trước'],
+    // Boston 9 là DÒNG đơn lẻ lớn nhất. Nhận về nó nghĩa là phép gộp đã biến mất.
+    khong: ['Boston'],
+    vi: 'Một sản phẩm nằm trên nhiều dòng — phải cộng lại, không lấy dòng lớn nhất',
+  },
+  {
+    trang: 'chiTietDataset',
+    hoi: 'sản phẩm nào doanh thu cao nhất',
+    can: ['Boston', '340'],
+    khong: ['Staples'],
+    vi: 'CÙNG cột nhãn, KHÁC cột đo — đổi đáp án, nên chọn nhầm cột đo sẽ lộ ra',
+  },
+  {
+    trang: 'chiTietDataset',
+    hoi: 'nhóm hàng nào doanh thu cao nhất',
+    can: ['Văn phòng', '500'],
+    vi: 'Câu hỏi đổi CỘT NHÃN sang Nhóm hàng — cùng một bảng, câu hỏi chọn cột',
+  },
+  { trang: 'chiTietDataset', hoi: 'tổng doanh thu là bao nhiêu', can: ['590', 'xem trước'] },
+  { trang: 'chiTietDataset', hoi: 'tổng số lượng là bao nhiêu', can: ['23'] },
+  { trang: 'chiTietDataset', hoi: 'top 2 sản phẩm theo doanh thu', can: ['Boston', 'Staples'] },
+  { trang: 'chiTietDataset', hoi: 'có bao nhiêu sản phẩm', can: ['3'] },
+  /*
+   * Hai ca dưới canh riêng PHÉP GỘP, và chúng cần thiết vì mấy ca "cao nhất" ở
+   * trên KHÔNG canh được nó: nhánh đó còn đi qua `gopTheo` của `tinhBang` nữa,
+   * nên bỏ phép gộp ở `bangTuBangTho` đi thì chúng vẫn xanh.
+   *
+   * `ti_trong` và nhánh tra giá trị thì không: cả hai dùng `timDong`, và `timDong`
+   * lấy DÒNG ĐẦU TIÊN khớp nhãn. Staples nằm trên hai dòng (120 và 80): không
+   * gộp thì câu trả lời là 120 thay vì 200 — một con số có thật trên bảng, cho
+   * một câu hỏi khác.
+   */
+  {
+    trang: 'chiTietDataset',
+    hoi: 'doanh thu của Staples là bao nhiêu',
+    can: ['200'],
+    khong: ['120'],
+    vi: 'Staples nằm trên HAI dòng — phải cộng, không lấy dòng đầu tiên',
+  },
+  {
+    trang: 'chiTietDataset',
+    hoi: 'Staples chiếm bao nhiêu phần trăm doanh thu',
+    can: ['33,9'],
+    khong: ['20,3'],
+    vi: '200/590 chứ không phải 120/590 — cùng gốc với ca trên',
+  },
+  {
+    trang: 'chiTietDataset',
+    hoi: 'Orders có bao nhiêu dòng',
+    can: ['51.290'],
+    /*
+     * ⚠️ Ca canh THỨ TỰ. Bảng xem trước có 5 dòng, cả bộ có 51.290. Đảo thứ tự
+     * là câu hỏi đơn giản nhất về một bộ dữ liệu được trả lời bằng một con số
+     * sai cả nghìn lần — mà vẫn có thật, nên không ai nhận ra.
+     */
+    khong: ['5 dòng'],
+    vi: 'Dữ kiện đã khai phải thắng bảng xem trước ở câu đếm',
+  },
+  {
+    trang: 'chiTietDataset',
+    hoi: 'cột Sản phẩm kiểu dữ liệu gì',
+    can: ['varchar(255)'],
+    vi: 'Trang CHI TIẾT thì trả lời được — khác trang danh sách, nơi chỉ có columnCount',
+  },
+  {
+    trang: 'chiTietDataset',
+    hoi: 'giá cổ phiếu hôm nay bao nhiêu',
+    can: 'chua-hieu',
+    vi: 'Có bảng dữ liệu trong tay KHÔNG được biến khung thành thứ gì cũng trả lời',
+  },
+
   // ─── Xuyên hệ thống: hỏi từ một trang không dính gì tới dữ liệu ───────────
   { trang: 'hoSo', hoi: 'có bao nhiêu bộ dữ liệu', can: ['12'] },
   { trang: 'hoSo', hoi: 'có bao nhiêu mô hình dữ liệu', can: ['3'] },
@@ -846,7 +981,7 @@ describe('Bộ đánh giá khung hỏi đáp', () => {
    * nghĩa là thay đổi đó đang đánh đổi câu này lấy câu kia mà không nói ra.
    */
   it('số câu ĐÚNG không được tụt', () => {
-    expect(dem('dung')).toBeGreaterThanOrEqual(97);
+    expect(dem('dung')).toBeGreaterThanOrEqual(109);
   });
 
   /*

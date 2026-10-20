@@ -84,12 +84,22 @@ export default function DatasetDetailPage(): React.ReactElement {
    * Khai cho khung hỏi đáp. Trang này là nơi DUY NHẤT có kiểu của từng cột —
    * `DatasetDetailDto.columns`. Trang danh sách chỉ có `columnCount`.
    */
+  /*
+   * CÙNG một truy vấn với `PreviewTab` — cùng `queryKey`, nên react-query gộp làm
+   * MỘT request, không phải hai.
+   *
+   * Đọc ở đây chứ không nâng truy vấn ra khỏi `PreviewTab`: học theo chính lý do
+   * tab đó được tách ra. Tab "Dữ liệu" là tab mặc định nên truy vấn này chạy sẵn
+   * ở mọi lần mở trang, và khung hỏi đáp chỉ đang đọc ghé cái đã có.
+   */
+  const xemTruoc = useDatasetPreview(validId);
+
   const nguCanh = useMemo(
     () => ({
       trang: data === undefined ? 'bộ dữ liệu' : `bộ dữ liệu ${data.name}`,
-      nguon: data === undefined ? [] : duKienChiTietDataset(data),
+      nguon: data === undefined ? [] : duKienChiTietDataset(data, xemTruoc.data),
     }),
-    [data],
+    [data, xemTruoc.data],
   );
   useKhaiNguCanh(nguCanh);
 

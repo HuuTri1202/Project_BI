@@ -49,6 +49,29 @@ export interface DuKien {
   luuY?: string;
 }
 
+/**
+ * Một bảng dữ liệu THÔ — cột và dòng, đúng như nó hiện trên màn hình.
+ *
+ * ═══ Khác `bang` ở chỗ nào ═══════════════════════════════════════
+ *
+ * `bang` (`ReportDataDto`) đã được ai đó chọn sẵn chiều và thước đo: một cột
+ * nhãn, một cột số. Bảng thô thì không — nó có hai mươi cột và không cột nào
+ * được đề cử. Câu hỏi là thứ chọn ra hai cột đó, và câu trả lời gọi tên cả hai
+ * — xem `bangTuBangTho`.
+ *
+ * `luuY` KHÔNG phải tuỳ chọn ở đây, khác hẳn `DuKien.luuY`. Mọi bảng thô mà
+ * khung đọc được đều là MẪU: tab "Dữ liệu" của một bộ dữ liệu là một câu
+ * `SELECT … LIMIT`, không có tổng số dòng (xem doc của `DatasetPreviewDto`). Một
+ * phép tính trên mẫu mà không nói ra là mẫu thì đọc thành con số của cả bộ dữ
+ * liệu — một con số có thật trả lời cho câu hỏi khác. Bắt buộc kiểu là cách
+ * chặn người thêm nguồn sau này quên nó.
+ */
+export interface BangTho {
+  cot: string[];
+  dong: (string | number | boolean | null)[][];
+  luuY: string;
+}
+
 /** Một thứ có thể hỏi về: một bộ dữ liệu, một bảng trong mô hình, một biểu đồ. */
 export interface Nguon {
   /**
@@ -70,6 +93,14 @@ export interface Nguon {
    * khác nhau.
    */
   bang?: ReportDataDto;
+  /**
+   * Bảng dữ liệu THÔ của nguồn này — xem `BangTho`.
+   *
+   * Đứng riêng với `bang` chứ không thay nó: một ô biểu đồ đã có chiều và
+   * thước đo do người dùng chọn, còn đây là bảng chưa ai chọn gì. Trộn hai thứ
+   * làm một là mất đúng chỗ phân biệt đó.
+   */
+  bangTho?: BangTho;
 }
 
 export interface NguCanh {
