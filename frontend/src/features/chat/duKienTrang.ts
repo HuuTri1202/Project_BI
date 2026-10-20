@@ -9,6 +9,7 @@ import {
   type DatasetDetailDto,
   type DatasetDto,
   type DatasetPreviewDto,
+  type FolderDto,
   type HomeDataDto,
   type OrderDto,
   type PaymentMethodDto,
@@ -18,6 +19,7 @@ import {
   type PlatformUserDto,
   type PlatformWorkspaceDto,
   type ReportDto,
+  type WarehouseSchemaDto,
 } from '@bi/shared';
 
 import { dinhDangDungLuong, dinhDangHanMuc, dinhDangNgay, dinhDangTien } from '../billing/format';
@@ -211,7 +213,11 @@ export function duKienKhoDuLieu(ds: DatasetDto[], tong = ds.length): Nguon[] {
  * X kiểu gì" chỉ trả lời được ở trang này, và ở trang danh sách khung sẽ nói
  * "chưa hiểu" thay vì đoán — xem luật hai-dữ-kiện-bằng-điểm trong `traLoi`.
  */
-export function duKienChiTietDataset(ds: DatasetDetailDto, xemTruoc?: DatasetPreviewDto): Nguon[] {
+export function duKienChiTietDataset(
+  ds: DatasetDetailDto,
+  xemTruoc?: DatasetPreviewDto,
+  kho?: WarehouseSchemaDto,
+): Nguon[] {
   const d = duKienChung(ds);
 
   for (const c of ds.columns) {
@@ -230,6 +236,21 @@ export function duKienChiTietDataset(ds: DatasetDetailDto, xemTruoc?: DatasetPre
       // Không nói ra thì người đọc tưởng xoá khoá đó là xoá đúng bộ này.
       luuY: 'nhiều bộ dữ liệu có thể dùng chung một tệp (mỗi sheet một bộ)',
     });
+  }
+
+  /*
+   * KHO PHÂN TÍCH — đúng cái đang hiện ở tab "Cấu trúc".
+   *
+   * Khác `ds.columns` ở trên: đó là kiểu của NGUỒN (tệp Excel, bảng MySQL), còn đây
+   * là kiểu của chính bảng trong ClickHouse — thứ mọi truy vấn thật sự chạy trên.
+   * Hai thứ lệch nhau là chuyện bình thường, và chính chỗ lệch là thứ người dùng
+   * mở tab ấy ra để xem.
+   */
+  if (kho !== undefined) {
+    d.push(...dk(`Bảng của ${ds.name} nằm đâu trong kho phân tích`, kho.table));
+    for (const c of kho.columns) {
+      d.push(...dk(`Kiểu ở kho phân tích của cột ${c.name}`, c.type));
+    }
   }
 
   /*
@@ -466,6 +487,43 @@ export function tomTatMoHinh(models: DataModelDto[], tong: number, pham: string)
         luuYChuaDu(models.length, tong),
       ),
     ),
+  ];
+}
+
+/**
+ * THƯ MỤC — dùng chung cho cả Kho dữ liệu lẫn Báo cáo (§7.9 và §10.25).
+ *
+ * Một hàm cho hai tab, đúng như `FolderDto` là một DTO cho hai tab. Cột thư mục
+ * nằm ngay bên trái bảng ở cả hai trang, mà trước đó không trang nào khai nó —
+ * nhìn thấy mà hỏi không được.
+ *
+ * ═══ Mỗi thư mục một NGUỒN, không phải một dữ kiện phẳng ═══════════════
+ *
+ * Bản đầu khai phẳng — "Số mục trong thư mục Chung" nằm chung nguồn với "Số thư
+ * mục đang có" — và hai nhãn đó luôn hoà điểm, vì cả hai cùng chứa "thư" và
+ * "mục" còn chữ phân biệt chúng là TÊN thư mục. Hoà thì khung bỏ cả hai.
+ *
+ * Thành nguồn thì `nguonTheoTen` lo chuyện đó: gõ "thư mục Chung" ra là đã nói rõ
+ * hỏi thư mục nào, không cần phép chấm điểm đoán hộ. Và `soSanhNguon` được "thư
+ * mục nào nhiều mục nhất" miễn phí — cùng lợi ích mà mọi danh sách khác đang có.
+ *
+ * ⚠️ Nhãn dùng chữ "mục", KHÔNG dùng tên loại ("bộ dữ liệu" hay "báo cáo") —
+ * cùng lý do `itemCount` của chính DTO tránh tên loại, và còn vì "Số bộ dữ liệu
+ * trong thư mục Chung" sẽ hoà điểm với "Số bộ dữ liệu trong workspace này".
+ */
+export function duKienThuMuc(thuMuc: FolderDto[]): Nguon[] {
+  return thuMuc.map((t) => ({
+    ten: `Thư mục ${t.name}`,
+    duKien: dk(`Số mục trong Thư mục ${t.name}`, t.itemCount),
+  }));
+}
+
+/** Hai con số về CẢ cột thư mục — nối vào bản tóm tắt của danh sách. */
+export function tomTatThuMuc(thuMuc: FolderDto[]): DuKien[] {
+  if (thuMuc.length === 0) return [];
+  return [
+    ...dk('Số thư mục của workspace này', thuMuc.length),
+    ...dk('Tên các thư mục', thuMuc.map((t) => t.name).join('; ')),
   ];
 }
 

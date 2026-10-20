@@ -37,7 +37,7 @@ import { MoveToFolderDialog } from '../../features/folders/MoveToFolderDialog';
 import { CreateReportMenu } from '../../features/tenant/CreateReportMenu';
 import { useListQueryState } from '../../hooks/useListQueryState';
 import { getApiError } from '../../services/apiClient';
-import { duKienDanhSachBaoCao } from '../../features/chat/duKienTrang';
+import { duKienDanhSachBaoCao, duKienThuMuc, tomTatThuMuc } from '../../features/chat/duKienTrang';
 import { useKhaiNguCanh } from '../../features/chat/nguCanh';
 
 /**
@@ -95,15 +95,6 @@ export default function ReportsPage(): React.ReactElement {
 
   const { data, isPending, isError, error, isPlaceholderData } = useReports(query);
 
-  // Khai dữ kiện cho khung hỏi đáp — xem `features/chat/duKienTrang.ts`.
-  const nguCanh = useMemo(
-    () => ({
-      trang: 'danh sách báo cáo',
-      nguon: duKienDanhSachBaoCao(data?.items ?? [], data?.total ?? 0),
-    }),
-    [data],
-  );
-  useKhaiNguCanh(nguCanh);
   const remove = useDeleteReport();
 
   /* ─── Thư mục — §10.25 ─────────────────────────────────────────────────── */
@@ -119,6 +110,26 @@ export default function ReportsPage(): React.ReactElement {
    */
   const dangMo = parseFolderFilter(query.folder) ?? null;
   const danhSachThuMuc = folders.data?.items ?? [];
+
+  /*
+   * Khai dữ kiện cho khung hỏi đáp — xem `features/chat/duKienTrang.ts`.
+   *
+   * THƯ MỤC nối vào bản tóm tắt, cùng khuôn và cùng lý do với trang Kho dữ liệu:
+   * cột thư mục nằm ngay bên trái bảng, mà trước đó không ai khai nó.
+   */
+  const nguCanh = useMemo(() => {
+    const nguon = duKienDanhSachBaoCao(data?.items ?? [], data?.total ?? 0);
+    const tm = folders.data?.items ?? [];
+    const tom = nguon[0];
+    const them = tomTatThuMuc(tm);
+    if (tom !== undefined && them.length > 0) {
+      nguon[0] = { ...tom, duKien: [...tom.duKien, ...them] };
+    }
+    // Thư mục đứng SAU cùng: chip đầu tiên vẫn phải là thứ người dùng đang nhìn.
+    nguon.push(...duKienThuMuc(tm));
+    return { trang: 'danh sách báo cáo', nguon };
+  }, [data, folders.data]);
+  useKhaiNguCanh(nguCanh);
 
   const [deleting, setDeleting] = useState<ReportDto | null>(null);
   /** `undefined` = đóng; `null` = đang tạo mới; có giá trị = đang đổi tên. */

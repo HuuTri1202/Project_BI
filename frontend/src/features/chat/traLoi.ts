@@ -774,6 +774,19 @@ function traCuu(duKien: DuKien[], cauHoi: string): TraLoi | null {
   const tuHoi = new Set(noiDung(cauHoi));
   if (tuHoi.size === 0) return null;
 
+  /*
+   * ⚠️ KHÔNG khử trùng phía nhãn, dù phía câu hỏi đã là một `Set`.
+   *
+   * Trông như một sơ suất, và đã thử sửa. Bỏ `new Set` vào đây đổi MỘT ca lấy
+   * MỘT ca: "có bao nhiêu bộ dữ liệu" hỏi xuyên hệ thống mất đáp án, vì nhãn
+   * "Số BỘ dữ liệu trong toàn BỘ tổ chức" đang thắng "Số mô hình dữ liệu trong
+   * toàn bộ tổ chức" nhờ đúng chữ "bộ" đếm hai lần. Khử trùng thì hai nhãn
+   * hoà điểm và khung bỏ cả hai.
+   *
+   * Đếm lặp là một bằng chứng yếu, nhưng nó là bằng chứng: nhãn nói chữ ấy
+   * nhiều lần hơn thì nó nói về chữ ấy nhiều hơn. Giữ nguyên, và ghi lại để lần
+   * sau không ai "sửa" nó thêm một lần nữa.
+   */
   const diem = duKien.map((d) => ({
     d,
     diem: noiDung(d.nhan).filter((t) => tuHoi.has(t)).length,
@@ -1323,6 +1336,8 @@ interface Cot {
 interface ThuocTinh extends Cot {
   /** Mọi mục so được trên trang này, kể cả mục không có thuộc tính đang hỏi. */
   muc: Muc[];
+  /** Mọi cột so được — để biết mục nào CÙNG LOẠI với cột đang hỏi. */
+  cot: Cot[];
 }
 
 /**
@@ -1427,7 +1442,7 @@ function chonThuocTinh(tatCa: Nguon[], cauHoi: string): ThuocTinh | null {
   if (muc.length < 2) return null;
 
   const g = chamCot(soDuoc, cauHoi, true) ?? chamCot(soDuoc, cauHoi, false);
-  return g === null ? null : { ...g, muc };
+  return g === null ? null : { ...g, muc, cot: soDuoc };
 }
 
 /**
@@ -1488,7 +1503,29 @@ export function soSanhNguon(
   const tren = `so trên ${soMuc} mục ${pham}`;
 
   if (y === 'chua_co') {
-    const thieu = tt.muc.filter((m) => laTrong(tt.gia.get(m.i)));
+    /*
+     * CHỈ ĐẾM MỤC CÙNG LOẠI — mục có chung ít nhất một cột với những mục ĐÃ
+     * khai thuộc tính này.
+     *
+     * `laTrong(undefined)` coi "không khai thuộc tính" là "chưa có", và điều đó ĐÚNG
+     * với một danh sách đồng nhất: mô hình nào cũng khai "Số quan hệ", nên cái
+     * không khai là cái bằng 0. Nhưng danh sách ở đây KHÔNG còn đồng nhất: trang
+     * Kho dữ liệu có thêm nguồn THƯ MỤC, và danh sách xuyên hệ thống trộn cả bộ dữ
+     * liệu, mô hình, kết nối lẫn báo cáo.
+     *
+     * LỖI ĐO ĐƯỢC: "bao nhiêu bộ dữ liệu chưa có mô hình dùng" trả về "4 mục:
+     * People, Thư mục Chung, Thư mục Bán hàng, Thư mục Thử nghiệm" — ba thư mục
+     * đúng là không có mô hình nào dùng, và câu đó vô nghĩa.
+     *
+     * ⚠️ Lỗi này CÓ SẴN trước khi thêm thư mục — danh sách xuyên hệ thống đã trộn
+     * bốn loại từ lâu. Thư mục chỉ là thứ phơi nó ra.
+     */
+    const cotCua = (i: number): string[] =>
+      tt.cot.filter((g) => g.gia.has(i)).map((g) => chuanHoa(g.nhan));
+    const ho = new Set([...tt.gia.keys()].flatMap(cotCua));
+    const cungHo = (i: number): boolean => cotCua(i).some((c) => ho.has(c));
+
+    const thieu = tt.muc.filter((m) => cungHo(m.i) && laTrong(tt.gia.get(m.i)));
     if (thieu.length === 0) {
       return {
         cau: `Không mục nào — cả ${soMuc} mục ${pham} đều có "${tt.nhan}".`,

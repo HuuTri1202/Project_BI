@@ -4,7 +4,9 @@ import type {
   DatasetDetailDto,
   DatasetDto,
   DatasetPreviewDto,
+  FolderDto,
   ReportDataDto,
+  WarehouseSchemaDto,
 } from '@bi/shared';
 import { describe, expect, it } from 'vitest';
 
@@ -13,6 +15,8 @@ import type { HomeDataDto, ReportDto } from '@bi/shared';
 import {
   duKienChiTietDataset,
   duKienDanhSachMoHinh,
+  duKienThuMuc,
+  tomTatThuMuc,
   duKienKetNoi,
   duKienKhoDuLieu,
   duKienTrangChu,
@@ -314,6 +318,30 @@ const XEM_TRUOC: DatasetPreviewDto = {
   limit: 50,
 };
 
+/** Cột thư mục bên trái bảng Kho dữ liệu — §7.9. */
+const THU_MUC: FolderDto[] = [
+  { id: 1, name: 'Chung', itemCount: 18 },
+  { id: 2, name: 'Bán hàng', itemCount: 5 },
+  { id: 3, name: 'Thử nghiệm', itemCount: 1 },
+].map((t) => ({ ...t, workspaceId: 1, createdAt: '', updatedAt: '' }) as FolderDto);
+
+/**
+ * Cấu trúc bảng trong kho phân tích — tab "Cấu trúc".
+ *
+ * Kiểu ở đây CỐ Ý khác kiểu nguồn trong `CHI_TIET`: nguồn nói `decimal(18,2)`, kho
+ * nói `Nullable(Float64)`. Hai thứ lệch nhau là chuyện bình thường, và chính chỗ
+ * lệch là thứ người dùng mở tab ấy ra để xem — nên một ca trả nhầm sang kiểu
+ * nguồn sẽ lộ ra ngay.
+ */
+const KHO: WarehouseSchemaDto = {
+  table: 'ds_1_orders',
+  columns: [
+    { ordinal: 0, name: 'Mã đơn', type: 'String', nullable: false },
+    { ordinal: 1, name: 'Sản phẩm', type: 'String', nullable: false },
+    { ordinal: 2, name: 'Doanh thu', type: 'Nullable(Float64)', nullable: true },
+  ],
+};
+
 const CHI_TIET: DatasetDetailDto = {
   ...(BO_DU_LIEU[0] as DatasetDto),
   columns: [
@@ -409,7 +437,13 @@ const TRANG = {
   },
   khoDuLieu: {
     ten: 'Kho dữ liệu (danh sách)',
-    nguon: duKienKhoDuLieu(BO_DU_LIEU),
+    // Dựng ĐÚNG như `DatasetsPage`: thư mục nối vào bản tóm tắt, không thành chip.
+    nguon: ((): Nguon[] => {
+      const n = duKienKhoDuLieu(BO_DU_LIEU);
+      const tom = n[0];
+      if (tom !== undefined) n[0] = { ...tom, duKien: [...tom.duKien, ...tomTatThuMuc(THU_MUC)] };
+      return [...n, ...duKienThuMuc(THU_MUC)];
+    })(),
     chon: 0,
     heThong: HE_THONG,
   },
@@ -434,7 +468,7 @@ const TRANG = {
   // Trang chi tiết một bộ dữ liệu, CÓ bảng dữ liệu thật đang hiện.
   chiTietDataset: {
     ten: 'Chi tiết bộ dữ liệu (có bảng dữ liệu)',
-    nguon: duKienChiTietDataset(CHI_TIET, XEM_TRUOC),
+    nguon: duKienChiTietDataset(CHI_TIET, XEM_TRUOC, KHO),
     chon: 0,
     heThong: HE_THONG,
   },
@@ -731,6 +765,20 @@ const CA: Ca[] = [
   // ─── Trang Kho dữ liệu ────────────────────────────────────────────────────
   { trang: 'khoDuLieu', hoi: 'Orders có bao nhiêu dòng', can: ['51.290'] },
   { trang: 'khoDuLieu', hoi: 'Orders có mấy cột', can: ['24'] },
+  /*
+   * ─── THƯ MỤC: cột bên trái bảng, trước đó không trang nào khai ──────────
+   */
+  { trang: 'khoDuLieu', hoi: 'có bao nhiêu thư mục', can: ['3'] },
+  { trang: 'khoDuLieu', hoi: 'thư mục Chung đang có mấy mục', can: ['18'] },
+  {
+    trang: 'khoDuLieu',
+    hoi: 'có bao nhiêu bộ dữ liệu',
+    can: ['4'],
+    // ⚠️ Canh lại sau khi thêm thư mục: nhãn thư mục dùng chữ "mục" chứ không dùng
+    // "bộ dữ liệu", nếu không nó hoà điểm và câu đơn giản nhất của trang mất đáp án.
+    khong: ['18'],
+    vi: 'Kho dữ liệu là danh sách DUY NHẤT không có nguồn tóm tắt — lệch khỏi mọi trang khác',
+  },
   {
     trang: 'khoDuLieu',
     hoi: 'liệt kê các bộ dữ liệu đang có',
@@ -752,12 +800,6 @@ const CA: Ca[] = [
     // Một câu liệt kê tên bộ dữ liệu là dấu hiệu nó đã đếm BỘ thay vì đếm TỆP.
     khong: ['Orders'],
     vi: 'Ảnh chụp màn hình: "không có mục nào trả lời được" — trang không khai TỆP nào cả',
-  },
-  {
-    trang: 'khoDuLieu',
-    hoi: 'có bao nhiêu bộ dữ liệu',
-    can: ['4'],
-    vi: 'Kho dữ liệu là danh sách DUY NHẤT không có nguồn tóm tắt — lệch khỏi mọi trang khác',
   },
 
   // ─── Người dùng gõ từ của HỌ, không gõ từ trên nhãn ───────────────────────
@@ -838,6 +880,21 @@ const CA: Ca[] = [
   { trang: 'chiTietDataset', hoi: 'tổng số lượng là bao nhiêu', can: ['23'] },
   { trang: 'chiTietDataset', hoi: 'top 2 sản phẩm theo doanh thu', can: ['Boston', 'Staples'] },
   { trang: 'chiTietDataset', hoi: 'có bao nhiêu sản phẩm', can: ['3'] },
+  /*
+   * ─── TAB "CẤU TRÚC": kiểu ở KHO, khác kiểu ở NGUỒN ──────────────────
+   */
+  {
+    trang: 'chiTietDataset',
+    hoi: 'bảng của Orders nằm đâu trong kho phân tích',
+    can: ['ds_1_orders'],
+  },
+  {
+    trang: 'chiTietDataset',
+    hoi: 'cột Doanh thu ở kho phân tích kiểu gì',
+    can: ['Nullable(Float64)'],
+    // Kiểu NGUỒN của cùng cột đó — nhận về nó là trả lời nhầm tab.
+    khong: ['decimal(18,2)'],
+  },
   /*
    * Hai ca dưới canh riêng PHÉP GỘP, và chúng cần thiết vì mấy ca "cao nhất" ở
    * trên KHÔNG canh được nó: nhánh đó còn đi qua `gopTheo` của `tinhBang` nữa,
@@ -1020,7 +1077,7 @@ describe('Bộ đánh giá khung hỏi đáp', () => {
    * nghĩa là thay đổi đó đang đánh đổi câu này lấy câu kia mà không nói ra.
    */
   it('số câu ĐÚNG không được tụt', () => {
-    expect(dem('dung')).toBeGreaterThanOrEqual(116);
+    expect(dem('dung')).toBeGreaterThanOrEqual(120);
   });
 
   /*
