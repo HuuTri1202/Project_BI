@@ -1793,6 +1793,57 @@ export function traLoiTrang(tatCa: Nguon[], chon: Nguon, cauHoi: string): TraLoi
   );
 }
 
+/**
+ * Mấy nguồn CÙNG trả lời được một câu KHÔNG gọi tên ai — `null` = không mơ hồ.
+ *
+ * ═══ Lỗi nó sinh ra để chặn ═══════════════════════════════════════════════
+ *
+ * Trên một khung hai biểu đồ, "cao nhất là gì" trả lời được từ CẢ HAI. Bước
+ * cuối của `traLoiTrang` rơi về chip đang chọn, mà chip mặc định là ô số 0 —
+ * một lựa chọn người dùng chưa bao giờ làm. Họ nhận một con số có thật, của
+ * đúng một biểu đồ trên màn hình, và không có gì nói đó là biểu đồ nào.
+ *
+ * Đây KHÔNG phải một câu trả lời sai để sửa bằng cách đoán giỏi hơn: hai biểu
+ * đồ đều trả lời được thì không có đáp án đúng để mà đoán. Thứ còn thiếu là một
+ * câu hỏi ngược.
+ *
+ * ═══ Ba cửa thoát, và cả ba đều là "câu này đã tự rõ rồi" ════════════════
+ *
+ * Câu về CẢ danh sách (`soSanhNguon`), câu GỌI TÊN một nguồn, câu nhận ra nguồn
+ * qua một GIÁ TRỊ (`locNguon`). Ba thứ này đã tự nói chúng hỏi cái gì, và thứ
+ * tự ở đây CỐ Ý khớp thứ tự của `traLoiTrang`: lớp nào trả lời trước thì lớp
+ * này phải nhường trước, nếu không hỏi lại sẽ cắt ngang một câu trả lời đúng.
+ *
+ * ⚠️ Chưa dựng được ca nào chạm tới hai cửa `soSanhNguon` và `locNguon`: chúng
+ * cần một câu hỏi vừa gọi tên một cột so được, vừa được từng biểu đồ trả lời
+ * riêng — hai hình dạng câu hỏi hiện loại trừ nhau. Giữ vì chúng là MỘT bản
+ * sao của thứ tự ngay trên, không phải vì một ca đỏ.
+ *
+ * ⚠️ KHÔNG nhận chip đang chọn làm tham số. Bản đầu có, và đòi chính chip phải
+ * trả lời được, với lý do "chip không trả lời được thì chưa có câu trả lời im
+ * lặng nào để chặn" — sai: lúc đó lớp mô hình chọn nhãn sẽ chọn giúp một nhãn
+ * trong CẢ trang, nên người dùng vẫn nhận số của một mục họ chưa chọn, chỉ
+ * muộn hơn một nhịp và khó lần ra hơn. Mơ hồ là tính chất của CÂU HỎI và
+ * TRANG, không phải của cái chip.
+ */
+export function nguonMoHo(tatCa: Nguon[], cauHoi: string): number[] | null {
+  if (soSanhNguon(tatCa, cauHoi) !== null) return null;
+  if (nguonTheoTen(tatCa, cauHoi) !== null) return null;
+  if (locNguon(tatCa, cauHoi) !== null) return null;
+
+  const biet = tuDaBiet(tatCa);
+  const dap = tatCa.map((n) => traLoi(n, cauHoi, biet));
+  const duoc = dap.flatMap((d, i) => (d === null ? [] : [i]));
+
+  /*
+   * MỘT phép đếm lo cả ba việc, nên không có ba câu `if` nào để lệch nhau: ít
+   * hơn hai câu trả lời KHÁC NHAU thì không có gì để người dùng chọn — dù vì
+   * trang chỉ có một nguồn, vì chỉ một nguồn trả lời được, hay vì mọi nguồn
+   * cùng nói một câu.
+   */
+  return new Set(duoc.map((i) => dap[i]?.cau)).size < 2 ? null : duoc;
+}
+
 /* ═══ Danh sách LỰA CHỌN: mọi thứ trang này trả lời được ════════════════════
  *
  * ═══ Vì sao gom tra cứu và tính toán vào MỘT danh sách ═════════════════════
