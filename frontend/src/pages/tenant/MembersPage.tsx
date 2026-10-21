@@ -23,7 +23,7 @@ import {
   rememberIssue,
   type TempPasswordIssue,
 } from '../../features/tenant/members/tempPasswordStore';
-import { useListQueryState } from '../../hooks/useListQueryState';
+import { dangLoc, useListQueryState } from '../../hooks/useListQueryState';
 import { getApiError } from '../../services/apiClient';
 import { duKienThanhVien } from '../../features/chat/duKienTrang';
 import { useKhaiNguCanh } from '../../features/chat/nguCanh';
@@ -77,9 +77,10 @@ export default function MembersPage(): React.ReactElement {
   const nguCanh = useMemo(
     () => ({
       trang: 'danh sách thành viên',
-      nguon: duKienThanhVien(data?.items ?? [], data?.total ?? 0),
+      // Ô tìm kiếm và mấy ô lọc thu hẹp chính `total` — xem `luuYLoc`.
+      nguon: duKienThanhVien(data?.items ?? [], data?.total ?? 0, dangLoc(query, DEFAULTS)),
     }),
-    [data],
+    [data, query],
   );
   useKhaiNguCanh(nguCanh);
 

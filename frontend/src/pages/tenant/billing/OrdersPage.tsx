@@ -10,7 +10,7 @@ import { EmptyState, ErrorState, TableSkeleton } from '../../../components/ui/st
 import { dinhDangNgayGio, dinhDangTien } from '../../../features/billing/format';
 import { useOrders } from '../../../features/billing/hooks';
 import { OrderStatusBadge } from '../../../features/billing/OrderStatusBadge';
-import { useListQueryState } from '../../../hooks/useListQueryState';
+import { dangLoc, useListQueryState } from '../../../hooks/useListQueryState';
 import { getApiError } from '../../../services/apiClient';
 import { duKienDonHang } from '../../../features/chat/duKienTrang';
 import { useKhaiNguCanh } from '../../../features/chat/nguCanh';
@@ -55,9 +55,10 @@ export default function OrdersPage(): React.ReactElement {
   const nguCanh = useMemo(
     () => ({
       trang: 'danh sách đơn hàng',
-      nguon: duKienDonHang(data?.items ?? [], data?.total ?? 0),
+      // Ô tìm kiếm và mấy ô lọc thu hẹp chính `total` — xem `luuYLoc`.
+      nguon: duKienDonHang(data?.items ?? [], data?.total ?? 0, dangLoc(query, DEFAULTS)),
     }),
-    [data],
+    [data, query],
   );
   useKhaiNguCanh(nguCanh);
 

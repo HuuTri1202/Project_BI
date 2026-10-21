@@ -16,6 +16,7 @@ import {
   duKienChiTietDataset,
   duKienDanhSachMoHinh,
   duKienThuMuc,
+  tongTheoThuMuc,
   tomTatThuMuc,
   duKienKetNoi,
   duKienKhoDuLieu,
@@ -320,10 +321,20 @@ const XEM_TRUOC: DatasetPreviewDto = {
 
 /** Cột thư mục bên trái bảng Kho dữ liệu — §7.9. */
 const THU_MUC: FolderDto[] = [
-  { id: 1, name: 'Chung', itemCount: 18 },
   { id: 2, name: 'Bán hàng', itemCount: 5 },
   { id: 3, name: 'Thử nghiệm', itemCount: 1 },
 ].map((t) => ({ ...t, workspaceId: 1, createdAt: '', updatedAt: '' }) as FolderDto);
+
+/**
+ * Số bộ dữ liệu CHƯA xếp thư mục — `chungCount` của `GET /dataset-folders`.
+ *
+ * ⚠️ "Chung" KHÔNG phải một thư mục. Backend cố ý không trả nó trong `items`
+ * (xem route `/report-folders`), nên một fixture nhét nó vào danh sách thư mục
+ * là một fixture không bao giờ xảy ra — và nó che mất đúng chỗ lỗi: trang Kho
+ * dữ liệu MẶC ĐỊNH lọc theo Chung, nên `total` của danh sách là 4 chứ không
+ * phải 10 bộ dữ liệu thật sự có trong workspace.
+ */
+const CHUNG_COUNT = BO_DU_LIEU.length;
 
 /**
  * Cấu trúc bảng trong kho phân tích — tab "Cấu trúc".
@@ -439,7 +450,9 @@ const TRANG = {
     ten: 'Kho dữ liệu (danh sách)',
     // Dựng ĐÚNG như `DatasetsPage`: thư mục nối vào bản tóm tắt, không thành chip.
     nguon: ((): Nguon[] => {
-      const n = duKienKhoDuLieu(BO_DU_LIEU);
+      // `BO_DU_LIEU` là 4 bộ của thư mục CHUNG — đúng thứ trang hiện ra khi vừa
+      // mở, vì `DEFAULTS.folder` là Chung. Workspace thật có 4 + 5 + 1 = 10.
+      const n = duKienKhoDuLieu(BO_DU_LIEU, tongTheoThuMuc(CHUNG_COUNT, THU_MUC));
       const tom = n[0];
       if (tom !== undefined) n[0] = { ...tom, duKien: [...tom.duKien, ...tomTatThuMuc(THU_MUC)] };
       return [...n, ...duKienThuMuc(THU_MUC)];
@@ -768,15 +781,25 @@ const CA: Ca[] = [
   /*
    * ─── THƯ MỤC: cột bên trái bảng, trước đó không trang nào khai ──────────
    */
-  { trang: 'khoDuLieu', hoi: 'có bao nhiêu thư mục', can: ['3'] },
-  { trang: 'khoDuLieu', hoi: 'thư mục Chung đang có mấy mục', can: ['18'] },
+  { trang: 'khoDuLieu', hoi: 'có bao nhiêu thư mục', can: ['2'] },
+  { trang: 'khoDuLieu', hoi: 'thư mục Bán hàng đang có mấy mục', can: ['5'] },
   {
     trang: 'khoDuLieu',
     hoi: 'có bao nhiêu bộ dữ liệu',
-    can: ['4'],
-    // ⚠️ Canh lại sau khi thêm thư mục: nhãn thư mục dùng chữ "mục" chứ không dùng
-    // "bộ dữ liệu", nếu không nó hoà điểm và câu đơn giản nhất của trang mất đáp án.
-    khong: ['18'],
+    /*
+     * ⚠️ 10, KHÔNG phải 4.
+     *
+     * Trang Kho dữ liệu mặc định lọc theo thư mục Chung (`DEFAULTS.folder`), nên
+     * `total` của danh sách chỉ là số bộ CHƯA xếp thư mục. Khai con số ấy dưới
+     * nhãn "Số bộ dữ liệu trong workspace này" là một con số có thật trả lời cho
+     * một câu hỏi khác — và nó sai ngay khi người dùng vừa mở trang, không cần
+     * ai bấm gì.
+     *
+     * Tổng thật dựng từ chính cột thư mục đang hiện bên trái: Chung + từng thư
+     * mục. Không thêm một request nào.
+     */
+    can: ['10'],
+    khong: ['4'],
     vi: 'Kho dữ liệu là danh sách DUY NHẤT không có nguồn tóm tắt — lệch khỏi mọi trang khác',
   },
   {

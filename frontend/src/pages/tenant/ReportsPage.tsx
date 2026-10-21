@@ -37,7 +37,12 @@ import { MoveToFolderDialog } from '../../features/folders/MoveToFolderDialog';
 import { CreateReportMenu } from '../../features/tenant/CreateReportMenu';
 import { useListQueryState } from '../../hooks/useListQueryState';
 import { getApiError } from '../../services/apiClient';
-import { duKienDanhSachBaoCao, duKienThuMuc, tomTatThuMuc } from '../../features/chat/duKienTrang';
+import {
+  duKienDanhSachBaoCao,
+  duKienThuMuc,
+  tomTatThuMuc,
+  tongTheoThuMuc,
+} from '../../features/chat/duKienTrang';
 import { useKhaiNguCanh } from '../../features/chat/nguCanh';
 
 /**
@@ -118,8 +123,21 @@ export default function ReportsPage(): React.ReactElement {
    * cột thư mục nằm ngay bên trái bảng, mà trước đó không ai khai nó.
    */
   const nguCanh = useMemo(() => {
-    const nguon = duKienDanhSachBaoCao(data?.items ?? [], data?.total ?? 0);
     const tm = folders.data?.items ?? [];
+    /*
+     * Tổng của CẢ workspace, không phải `total` của danh sách.
+     *
+     * Trang này mặc định lọc theo thư mục Chung (`DEFAULTS.folder`), nên `total`
+     * là số mục CHƯA xếp thư mục — khai nó dưới nhãn "… trong workspace này" là
+     * sai ngay khi người dùng vừa mở trang, không cần ai bấm gì. Xem
+     * `tongTheoThuMuc`.
+     *
+     * Chưa có cột thư mục trong tay thì lùi về `total`: thà một con số hẹp hơn
+     * còn hơn một con số bịa.
+     */
+    const tong =
+      folders.data === undefined ? (data?.total ?? 0) : tongTheoThuMuc(folders.data.chungCount, tm);
+    const nguon = duKienDanhSachBaoCao(data?.items ?? [], tong);
     const tom = nguon[0];
     const them = tomTatThuMuc(tm);
     if (tom !== undefined && them.length > 0) {

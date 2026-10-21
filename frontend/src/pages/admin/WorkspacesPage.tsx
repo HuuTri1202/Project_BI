@@ -15,7 +15,7 @@ import {
   useTenants,
   useWorkspaces,
 } from '../../features/admin/hooks';
-import { useListQueryState } from '../../hooks/useListQueryState';
+import { dangLoc, useListQueryState } from '../../hooks/useListQueryState';
 import type { WorkspaceListQuery } from '../../features/admin/api';
 import { getApiError } from '../../services/apiClient';
 import { duKienWorkspaceHeThong } from '../../features/chat/duKienTrang';
@@ -56,9 +56,10 @@ export default function WorkspacesPage(): React.ReactElement {
   const nguCanh = useMemo(
     () => ({
       trang: 'danh sách workspace hệ thống',
-      nguon: duKienWorkspaceHeThong(data?.items ?? [], data?.total ?? 0),
+      // Ô tìm kiếm và mấy ô lọc thu hẹp chính `total` — xem `luuYLoc`.
+      nguon: duKienWorkspaceHeThong(data?.items ?? [], data?.total ?? 0, dangLoc(query, DEFAULTS)),
     }),
-    [data],
+    [data, query],
   );
   useKhaiNguCanh(nguCanh);
 

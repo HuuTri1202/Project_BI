@@ -12,7 +12,12 @@ import {
 import { useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { usePermissions } from '../../auth/usePermissions';
-import { duKienKhoDuLieu, duKienThuMuc, tomTatThuMuc } from '../../features/chat/duKienTrang';
+import {
+  duKienKhoDuLieu,
+  duKienThuMuc,
+  tomTatThuMuc,
+  tongTheoThuMuc,
+} from '../../features/chat/duKienTrang';
 import { useKhaiNguCanh } from '../../features/chat/nguCanh';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
@@ -175,8 +180,23 @@ export default function DatasetsPage(): React.ReactElement {
    * trang đang tải thì tự mang vế điều kiện — xem `luuYChuaDu`.
    */
   const nguCanh = useMemo(() => {
-    const nguon = duKienKhoDuLieu(data?.items ?? [], data?.total ?? 0);
     const tm = folders.data?.items ?? [];
+    /*
+     * Tổng của CẢ workspace, không phải `total` của danh sách.
+     *
+     * Trang này mặc định lọc theo thư mục Chung (`DEFAULTS.folder`), nên `total`
+     * là số mục CHƯA xếp thư mục — khai nó dưới nhãn "… trong workspace này" là
+     * sai ngay khi người dùng vừa mở trang, không cần ai bấm gì. Xem
+     * `tongTheoThuMuc`.
+     *
+     * Chưa có cột thư mục trong tay thì lùi về `total`: thà một con số hẹp hơn
+     * còn hơn một con số bịa.
+     */
+    const tong =
+      folders.data === undefined
+        ? (data?.total ?? 0)
+        : tongTheoThuMuc(folders.data.chungCount, tm);
+    const nguon = duKienKhoDuLieu(data?.items ?? [], tong);
     const tom = nguon[0];
     const them = tomTatThuMuc(tm);
     if (tom !== undefined && them.length > 0) {
