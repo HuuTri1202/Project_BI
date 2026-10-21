@@ -10,6 +10,7 @@ import {
   luaChonHeThong,
   luaChonTrang,
   moHinhTheoTen,
+  nguonMoHo,
   traLoi,
   traLoiHeThong,
   traLoiTrang,
@@ -940,5 +941,87 @@ describe('Vốn từ của phép kiểm thực thể lạ', () => {
      * là đo một lời hứa không ai hứa.
      */
     expect(traLoiTrang([n], n, 'số bảng đang có của Kho vận Miền Đông')).toBeNull();
+  });
+});
+
+/**
+ * Khung hỏi NGƯỢC khi không biết người dùng hỏi mục nào — xem `nguonMoHo`.
+ *
+ * ─── Lời than của người dùng ────────────────────────────────────────────────
+ *
+ *   "nếu trên trang có 2 báo cáo thì làm thế nào để biết người dùng muốn hỏi
+ *    báo cáo nào … chatbot hỏi ngược lại user đang muốn hỏi biểu đồ nào"
+ *
+ * Đây là nhóm ca canh chỗ KHÔNG hỏi lại, nhiều hơn chỗ có hỏi. Một khung bắt
+ * xác nhận ở mọi câu thì phiền hơn hẳn một khung đoán sai thỉnh thoảng, và nó
+ * sẽ bị tắt đi — lúc đó thì chẳng còn gì bảo vệ ai.
+ */
+describe('nguonMoHo — hỏi lại khi hai mục cùng trả lời được', () => {
+  const bang = (nhan: string, gia: number): ReportDataDto => ({
+    rows: [{ label: nhan, value: gia }],
+    dimensionLabel: 'Sản phẩm',
+    measureLabel: 'Doanh thu',
+    grouped: false,
+  });
+
+  const hai = (): Nguon[] => [
+    { ten: 'Doanh thu theo Sản phẩm', duKien: [], bang: bang('Bánh', 100) },
+    { ten: 'Chi phí theo Sản phẩm', duKien: [], bang: bang('Kẹo', 900) },
+  ];
+
+  it('hai biểu đồ cùng trả lời được, hai con số khác nhau -> hỏi lại', () => {
+    expect(nguonMoHo(hai(), 'cao nhất là gì')).toEqual([0, 1]);
+  });
+
+  it('câu GỌI TÊN một biểu đồ thì không hỏi lại', () => {
+    // Người dùng đã nói rõ. Hỏi lại ở đây là bắt họ nói lại thứ vừa nói.
+    expect(nguonMoHo(hai(), 'cao nhất trong Chi phí theo Sản phẩm')).toBeNull();
+  });
+
+  it('chỉ một mục trả lời được thì không hỏi lại', () => {
+    const mot: Nguon[] = [
+      { ten: 'Doanh thu theo Sản phẩm', duKien: [], bang: bang('Bánh', 100) },
+      { ten: 'Ghi chú', duKien: [{ nhan: 'Người tạo', gia: 'Thái' }] },
+    ];
+    expect(nguonMoHo(mot, 'cao nhất là gì')).toBeNull();
+  });
+
+  it('vẫn hỏi lại khi chip đang chọn KHÔNG phải một trong hai ứng viên', () => {
+    /*
+     * Bản đầu đòi chip phải trả lời được, với lý do "chưa có câu trả lời im
+     * lặng nào để chặn". Sai: lớp mô hình chọn nhãn phía sau sẽ chọn giúp một
+     * nhãn trong CẢ trang, nên người dùng vẫn nhận số của một mục họ chưa
+     * chọn — chỉ muộn hơn một nhịp và khó lần ra hơn.
+     */
+    const lech: Nguon[] = [
+      { ten: 'Ghi chú', duKien: [{ nhan: 'Người tạo', gia: 'Thái' }] },
+      { ten: 'Doanh thu theo Sản phẩm', duKien: [], bang: bang('Bánh', 100) },
+      { ten: 'Chi phí theo Sản phẩm', duKien: [], bang: bang('Kẹo', 900) },
+    ];
+    expect(nguonMoHo(lech, 'cao nhất là gì')).toEqual([1, 2]);
+  });
+
+  it('hai mục cho CÙNG một câu trả lời thì không hỏi lại', () => {
+    // Hỏi lại ở đây chỉ bắt người dùng bấm thêm một nhịp để nhận lại đúng câu
+    // họ vừa được trả lời.
+    const giong: Nguon[] = [
+      { ten: 'Biểu đồ A', duKien: [], bang: bang('Bánh', 100) },
+      { ten: 'Biểu đồ B', duKien: [], bang: bang('Bánh', 100) },
+    ];
+    expect(nguonMoHo(giong, 'cao nhất là gì')).toBeNull();
+  });
+
+  it('câu hỏi về CẢ danh sách thì không hỏi lại', () => {
+    // `soSanhNguon` đã trả lời bằng cả danh sách; hỏi "mục nào" ở đó là hỏi
+    // đúng thứ câu hỏi đang hỏi.
+    const ds: Nguon[] = [
+      { ten: 'Orders', duKien: [{ nhan: 'Số dòng của Orders', gia: '120' }] },
+      { ten: 'People', duKien: [{ nhan: 'Số dòng của People', gia: '90' }] },
+    ];
+    expect(nguonMoHo(ds, 'mục nào nhiều dòng nhất')).toBeNull();
+  });
+
+  it('một nguồn thì không có gì để hỏi', () => {
+    expect(nguonMoHo([hai()[0]!], 'cao nhất là gì')).toBeNull();
   });
 });

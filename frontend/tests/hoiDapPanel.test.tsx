@@ -1108,3 +1108,104 @@ describe('Hỏi tiếp trên số liệu đang xem', () => {
     expect(screen.queryByText(/12\.431/)).toBeNull();
   });
 });
+
+/**
+ * Hai biểu đồ trên một trang — khung phải hỏi NGƯỢC, không được đoán.
+ *
+ * ─── Lời than của người dùng ────────────────────────────────────────────────
+ *
+ *   "nếu trên trang có 2 báo cáo thì làm thế nào để biết người dùng muốn hỏi
+ *    báo cáo nào … chatbot hỏi ngược lại user đang muốn hỏi biểu đồ nào"
+ *
+ * Phần LUẬT (khi nào mơ hồ) đã có `traLoi.test.ts` canh. Ở đây canh đúng hai
+ * thứ chỉ lộ ra trong DOM: cú bấm có HỎI LUÔN không, và dãy chip có đi theo
+ * không — chip là chỗ duy nhất trên màn hình nói ra khung đang đọc ô nào.
+ */
+describe('Hỏi lại khi không rõ người dùng hỏi mục nào', () => {
+  const bang = (nhan: string, gia: number): ReportDataDto => ({
+    rows: [{ label: nhan, value: gia }],
+    dimensionLabel: 'Sản phẩm',
+    measureLabel: 'Doanh thu',
+    grouped: false,
+  });
+
+  const hai = (): Nguon[] => [
+    { ten: 'Doanh thu theo Sản phẩm', duKien: [], bang: bang('Bánh', 100) },
+    { ten: 'Chi phí theo Sản phẩm', duKien: [], bang: bang('Kẹo', 900) },
+  ];
+
+  it('hỏi ngược, và bấm một mục là trả lời LUÔN bằng số của mục đó', async () => {
+    dung(hai());
+    fireEvent.click(nutMo());
+
+    hoi('cao nhất là gì');
+
+    expect(await screen.findByText(/Bạn muốn hỏi mục nào/)).toBeInTheDocument();
+    // Chưa trả lời gì cả — đoán một trong hai rồi mới hỏi là đã kịp nói sai.
+    expect(screen.queryByText(/Bánh/)).toBeNull();
+    expect(screen.queryByText(/Kẹo/)).toBeNull();
+
+    /*
+     * Nút của mục thứ hai. `getAllBy` vì dãy chip trên đầu cũng có một nút
+     * cùng tên — và đó chính là chỗ dễ nhầm: lấy nhầm cái chip thì ca này xanh
+     * mà không kiểm được gì, vì bấm chip cũng đổi nguồn.
+     */
+    const nut = screen.getAllByRole('button', { name: 'Chi phí theo Sản phẩm' });
+    fireEvent.click(nut[nut.length - 1] as HTMLElement);
+
+    // Bấm là có câu trả lời ngay, không phải điền vào ô nhập rồi gửi lần nữa.
+    expect(await screen.findByText(/Kẹo/)).toBeInTheDocument();
+    expect(screen.queryByText(/Bánh/)).toBeNull();
+    expect(screen.getByLabelText('Câu hỏi')).toHaveValue('');
+  });
+
+  it('chip đi theo lựa chọn vừa bấm', async () => {
+    // Một câu trả lời về ô số 2 nằm dưới một chip đang sáng ở ô số 1 là mời
+    // người đọc gán nhầm nó.
+    dung(hai());
+    fireEvent.click(nutMo());
+    hoi('cao nhất là gì');
+    await screen.findByText(/Bạn muốn hỏi mục nào/);
+
+    const nut = screen.getAllByRole('button', { name: 'Chi phí theo Sản phẩm' });
+    fireEvent.click(nut[nut.length - 1] as HTMLElement);
+    await screen.findByText(/Kẹo/);
+
+    const chip = screen.getAllByRole('button', { name: 'Chi phí theo Sản phẩm' })[0];
+    expect(chip).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('đã chọn rồi thì câu sau KHÔNG hỏi lại nữa', async () => {
+    /*
+     * Hỏi lại ở mọi câu thì phiền hơn hẳn đoán sai thỉnh thoảng — và một khung
+     * phiền sẽ bị tắt, lúc đó chẳng còn gì bảo vệ ai. Một lựa chọn là đủ cho
+     * cả cuộc trò chuyện; đổi ý thì bấm chip.
+     */
+    dung(hai());
+    fireEvent.click(nutMo());
+    hoi('cao nhất là gì');
+    await screen.findByText(/Bạn muốn hỏi mục nào/);
+
+    const nut = screen.getAllByRole('button', { name: 'Chi phí theo Sản phẩm' });
+    fireEvent.click(nut[nut.length - 1] as HTMLElement);
+    await screen.findByText(/Kẹo/);
+
+    hoi('thấp nhất là gì');
+
+    await screen.findAllByText(/Kẹo/);
+    // Câu hỏi ngược của lượt TRƯỚC vẫn nằm trong cuộc trò chuyện — đúng như
+    // mọi tin nhắn khác. Thứ không được phép xuất hiện là một cái THỨ HAI.
+    expect(screen.getAllByText(/Bạn muốn hỏi mục nào/)).toHaveLength(1);
+  });
+
+  it('bấm chip trước rồi hỏi thì cũng không hỏi lại', async () => {
+    dung(hai());
+    fireEvent.click(nutMo());
+    fireEvent.click(screen.getByRole('button', { name: 'Chi phí theo Sản phẩm' }));
+
+    hoi('cao nhất là gì');
+
+    expect(await screen.findByText(/Kẹo/)).toBeInTheDocument();
+    expect(screen.queryByText(/Bạn muốn hỏi mục nào/)).toBeNull();
+  });
+});

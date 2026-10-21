@@ -12,6 +12,7 @@ import {
   goiYSoSanh,
   luaChonHeThong,
   luaChonTrang,
+  nguonMoHo,
   nhanDuyNhat,
   moHinhTheoTen,
   traLoiKhung,
@@ -70,6 +71,16 @@ interface TinNhan {
   chuaHieu?: boolean;
   /** Câu bấm được, chỉ có ở tin "chưa hiểu" — xem `goiYGan`. */
   goiY?: string[];
+  /**
+   * Mấy nguồn CÙNG trả lời được câu vừa hỏi — xem `nguonMoHo`.
+   *
+   * Mang CHỈ SỐ chứ không mang tên: tên nguồn trùng nhau được (hai ô cùng tiêu
+   * đề trên một khung là chuyện có thật), và một cú bấm phải trỏ đúng ô chứ
+   * không phải ô đầu tiên trùng tên. Cùng lý do dãy chip khoá theo chỉ số.
+   */
+  chonNguon?: { nhan: string; i: number }[];
+  /** Câu hỏi gốc, để một cú bấm ở `chonNguon` hỏi lại ĐÚNG nó. */
+  cauGoc?: string;
   /**
    * Bot ĐANG soạn — vẽ ba chấm nhấp nháy thay cho chữ.
    *
@@ -148,6 +159,16 @@ export function HoiDapPanel(): React.ReactElement | null {
    */
   const [cauTruoc, setCauTruoc] = useState<string | null>(null);
 
+  /**
+   * Người dùng ĐÃ tự chọn nguồn chưa — bằng chip, hay bằng một cú bấm hỏi lại.
+   *
+   * Chừng nào chưa, `chon` vẫn là số 0 mặc định: một lựa chọn KHÔNG ai làm, và
+   * là thứ làm nên cả lỗi mà `nguonMoHo` sinh ra để chặn. Chọn rồi thì thôi hỏi
+   * lại — bắt người ta xác nhận lại cùng một ô ở mỗi câu là một cái khung phiền
+   * hơn là một cái khung cẩn thận.
+   */
+  const [daChon, setDaChon] = useState(false);
+
   const [boiCanh, setBoiCanh] = useState<{
     moHinhId: number;
     cauHoi: string;
@@ -171,6 +192,19 @@ export function HoiDapPanel(): React.ReactElement | null {
     dayCuon.current?.scrollTo({ top: dayCuon.current.scrollHeight });
   }, [tinNhan]);
 
+  /*
+   * Sang trang khác là quên việc "đã chọn rồi".
+   *
+   * `chon` cố ý KHÔNG đặt lại: khung không bị tháo khi đổi trang (xem
+   * `nhoMoHinhHoi`), và đặt lại chỉ số trong lúc cuộc trò chuyện ở lại là đổi
+   * nguồn dưới chân mấy câu đã hiện. Nhưng một lựa chọn làm ở trang TRƯỚC thì
+   * không nói được gì về trang này, nên nó không được phép tắt câu hỏi ngược.
+   *
+   * Theo TÊN trang chứ không theo object ngữ cảnh: object dựng mới ở mỗi lần
+   * số liệu về, còn tên trang chỉ đổi khi người dùng thật sự đi chỗ khác.
+   */
+  useEffect(() => setDaChon(false), [nguCanh.trang]);
+
   if (nguCanh.nguon.length === 0) return null;
 
   // Nguồn có thể biến mất khi số liệu nạp lại (một ô bị xoá, danh sách lọc
@@ -178,15 +212,51 @@ export function HoiDapPanel(): React.ReactElement | null {
   // thay vì vẽ ra một khung trống không giải thích được.
   const nguon: Nguon = nguCanh.nguon[chon] ?? nguCanh.nguon[0]!;
 
-  function hoi(): void {
-    const q = cauHoi.trim();
+  /**
+   * @param raw câu để hỏi; mặc định là thứ đang gõ trong ô nhập.
+   * @param ro  chỉ số nguồn người dùng VỪA chỉ đích danh, `null` = chưa chỉ.
+   */
+  function hoi(raw: string = cauHoi, ro: number | null = null): void {
+    const q = raw.trim();
     if (q === '') return;
+
+    const nguonHoi = (ro === null ? undefined : nguCanh.nguon[ro]) ?? nguon;
+
+    /*
+     * Chưa biết người dùng hỏi ô nào thì HỎI LẠI, đừng đoán.
+     *
+     * Bỏ qua khi họ vừa chỉ đích danh (`ro`), và khi họ đã chọn ở câu trước
+     * (`daChon`) — hai chỗ đó không còn gì mơ hồ để hỏi. Xem `nguonMoHo`.
+     */
+    const moHo = ro !== null || daChon ? null : nguonMoHo(nguCanh.nguon, q);
+    if (moHo !== null) {
+      const nhan = nhanDuyNhat(nguCanh.nguon);
+      demId.current += 2;
+      const luc = gioBayGio();
+      setTinNhan((cu) => [
+        ...cu,
+        { id: demId.current - 1, ai: 'nguoi', cau: q, luc },
+        {
+          id: demId.current,
+          ai: 'bot',
+          luc,
+          chuaHieu: true,
+          cau: `Câu này trả lời được từ ${String(moHo.length)} mục đang hiện trên trang, và mỗi mục cho một con số khác nhau. Bạn muốn hỏi mục nào?`,
+          cauGoc: q,
+          // Quá sáu thì một dãy nút dài hơn cả khung trò chuyện; dãy chip trên
+          // đầu vẫn với tới được mọi mục còn lại.
+          chonNguon: moHo.slice(0, 6).map((i) => ({ i, nhan: nhan[i] ?? '' })),
+        },
+      ]);
+      setCauHoi('');
+      return;
+    }
 
     /*
      * Một cửa vào duy nhất — trang, rồi hệ thống, rồi thử lại kèm lượt trước.
      * Bộ đánh giá gọi đúng hàm này, nên thứ nó đo là thứ người dùng gặp.
      */
-    const kq = traLoiKhung(nguCanh.nguon, nguon, heThong, q, cauTruoc);
+    const kq = traLoiKhung(nguCanh.nguon, nguonHoi, heThong, q, cauTruoc);
     demId.current += 2;
     const idBot = demId.current;
     const luc = gioBayGio();
@@ -216,6 +286,22 @@ export function HoiDapPanel(): React.ReactElement | null {
     }
 
     vietLai(q, idBot, kq);
+  }
+
+  /**
+   * Người dùng đã chỉ ra mục họ muốn hỏi — ghi nhớ, rồi hỏi lại chính câu cũ.
+   *
+   * `setChon` để dãy chip chỉ đúng mục vừa chọn: nó là chỗ duy nhất trên màn
+   * hình nói ra khung đang đọc cái gì, và một câu trả lời về ô số 2 nằm dưới
+   * một chip đang sáng ở ô số 1 là mời người đọc gán nhầm nó.
+   *
+   * Vẫn truyền `i` xuống `hoi`: `setChon` chỉ có hiệu lực ở lần render SAU, còn
+   * câu trả lời thì tính ngay bây giờ.
+   */
+  function chonRoiHoi(i: number, q: string): void {
+    setChon(i);
+    setDaChon(true);
+    hoi(q, i);
   }
 
   /**
@@ -557,6 +643,8 @@ export function HoiDapPanel(): React.ReactElement | null {
               aria-pressed={i === chon}
               onClick={() => {
                 setChon(i);
+                // Tự chọn rồi thì thôi hỏi ngược — xem `daChon`.
+                setDaChon(true);
                 // Xoá cuộc trò chuyện cũ: nó nói về nguồn KHÁC, và để nó nằm lại
                 // dưới một chip vừa đổi là mời người đọc gán nó cho nguồn mới —
                 // bằng những con số có thật, nên không có gì báo là đã nhầm.
@@ -589,7 +677,9 @@ export function HoiDapPanel(): React.ReactElement | null {
             onChon={setCauHoi}
           />
         ) : (
-          tinNhan.map((t) => <BongBong key={t.id} tin={t} onChon={setCauHoi} />)
+          tinNhan.map((t) => (
+            <BongBong key={t.id} tin={t} onChon={setCauHoi} onChonNguon={chonRoiHoi} />
+          ))
         )}
       </div>
 
@@ -626,9 +716,12 @@ export function HoiDapPanel(): React.ReactElement | null {
 function BongBong({
   tin,
   onChon,
+  onChonNguon,
 }: {
   tin: TinNhan;
   onChon: (q: string) => void;
+  /** Bấm một mục ở câu hỏi ngược — xem `chonRoiHoi`. */
+  onChonNguon?: ((i: number, q: string) => void) | undefined;
 }): React.ReactElement {
   if (tin.ai === 'nguoi') {
     return (
@@ -677,6 +770,26 @@ function BongBong({
             <span className="mt-2 block">
               <span className="mb-1.5 block text-xs text-amber-700">Có phải bạn muốn hỏi:</span>
               <NutGoiY mau={tin.goiY} onChon={onChon} />
+            </span>
+          )}
+          {/*
+            Khác `goiY` ở một chỗ quyết định: nút này HỎI LUÔN, không điền vào ô
+            nhập. Gợi ý kia là một câu KHÁC mà người dùng có thể muốn sửa trước
+            khi gửi; ở đây câu hỏi không đổi một chữ nào — họ chỉ đang trả lời
+            "mục nào", nên bắt bấm thêm một nhịp nữa là bắt làm lại việc vừa làm.
+          */}
+          {tin.chonNguon !== undefined && tin.chonNguon.length > 0 && (
+            <span className="mt-2 flex flex-col gap-1">
+              {tin.chonNguon.map((m) => (
+                <button
+                  key={m.i}
+                  type="button"
+                  onClick={() => onChonNguon?.(m.i, tin.cauGoc ?? '')}
+                  className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1 text-left text-xs text-slate-600 transition-colors hover:border-brand-400 hover:bg-brand-50"
+                >
+                  {m.nhan}
+                </button>
+              ))}
             </span>
           )}
         </p>
