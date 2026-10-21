@@ -11,7 +11,7 @@ import { STATUS_OPTIONS } from '../../components/ui/filterOptions';
 import { FilterSelect, ListToolbar } from '../../components/ui/ListToolbar';
 import { TenantDetailModal } from '../../features/admin/tenants/TenantDetailModal';
 import { useDeleteTenant, useSetTenantActive, useTenants } from '../../features/admin/hooks';
-import { useListQueryState } from '../../hooks/useListQueryState';
+import { dangLoc, useListQueryState } from '../../hooks/useListQueryState';
 import type { TenantListQuery } from '../../features/admin/api';
 import { getApiError } from '../../services/apiClient';
 import { duKienDanhSachToChuc } from '../../features/chat/duKienTrang';
@@ -62,9 +62,10 @@ export default function TenantsPage(): React.ReactElement {
   const nguCanh = useMemo(
     () => ({
       trang: 'danh sách tổ chức',
-      nguon: duKienDanhSachToChuc(data?.items ?? [], data?.total ?? 0),
+      // Ô tìm kiếm và mấy ô lọc thu hẹp chính `total` — xem `luuYLoc`.
+      nguon: duKienDanhSachToChuc(data?.items ?? [], data?.total ?? 0, dangLoc(query, DEFAULTS)),
     }),
-    [data],
+    [data, query],
   );
   useKhaiNguCanh(nguCanh);
 

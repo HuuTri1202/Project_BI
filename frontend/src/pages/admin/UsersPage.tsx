@@ -11,7 +11,7 @@ import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
 import { STATUS_OPTIONS } from '../../components/ui/filterOptions';
 import { FilterSelect, ListToolbar } from '../../components/ui/ListToolbar';
 import { useDeleteUser, useSetUserActive, useTenants, useUsers } from '../../features/admin/hooks';
-import { useListQueryState } from '../../hooks/useListQueryState';
+import { dangLoc, useListQueryState } from '../../hooks/useListQueryState';
 import type { UserListQuery } from '../../features/admin/api';
 import { getApiError } from '../../services/apiClient';
 import { duKienDanhSachNguoiDung } from '../../features/chat/duKienTrang';
@@ -54,9 +54,14 @@ export default function UsersPage(): React.ReactElement {
   const nguCanh = useMemo(
     () => ({
       trang: 'danh sách người dùng',
-      nguon: duKienDanhSachNguoiDung(data?.items ?? [], data?.total ?? 0),
+      // Ô tìm kiếm và mấy ô lọc thu hẹp chính `total` — xem `luuYLoc`.
+      nguon: duKienDanhSachNguoiDung(
+        data?.items ?? [],
+        data?.total ?? 0,
+        dangLoc(query, DEFAULTS),
+      ),
     }),
-    [data],
+    [data, query],
   );
   useKhaiNguCanh(nguCanh);
 

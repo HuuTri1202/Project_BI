@@ -1,7 +1,13 @@
-import type { ConnectionDto, OrderDetailDto, PlanDto } from '@bi/shared';
+import type { ConnectionDto, FolderDto, OrderDetailDto, PlanDto } from '@bi/shared';
 import { describe, expect, it } from 'vitest';
 
-import { duKienMotDonHang, duKienMotKetNoi, duKienMuaGoi } from '../src/features/chat/duKienTrang';
+import {
+  duKienMotDonHang,
+  duKienMotKetNoi,
+  duKienMuaGoi,
+  duKienThanhVien,
+  tongTheoThuMuc,
+} from '../src/features/chat/duKienTrang';
 
 /**
  * Ba trang chỉ nói về MỘT thứ: sửa kết nối, mua gói, xem một đơn hàng.
@@ -137,5 +143,54 @@ describe('Trang chỉ nói về một thứ', () => {
 
   it('chưa tải được đơn thì không khai gì', () => {
     expect(duKienMotDonHang(undefined)).toEqual([]);
+  });
+});
+
+/**
+ * Con số đi kèm nhãn tuyệt đối phải LÀ con số tuyệt đối — §7.9, §10.25.
+ *
+ * ─── Lỗi đo được ───────────────────────────────────────────────────────────
+ *
+ * Trang Kho dữ liệu và trang Báo cáo MẶC ĐỊNH lọc theo thư mục Chung
+ * (`DEFAULTS.folder`), nên `total` của danh sách chỉ là số mục chưa xếp thư
+ * mục. Khai nó dưới nhãn "Số bộ dữ liệu trong workspace này" là sai ngay khi
+ * người dùng vừa mở trang, không cần ai bấm gì — và sai bằng một con số có
+ * thật, loại không ai bắt được bằng mắt.
+ *
+ * Mấy trang còn lại không có cột thư mục để cộng lại, nên ở đó con số giữ
+ * nguyên và mang theo vế điều kiện.
+ */
+describe('phạm vi của con số tổng', () => {
+  const thuMuc = (itemCount: number, id: number): FolderDto =>
+    ({
+      id,
+      workspaceId: 1,
+      name: `TM${String(id)}`,
+      itemCount,
+      createdAt: '',
+      updatedAt: '',
+    }) as FolderDto;
+
+  it('tổng workspace = Chung + từng thư mục', () => {
+    // "Chung" KHÔNG phải một thư mục và không nằm trong `items` — cộng thẳng
+    // `items` là thiếu đúng phần thường lớn nhất.
+    expect(tongTheoThuMuc(4, [thuMuc(5, 2), thuMuc(1, 3)])).toBe(10);
+  });
+
+  it('chưa có thư mục nào thì tổng chính là Chung', () => {
+    expect(tongTheoThuMuc(7, [])).toBe(7);
+  });
+
+  it('danh sách KHÔNG lọc thì con số tổng đi một mình', () => {
+    const d = duKienThanhVien([], 12).at(0)?.duKien.at(0);
+    expect(d?.gia).toBe('12');
+    expect(d?.luuY).toBeUndefined();
+  });
+
+  it('danh sách ĐANG lọc thì con số tổng mang vế điều kiện', () => {
+    const d = duKienThanhVien([], 3, true).at(0)?.duKien.at(0);
+    expect(d?.nhan).toBe('Số thành viên của tổ chức');
+    expect(d?.gia).toBe('3');
+    expect(d?.luuY).toContain('ĐANG LỌC');
   });
 });

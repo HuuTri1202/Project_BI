@@ -91,3 +91,27 @@ export function useListQueryState<T extends object>(
 
   return { query, update, reset };
 }
+
+/**
+ * Danh sách có đang BỊ LỌC không — tức con số `total` không còn là toàn bộ.
+ *
+ * ═══ Vì sao nó cần tồn tại ═════════════════════════════════════════════════
+ *
+ * Mọi trang danh sách khai cho khung hỏi đáp một nhãn tuyệt đối: "Số thành viên
+ * của tổ chức", "Số tổ chức toàn hệ thống". Con số đi kèm lại là `total` của
+ * câu truy vấn ĐANG CHẠY — tức là đã qua ô tìm kiếm và mấy ô lọc. Gõ "an" vào ô
+ * tìm thành viên rồi hỏi "tổ chức có bao nhiêu thành viên" là nhận một con số
+ * có thật trả lời cho một câu hỏi khác.
+ *
+ * ⚠️ `page`/`pageSize`/`sort`/`order` KHÔNG phải lọc: chúng đổi thứ tự và lát
+ * cắt chứ không đổi tập hợp, nên `total` vẫn là toàn bộ. Phần "chưa tải hết"
+ * đã có `luuYChuaDu` bên `duKienTrang` lo, và gộp hai chuyện vào một cờ là một
+ * câu cảnh báo sai cho mọi người bấm sang trang 2.
+ */
+const KHONG_PHAI_LOC = new Set(['page', 'pageSize', 'sort', 'order']);
+
+export function dangLoc<T extends object>(query: T, macDinh: T): boolean {
+  const q = query as Record<string, unknown>;
+  const m = macDinh as Record<string, unknown>;
+  return Object.keys(m).some((k) => !KHONG_PHAI_LOC.has(k) && q[k] !== m[k]);
+}

@@ -1,7 +1,7 @@
 import { act, render, screen } from '@testing-library/react';
 import { MemoryRouter, useLocation } from 'react-router-dom';
 import { describe, expect, it } from 'vitest';
-import { useListQueryState } from '../src/hooks/useListQueryState';
+import { dangLoc, useListQueryState } from '../src/hooks/useListQueryState';
 
 /**
  * Trạng thái danh sách nằm trong URL. Ba thứ được kiểm ở đây đều là loại lỗi
@@ -111,5 +111,47 @@ describe('useListQueryState', () => {
     act(() => api.reset());
 
     expect(state()).toEqual(DEFAULTS);
+  });
+});
+
+/**
+ * `dangLoc` — danh sách có đang bị thu hẹp không.
+ *
+ * ─── Vì sao nó đáng một bộ ca riêng ─────────────────────────────────────────
+ *
+ * Khung hỏi đáp khai `total` dưới một nhãn TUYỆT ĐỐI ("Số thành viên của tổ
+ * chức"). Khi có bộ lọc, `total` chỉ còn là tổng của phần đã lọc — một con số
+ * có thật trả lời cho một câu hỏi khác. Cờ này là thứ duy nhất phân biệt hai
+ * trạng thái đó, nên nó nhận nhầm chiều nào cũng hỏng một đầu: nhận thừa thì
+ * mọi câu trả lời mọc một vế cảnh báo thừa, nhận thiếu thì con số lại nói dối.
+ */
+describe('dangLoc', () => {
+  const MAC_DINH: Query = {
+    page: 1,
+    pageSize: 20,
+    sort: 'name',
+    order: 'asc',
+    q: '',
+    status: '',
+  };
+
+  it('đúng mặc định thì KHÔNG phải đang lọc', () => {
+    expect(dangLoc({ ...MAC_DINH }, MAC_DINH)).toBe(false);
+  });
+
+  it('phân trang và sắp xếp KHÔNG phải lọc', () => {
+    /*
+     * Chúng đổi THỨ TỰ và LÁT CẮT, không đổi tập hợp — `total` vẫn là toàn bộ.
+     * Phần "mới tải 20 trên 24" đã có `luuYChuaDu` lo, và gộp hai chuyện vào
+     * một cờ là dán một câu cảnh báo sai cho mọi người bấm sang trang 2.
+     */
+    expect(dangLoc({ ...MAC_DINH, page: 3 }, MAC_DINH)).toBe(false);
+    expect(dangLoc({ ...MAC_DINH, pageSize: 50 }, MAC_DINH)).toBe(false);
+    expect(dangLoc({ ...MAC_DINH, sort: 'createdAt', order: 'desc' }, MAC_DINH)).toBe(false);
+  });
+
+  it('ô tìm kiếm và ô lọc thì CÓ', () => {
+    expect(dangLoc({ ...MAC_DINH, q: 'an' }, MAC_DINH)).toBe(true);
+    expect(dangLoc({ ...MAC_DINH, status: 'locked' }, MAC_DINH)).toBe(true);
   });
 });

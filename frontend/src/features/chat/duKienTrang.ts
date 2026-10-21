@@ -142,6 +142,20 @@ function luuYChuaDu(hien: number, tong: number): string | undefined {
     : undefined;
 }
 
+/**
+ * Vế điều kiện khi danh sách ĐANG BỊ LỌC — xem `dangLoc` bên `useListQueryState`.
+ *
+ * ⚠️ Khác `luuYChuaDu`, và hai cái này không thay nhau được. `luuYChuaDu` nói về
+ * phần ĐÃ TẢI của một tập hợp đã xác định ("20 trên 24"); cái này nói rằng chính
+ * tập hợp ấy đã bị thu hẹp, nên `tong` không còn là toàn bộ. Gõ "an" vào ô tìm
+ * thành viên rồi hỏi "tổ chức có bao nhiêu thành viên" là nhận một con số có
+ * thật trả lời cho một câu hỏi khác — và `luuYChuaDu` im lặng ở đó, vì `tong`
+ * khớp đúng số dòng đang hiện.
+ */
+function luuYLoc(loc: boolean): string | undefined {
+  return loc ? 'đếm trên phần ĐANG LỌC, không phải toàn bộ' : undefined;
+}
+
 /** Dán hai vế điều kiện lại — bỏ vế nào không có. */
 function gopLuuY(...phan: (string | undefined)[]): string | undefined {
   const co = phan.filter((x): x is string => x !== undefined && x !== '');
@@ -468,10 +482,15 @@ function chuaNoiDu(m: DataModelDto): boolean {
 }
 
 /** Bản tóm tắt của một danh sách mô hình — xem khối ở `tomTatBoDuLieu`. */
-export function tomTatMoHinh(models: DataModelDto[], tong: number, pham: string): DuKien[] {
+export function tomTatMoHinh(
+  models: DataModelDto[],
+  tong: number,
+  pham: string,
+  loc = false,
+): DuKien[] {
   const thieu = models.filter(chuaNoiDu);
   return [
-    ...dk(`Số mô hình dữ liệu ${pham}`, tong),
+    ...dk(`Số mô hình dữ liệu ${pham}`, tong, luuYLoc(loc)),
     ...dk('Tên các mô hình đang hiện', models.map((m) => m.name).join('; ')),
     /*
      * Câu "bao nhiêu mô hình chưa nối quan hệ" có HAI đường tới đích, và đó là chủ
@@ -518,6 +537,28 @@ export function duKienThuMuc(thuMuc: FolderDto[]): Nguon[] {
   }));
 }
 
+/**
+ * Tổng số mục THẬT của workspace, dựng từ chính cột thư mục đang hiện.
+ *
+ * ═══ Vì sao `total` của danh sách KHÔNG dùng được ═══════════════════════════
+ *
+ * Hai trang danh sách có cột thư mục đều MẶC ĐỊNH lọc theo Chung
+ * (`DEFAULTS.folder`), nên `total` mà API trả về chỉ là số mục CHƯA xếp thư
+ * mục. Khai con số ấy dưới nhãn "… trong workspace này" là một con số có thật
+ * trả lời cho một câu hỏi khác — và nó sai ngay khi người dùng vừa mở trang,
+ * không cần ai bấm gì.
+ *
+ * ⚠️ "Chung" đi riêng vì nó KHÔNG phải một thư mục: backend cố ý không trả nó
+ * trong `items` (xem route `/report-folders`), nên cộng thẳng `items` là thiếu
+ * đúng phần lớn nhất.
+ *
+ * Không thêm một request nào: `GET /dataset-folders` đã về cùng lúc với danh
+ * sách, và cột bên trái đang hiện đúng mấy con số này.
+ */
+export function tongTheoThuMuc(chungCount: number, thuMuc: FolderDto[]): number {
+  return thuMuc.reduce((t, m) => t + m.itemCount, chungCount);
+}
+
 /** Hai con số về CẢ cột thư mục — nối vào bản tóm tắt của danh sách. */
 export function tomTatThuMuc(thuMuc: FolderDto[]): DuKien[] {
   if (thuMuc.length === 0) return [];
@@ -528,11 +569,11 @@ export function tomTatThuMuc(thuMuc: FolderDto[]): DuKien[] {
 }
 
 /** Danh sách mô hình dữ liệu. */
-export function duKienDanhSachMoHinh(models: DataModelDto[], tong: number): Nguon[] {
+export function duKienDanhSachMoHinh(models: DataModelDto[], tong: number, loc = false): Nguon[] {
   return [
     {
       ten: 'Danh sách mô hình dữ liệu',
-      duKien: tomTatMoHinh(models, tong, 'trong workspace này'),
+      duKien: tomTatMoHinh(models, tong, 'trong workspace này', loc),
     },
     ...models.map((m) => ({
       ten: m.name,
@@ -605,7 +646,7 @@ export function duKienKetNoi(conns: ConnectionDto[]): Nguon[] {
 }
 
 /** Danh sách thành viên tổ chức. */
-export function duKienThanhVien(members: AdminUserDto[], tong: number): Nguon[] {
+export function duKienThanhVien(members: AdminUserDto[], tong: number, loc = false): Nguon[] {
   const vaiTro = (r: AdminUserDto['role']): string =>
     r === 'admin' ? 'quản trị viên' : r === 'creator' ? 'người tạo' : 'người xem';
 
@@ -613,7 +654,7 @@ export function duKienThanhVien(members: AdminUserDto[], tong: number): Nguon[] 
     {
       ten: 'Danh sách thành viên',
       duKien: [
-        ...dk('Số thành viên của tổ chức', tong),
+        ...dk('Số thành viên của tổ chức', tong, luuYLoc(loc)),
         ...dk(
           'Số quản trị viên',
           members.filter((m) => m.role === 'admin' && m.removedAt === null).length,
@@ -733,12 +774,12 @@ export function duKienBangGia(plans: PlanDto[]): Nguon[] {
 }
 
 /** Danh sách đơn hàng. */
-export function duKienDonHang(orders: OrderDto[], tong: number): Nguon[] {
+export function duKienDonHang(orders: OrderDto[], tong: number, loc = false): Nguon[] {
   return [
     {
       ten: 'Danh sách đơn hàng',
       duKien: [
-        ...dk('Số đơn hàng của tổ chức', tong),
+        ...dk('Số đơn hàng của tổ chức', tong, luuYLoc(loc)),
         ...dk('Số đơn đang chờ thanh toán', orders.filter((o) => o.status === 'pending').length),
         ...dk('Mã các đơn đang hiện', orders.map((o) => o.orderCode).join('; ')),
       ],
@@ -836,12 +877,12 @@ export function duKienTongQuanHeThong(o: PlatformOverviewDto): Nguon[] {
 }
 
 /** Danh sách tổ chức trong console. */
-export function duKienDanhSachToChuc(ts: PlatformTenantDto[], tong: number): Nguon[] {
+export function duKienDanhSachToChuc(ts: PlatformTenantDto[], tong: number, loc = false): Nguon[] {
   return [
     {
       ten: 'Danh sách tổ chức',
       duKien: [
-        ...dk('Số tổ chức toàn hệ thống', tong),
+        ...dk('Số tổ chức toàn hệ thống', tong, luuYLoc(loc)),
         ...dk('Số không gian cá nhân đang hiện', ts.filter((t) => t.isPersonal).length),
         ...dk('Tên các tổ chức đang hiện', ts.map((t) => t.name).join('; ')),
       ],
@@ -863,12 +904,12 @@ export function duKienDanhSachToChuc(ts: PlatformTenantDto[], tong: number): Ngu
 }
 
 /** Danh sách người dùng trong console. */
-export function duKienDanhSachNguoiDung(us: PlatformUserDto[], tong: number): Nguon[] {
+export function duKienDanhSachNguoiDung(us: PlatformUserDto[], tong: number, loc = false): Nguon[] {
   return [
     {
       ten: 'Danh sách người dùng',
       duKien: [
-        ...dk('Số người dùng toàn hệ thống', tong),
+        ...dk('Số người dùng toàn hệ thống', tong, luuYLoc(loc)),
         ...dk('Số superadmin đang hiện', us.filter((u) => u.platformRole === 'superadmin').length),
         ...dk('Tên các người dùng đang hiện', us.map((u) => u.fullName).join('; ')),
       ],
@@ -895,12 +936,16 @@ export function duKienDanhSachNguoiDung(us: PlatformUserDto[], tong: number): Ng
 }
 
 /** Danh sách workspace trong console — xuyên mọi tổ chức. */
-export function duKienWorkspaceHeThong(ws: PlatformWorkspaceDto[], tong: number): Nguon[] {
+export function duKienWorkspaceHeThong(
+  ws: PlatformWorkspaceDto[],
+  tong: number,
+  loc = false,
+): Nguon[] {
   return [
     {
       ten: 'Danh sách workspace toàn hệ thống',
       duKien: [
-        ...dk('Số workspace toàn hệ thống', tong),
+        ...dk('Số workspace toàn hệ thống', tong, luuYLoc(loc)),
         ...dk('Tên các workspace đang hiện', ws.map((w) => w.name).join('; ')),
       ],
     },

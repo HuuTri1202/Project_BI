@@ -17,7 +17,7 @@ import {
 } from '../../features/admin/billing/hooks';
 import { OrderStatusBadge } from '../../features/billing/OrderStatusBadge';
 import { dinhDangNgayGio, dinhDangTien } from '../../features/billing/format';
-import { useListQueryState } from '../../hooks/useListQueryState';
+import { dangLoc, useListQueryState } from '../../hooks/useListQueryState';
 import { getApiError } from '../../services/apiClient';
 import { duKienDonHang } from '../../features/chat/duKienTrang';
 import { useKhaiNguCanh } from '../../features/chat/nguCanh';
@@ -232,9 +232,10 @@ export default function BillingOrdersPage(): React.ReactElement {
   const nguCanh = useMemo(
     () => ({
       trang: 'đơn hàng (console)',
-      nguon: duKienDonHang(data?.items ?? [], data?.total ?? 0),
+      // Ô tìm kiếm và mấy ô lọc thu hẹp chính `total` — xem `luuYLoc`.
+      nguon: duKienDonHang(data?.items ?? [], data?.total ?? 0, dangLoc(query, DEFAULTS)),
     }),
-    [data],
+    [data, query],
   );
   useKhaiNguCanh(nguCanh);
   const [confirming, setConfirming] = useState<AdminOrderDto | null>(null);
