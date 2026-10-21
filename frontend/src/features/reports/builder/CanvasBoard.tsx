@@ -186,6 +186,7 @@ export function CanvasBoard({
   onChangeAnnotation,
   onRemoveAnnotation,
   onEditText,
+  onGroupPage,
 }: {
   drafts: VisualDraft[];
   /** Văn bản, đường kẻ, hình của trang này — §10.18. */
@@ -204,6 +205,14 @@ export function CanvasBoard({
   onChangeAnnotation: (id: string, patch: AnnotationPatch, merge?: boolean) => void;
   onRemoveAnnotation: (id: string) => void;
   onEditText: (id: string | null) => void;
+  /**
+   * Ô báo lên trang nhóm nó đang xem — để khung hỏi đáp đọc đúng lát cắt ấy.
+   *
+   * Báo SỐ TRANG chứ không báo bảng: trang dựng lại đúng lời gọi
+   * `useModelReportPreview` với số trang này, và react-query trả về từ CÙNG một
+   * mục cache mà ô vừa điền — không thêm một vòng mạng nào.
+   */
+  onGroupPage?: ((id: string, page: number) => void) | undefined;
 }): React.ReactElement {
   const boardRef = useRef<HTMLDivElement>(null);
   const ghostRef = useRef<HTMLDivElement>(null);
@@ -597,6 +606,7 @@ export function CanvasBoard({
               onPointerMove={move}
               onPointerUp={end}
               onKeyDown={(e) => onKey(e, target)}
+              onGroupPage={onGroupPage}
             />
           );
         })}
@@ -630,6 +640,7 @@ function Card({
   onPointerMove,
   onPointerUp,
   onKeyDown,
+  onGroupPage,
 }: {
   draft: VisualDraft;
   title: string;
@@ -644,6 +655,8 @@ function Card({
   onPointerMove: (event: React.PointerEvent<HTMLElement>) => void;
   onPointerUp: (event: React.PointerEvent<HTMLElement>) => void;
   onKeyDown: (event: React.KeyboardEvent<HTMLElement>) => void;
+  /** Trang nhóm của ô này, báo lên trang — xem `CanvasBoard`. */
+  onGroupPage?: ((id: string, page: number) => void) | undefined;
 }): React.ReactElement {
   const blocker = blockerOf(draft);
 
@@ -685,6 +698,19 @@ function Card({
    */
   const configKey = JSON.stringify(config);
   useEffect(() => setGroupPage(0), [configKey]);
+
+  /*
+   * Nói lên trên ô đang ở trang nhóm nào.
+   *
+   * Khung hỏi đáp của trình dựng trả lời về ô ĐANG CHỌN, và trước đây nó luôn
+   * đọc trang nhóm 0 — người dùng lật sang trang 2 rồi hỏi "cao nhất là gì" thì
+   * nhận lại con số của trang 1. Một con số có thật, cho một câu hỏi khác.
+   *
+   * Cùng lần đặt lại ở trên: đổi cấu hình về trang 0 thì trang cũng nghe được.
+   */
+  useEffect(() => {
+    onGroupPage?.(draft.id, groupPage);
+  }, [onGroupPage, draft.id, groupPage]);
 
   const preview = useModelReportPreview(
     modelId,

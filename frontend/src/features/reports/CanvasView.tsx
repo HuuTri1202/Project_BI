@@ -5,7 +5,7 @@ import type {
   ReportPageDto,
   ReportVisualDto,
 } from '@bi/shared';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 import { useReportVisualData } from '../datasets/hooks';
 import { getApiError } from '../../services/apiClient';
@@ -39,6 +39,7 @@ export function CanvasView({
   reportId,
   data,
   refreshing = false,
+  onRows,
 }: {
   page: ReportPageDto;
   /** Để từng ô tự hỏi trang nhóm tiếp theo của mình — xem `useReportVisualData`. */
@@ -53,6 +54,11 @@ export function CanvasView({
    * số của lúc nào trước khi kết luận gì từ nó.
    */
   refreshing?: boolean;
+  /**
+   * Ô khai lại bảng nó đang vẽ khi nó KHÔNG ở trang nhóm đầu — xem `trangNhom`
+   * trong `ReportViewer`. `null` = ô đã về trang đầu, hoặc vừa rời màn hình.
+   */
+  onRows?: ((khoa: string, bang: ReportDataDto | null) => void) | undefined;
 }): React.ReactElement {
   const byId = new Map(data?.visuals.map((v) => [v.visualId, v]) ?? []);
 
@@ -88,10 +94,12 @@ export function CanvasView({
                * sẵn ở "Trang 4" của một biểu đồ họ chưa từng lật.
                */
               key={`${page.id}:${visual.id}`}
+              khoa={`${page.id}:${visual.id}`}
               visual={visual}
               reportId={reportId}
               cell={cell}
               loading={data === undefined}
+              onRows={onRows}
             />
           );
         })}
@@ -128,15 +136,20 @@ function AnnotationCell({ annotation }: { annotation: ReportAnnotationDto }): Re
 }
 
 function ViewCard({
+  khoa,
   visual,
   reportId,
   cell,
   loading,
+  onRows,
 }: {
+  /** `${mã trang}:${mã ô}` — cùng chuỗi đang làm `key`, xem `onRows`. */
+  khoa: string;
   visual: ReportVisualDto;
   reportId: number;
   cell: ReportCanvasDataDto['visuals'][number] | undefined;
   loading: boolean;
+  onRows?: ((khoa: string, bang: ReportDataDto | null) => void) | undefined;
 }): React.ReactElement {
   /**
    * Trang NHÓM của riêng ô này — trạng thái của một lượt xem, không được lưu.
@@ -168,6 +181,24 @@ function ViewCard({
    * lại nó ở tiêu đề chỉ làm một ô đang chờ trông như hai ô đang chờ.
    */
   const title = visual.title ?? (rows !== null ? tieuDeTuSoLieu(rows) : '');
+
+  /*
+   * Khai bảng đang vẽ, để khung hỏi đáp trả lời đúng trang nhóm người dùng đang
+   * nhìn — xem `trangNhom` trong `ReportViewer`.
+   *
+   * Ô ở trang 0 KHÔNG gọi gì cả: bảng của nó đã nằm trong `canvas-data` mà tầng
+   * trên giữ sẵn, nên một lời khai ở đó chỉ là bản thứ hai của cùng một bảng —
+   * và là một lượt dựng lại ngữ cảnh cho mỗi ô, mỗi lần khung nạp lại.
+   *
+   * Phần DỌN nằm ở hàm trả về, nên nó chạy cho cả hai đường ra: lật ngược về
+   * trang 0, và ô rời màn hình. Thiếu nó thì sang trang báo cáo khác rồi quay
+   * lại là gặp bảng của một trang nhóm mình chưa từng lật.
+   */
+  useEffect(() => {
+    if (onRows === undefined || groupPage === 0) return;
+    onRows(khoa, rows);
+    return () => onRows(khoa, null);
+  }, [onRows, khoa, groupPage, rows]);
 
   return (
     <section

@@ -10,7 +10,7 @@ import {
   REPORT_NAME_MAX,
   type ReportDto,
 } from '@bi/shared';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 
 import { usePermissions } from '../../auth/usePermissions';
@@ -498,16 +498,38 @@ function Builder({
    * và không ô nào phải vẽ lại. Cùng lý do `groupPage` được để nguyên trong ô
    * thay vì kéo lên đây.
    *
-   * Lấy trang nhóm 0 vì ô có thể đang ở trang khác mà tầng này không thấy —
-   * `luuYCat` trong `traLoi` tự nói ra là số liệu chưa đầy đủ khi `hasMore` bật.
+   * TRANG NHÓM thì ô phải nói ra — nó là trạng thái riêng của ô, và tầng này
+   * không có đường nào tự biết. Trước đây chỗ này đóng cứng `page: 0`: người
+   * dùng lật biểu đồ sang trang 2 rồi hỏi "cao nhất là gì" thì nhận con số của
+   * trang 1 — một con số có thật, trả lời một câu hỏi khác câu được hỏi.
+   *
+   * Vẫn không có callback nào mang SỐ LIỆU lên: ô chỉ báo một con số, còn bảng
+   * thì react-query đưa ra từ cùng mục cache mà ô vừa điền.
    */
+  const [trangNhomO, setTrangNhomO] = useState<Record<string, number>>({});
+  const ghiTrangNhomO = useCallback((id: string, page: number): void => {
+    setTrangNhomO((cu) => (cu[id] === page ? cu : { ...cu, [id]: page }));
+  }, []);
+
+  /*
+   * Đổi trang báo cáo là xoá sạch. `CanvasBoard` được dựng lại theo `key` nên
+   * mọi ô về trang nhóm 0, còn mã ô thì chỉ duy nhất TRONG một trang. Giữ lại
+   * bản cũ là mời trang mới hỏi trang nhóm 4 của một ô chưa ai lật — và đó là
+   * một lượt quét ClickHouse bỏ đi, không chỉ một con số sai.
+   */
+  useEffect(() => setTrangNhomO({}), [activePageId]);
+
   const canTro = selected === null ? 'chưa chọn ô' : blockerOf(selected);
   const cauHinhO = selected === null || canTro !== null ? null : previewConfigOfDraft(selected);
   const soLieuO = useModelReportPreview(
     modelId,
     cauHinhO === null || selected === null
       ? null
-      : { chartType: selected.chartType, config: cauHinhO, page: 0 },
+      : {
+          chartType: selected.chartType,
+          config: cauHinhO,
+          page: trangNhomO[selected.id] ?? 0,
+        },
   );
 
   // Số BẢNG có trường — cùng phép gom mà bảng trường dùng, nên hai con số không
@@ -1083,6 +1105,7 @@ function Builder({
                   onChangeAnnotation={patchAnnotation}
                   onRemoveAnnotation={removeAnnotation}
                   onEditText={setTypingId}
+                  onGroupPage={ghiTrangNhomO}
                 />
               )}
             </ZoomViewport>

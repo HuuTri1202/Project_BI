@@ -4,7 +4,7 @@ import {
   type ReportDataDto,
   type ReportDto,
 } from '@bi/shared';
-import { useEffect, useMemo, useState, type Ref } from 'react';
+import { useCallback, useEffect, useMemo, useState, type Ref } from 'react';
 
 import { ErrorState, TableSkeleton } from '../../components/ui/states';
 import { dataModelKeys } from '../datamodels/keys';
@@ -191,11 +191,42 @@ export function ReportViewer({
    * bằng cùng một tên — xem `nhanO.ts`.
    *
    * Ô nào người dùng đã lật sang trang nhóm khác thì số liệu trên màn hình nằm ở
-   * một lời gọi riêng của `ViewCard` mà chỗ này không thấy. Khung vì vậy trả lời
-   * theo trang nhóm ĐẦU, và `luuYCat` trong `traLoi` tự nói ra là số liệu chưa
-   * đầy đủ khi `paging.hasMore` bật.
+   * một lời gọi riêng của `ViewCard` — nên chính ô đó khai lại bảng nó đang vẽ,
+   * qua `ghiTrangNhom` ngay bên dưới, và bản khai ấy đè lên số của trang nhóm đầu.
    */
   const soLieuTrang = canvasData.data ?? saved;
+
+  /**
+   * Bảng của những ô KHÔNG ở trang nhóm đầu — khoá `${mã trang}:${mã ô}`.
+   *
+   * ═══ Lỗi đo được ════════════════════════════════════════════════════════
+   *
+   * Người dùng lật biểu đồ sang trang nhóm 2 rồi hỏi "cao nhất là gì". Màn hình
+   * nói 395.000, khung nói 48.000 — số của trang nhóm 1. Cả hai đều là số THẬT
+   * của đúng biểu đồ ấy, nên không có gì trông sai: nó chỉ trả lời một câu hỏi
+   * khác câu được hỏi, và đó là loại sai không ai bắt được bằng mắt.
+   *
+   * ⚠️ Nâng BẢNG lên đây, không nâng `groupPage`. Trang nhóm phải ở lại trong ô
+   * — mỗi ô lật độc lập, và `key` của ô đã mang mã trang để không ô nào thừa
+   * hưởng trang nhóm của ô khác. Thứ khung hỏi đáp cần cũng không phải số trang,
+   * mà là bảng đang hiện.
+   *
+   * Ô ở trang nhóm 0 KHÔNG khai gì: bảng của nó đã nằm trong `canvas-data`, và
+   * giữ thêm một bản nữa là mời hai bản lệch nhau.
+   *
+   * Việc này không bắt ô nào vẽ lại tốn kém: `ReportChart` nhớ `spec` theo tham
+   * chiếu `data`, nên một lần render thừa với cùng bảng không dựng lại view Vega.
+   */
+  const [trangNhom, setTrangNhom] = useState<Record<string, ReportDataDto>>({});
+  const ghiTrangNhom = useCallback((khoa: string, bang: ReportDataDto | null): void => {
+    setTrangNhom((cu) => {
+      const moi = { ...cu };
+      if (bang === null) delete moi[khoa];
+      else moi[khoa] = bang;
+      return moi;
+    });
+  }, []);
+
   const nguCanh = useMemo((): NguCanh => {
     /*
      * Báo cáo dựng trên MÔ HÌNH thì khai luôn id của nó: khung được phép tự
@@ -214,7 +245,8 @@ export function ReportViewer({
         ...moHinh,
         trang: `báo cáo ${report.name}`,
         nguon: activePage.visuals.flatMap((visual) => {
-          const bang = theoId.get(visual.id);
+          // Bản khai của ô đứng TRƯỚC: nó là thứ đang trên màn hình.
+          const bang = trangNhom[`${activePage.id}:${visual.id}`] ?? theoId.get(visual.id);
           if (bang === undefined || bang === null) return [];
           return [{ ten: visual.title ?? tieuDeTuSoLieu(bang), duKien: [], bang }];
         }),
@@ -227,7 +259,7 @@ export function ReportViewer({
       trang: `báo cáo ${report.name}`,
       nguon: [{ ten: report.name, duKien: [], bang }],
     };
-  }, [activePage, soLieuTrang, data.data, report.name, report.datamodelId]);
+  }, [activePage, soLieuTrang, trangNhom, data.data, report.name, report.datamodelId]);
 
   useKhaiNguCanh(nguCanh);
 
@@ -264,6 +296,7 @@ export function ReportViewer({
                 reportId={report.id}
                 data={canvasData.data ?? saved}
                 refreshing={canvasData.data === undefined && saved !== undefined}
+                onRows={ghiTrangNhom}
               />
             )}
           </div>
