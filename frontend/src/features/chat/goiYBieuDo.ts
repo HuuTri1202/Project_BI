@@ -200,3 +200,63 @@ export function cauGoiY(g: GoiYBieuDo): TraLoi {
     so: [g.chieu.label, g.thuocDo.label, ten],
   };
 }
+
+/**
+ * ═══ ĐỀ XUẤT SẴN: không gian đầu ra ĐÓNG ══════════════════════════════════
+ *
+ * Người dùng nói ra được vô hạn câu; mô hình này dựng được một số HỮU HẠN biểu
+ * đồ — đúng `chiều × thước đo` của nó. Nên cách chắc chắn nhất để hiểu đúng ý
+ * không phải hiểu câu giỏi hơn, mà là bày sẵn mấy cái tốt nhất để bấm. Cùng
+ * nguyên tắc mà khung đã áp cho lớp mô hình: nó chỉ chọn một chỉ số trong một
+ * danh sách người khác dựng, không bao giờ tự viết ra một câu trả lời.
+ *
+ * ⚠️ Mọi phép xếp hạng ở đây chỉ dùng thứ ĐỌC ĐƯỢC từ danh sách trường: tên
+ * bảng và kiểu dữ liệu. Số nhóm, độ dài tên nhóm, hình dạng phân bố — ba thứ
+ * quyết định một biểu đồ có đọc được hay không — đều không có trong tay, và
+ * đoán chúng là nói chắc về một thứ mình không biết.
+ */
+
+/** Điểm của một cặp. Chỉ hai luật, và cả hai đều đọc được từ chính trường. */
+function diemCap(chieu: ExplorerFieldDto, thuocDo: ExplorerFieldDto): number {
+  // CÙNG BẢNG trước: cặp đó không cần quan hệ nào bắc qua, nên nó luôn vẽ ra
+  // được. Cặp bắc qua hai bảng phụ thuộc vào một quan hệ mà danh sách trường
+  // không nói gì về nó.
+  const cungBang = chieu.datasetName === thuocDo.datasetName ? 2 : 0;
+  // Rồi tới THỜI GIAN: "theo tháng" gần như luôn là câu người ta hỏi trước.
+  return cungBang + (chieu.cubeType === 'time' ? 1 : 0);
+}
+
+/**
+ * Mấy biểu đồ đáng dựng nhất của mô hình này, nhiều nhất `tran` cái.
+ *
+ * ⚠️ Tối đa HAI cặp cho mỗi thước đo. Không có trần đó thì một thước đo có
+ * nhiều chiều cùng bảng chiếm sạch danh sách, và người dùng mở khung ra chỉ
+ * thấy năm biến thể của cùng một con số.
+ */
+export function deXuatBieuDo(truong: ExplorerFieldsDto | undefined, tran = 5): GoiYBieuDo[] {
+  if (truong === undefined) return [];
+
+  const cap = truong.measures.flatMap((thuocDo) =>
+    truong.dimensions
+      .map((chieu) => ({ chieu, thuocDo, diem: diemCap(chieu, thuocDo) }))
+      // `sort` của JS ỔN ĐỊNH từ ES2019, nên cặp cùng điểm giữ nguyên thứ tự
+      // của chính cột trường — thứ tự người dùng đang nhìn thấy.
+      .sort((a, b) => b.diem - a.diem)
+      .slice(0, 2),
+  );
+
+  return cap
+    .sort((a, b) => b.diem - a.diem)
+    .slice(0, tran)
+    .map(({ chieu, thuocDo }) => ({ chieu, thuocDo, loai: loaiHop(chieu, '') }));
+}
+
+/**
+ * Tên đề xuất — ĐÚNG công thức tiêu đề mà ô sẽ mang sau khi vẽ (`titleOf`).
+ *
+ * Lệch một chữ là người dùng bấm "Doanh thu theo Khu vực" rồi nhìn lên thấy ô
+ * tên khác, và phải tự đoán xem có phải cái mình vừa bấm không.
+ */
+export function tenDeXuat(g: GoiYBieuDo): string {
+  return `${g.thuocDo.label} theo ${g.chieu.label}`;
+}

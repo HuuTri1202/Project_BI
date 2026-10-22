@@ -8,6 +8,7 @@ import {
   CANVAS_MAX_VISUALS,
   parseFolderFilter,
   REPORT_NAME_MAX,
+  type ChartType,
   type ReportDto,
 } from '@bi/shared';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -519,6 +520,52 @@ function Builder({
    */
   useEffect(() => setTrangNhomO({}), [activePageId]);
 
+  /**
+   * Khung hỏi đáp ĐIỀN một đề xuất vào ô đang chọn — xem `NguCanh.veBieuDo`.
+   *
+   * Chưa có ô nào thì DỰNG một ô mới, không im lặng không làm gì: người dùng
+   * vừa bấm "Vẽ", và một cú bấm không thấy gì đổi đọc ra như một cú bấm hỏng.
+   *
+   * `merge = false`: đây là MỘT thao tác trọn vẹn, nên Ctrl+Z phải gỡ trọn nó
+   * chứ không gỡ nửa chừng cùng mấy cú sửa đứng cạnh.
+   */
+  function veTheoDeXuat(g: { chieuId: number; thuocDoId: number; loai: ChartType }): void {
+    const thay: Partial<VisualDraft> = {
+      chartType: g.loai,
+      dimensionId: g.chieuId,
+      measureId: g.thuocDoId,
+      // Cùng luật với `assignField`: phép gộp đang chọn thuộc về thước đo CŨ,
+      // và một chiều vừa vào ô Trục thì không được đứng luôn ở ô Nhóm màu.
+      measureAgg: null,
+      seriesId: null,
+    };
+    const dangCo = selected?.id;
+    if (dangCo !== undefined) {
+      patch(dangCo, thay, false);
+      return;
+    }
+    if (drafts.length >= CANVAS_MAX_VISUALS) return;
+    const moi = { ...emptyVisual(findSlot(drafts)), ...thay };
+    editPage((list) => [...list, moi]);
+    setSelectedId(moi.id);
+  }
+
+  /*
+   * Tham chiếu CỐ ĐỊNH cho `NguCanh.veBieuDo`.
+   *
+   * `patch` và `selected` dựng lại ở mỗi lần render, nên đưa thẳng hàm trên vào
+   * ngữ cảnh là một `NguCanh` mới mỗi lần render — và `useKhaiNguCanh` quay
+   * vòng vô hạn. Ref giữ bản mới nhất, `useCallback` giữ cái vỏ bất biến.
+   */
+  const veRef = useRef(veTheoDeXuat);
+  useEffect(() => {
+    veRef.current = veTheoDeXuat;
+  });
+  const veBieuDo = useCallback(
+    (g: { chieuId: number; thuocDoId: number; loai: ChartType }) => veRef.current(g),
+    [],
+  );
+
   const canTro = selected === null ? 'chưa chọn ô' : blockerOf(selected);
   const cauHinhO = selected === null || canTro !== null ? null : previewConfigOfDraft(selected);
   const soLieuO = useModelReportPreview(
@@ -567,8 +614,9 @@ function Builder({
        * chỉ tồn tại ở đây. Xem `features/chat/goiYBieuDo.ts`.
        */
       ...(fields.data === undefined ? {} : { truong: fields.data }),
+      veBieuDo,
     }),
-    [model.data, soLieuO.data, tenO, modelId, fields.data],
+    [model.data, soLieuO.data, tenO, modelId, fields.data, veBieuDo],
   );
   useKhaiNguCanh(nguCanh);
 

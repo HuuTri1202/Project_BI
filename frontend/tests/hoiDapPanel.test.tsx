@@ -104,10 +104,12 @@ function TrangGiaLap({
   nguon,
   moHinhId,
   truong,
+  veBieuDo,
 }: {
   nguon: Nguon[];
   moHinhId?: number;
   truong?: ExplorerFieldsDto;
+  veBieuDo?: NguCanh['veBieuDo'];
 }): React.ReactElement {
   const nguCanh = useMemo(
     (): NguCanh => ({
@@ -115,8 +117,9 @@ function TrangGiaLap({
       nguon,
       ...(moHinhId === undefined ? {} : { moHinhId }),
       ...(truong === undefined ? {} : { truong }),
+      ...(veBieuDo === undefined ? {} : { veBieuDo }),
     }),
-    [nguon, moHinhId, truong],
+    [nguon, moHinhId, truong, veBieuDo],
   );
   useKhaiNguCanh(nguCanh);
   return <p>nội dung trang</p>;
@@ -126,11 +129,12 @@ function dung(
   nguon: Nguon[],
   moHinhId?: number,
   truong?: ExplorerFieldsDto,
+  veBieuDo?: NguCanh['veBieuDo'],
 ): { doiMoHinh: (id: number) => void } {
   const { rerender } = render(
     <MemoryRouter>
       <NguCanhProvider>
-        <TrangGiaLap nguon={nguon} moHinhId={moHinhId} truong={truong} />
+        <TrangGiaLap nguon={nguon} moHinhId={moHinhId} truong={truong} veBieuDo={veBieuDo} />
       </NguCanhProvider>
     </MemoryRouter>,
   );
@@ -1263,5 +1267,90 @@ describe('Gợi ý dựng biểu đồ ở trình dựng', () => {
 
     expect(await screen.findByText(/Tôi chưa hiểu câu này/)).toBeInTheDocument();
     expect(screen.queryByText(/ô Chiều dữ liệu/)).toBeNull();
+  });
+});
+
+/**
+ * Dãy biểu đồ dựng sẵn — "đề xuất ngay", không qua câu chữ.
+ *
+ * ─── Lời than của người dùng ────────────────────────────────────────────────
+ *
+ *   "có cách nào tốt hơn … chứ ko dựa vào chat bằng câu chữ của khách hàng vì
+ *    nó rất rộng"
+ *   "kết hợp cả 2 cái, nếu người dùng yêu cầu gợi ý thì chatbot gợi ý, người
+ *    dùng yêu cầu vẽ biểu đồ thì vẽ cho người dùng luôn"
+ *
+ * Phép xếp hạng đã có `goiYBieuDo.test.ts` canh. Ở đây canh ba thứ chỉ lộ ra
+ * trong DOM: hai nút có làm HAI việc khác nhau không, cú bấm "Vẽ" có mang đúng
+ * mã trường xuống trang không, và nút "Vẽ" có BIẾN MẤT ở trang không ghi được
+ * không.
+ */
+describe('Dãy biểu đồ dựng sẵn ở trình dựng', () => {
+  const f = (x: Partial<ExplorerFieldDto>): ExplorerFieldDto =>
+    ({ id: 1, label: 'X', datasetName: 'Đơn hàng', cubeType: 'string', ...x }) as ExplorerFieldDto;
+
+  const TRUONG: ExplorerFieldsDto = {
+    dimensions: [f({ id: 1, label: 'Khu vực' })],
+    measures: [f({ id: 10, label: 'Doanh thu', cubeType: 'number' })],
+  };
+
+  const NGUON: Nguon[] = [
+    { ten: 'Mô hình Bán hàng', duKien: [{ nhan: 'Số bảng trong mô hình Bán hàng', gia: '3' }] },
+  ];
+
+  it('màn chào bày sẵn biểu đồ, mỗi cái hai nút', () => {
+    dung(NGUON, 7, TRUONG, vi.fn());
+    fireEvent.click(nutMo());
+
+    expect(screen.getByText('Doanh thu theo Khu vực')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Gợi ý' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Vẽ' })).toBeInTheDocument();
+  });
+
+  it('"Gợi ý" NÓI cách kéo và KHÔNG đụng vào trang', async () => {
+    const ve = vi.fn();
+    dung(NGUON, 7, TRUONG, ve);
+    fireEvent.click(nutMo());
+
+    fireEvent.click(screen.getByRole('button', { name: 'Gợi ý' }));
+
+    expect(await screen.findByText(/ô Chiều dữ liệu/)).toBeInTheDocument();
+    expect(ve).not.toHaveBeenCalled();
+  });
+
+  it('"Vẽ" gửi đúng mã trường xuống trang, và nói ra đường lùi', async () => {
+    const ve = vi.fn();
+    dung(NGUON, 7, TRUONG, ve);
+    fireEvent.click(nutMo());
+
+    fireEvent.click(screen.getByRole('button', { name: 'Vẽ' }));
+
+    // Mã TRƯỜNG, không phải tên: trang điền vào ô bằng id, và hai trường trùng
+    // tên là chuyện có thật.
+    expect(ve).toHaveBeenCalledWith({ chieuId: 1, thuocDoId: 10, loai: 'bar' });
+    // Đây là thao tác DUY NHẤT trong khung đụng vào trang, nên người dùng phải
+    // biết đường lùi ngay lúc nó vừa xảy ra.
+    expect(await screen.findByText(/Ctrl\+Z/)).toBeInTheDocument();
+  });
+
+  it('trang không ghi được thì KHÔNG bày nút "Vẽ"', () => {
+    // Một nút bấm vào không thấy gì đổi đọc ra như một nút hỏng.
+    dung(NGUON, 7, TRUONG);
+    fireEvent.click(nutMo());
+
+    expect(screen.getByRole('button', { name: 'Gợi ý' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Vẽ' })).toBeNull();
+  });
+
+  it('câu không hiểu ở trình dựng thì bày dãy biểu đồ, không bày câu mẫu', async () => {
+    // Đúng lúc người dùng vừa gõ một câu khung không hiểu là lúc một danh sách
+    // bấm được có giá trị nhất.
+    dung(NGUON, 7, TRUONG, vi.fn());
+    fireEvent.click(nutMo());
+
+    hoi('zzz qqq');
+
+    expect(await screen.findByText(/Tôi chưa hiểu câu này/)).toBeInTheDocument();
+    expect(screen.getByText(/Hay dựng thẳng một trong mấy cái này/)).toBeInTheDocument();
   });
 });

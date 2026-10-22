@@ -1,7 +1,7 @@
 import type { ExplorerFieldDto, ExplorerFieldsDto } from '@bi/shared';
 import { describe, expect, it } from 'vitest';
 
-import { cauGoiY, goiYBieuDo } from '../src/features/chat/goiYBieuDo';
+import { cauGoiY, deXuatBieuDo, goiYBieuDo, tenDeXuat } from '../src/features/chat/goiYBieuDo';
 
 /**
  * "Tui muốn xem doanh thu theo khu vực" — kéo gì vào đâu, chọn biểu đồ nào.
@@ -132,5 +132,95 @@ describe('cauGoiY', () => {
     expect(kq.so).toContain('Khu vực');
     expect(kq.so).toContain('Doanh thu');
     expect(kq.so).toContain('Biểu đồ cột');
+  });
+});
+
+/**
+ * ĐỀ XUẤT SẴN — không gian đầu ra đóng.
+ *
+ * ─── Lời than của người dùng ────────────────────────────────────────────────
+ *
+ *   "có cách nào tốt hơn để người dùng muốn xem dữ liệu gì thì chatbot có thể
+ *    đề xuất ngay, chứ ko dựa vào chat bằng câu chữ … vì nó rất rộng"
+ *
+ * Đúng. Câu nói ra được thì vô hạn; biểu đồ mô hình này dựng được thì đếm
+ * được. Bộ ca ở đây canh phép xếp hạng, vì một danh sách đề xuất xếp sai thì
+ * vẫn bấm được — nó chỉ lặng lẽ bày ra mấy cái không ai cần.
+ */
+describe('deXuatBieuDo', () => {
+  it('THỜI GIAN thắng khi cùng bảng, kể cả khi nó đứng sau', () => {
+    /*
+     * "Doanh thu theo tháng" gần như luôn là câu người ta hỏi trước, còn
+     * "doanh thu theo mã đơn" là một biểu đồ một cột mỗi đơn — đúng cú pháp,
+     * vô dụng.
+     *
+     * Hai chiều cùng bảng nên điểm cùng-bảng hoà, và "Mã đơn" đứng TRƯỚC: ca
+     * này chỉ xanh khi vế thời gian thật sự được cộng.
+     */
+    const cungBang = {
+      dimensions: [
+        truong({ id: 1, label: 'Mã đơn', datasetName: 'Đơn hàng' }),
+        truong({ id: 2, label: 'Ngày đặt', datasetName: 'Đơn hàng', cubeType: 'time' }),
+      ],
+      measures: [truong({ id: 10, label: 'Doanh thu', datasetName: 'Đơn hàng' })],
+    };
+    const ds = deXuatBieuDo(cungBang, 10);
+
+    expect(ds[0]?.chieu.label).toBe('Ngày đặt');
+    expect(ds[0]?.loai).toBe('line');
+  });
+
+  it('CÙNG BẢNG thắng, kể cả khi nó đứng sau trong cột trường', () => {
+    /*
+     * Cặp cùng bảng không cần quan hệ nào bắc qua nên nó luôn vẽ ra được; cặp
+     * bắc qua hai bảng phụ thuộc vào một quan hệ mà danh sách trường không nói
+     * gì về nó.
+     *
+     * "Khu vực" đứng TRƯỚC trong danh sách, nên thứ tự gốc một mình sẽ cho nó
+     * thắng — ca này chỉ xanh khi phép cộng điểm thật sự chạy.
+     */
+    const cheo = {
+      dimensions: [
+        truong({ id: 1, label: 'Khu vực', datasetName: 'Khách hàng' }),
+        truong({ id: 2, label: 'Mã đơn', datasetName: 'Đơn hàng' }),
+      ],
+      measures: [truong({ id: 10, label: 'Doanh thu', datasetName: 'Đơn hàng' })],
+    };
+
+    expect(deXuatBieuDo(cheo, 10)[0]?.chieu.label).toBe('Mã đơn');
+  });
+
+  it('tối đa HAI cặp mỗi thước đo', () => {
+    /*
+     * Không có trần này thì một thước đo có nhiều chiều cùng bảng chiếm sạch
+     * danh sách, và người mở khung ra chỉ thấy năm biến thể của một con số.
+     */
+    const nhieuChieu = {
+      dimensions: [
+        truong({ id: 1, label: 'A', datasetName: 'Đơn hàng' }),
+        truong({ id: 2, label: 'B', datasetName: 'Đơn hàng' }),
+        truong({ id: 3, label: 'C', datasetName: 'Đơn hàng' }),
+        truong({ id: 4, label: 'D', datasetName: 'Đơn hàng' }),
+      ],
+      measures: [truong({ id: 10, label: 'Doanh thu', datasetName: 'Đơn hàng' })],
+    };
+
+    expect(deXuatBieuDo(nhieuChieu, 10)).toHaveLength(2);
+  });
+
+  it('cắt đúng trần đã xin', () => {
+    expect(deXuatBieuDo(MO_HINH, 3)).toHaveLength(3);
+  });
+
+  it('trang không khai trường thì không có đề xuất nào', () => {
+    // Ngoài trình dựng thì không có ô nào để vẽ vào.
+    expect(deXuatBieuDo(undefined)).toEqual([]);
+  });
+
+  it('tên đề xuất ĐÚNG công thức tiêu đề ô sẽ mang sau khi vẽ', () => {
+    // Lệch một chữ là người dùng bấm xong nhìn lên thấy ô tên khác, rồi phải
+    // tự đoán có phải cái mình vừa bấm không. Cùng công thức với `titleOf`.
+    const g = goiYBieuDo(MO_HINH, 'tui muốn xem doanh thu theo khu vực');
+    expect(tenDeXuat(g!)).toBe('Doanh thu theo Khu vực');
   });
 });

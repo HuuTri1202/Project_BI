@@ -1,4 +1,4 @@
-import type { ExplorerFieldsDto, ReportDataDto } from '@bi/shared';
+import type { ChartType, ExplorerFieldsDto, ReportDataDto } from '@bi/shared';
 import { createContext, useContext, useEffect } from 'react';
 
 /**
@@ -150,6 +150,28 @@ export interface NguCanh {
    * HƯỚNG DẪN kéo trường nào vào đâu. Xem `goiYBieuDo`.
    */
   truong?: ExplorerFieldsDto;
+  /**
+   * ĐIỀN một đề xuất vào ô đang chọn — đường GHI duy nhất của cả khung.
+   *
+   * ═══ Vì sao nó phá lệ, và vì sao vẫn đáng ═════════════════════════════
+   *
+   * Mọi thứ khác ở đây là dữ liệu trang đưa RA. Trường này đi ngược: khung gọi
+   * lại vào trang. Đổi lại, "đề xuất" mới thật là đề xuất — bấm một cái là
+   * biểu đồ hiện ra, thay vì đọc một hướng dẫn rồi tự làm lại bằng tay.
+   *
+   * Ba chỗ giữ cho nó không thành một cái cửa hậu:
+   *
+   *   1. Chỉ trình dựng khai. Trang khác không có ô nào để điền vào.
+   *   2. Nó nhận ID TRƯỜNG, không nhận cấu hình tự do — khung không dựng được
+   *      một trạng thái ô mà chính trình dựng không dựng được.
+   *   3. Nó đi qua đúng `patch` mà cú kéo thả đi qua, nên Hoàn tác (Ctrl+Z)
+   *      phủ nó y như mọi thao tác khác.
+   *
+   * ⚠️ Hàm này phải GIỮ NGUYÊN tham chiếu giữa các lần render, như mọi thứ
+   * khác trong `NguCanh`. Một hàm mới mỗi lần render là một `NguCanh` mới mỗi
+   * lần render, và `useKhaiNguCanh` sẽ quay vòng vô hạn.
+   */
+  veBieuDo?: (g: { chieuId: number; thuocDoId: number; loai: ChartType }) => void;
 }
 
 export const NGU_CANH_RONG: NguCanh = { trang: '', nguon: [] };
