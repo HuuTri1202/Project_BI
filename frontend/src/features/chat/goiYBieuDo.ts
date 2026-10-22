@@ -152,14 +152,48 @@ function tuNoiDung(ve: string): Set<string> {
 }
 
 /**
+ * Loại biểu đồ mà câu hỏi GỌI THẲNG TÊN. `null` = không gọi, hoặc gọi hai cái.
+ *
+ * ═══ Vì sao đòi có chữ "biểu đồ"/"dạng"/"kiểu" đứng trước ═════════════════
+ *
+ * Vì mấy chữ phân biệt loại biểu đồ cũng là chữ thường ngày, và một trong số
+ * đó va vào đúng câu hỏi hay gặp nhất:
+ *
+ *     "tui muốn xem doanh thu theo MIỀN"
+ *
+ * "miền" một mình là `area`. Nhận nó ở đây thì một câu hỏi về vùng địa lý biến
+ * thành một lệnh đổi loại biểu đồ — im lặng, và đúng kiểu dữ liệu. "cột",
+ * "đường", "bảng" cũng vậy: tên cột, tên đường phố, tên bảng.
+ *
+ * ⚠️ Danh sách SINH RA từ `CHART_TYPE_LABELS`, không chép tay. Thêm loại biểu
+ * đồ thứ chín là nó tự nhận ra, và không có bản sao thứ hai để quên.
+ */
+function loaiGoiTen(q: string): ChartType | null {
+  const trung = (Object.keys(CHART_TYPE_LABELS) as ChartType[]).filter((loai) => {
+    const day = chuanHoa(CHART_TYPE_LABELS[loai]);
+    // "bieu do tron" -> "tron"; "ban do nhiet" -> "nhiet"; "bang so lieu" -> "so lieu"
+    const rut = day.replace(/^(bieu do|ban do|bang) /, '');
+    return [day, `bieu do ${rut}`, `dang ${rut}`, `kieu ${rut}`].some((t) => q.includes(t));
+  });
+  // Gọi tên hai loại thì không loại nào được chọn — cùng luật nhường-khi-hoà
+  // với phép chấm điểm trường.
+  return trung.length === 1 ? (trung[0] ?? null) : null;
+}
+
+/**
  * Loại biểu đồ hợp với thứ vừa chọn.
  *
- * Ba luật, và không hơn. Mỗi luật thêm vào là một chỗ khung nói chắc chắn về
+ * Bốn luật, và không hơn. Mỗi luật thêm vào là một chỗ khung nói chắc chắn về
  * một thứ nó không biết: số nhóm, độ dài tên nhóm, hình dạng phân bố — không
  * thứ nào đọc được từ danh sách trường. `bar` là mặc định mà chính
  * `CHART_TYPE_HINTS` đã khai ("Chọn mặc định khi chưa biết chọn gì").
+ *
+ * ⚠️ Người dùng GỌI TÊN thì họ thắng, kể cả khi chiều là thời gian. Họ đang
+ * nhìn màn hình và họ nói ra rồi; vẽ loại khác là bỏ ngoài tai.
  */
 function loaiHop(chieu: ExplorerFieldDto, q: string): ChartType {
+  const goiTen = loaiGoiTen(q);
+  if (goiTen !== null) return goiTen;
   if (chieu.cubeType === 'time') return 'line';
   if (/ti trong|ty trong|co cau|phan tram|ti le|ty le|%/.test(q)) return 'pie';
   return 'bar';

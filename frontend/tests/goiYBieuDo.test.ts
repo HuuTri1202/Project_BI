@@ -242,3 +242,47 @@ describe('deXuatBieuDo', () => {
     expect(tenDeXuat(g!)).toBe('Doanh thu theo Khu vực');
   });
 });
+
+describe('loại biểu đồ người dùng GỌI TÊN', () => {
+  it('gọi tên thì họ thắng, kể cả khi chiều là THỜI GIAN', () => {
+    // Họ đang nhìn màn hình và đã nói ra; vẽ loại khác là bỏ ngoài tai.
+    const g = goiYBieuDo(MO_HINH, 'vẽ biểu đồ cột doanh thu theo ngày đặt');
+    expect(g?.chieu.label).toBe('Ngày đặt');
+    expect(g?.loai).toBe('bar');
+  });
+
+  it('"dạng …" và "kiểu …" cũng tính', () => {
+    expect(goiYBieuDo(MO_HINH, 'tui muốn xem doanh thu theo khu vực dạng tròn')?.loai).toBe('pie');
+    expect(goiYBieuDo(MO_HINH, 'tui muốn xem doanh thu theo khu vực kiểu thanh ngang')?.loai).toBe(
+      'hbar',
+    );
+  });
+
+  it('⚠️ "theo MIỀN" KHÔNG phải lệnh vẽ biểu đồ miền', () => {
+    /*
+     * Cái bẫy đắt nhất của tính năng này. "Biểu đồ miền" là `area`, mà "miền"
+     * một mình lại là cách người Việt gọi vùng địa lý — và "doanh thu theo
+     * miền" là một trong những câu hay gặp nhất.
+     *
+     * Nhận "miền" trần thì một câu hỏi về vùng biến thành một lệnh đổi loại
+     * biểu đồ: im lặng, đúng kiểu dữ liệu, không có gì báo. Cùng lý do với
+     * "cột" (tên cột), "đường" (tên đường phố), "bảng" (tên bảng).
+     */
+    const coMien: ExplorerFieldsDto = {
+      dimensions: [truong({ id: 1, label: 'Miền', datasetName: 'Khách hàng' })],
+      measures: MO_HINH.measures,
+    };
+    const g = goiYBieuDo(coMien, 'tui muốn xem doanh thu theo miền');
+
+    expect(g?.chieu.label).toBe('Miền');
+    expect(g?.loai).toBe('bar');
+  });
+
+  it('gọi tên HAI loại thì không loại nào được chọn', () => {
+    // Cùng luật nhường-khi-hoà với phép chấm điểm trường.
+    // CỐ Ý không dùng cặp có "cột": `bar` cũng là loại mặc định, nên một ca như
+    // vậy xanh cả khi luật hoà bị bỏ — nó không đo được gì.
+    const g = goiYBieuDo(MO_HINH, 'vẽ biểu đồ đường hay biểu đồ tròn doanh thu theo khu vực');
+    expect(g?.loai).toBe('bar');
+  });
+});

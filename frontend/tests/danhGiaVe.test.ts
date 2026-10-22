@@ -231,6 +231,6 @@ describe('Bộ đánh giá đường VẼ', () => {
   it('số câu ĐÚNG không được tụt', () => {
     // ⚠️ Chỉ được NÂNG, và phải đặt ĐÚNG BẰNG điểm hiện tại. Một ràng răng lỏng
     // hơn điểm thật sẽ im lặng nuốt đúng một ca vừa hỏng.
-    expect(dem('dung')).toBeGreaterThanOrEqual(18);
+    expect(dem('dung')).toBeGreaterThanOrEqual(21);
   });
 });
