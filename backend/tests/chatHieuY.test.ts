@@ -248,3 +248,88 @@ describe('Mô hình "suy nghĩ trước khi trả lời"', () => {
     expect(goi).toHaveBeenCalledTimes(2);
   });
 });
+
+/*
+ * ═══ Sổ ghi câu TRƯỢT ══════════════════════════════════════════════════════
+ *
+ * Lớp này là chỗ hẹp nhất mà mọi câu lớp ngoại tuyến bó tay đều đi qua, nên
+ * nó cũng là chỗ đi thu câu của người dùng thật về cho bộ đánh giá. Cái sổ đó
+ * là nguồn DUY NHẤT phá được chuyện người viết code vừa ra đề vừa làm bài.
+ *
+ * Một cái log thì không ai để ý khi nó hỏng — nên nó được canh như mọi thứ
+ * khác, và canh đúng ba chỗ dễ hỏng mà không ai thấy:
+ *
+ *   1. Nhánh CHƯA CẤU HÌNH thoát sớm. Đây là nhánh hay chạy nhất trên máy
+ *      chưa cắm khoá, mà cũng là nhánh dễ quên ghi nhất vì nó `return` trước.
+ *   2. Cột NHÃN mô hình cứu được — phần đáng tiền của cả cái sổ. Thiếu nó thì
+ *      còn lại một đống câu hỏi không ai biết đáp án đúng là gì.
+ *   3. Câu xuống dòng phải gộp thành MỘT dòng, nếu không `wc -l` đếm sai và
+ *      `grep` cắt mất nửa câu.
+ */
+describe('Sổ ghi những câu lớp ngoại tuyến không trả lời được', () => {
+  function batSo(): { dong: () => string[] } {
+    const ghi = vi.spyOn(console, 'info').mockImplementation(() => undefined);
+    return {
+      dong: () =>
+        ghi.mock.calls
+          .filter((c) => String(c[0]).includes('trượt lớp ngoại tuyến'))
+          .map((c) => String(c[1])),
+    };
+  }
+
+  it('chưa cấu hình mô hình thì VẪN ghi — đó là nhánh hay chạy nhất', async () => {
+    const { hieuY } = await napVoiEnv({ ...DU_CAU_HINH, LLM_API_KEY: undefined });
+    const so = batSo();
+
+    await hieuY({ cauHoi: 'vùng nào bán chạy nhất', nhan: NHAN });
+
+    expect(so.dong()).toHaveLength(1);
+    expect(so.dong()[0]).toContain('vùng nào bán chạy nhất');
+    expect(so.dong()[0]).toContain('CHƯA HIỂU');
+  });
+
+  it('mô hình cứu được thì ghi NHÃN nó chọn, không ghi "chưa hiểu"', async () => {
+    const { hieuY } = await napVoiEnv(DU_CAU_HINH);
+    globalThis.fetch = vi.fn().mockResolvedValue(traVe('3'));
+    const so = batSo();
+
+    await hieuY({ cauHoi: 'cái này nặng bao nhiêu', nhan: NHAN });
+
+    // Đây là dòng dịch thẳng thành một ca đánh giá: câu người ta gõ, và nhãn
+    // mà phép so từ khoá LẼ RA phải khớp vào.
+    expect(so.dong()[0]).toContain('Dung lượng của Đơn hàng Q4');
+    expect(so.dong()[0]).not.toContain('CHƯA HIỂU');
+  });
+
+  it('mô hình đọc hết mà chịu thì ghi CHƯA HIỂU', async () => {
+    const { hieuY } = await napVoiEnv(DU_CAU_HINH);
+    globalThis.fetch = vi.fn().mockResolvedValue(traVe('0'));
+    const so = batSo();
+
+    await hieuY({ cauHoi: 'hôm nay trời thế nào', nhan: NHAN });
+
+    expect(so.dong()[0]).toContain('CHƯA HIỂU');
+  });
+
+  it('câu xuống dòng bị gộp lại thành MỘT dòng sổ', async () => {
+    const { hieuY } = await napVoiEnv({ ...DU_CAU_HINH, LLM_API_KEY: undefined });
+    const so = batSo();
+
+    await hieuY({ cauHoi: 'doanh thu\n\n  theo   khu vực  ', nhan: NHAN });
+
+    // Phải kết thúc ĐÚNG ở chữ cuối. Một dấu cách thừa trong ô TSV là thứ
+    // vô hình khi đọc sổ, mà nó đi thẳng vào ca đánh giá lúc chép lại.
+    expect(so.dong()[0]).toMatch(/doanh thu theo khu vực$/);
+    expect(so.dong()[0]).not.toContain('\n');
+  });
+
+  it('một lượt hỏi chỉ ghi ĐÚNG một dòng', async () => {
+    const { hieuY } = await napVoiEnv(DU_CAU_HINH);
+    globalThis.fetch = vi.fn().mockResolvedValue(traVe('2'));
+    const so = batSo();
+
+    await hieuY({ cauHoi: 'gì đó', nhan: NHAN });
+
+    expect(so.dong()).toHaveLength(1);
+  });
+});

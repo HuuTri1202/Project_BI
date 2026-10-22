@@ -122,6 +122,10 @@ $RECYCLE.BIN/
 .aider*
 
 # --- Khác ---
+# Sổ câu hỏi khung chat chưa hiểu — dữ liệu thu tại máy từng người để bổ
+# sung vào bộ đánh giá, không phải thứ của repo. Xem `services/chat/hieuY.ts`.
+chua-hieu.tsv
+
 .history/
 *.bak
 *.orig
