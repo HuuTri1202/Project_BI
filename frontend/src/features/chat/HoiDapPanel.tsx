@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 
 import { KHONG_XUAT } from '../../services/danhDauXuat';
 import { dienDatLai, hieuCauHoi, hoiTrenMoHinh } from './api';
+import { cauGoiY, goiYBieuDo } from './goiYBieuDo';
 import { useNguCanh } from './nguCanh';
 import type { Nguon } from './nguCanh';
 import { useNguCanhHeThong } from './nguCanhHeThong';
@@ -221,6 +222,31 @@ export function HoiDapPanel(): React.ReactElement | null {
     if (q === '') return;
 
     const nguonHoi = (ro === null ? undefined : nguCanh.nguon[ro]) ?? nguon;
+
+    /*
+     * "Tui muốn xem doanh thu theo khu vực" — hướng dẫn DỰNG, không phải số.
+     *
+     * Đứng trước mọi lớp khác vì nó là lớp DUY NHẤT đọc được ý định ấy: mấy lớp
+     * sau chỉ biết đi tìm một con số, và chúng sẽ tìm ra một con số thật — cho
+     * một câu hỏi người dùng không hỏi. Chỉ trình dựng khai `truong`, nên ở mọi
+     * trang khác `goiYBieuDo` trả `null` ngay.
+     */
+    const gy = goiYBieuDo(nguCanh.truong, q);
+    if (gy !== null) {
+      demId.current += 2;
+      const idGy = demId.current;
+      const lucGy = gioBayGio();
+      const kqGy = cauGoiY(gy);
+      setTinNhan((cu) => [
+        ...cu,
+        { id: idGy - 1, ai: 'nguoi', cau: q, luc: lucGy },
+        { id: idGy, ai: 'bot', luc: lucGy, cau: kqGy.cau },
+      ]);
+      setCauHoi('');
+      setCauTruoc(q);
+      vietLai(q, idGy, kqGy);
+      return;
+    }
 
     /*
      * Chưa biết người dùng hỏi ô nào thì HỎI LẠI, đừng đoán.

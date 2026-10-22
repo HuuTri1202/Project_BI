@@ -1,4 +1,4 @@
-import type { ReportDataDto } from '@bi/shared';
+import type { ExplorerFieldDto, ExplorerFieldsDto, ReportDataDto } from '@bi/shared';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { useMemo } from 'react';
 import { MemoryRouter } from 'react-router-dom';
@@ -103,27 +103,34 @@ function bang(): ReportDataDto {
 function TrangGiaLap({
   nguon,
   moHinhId,
+  truong,
 }: {
   nguon: Nguon[];
   moHinhId?: number;
+  truong?: ExplorerFieldsDto;
 }): React.ReactElement {
   const nguCanh = useMemo(
     (): NguCanh => ({
       trang: 'Kho dữ liệu',
       nguon,
       ...(moHinhId === undefined ? {} : { moHinhId }),
+      ...(truong === undefined ? {} : { truong }),
     }),
-    [nguon, moHinhId],
+    [nguon, moHinhId, truong],
   );
   useKhaiNguCanh(nguCanh);
   return <p>nội dung trang</p>;
 }
 
-function dung(nguon: Nguon[], moHinhId?: number): { doiMoHinh: (id: number) => void } {
+function dung(
+  nguon: Nguon[],
+  moHinhId?: number,
+  truong?: ExplorerFieldsDto,
+): { doiMoHinh: (id: number) => void } {
   const { rerender } = render(
     <MemoryRouter>
       <NguCanhProvider>
-        <TrangGiaLap nguon={nguon} moHinhId={moHinhId} />
+        <TrangGiaLap nguon={nguon} moHinhId={moHinhId} truong={truong} />
       </NguCanhProvider>
     </MemoryRouter>,
   );
@@ -1207,5 +1214,54 @@ describe('Hỏi lại khi không rõ người dùng hỏi mục nào', () => {
 
     expect(await screen.findByText(/Kẹo/)).toBeInTheDocument();
     expect(screen.queryByText(/Bạn muốn hỏi mục nào/)).toBeNull();
+  });
+});
+
+/**
+ * Trình dựng: "tui muốn xem doanh thu theo khu vực" ra một HƯỚNG DẪN.
+ *
+ * Phần luật đã có `goiYBieuDo.test.ts` canh, hàm thuần, không cần DOM. Ở đây
+ * canh đúng hai chuyện của khung: nhánh này có ĐỨNG TRƯỚC mấy lớp đi tìm con số
+ * không, và nó có TẮT HẲN ở trang không có ba cái ô để kéo vào không.
+ */
+describe('Gợi ý dựng biểu đồ ở trình dựng', () => {
+  const f = (x: Partial<ExplorerFieldDto>): ExplorerFieldDto =>
+    ({ id: 1, label: 'X', datasetName: 'Đơn hàng', cubeType: 'string', ...x }) as ExplorerFieldDto;
+
+  const TRUONG: ExplorerFieldsDto = {
+    dimensions: [f({ id: 1, label: 'Khu vực', datasetName: 'Khách hàng' })],
+    measures: [f({ id: 10, label: 'Doanh thu', cubeType: 'number' })],
+  };
+
+  const NGUON: Nguon[] = [
+    { ten: 'Mô hình Bán hàng', duKien: [{ nhan: 'Số bảng trong mô hình Bán hàng', gia: '3' }] },
+  ];
+
+  it('trả về hướng dẫn kéo trường, không phải một con số', async () => {
+    dung(NGUON, 7, TRUONG);
+    fireEvent.click(nutMo());
+
+    hoi('tui muốn xem doanh thu theo khu vực');
+
+    expect(await screen.findByText(/ô Chiều dữ liệu/)).toBeInTheDocument();
+    expect(screen.getByText(/Biểu đồ cột/)).toBeInTheDocument();
+    /*
+     * Đường đặt câu hỏi MỚI trên mô hình KHÔNG được chạy. Nó sẽ trả về một con
+     * số thật — cho một câu hỏi người dùng không hỏi — và tốn một lượt gọi mô
+     * hình cộng một lượt quét ClickHouse để làm việc đó.
+     */
+    expect(hoiTrenMoHinh).not.toHaveBeenCalled();
+  });
+
+  it('trang KHÔNG khai trường thì nhánh này không tồn tại', async () => {
+    // Ngoài trình dựng thì không có ô nào để kéo vào, nên một câu hướng dẫn ở
+    // đó chỉ bảo người dùng đi tìm thứ không có trên màn hình.
+    dung(NGUON, 7);
+    fireEvent.click(nutMo());
+
+    hoi('tui muốn xem doanh thu theo khu vực');
+
+    expect(await screen.findByText(/Tôi chưa hiểu câu này/)).toBeInTheDocument();
+    expect(screen.queryByText(/ô Chiều dữ liệu/)).toBeNull();
   });
 });

@@ -1,4 +1,4 @@
-import type { ReportDataDto } from '@bi/shared';
+import type { ExplorerFieldsDto, ReportDataDto } from '@bi/shared';
 import { createContext, useContext, useEffect } from 'react';
 
 /**
@@ -137,6 +137,19 @@ export interface NguCanh {
    * Không cần một lớp kiểm nào ở frontend, và không có chỗ nào để quên nó.
    */
   moHinhId?: number;
+  /**
+   * Danh sách TRƯỜNG kéo thả được — chỉ trình dựng báo cáo khai.
+   *
+   * ═══ Khác `moHinhId` ở chỗ nào ════════════════════════════════════════
+   *
+   * `moHinhId` là một lời mời backend đi hỏi hộ. Cái này thì đúng luật chung
+   * của khung: dữ liệu trang ĐÃ TẢI VỀ và đang bày ra ở cột trái màn hình.
+   *
+   * Nó mở ra một nhóm câu hỏi mà mọi nhóm khác không với tới: "tui muốn xem
+   * doanh thu theo khu vực" — câu trả lời không phải một con số mà là một
+   * HƯỚNG DẪN kéo trường nào vào đâu. Xem `goiYBieuDo`.
+   */
+  truong?: ExplorerFieldsDto;
 }
 
 export const NGU_CANH_RONG: NguCanh = { trang: '', nguon: [] };

@@ -560,8 +560,15 @@ function Builder({
       ],
       // Đặt được câu hỏi MỚI trên mô hình đang dựng — xem `features/chat/nguCanh.ts`.
       ...(modelId === null ? {} : { moHinhId: modelId }),
+      /*
+       * Danh sách trường — mở nhóm câu "tui muốn xem X theo Y thì kéo gì".
+       *
+       * Chỉ trang này khai nó, và chỉ trang này khai được: ba cái ô để kéo vào
+       * chỉ tồn tại ở đây. Xem `features/chat/goiYBieuDo.ts`.
+       */
+      ...(fields.data === undefined ? {} : { truong: fields.data }),
     }),
-    [model.data, soLieuO.data, tenO, modelId],
+    [model.data, soLieuO.data, tenO, modelId, fields.data],
   );
   useKhaiNguCanh(nguCanh);
 
