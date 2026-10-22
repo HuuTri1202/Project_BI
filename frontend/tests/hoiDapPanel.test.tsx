@@ -559,7 +559,12 @@ describe('Trả lời xuyên hệ thống', () => {
 
     hoi('có bao nhiêu bộ dữ liệu');
 
-    expect(await screen.findByText(/12/)).toBeInTheDocument();
+    /*
+     * Khớp cả CÂU, không phải mỗi con số. `/12/` trúng luôn dấu giờ "12:39"
+     * trên mỗi bong bóng, nên ca này đỏ với mọi lần chạy trong khung giờ 12 —
+     * một quả mìn hẹn giờ, không phải một ca hỏng.
+     */
+    expect(await screen.findByText(/bộ dữ liệu trong toàn bộ tổ chức: 12/)).toBeInTheDocument();
     // Phải nói ra là nó đọc ở đâu: danh sách này KHÔNG ở trên màn hình, nên
     // người đọc không có gì để đối chiếu.
     expect(screen.getByText(/không phải trên trang đang mở/)).toBeInTheDocument();
