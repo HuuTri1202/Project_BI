@@ -8,6 +8,7 @@ import { CanvasBoard } from '../src/features/reports/builder/CanvasBoard';
 import { emptyVisual, type VisualDraft } from '../src/features/reports/builder/visual';
 import { ReportViewer } from '../src/features/reports/ReportViewer';
 import { useModelReportPreview } from '../src/features/datamodels/hooks';
+import { fetchReportData } from '../src/features/datasets/api';
 
 /**
  * Khung hỏi đáp phải đọc ĐÚNG trang nhóm đang hiện trên ô — §10.12.
@@ -216,5 +217,77 @@ describe('trình dựng: ô báo lên trang nhóm nó đang xem', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Nhóm trang sau' }));
     expect(onGroupPage).toHaveBeenLastCalledWith('o1', 1);
+  });
+});
+
+/*
+ * Lỗi thật: hỏi "lấy từ đâu ra đó" trên trang xem báo cáo thì khung nói chưa
+ * hiểu, vì trang khai `duKien: []` — không lớp nào có nhãn nào để bấu víu.
+ *
+ * Ca này canh đúng chỗ NỐI, thứ mà `traLoi.test.ts` không với tới: bộ kia kiểm
+ * được hai dữ kiện dựng đúng và cư xử đúng, nhưng một bản vá gỡ `goc` ra khỏi
+ * `ReportViewer` vẫn để nó xanh y nguyên.
+ */
+describe('trang xem báo cáo khai số liệu này lấy từ đâu', () => {
+  it('mọi ô mang theo nguồn gốc của báo cáo', async () => {
+    const { lan, value } = batNguCanh();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <NguCanhContext.Provider value={value}>
+          <ReportViewer report={BAO_CAO} activePageId="p1" onSelectPage={vi.fn()} />
+        </NguCanhContext.Provider>
+      </QueryClientProvider>,
+    );
+
+    await screen.findByText('Nước suối Lavie 500ml');
+
+    await waitFor(() => {
+      expect(cuoi(lan).nguon[0]?.duKien).toContainEqual({
+        nhan: 'Nguồn số liệu của báo cáo Cost price theo Product Name',
+        gia: 'Mô hình dữ liệu Bán hàng',
+      });
+    });
+  });
+
+  /*
+   * Báo cáo MỘT biểu đồ đi một nhánh khác hẳn trong `ReportViewer`: không có
+   * `canvas`, nên nó dựng một nguồn duy nhất từ `fetchReportData`. Thiếu ca
+   * này thì gỡ `goc` ra khỏi nhánh ấy vẫn xanh — đã thử bằng đột biến.
+   */
+  it('báo cáo một biểu đồ trên BỘ DỮ LIỆU cũng nói được nạp từ tệp', async () => {
+    vi.mocked(fetchReportData).mockResolvedValue(TRANG_0);
+    const { lan, value } = batNguCanh();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const motBieuDo = {
+      ...BAO_CAO,
+      name: 'Đơn hàng Q4',
+      source: 'dataset',
+      sourceName: 'Đơn hàng Q4',
+      datasetSource: 'file',
+      datasetId: 9,
+      datamodelId: null,
+      canvas: null,
+      config: { dimension: 'Product Name', measure: 'Cost price' },
+    } as unknown as ReportDto;
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <NguCanhContext.Provider value={value}>
+          <ReportViewer report={motBieuDo} activePageId={null} onSelectPage={vi.fn()} />
+        </NguCanhContext.Provider>
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => {
+      // Phải là bản khai SAU khi số về. Nhánh "chưa có bảng" cũng mang hai dữ
+      // kiện này, nên thiếu dòng dưới thì ca xanh cả khi nhánh có bảng bị gỡ.
+      expect(cuoi(lan).nguon[0]?.bang).toBeDefined();
+      expect(cuoi(lan).nguon[0]?.duKien).toContainEqual({
+        nhan: 'Nguồn của bộ dữ liệu Đơn hàng Q4',
+        gia: 'Từ file',
+      });
+    });
   });
 });

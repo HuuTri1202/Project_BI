@@ -12,6 +12,7 @@ import { useReportCanvasData, useReportData } from '../datasets/hooks';
 import { getApiError } from '../../services/apiClient';
 import { DANG_TAI, loiXuat } from '../../services/danhDauXuat';
 import { readSnapshot, snapshotIdOf, writeSnapshot } from '../../services/querySnapshots';
+import { duKienNguonBaoCao } from '../chat/duKienTrang';
 import { useKhaiNguCanh } from '../chat/nguCanh';
 import type { NguCanh } from '../chat/nguCanh';
 import { tieuDeTuSoLieu } from './nhanO';
@@ -229,6 +230,13 @@ export function ReportViewer({
 
   const nguCanh = useMemo((): NguCanh => {
     /*
+     * Báo cáo này lấy số từ đâu — gắn vào MỌI nguồn, vì nó đúng cho mọi ô.
+     * Xem `duKienNguonBaoCao`: trùng nhãn bị gạt, nên mười hai ô không tốn
+     * mười hai chỗ trong trần nhãn gửi lên mô hình.
+     */
+    const goc = duKienNguonBaoCao(report);
+
+    /*
      * Báo cáo dựng trên MÔ HÌNH thì khai luôn id của nó: khung được phép tự
      * dựng một truy vấn mới khi mọi phép so ngoại tuyến đã trượt — "doanh thu
      * tháng 3 của Miền Bắc" không có ô nào trên khung trả lời được.
@@ -248,18 +256,25 @@ export function ReportViewer({
           // Bản khai của ô đứng TRƯỚC: nó là thứ đang trên màn hình.
           const bang = trangNhom[`${activePage.id}:${visual.id}`] ?? theoId.get(visual.id);
           if (bang === undefined || bang === null) return [];
-          return [{ ten: visual.title ?? tieuDeTuSoLieu(bang), duKien: [], bang }];
+          return [{ ten: visual.title ?? tieuDeTuSoLieu(bang), duKien: goc, bang }];
         }),
       };
     }
     const bang = data.data;
-    if (bang === undefined) return { ...moHinh, trang: `báo cáo ${report.name}`, nguon: [] };
+    if (bang === undefined)
+      return {
+        ...moHinh,
+        trang: `báo cáo ${report.name}`,
+        // Biểu đồ chưa vẽ được KHÔNG làm câu "báo cáo này lấy số từ đâu" mất
+        // đáp án — hai dữ kiện đó không đứng trên bảng số nào.
+        nguon: [{ ten: report.name, duKien: goc }],
+      };
     return {
       ...moHinh,
       trang: `báo cáo ${report.name}`,
-      nguon: [{ ten: report.name, duKien: [], bang }],
+      nguon: [{ ten: report.name, duKien: goc, bang }],
     };
-  }, [activePage, soLieuTrang, trangNhom, data.data, report.name, report.datamodelId]);
+  }, [activePage, soLieuTrang, trangNhom, data.data, report]);
 
   useKhaiNguCanh(nguCanh);
 
