@@ -112,17 +112,21 @@ const NHAC = [
  *
  * Thứ duy nhất phá được vòng đó là câu của người dùng thật. Sổ này đi thu.
  *
- * ═══ Vì sao đặt ở ĐÂY mà không phải chỗ khác ═══════════════════════════════
+ * ═══ Vì sao gọi từ ROUTE, không gọi từ trong `hieuY` ═══════════════════════
  *
- * Không phải tuỳ tiện — đây đúng là chỗ hẹp nhất mà mọi câu trượt đều đi qua.
- * Frontend chỉ gọi `hieu-y` TRONG nhánh `kq === null`, tức là sau khi cả phép
- * so từ khoá, lớp hỏi lại nguồn, bộ nhớ một lượt lẫn đường dựng biểu đồ đều đã
- * trượt (xem `HoiDapPanel.tsx`, chỗ gọi `nhoMoHinhChon`). Câu nào tới được đây
- * thì đúng là câu lớp ngoại tuyến bó tay.
+ * Bản đầu đặt lời gọi ngay trong `hieuY`, với lý do "đó là chỗ hẹp nhất mà mọi
+ * câu trượt đều đi qua". Hẹp thì đúng, nhưng hẹp không phải thứ cần: thứ cần
+ * là ranh giới "một NGƯỜI THẬT vừa gõ câu này".
  *
- * Ghi ở frontend thì phải đẻ thêm một endpoint chỉ để ghi log; ghi ở route
- * `/chat/hieu-y` thì bỏ sót lượt gọi từ `scripts/kiem-llm.ts`. Ở trong hàm là
- * chỗ không có đường vòng nào.
+ * Giá của chỗ sai đó hiện ra ngay lần đầu chạy `llm:danh-gia`: 25 câu dựng tay
+ * của bộ đánh giá đổ thẳng vào sổ và chôn mất hai dòng người dùng thật. Một
+ * cái sổ trộn câu thật với câu máy tự sinh thì không dùng được vào việc nó
+ * sinh ra để làm.
+ *
+ * Route `/chat/hieu-y` mới là ranh giới ấy — và nó vẫn hẹp y như cũ: frontend
+ * chỉ gọi endpoint này TRONG nhánh `kq === null`, tức sau khi phép so từ khoá,
+ * lớp hỏi lại nguồn, bộ nhớ một lượt và đường dựng biểu đồ đều đã trượt (xem
+ * `HoiDapPanel.tsx`, chỗ gọi `nhoMoHinhChon`).
  *
  * ⚠️ Biết là CÒN SÓT một nhánh: khi trang không có lấy một nhãn nào để chọn,
  * frontend đi thẳng tới `hetDuong` và không gọi tới đây. Nhánh đó cần trang
@@ -152,7 +156,7 @@ const NHAC = [
  */
 const SO_TRUOT = 'chua-hieu.tsv';
 
-function ghiTruot(cauHoi: string, nhanChon: string | null): void {
+export function ghiTruot(cauHoi: string, nhanChon: string | null): void {
   // Gộp mọi khoảng trắng: câu dán từ chỗ khác có thể xuống dòng, mà một dòng
   // trong sổ phải là một câu hỏi — nếu không thì `grep` và `wc -l` đều nói sai.
   const dong = [
@@ -190,10 +194,7 @@ function ghiTruot(cauHoi: string, nhanChon: string | null): void {
  */
 export async function hieuY(input: HieuYInput): Promise<HieuYKetQua> {
   const nhan = input.nhan.slice(0, TRAN_NHAN);
-  if (!coCauHinhLlm() || nhan.length === 0) {
-    ghiTruot(input.cauHoi, null);
-    return { chon: null, daHoi: false };
-  }
+  if (!coCauHinhLlm() || nhan.length === 0) return { chon: null, daHoi: false };
 
   const danhSach = nhan.map((n, i) => `${String(i + 1)}. ${n}`).join('\n');
 
@@ -211,7 +212,8 @@ export async function hieuY(input: HieuYInput): Promise<HieuYKetQua> {
     400,
   );
 
-  const chon = noiDung === null ? null : chonHopLe(noiDung, nhan.length);
-  ghiTruot(input.cauHoi, chon === null ? null : (nhan[chon] ?? null));
-  return { chon, daHoi: daGoi };
+  return {
+    chon: noiDung === null ? null : chonHopLe(noiDung, nhan.length),
+    daHoi: daGoi,
+  };
 }
