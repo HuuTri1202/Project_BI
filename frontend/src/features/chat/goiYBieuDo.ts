@@ -2,6 +2,7 @@ import {
   CHART_SHELF_LABELS,
   CHART_TYPE_HINTS,
   CHART_TYPE_LABELS,
+  type ChartSort,
   type ChartType,
   type ExplorerFieldDto,
   type ExplorerFieldsDto,
@@ -447,4 +448,170 @@ export function deXuatBieuDo(
  */
 export function tenDeXuat(g: GoiYBieuDo): string {
   return `${g.thuocDo.label} theo ${g.chieu.label}`;
+}
+
+/* ═══ SỬA biểu đồ đã vẽ ══════════════════════════════════════════════════════
+ *
+ * Mọi thứ ở trên DỰNG một biểu đồ mới. Nhưng câu hỏi hay gặp nhất sau khi biểu
+ * đồ hiện ra lại không phải "vẽ cái khác" — nó là "cái này nhưng gọn hơn":
+ * "chỉ lấy top 5", "5 cái thấp nhất", "tách theo nhóm hàng".
+ *
+ * ═══ Vì sao KHÔNG có lọc, dù tui đã hứa ba thứ ═════════════════════════════
+ *
+ * `ReportModelConfigDto` không có ô lọc nào. Một biểu đồ ở đây là "gộp thước
+ * đo theo chiều, lấy N nhóm" — không có mệnh đề WHERE để mà ghi vào. Làm lọc
+ * nghĩa là thêm trường vào DTO, thêm nhánh dựng truy vấn ở backend và một ô
+ * soạn lọc trong trình dựng; đó là một tính năng của trình dựng, không phải
+ * một tính năng của khung chat. Nên ở đây chỉ có ba thứ CÓ THẬT.
+ *
+ * ═══ Vì sao mấy danh sách từ dưới đây KHÔNG phải cái bẫy đã gỡ ═════════════
+ *
+ * `TU_Y_DINH` bị gỡ khỏi đường vẽ vì nó đoán xem NGƯỜI DÙNG gọi ý định của họ
+ * là gì — vô hạn cách nói, và thiếu một cách là trượt hẳn. Mấy từ dưới đây nói
+ * về CÁI NÚT CỦA CHÍNH TA: "top", "tách theo", "thấp nhất" là tên mấy ô điều
+ * khiển trong trình dựng, không phải tên trường của khách. Cùng cái ranh giới
+ * đã ghi ở `DONG_NGHIA` và ở `loaiGoiTen`: từ vựng của ta thì liệt kê được,
+ * từ vựng về dữ liệu của khách thì không.
+ *
+ * Và chúng chỉ quyết ĐƯỜNG ĐI, không quyết câu trả lời: trượt hết thì câu hỏi
+ * rơi xuống đúng mọi lớp nó vẫn rơi xuống từ trước.
+ */
+
+/** Một thay đổi trên ô đang chọn. Trường vắng mặt = không đụng tới. */
+export interface SuaBieuDo {
+  /** Số nhóm mỗi trang — `ReportModelConfigDto.limit`. */
+  soNhom?: number;
+  sapXep?: ChartSort;
+  /** `null` = bỏ tách màu. */
+  chieuPhuId?: number | null;
+}
+
+/** Trần số nhóm, đúng trần mà ô soạn trong trình dựng đang ép. */
+const TRAN_NHOM = 200;
+
+const TU_TACH = [
+  'tach theo',
+  'chia theo',
+  'phan theo',
+  'tach mau theo',
+  'chia mau theo',
+  'nhom mau theo',
+  'to mau theo',
+  'tach ra theo',
+  'chia nho theo',
+];
+const TU_BO_TACH = [
+  'bo tach',
+  'bo chia',
+  'bo mau',
+  'gop lai',
+  'khong tach',
+  'thoi tach',
+  'bo nhom mau',
+  'go tach',
+];
+
+/**
+ * Số nhóm người dùng xin — `null` = câu này không nói gì về số nhóm.
+ *
+ * ⚠️ Một con số TRẦN TRỤI không bao giờ đủ. "doanh thu 2024" có một con số, và
+ * hiểu nó thành "lấy 2024 nhóm" thì vừa sai vừa làm biểu đồ treo. Nên con số
+ * phải đi kèm một chữ nói rằng nó ĐANG ĐẾM NHÓM — và mấy chữ đó là từ vựng
+ * của ô điều khiển, không phải của dữ liệu.
+ */
+function docSoNhom(q: string): number | null {
+  const m =
+    /\btop\s*(\d{1,3})\b/.exec(q) ??
+    /\b(\d{1,3})\s*(?:cai|nhom|muc|dong|cot|phan tu)\b/.exec(q) ??
+    /\b(?:chi|lay|gioi han|rut con|con)\s*(\d{1,3})\b/.exec(q) ??
+    /\b(\d{1,3})\s*(?:thoi|la du|cho gon)\b/.exec(q);
+  if (m === null) return null;
+  const n = Number(m[1]);
+  return n >= 1 && n <= TRAN_NHOM ? n : null;
+}
+
+/**
+ * Chiều xếp hạng — đọc từ chính chữ "cao/thấp" mà người dùng dùng.
+ *
+ * Chỉ trả về khi câu có nói, vì `undefined` ở đây nghĩa là "giữ nguyên thứ tự
+ * đang có". Đặt mặc định `'value'` là lặng lẽ bẻ thứ tự của một biểu đồ mà
+ * người dùng chỉ xin đổi số nhóm.
+ */
+function docSapXep(q: string): ChartSort | undefined {
+  const xuong = /thap nhat|nho nhat|it nhat|be nhat|yeu nhat|kem nhat|tu duoi/.test(q);
+  const len = /cao nhat|lon nhat|nhieu nhat|manh nhat|tot nhat|tu tren|ban chay/.test(q);
+  // Nói cả hai chiều trong một câu thì không có chiều nào được chọn hộ.
+  if (xuong === len) return undefined;
+  return xuong ? 'value-asc' : 'value';
+}
+
+/**
+ * Đọc một câu thành thay đổi trên ô đang chọn.
+ *
+ * `null` = câu này không xin sửa gì. `'mo-ho'` = có xin tách màu, nhưng tên
+ * chiều trúng nhiều hơn một trường — hoà thì HỎI LẠI, đúng luật đang áp cho
+ * cả đường vẽ.
+ */
+export function docSuaBieuDo(
+  truong: ExplorerFieldsDto | undefined,
+  cauHoi: string,
+): SuaBieuDo | 'mo-ho' | null {
+  const q = chuanHoa(cauHoi);
+
+  if (TU_BO_TACH.some((t) => q.includes(t))) return { chieuPhuId: null };
+
+  const tach = TU_TACH.find((t) => q.includes(t));
+  if (tach !== undefined) {
+    if (truong === undefined) return null;
+    const ve = tuNoiDung(q.slice(q.indexOf(tach) + tach.length));
+    const top = topTruong(truong.dimensions, ve);
+    if (top.length > 1) return 'mo-ho';
+    const chieu = top[0];
+    return chieu === undefined ? null : { chieuPhuId: chieu.id };
+  }
+
+  const soNhom = docSoNhom(q);
+  if (soNhom === null) return null;
+  const sapXep = docSapXep(q);
+  return sapXep === undefined ? { soNhom } : { soNhom, sapXep };
+}
+
+/** Mấy chiều mà một câu "tách theo…" mơ hồ đang trúng — để hỏi lại. */
+export function tachMoHo(
+  truong: ExplorerFieldsDto | undefined,
+  cauHoi: string,
+): ExplorerFieldDto[] {
+  const q = chuanHoa(cauHoi);
+  const tach = TU_TACH.find((t) => q.includes(t));
+  if (tach === undefined || truong === undefined) return [];
+  return topTruong(truong.dimensions, tuNoiDung(q.slice(q.indexOf(tach) + tach.length)));
+}
+
+/**
+ * Câu báo đã sửa gì.
+ *
+ * `so` mang đúng những chuỗi mà lớp viết lại bị đối chiếu — tên trường và con
+ * số nhóm — nên mô hình không bẻ được chúng. Xem `services/chat/dienDat.ts`.
+ */
+export function cauSua(thay: SuaBieuDo, tenChieuPhu: string | null): TraLoi {
+  const ve: string[] = [];
+  const so: string[] = [];
+
+  if (thay.soNhom !== undefined) {
+    ve.push(`rút còn ${String(thay.soNhom)} nhóm mỗi trang`);
+    so.push(String(thay.soNhom));
+  }
+  if (thay.sapXep !== undefined) {
+    ve.push(thay.sapXep === 'value-asc' ? 'xếp từ nhỏ lên lớn' : 'xếp từ lớn xuống nhỏ');
+  }
+  if (thay.chieuPhuId === null) ve.push('bỏ tách màu');
+  else if (thay.chieuPhuId !== undefined && tenChieuPhu !== null) {
+    ve.push(`tách màu theo "${tenChieuPhu}"`);
+    so.push(tenChieuPhu);
+  }
+
+  return {
+    cau: `Đã ${ve.join(', ')} cho ô đang chọn. Không ưng thì Ctrl+Z.`,
+    so,
+  };
 }

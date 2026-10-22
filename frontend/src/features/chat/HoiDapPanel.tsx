@@ -3,10 +3,20 @@ import { useEffect, useRef, useState } from 'react';
 
 import { KHONG_XUAT } from '../../services/danhDauXuat';
 import { dienDatLai, hieuCauHoi, hoiTrenMoHinh } from './api';
-import { cauGoiY, deXuatBieuDo, goiYBieuDo, goiYMoHo, muonVe, tenDeXuat } from './goiYBieuDo';
-import type { GoiYBieuDo } from './goiYBieuDo';
+import {
+  cauGoiY,
+  cauSua,
+  deXuatBieuDo,
+  docSuaBieuDo,
+  goiYBieuDo,
+  goiYMoHo,
+  muonVe,
+  tachMoHo,
+  tenDeXuat,
+} from './goiYBieuDo';
+import type { GoiYBieuDo, SuaBieuDo } from './goiYBieuDo';
 import { useNguCanh } from './nguCanh';
-import type { Nguon } from './nguCanh';
+import type { NguCanh, Nguon } from './nguCanh';
 import { useNguCanhHeThong } from './nguCanhHeThong';
 import { useCoMoHinh } from './trangThai';
 import {
@@ -240,6 +250,76 @@ export function HoiDapPanel(): React.ReactElement | null {
      * Nhờ vậy danh sách `TU_Y_DINH` không cần đóng — thiếu một cách nói chỉ đổi
      * THỨ TỰ, không mất đường.
      */
+    /*
+     * ═══ SỬA ô đang chọn — đứng TRƯỚC mọi đường khác ═══════════════════════
+     *
+     * Phải trước đường vẽ, vì "tách theo nhóm hàng" có chữ "theo" và sẽ bị
+     * `goiYBieuDo` đọc thành một cặp chiều–thước đo rồi dựng một biểu đồ MỚI —
+     * đúng thứ người dùng không xin. Mấy chữ "tách theo", "top", "bỏ tách" nói
+     * về cái nút của chính ta nên chúng được quyền chặn sớm; xem `docSuaBieuDo`.
+     */
+    const sua = docSuaBieuDo(nguCanh.truong, q);
+    if (sua !== null) {
+      demId.current += 2;
+      const idSua = demId.current;
+      const lucSua = gioBayGio();
+      const nguoi = { id: idSua - 1, ai: 'nguoi' as const, cau: q, luc: lucSua };
+
+      /*
+       * Không có ô nào đang chọn thì NÓI RA. Rơi xuống "chưa hiểu" ở đây là
+       * tệ nhất: người dùng đọc ra "khung không hiểu câu này", rồi gõ lại y
+       * hệt, trong khi thứ thiếu là một cú bấm vào ô biểu đồ.
+       */
+      if (nguCanh.suaBieuDo === undefined) {
+        setTinNhan((cu) => [
+          ...cu,
+          nguoi,
+          {
+            id: idSua,
+            ai: 'bot',
+            luc: lucSua,
+            chuaHieu: true,
+            cau: 'Chưa có ô biểu đồ nào đang chọn. Bấm vào ô bạn muốn sửa rồi hỏi lại câu này.',
+          },
+        ]);
+        setCauHoi('');
+        return;
+      }
+
+      /*
+       * Hoà điểm thì HỎI LẠI bằng chữ, không bằng nút.
+       *
+       * Khác chỗ hỏi lại nguồn và chỗ đề xuất cặp vẽ — hai chỗ đó có nút bấm.
+       * Ở đây chưa, vì nó cần một kiểu nút thứ ba cho một nhánh hiếm: hoà chỉ
+       * xảy ra khi hai chiều trùng nhau đúng số từ ("ngày" trúng cả "Ngày đặt"
+       * lẫn "Ngày giao"). Gõ lại đủ tên là xong, và nó không nợ thêm UI nào.
+       */
+      if (sua === 'mo-ho') {
+        const ten = tachMoHo(nguCanh.truong, q).map((d) => `"${d.label}"`);
+        setTinNhan((cu) => [
+          ...cu,
+          nguoi,
+          {
+            id: idSua,
+            ai: 'bot',
+            luc: lucSua,
+            chuaHieu: true,
+            cau: `Tách theo ${ten.join(' hay ')}? Gõ lại kèm đủ tên giúp tôi.`,
+          },
+        ]);
+        setCauHoi('');
+        return;
+      }
+
+      nguCanh.suaBieuDo(sua);
+      const kqSua = cauSua(sua, tenChieuPhuMoi(nguCanh, sua));
+      setTinNhan((cu) => [...cu, nguoi, { id: idSua, ai: 'bot', luc: lucSua, cau: kqSua.cau }]);
+      setCauHoi('');
+      setCauTruoc(q);
+      vietLai(q, idSua, kqSua);
+      return;
+    }
+
     const gy = goiYBieuDo(nguCanh.truong, q);
     // Khớp ngang nhau vài cặp — hỏi lại còn hơn im, xem `goiYMoHo`.
     const moHoVe = gy === null ? goiYMoHo(nguCanh.truong, q) : [];
@@ -339,6 +419,19 @@ export function HoiDapPanel(): React.ReactElement | null {
     }
 
     vietLai(q, idBot, kq);
+  }
+
+  /**
+   * Tên chiều mà câu vừa rồi tách màu theo — để câu báo gọi đúng chữ trên màn hình.
+   *
+   * Đọc từ `truong`, không đọc từ `chieuPhu` của ngữ cảnh: `chieuPhu` là chiều
+   * đang tách TRƯỚC khi sửa, còn thứ cần in ra là chiều VỪA chọn. Hai cái đó chỉ
+   * trùng nhau khi người dùng tách lại đúng chiều cũ.
+   */
+  function tenChieuPhuMoi(nguCanh: NguCanh, sua: SuaBieuDo): string | null {
+    const id = sua.chieuPhuId;
+    if (id === undefined || id === null) return null;
+    return nguCanh.truong?.dimensions.find((d) => d.id === id)?.label ?? null;
   }
 
   /** Thêm một câu của bot vào cuối, và trả lại mã của nó. */

@@ -105,11 +105,13 @@ function TrangGiaLap({
   moHinhId,
   truong,
   veBieuDo,
+  suaBieuDo,
 }: {
   nguon: Nguon[];
   moHinhId?: number;
   truong?: ExplorerFieldsDto;
   veBieuDo?: NguCanh['veBieuDo'];
+  suaBieuDo?: NguCanh['suaBieuDo'];
 }): React.ReactElement {
   const nguCanh = useMemo(
     (): NguCanh => ({
@@ -118,8 +120,9 @@ function TrangGiaLap({
       ...(moHinhId === undefined ? {} : { moHinhId }),
       ...(truong === undefined ? {} : { truong }),
       ...(veBieuDo === undefined ? {} : { veBieuDo }),
+      ...(suaBieuDo === undefined ? {} : { suaBieuDo }),
     }),
-    [nguon, moHinhId, truong, veBieuDo],
+    [nguon, moHinhId, truong, veBieuDo, suaBieuDo],
   );
   useKhaiNguCanh(nguCanh);
   return <p>nội dung trang</p>;
@@ -130,11 +133,18 @@ function dung(
   moHinhId?: number,
   truong?: ExplorerFieldsDto,
   veBieuDo?: NguCanh['veBieuDo'],
+  suaBieuDo?: NguCanh['suaBieuDo'],
 ): { doiMoHinh: (id: number) => void } {
   const { rerender } = render(
     <MemoryRouter>
       <NguCanhProvider>
-        <TrangGiaLap nguon={nguon} moHinhId={moHinhId} truong={truong} veBieuDo={veBieuDo} />
+        <TrangGiaLap
+          nguon={nguon}
+          moHinhId={moHinhId}
+          truong={truong}
+          veBieuDo={veBieuDo}
+          suaBieuDo={suaBieuDo}
+        />
       </NguCanhProvider>
     </MemoryRouter>,
   );
@@ -1446,5 +1456,86 @@ describe('Hoà điểm ở đường vẽ thì hỏi lại', () => {
     expect(screen.getByText('Doanh thu gộp theo Khu vực')).toBeInTheDocument();
     expect(screen.getByText('Doanh thu thuần theo Khu vực')).toBeInTheDocument();
     expect(screen.getAllByRole('button', { name: 'Vẽ' })).toHaveLength(2);
+  });
+});
+
+/**
+ * SỬA ô đang chọn — "chỉ lấy top 5", "tách theo nhóm hàng".
+ *
+ * ═══ Bộ này canh gì ════════════════════════════════════════════════════════
+ *
+ * Đường này GHI vào trang, nên hai kiểu hỏng của nó đều nặng hơn một câu trả
+ * lời sai:
+ *
+ *   1. Nói đã sửa mà KHÔNG sửa (hoặc ngược lại). Người dùng đọc câu xác nhận
+ *      rồi đi tiếp, không ai kiểm lại.
+ *   2. Sửa khi lẽ ra phải vẽ. "tách theo nhóm hàng" có chữ "theo" và sẽ bị
+ *      đường vẽ đọc thành một cặp chiều–thước đo nếu nó chạy trước.
+ */
+describe('Sửa ô biểu đồ đang chọn', () => {
+  const f = (x: Partial<ExplorerFieldDto>): ExplorerFieldDto =>
+    ({ id: 1, label: 'X', datasetName: 'Đơn hàng', cubeType: 'string', ...x }) as ExplorerFieldDto;
+
+  const TRUONG: ExplorerFieldsDto = {
+    dimensions: [f({ id: 1, label: 'Khu vực' }), f({ id: 2, label: 'Nhóm hàng' })],
+    measures: [f({ id: 10, label: 'Doanh thu', cubeType: 'number' })],
+  };
+
+  const NGUON: Nguon[] = [
+    { ten: 'Mô hình Bán hàng', duKien: [{ nhan: 'Số bảng trong mô hình Bán hàng', gia: '3' }] },
+  ];
+
+  it('"chỉ lấy top 5" gọi xuống trang đúng con số', async () => {
+    const sua = vi.fn();
+    dung(NGUON, 7, TRUONG, vi.fn(), sua);
+    fireEvent.click(nutMo());
+
+    hoi('chỉ lấy top 5');
+
+    expect(sua).toHaveBeenCalledWith({ soNhom: 5 });
+    expect(await screen.findByText(/5 nhóm mỗi trang/)).toBeInTheDocument();
+    expect(screen.getByText(/Ctrl\+Z/)).toBeInTheDocument();
+  });
+
+  it('"tách theo nhóm hàng" SỬA ô, KHÔNG dựng biểu đồ mới', async () => {
+    const sua = vi.fn();
+    const ve = vi.fn();
+    dung(NGUON, 7, TRUONG, ve, sua);
+    fireEvent.click(nutMo());
+
+    hoi('tách theo nhóm hàng');
+
+    expect(sua).toHaveBeenCalledWith({ chieuPhuId: 2 });
+    expect(ve).not.toHaveBeenCalled();
+    expect(await screen.findByText(/Nhóm hàng/)).toBeInTheDocument();
+  });
+
+  /*
+   * ⚠️ Chưa chọn ô nào thì phải NÓI RA. Rơi xuống "chưa hiểu" là tệ nhất:
+   * người dùng đọc ra "khung không hiểu câu này" rồi gõ lại y hệt, trong khi
+   * thứ thiếu chỉ là một cú bấm vào ô biểu đồ.
+   */
+  it('chưa chọn ô nào thì nói thiếu cú bấm, không nói chưa hiểu', async () => {
+    dung(NGUON, 7, TRUONG, vi.fn());
+    fireEvent.click(nutMo());
+
+    hoi('chỉ lấy top 5');
+
+    expect(await screen.findByText(/Bấm vào ô bạn muốn sửa/)).toBeInTheDocument();
+  });
+
+  it('tên chiều trúng hai trường thì hỏi lại, và KHÔNG sửa gì', async () => {
+    const sua = vi.fn();
+    const haiNgay: ExplorerFieldsDto = {
+      dimensions: [f({ id: 1, label: 'Ngày đặt' }), f({ id: 2, label: 'Ngày giao' })],
+      measures: [f({ id: 10, label: 'Doanh thu', cubeType: 'number' })],
+    };
+    dung(NGUON, 7, haiNgay, vi.fn(), sua);
+    fireEvent.click(nutMo());
+
+    hoi('tách theo ngày');
+
+    expect(await screen.findByText(/"Ngày đặt" hay "Ngày giao"/)).toBeInTheDocument();
+    expect(sua).not.toHaveBeenCalled();
   });
 });

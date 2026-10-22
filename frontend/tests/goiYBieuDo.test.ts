@@ -3,10 +3,13 @@ import { describe, expect, it } from 'vitest';
 
 import {
   cauGoiY,
+  cauSua,
   deXuatBieuDo,
+  docSuaBieuDo,
   goiYBieuDo,
   goiYMoHo,
   muonVe,
+  tachMoHo,
   tenDeXuat,
 } from '../src/features/chat/goiYBieuDo';
 
@@ -401,5 +404,109 @@ describe('nhiều chiều thời gian thì hỏi, không điền bừa', () => {
     const ds = goiYMoHo(haiNgay, 'vẽ biểu đồ doanh thu theo tháng');
 
     expect(ds.map((g) => g.chieu.label)).toEqual(['Ngày đặt', 'Ngày giao']);
+  });
+});
+
+/**
+ * SỬA biểu đồ đã vẽ — top N, chiều xếp, tách màu.
+ *
+ * ═══ Bộ này canh gì ════════════════════════════════════════════════════════
+ *
+ * Đường này GHI, không đọc. Nên kiểu hỏng ở đây khác hẳn mọi chỗ khác của
+ * khung: không phải một câu trả lời sai mà là một biểu đồ bị sửa sai, và người
+ * dùng chỉ thấy số liệu đổi chứ không thấy lý do. Ba nhánh được canh riêng:
+ *
+ *   1. Con số TRẦN TRỤI không bao giờ được hiểu thành số nhóm ("doanh thu
+ *      2024" mà rút còn 2024 nhóm thì vừa sai vừa treo máy).
+ *   2. Không nói về chiều xếp thì KHÔNG được chọn hộ — người xin đổi số nhóm
+ *      không xin bẻ thứ tự.
+ *   3. Tên chiều trúng hai trường thì HỎI LẠI, đúng luật đang áp cho đường vẽ.
+ */
+describe('docSuaBieuDo', () => {
+  const NGAY_DOI: ExplorerFieldsDto = {
+    dimensions: [
+      truong({ id: 1, label: 'Ngày đặt', datasetName: 'Đơn hàng', cubeType: 'time' }),
+      truong({ id: 2, label: 'Ngày giao', datasetName: 'Đơn hàng', cubeType: 'time' }),
+    ],
+    measures: [truong({ id: 10, label: 'Doanh thu', cubeType: 'number' })],
+  };
+
+  it('"chỉ lấy top 5" -> rút còn 5 nhóm, KHÔNG đụng thứ tự', () => {
+    expect(docSuaBieuDo(MO_HINH, 'chỉ lấy top 5')).toEqual({ soNhom: 5 });
+  });
+
+  it('"cho tui 10 cái thôi" -> 10 nhóm', () => {
+    expect(docSuaBieuDo(MO_HINH, 'cho tui 10 cái thôi')).toEqual({ soNhom: 10 });
+  });
+
+  it('"top 5 thấp nhất" -> vừa rút vừa xếp ngược', () => {
+    expect(docSuaBieuDo(MO_HINH, 'top 5 thấp nhất')).toEqual({
+      soNhom: 5,
+      sapXep: 'value-asc',
+    });
+  });
+
+  /*
+   * ⚠️ Ca quan trọng nhất của nhánh số. Một con số trần trụi nằm trong câu
+   * KHÔNG phải một yêu cầu đổi số nhóm — câu này hỏi về một năm.
+   */
+  it('"doanh thu 2024" KHÔNG phải lệnh rút còn 2024 nhóm', () => {
+    expect(docSuaBieuDo(MO_HINH, 'doanh thu 2024')).toBeNull();
+  });
+
+  it('số vượt trần thì bỏ, không kẹp về trần', () => {
+    expect(docSuaBieuDo(MO_HINH, 'top 900')).toBeNull();
+  });
+
+  it('nói cả "cao nhất" lẫn "thấp nhất" thì không chọn hộ chiều nào', () => {
+    expect(docSuaBieuDo(MO_HINH, 'top 5 cao nhất hay thấp nhất')).toEqual({ soNhom: 5 });
+  });
+
+  it('"tách theo nhóm hàng" -> chiều phụ đúng trường', () => {
+    expect(docSuaBieuDo(MO_HINH, 'tách theo nhóm hàng')).toEqual({ chieuPhuId: 2 });
+  });
+
+  it('"bỏ tách màu đi" -> gỡ chiều phụ', () => {
+    expect(docSuaBieuDo(MO_HINH, 'bỏ tách màu đi')).toEqual({ chieuPhuId: null });
+  });
+
+  it('tên chiều trúng hai trường thì HỎI LẠI, không bốc một cái', () => {
+    expect(docSuaBieuDo(NGAY_DOI, 'tách theo ngày')).toBe('mo-ho');
+    expect(tachMoHo(NGAY_DOI, 'tách theo ngày').map((d) => d.label)).toEqual([
+      'Ngày đặt',
+      'Ngày giao',
+    ]);
+  });
+
+  it('"tách theo" một thứ không có trường nào -> không sửa gì', () => {
+    expect(docSuaBieuDo(MO_HINH, 'tách theo thời tiết')).toBeNull();
+  });
+
+  /*
+   * Câu hỏi số liệu bình thường phải đi thẳng qua đường này. Một câu "chưa
+   * hiểu" ở đây không chỉ mất câu trả lời — nó còn SỬA biểu đồ.
+   */
+  it('câu hỏi số liệu bình thường không bị nhận nhầm là lệnh sửa', () => {
+    expect(docSuaBieuDo(MO_HINH, 'khu vực nào doanh thu cao nhất')).toBeNull();
+    expect(docSuaBieuDo(MO_HINH, 'tổng doanh thu là bao nhiêu')).toBeNull();
+    expect(docSuaBieuDo(MO_HINH, 'tui muốn xem doanh thu theo khu vực')).toBeNull();
+  });
+});
+
+describe('cauSua', () => {
+  it('kể đúng những gì đã đổi, và nhắc Ctrl+Z', () => {
+    const kq = cauSua({ soNhom: 5, sapXep: 'value-asc' }, null);
+
+    expect(kq.cau).toContain('5 nhóm');
+    expect(kq.cau).toContain('nhỏ lên lớn');
+    expect(kq.cau).toContain('Ctrl+Z');
+  });
+
+  /*
+   * `so` là thứ backend đối chiếu lại câu mô hình viết ra. Thiếu tên trường ở
+   * đây nghĩa là lớp viết lại được phép đổi nó thành một trường khác.
+   */
+  it('tên chiều và con số nằm trong `so` để lớp viết lại không bẻ được', () => {
+    expect(cauSua({ soNhom: 5, chieuPhuId: 2 }, 'Nhóm hàng').so).toEqual(['5', 'Nhóm hàng']);
   });
 });

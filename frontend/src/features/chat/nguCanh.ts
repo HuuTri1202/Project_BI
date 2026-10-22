@@ -1,6 +1,8 @@
 import type { ChartType, ExplorerFieldsDto, ReportDataDto } from '@bi/shared';
 import { createContext, useContext, useEffect } from 'react';
 
+import type { SuaBieuDo } from './goiYBieuDo';
+
 /**
  * NGỮ CẢNH — thứ trang đang mở tự khai là "những gì tôi đang biết".
  *
@@ -172,6 +174,19 @@ export interface NguCanh {
    * lần render, và `useKhaiNguCanh` sẽ quay vòng vô hạn.
    */
   veBieuDo?: (g: { chieuId: number; thuocDoId: number; loai: ChartType }) => void;
+  /**
+   * SỬA ô đang chọn — cùng một đường ghi, cho câu hỏi hay gặp nhất sau khi
+   * biểu đồ đã hiện ra: "chỉ lấy top 5", "tách theo nhóm hàng".
+   *
+   * Có mặt KHI VÀ CHỈ KHI trình dựng đang có một ô được chọn. Không có ô nào
+   * thì "chỉ lấy top 5" không có nghĩa, và một câu trả lời "đã rút còn 5 nhóm"
+   * trong lúc không ô nào đổi là lời nói dối tệ nhất mà khung này nói được.
+   *
+   * ⚠️ Giữ nguyên tham chiếu giữa các lần render — cùng lý do với `veBieuDo`.
+   */
+  suaBieuDo?: (thay: SuaBieuDo) => void;
+  /** Tên chiều đang tách màu ở ô đang chọn — để nói "bỏ tách" cho đúng. */
+  chieuPhu?: string | null;
 }
 
 export const NGU_CANH_RONG: NguCanh = { trang: '', nguon: [] };

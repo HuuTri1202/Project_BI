@@ -15,6 +15,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 
 import { usePermissions } from '../../auth/usePermissions';
+import type { SuaBieuDo } from '../../features/chat/goiYBieuDo';
 import { Button } from '../../components/ui/Button';
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
 import { SearchSelect } from '../../components/ui/SearchSelect';
@@ -557,6 +558,28 @@ function Builder({
    * ngữ cảnh là một `NguCanh` mới mỗi lần render — và `useKhaiNguCanh` quay
    * vòng vô hạn. Ref giữ bản mới nhất, `useCallback` giữ cái vỏ bất biến.
    */
+  /**
+   * SỬA ô đang chọn — top N, chiều xếp, tách màu. Xem `docSuaBieuDo`.
+   *
+   * Đi qua đúng `patch` mà cú kéo thả đi qua, nên Ctrl+Z phủ nó y như mọi thao
+   * tác khác — cùng ba cái chốt đã ghi ở `NguCanh.veBieuDo`.
+   */
+  function suaTheoCau(thay: SuaBieuDo): void {
+    if (selected === undefined || selected === null) return;
+    const banVa: Partial<VisualDraft> = {
+      ...(thay.soNhom === undefined ? {} : { limit: thay.soNhom }),
+      ...(thay.chieuPhuId === undefined ? {} : { seriesId: thay.chieuPhuId }),
+      ...(thay.sapXep === undefined ? {} : { options: { ...selected.options, sort: thay.sapXep } }),
+    };
+    patch(selected.id, banVa, false);
+  }
+
+  const suaRef = useRef(suaTheoCau);
+  useEffect(() => {
+    suaRef.current = suaTheoCau;
+  });
+  const suaBieuDo = useCallback((thay: SuaBieuDo) => suaRef.current(thay), []);
+
   const veRef = useRef(veTheoDeXuat);
   useEffect(() => {
     veRef.current = veTheoDeXuat;
@@ -595,6 +618,11 @@ function Builder({
    * tên đang hiện trên đầu ô — xem `features/reports/nhanO.ts`.
    */
   const tenO = selected === null ? null : labelOf(selected);
+  // Tên chiều đang tách màu, để khung nói "bỏ tách màu theo X" cho đúng chữ.
+  const tenChieuPhu =
+    selected?.seriesId == null
+      ? null
+      : (fields.data?.dimensions.find((d) => d.id === selected.seriesId)?.label ?? null);
   const nguCanh = useMemo(
     () => ({
       trang: model.data === undefined ? 'trình dựng báo cáo' : `mô hình ${model.data.name}`,
@@ -615,8 +643,24 @@ function Builder({
        */
       ...(fields.data === undefined ? {} : { truong: fields.data }),
       veBieuDo,
+      /*
+       * `suaBieuDo` chỉ có mặt khi ĐANG CÓ một ô được chọn: không ô nào thì
+       * "chỉ lấy top 5" không có gì để sửa, và khung phải nói ra điều đó thay
+       * vì báo đã sửa xong. Xem `NguCanh.suaBieuDo`.
+       */
+      ...(selected === null || selected === undefined ? {} : { suaBieuDo, chieuPhu: tenChieuPhu }),
     }),
-    [model.data, soLieuO.data, tenO, modelId, fields.data, veBieuDo],
+    [
+      model.data,
+      soLieuO.data,
+      tenO,
+      modelId,
+      fields.data,
+      veBieuDo,
+      selected,
+      suaBieuDo,
+      tenChieuPhu,
+    ],
   );
   useKhaiNguCanh(nguCanh);
 
