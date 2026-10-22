@@ -1,6 +1,7 @@
-import type { ReportDataDto } from '@bi/shared';
+import type { ReportDataDto, ReportDto } from '@bi/shared';
 import { describe, expect, it } from 'vitest';
 
+import { duKienNguonBaoCao } from '../src/features/chat/duKienTrang';
 import { formatValue } from '../src/features/reports/nhanO';
 import type { Nguon } from '../src/features/chat/nguCanh';
 import {
@@ -1023,5 +1024,102 @@ describe('nguonMoHo — hỏi lại khi hai mục cùng trả lời được', (
 
   it('một nguồn thì không có gì để hỏi', () => {
     expect(nguonMoHo([hai()[0]!], 'cao nhất là gì')).toBeNull();
+  });
+});
+
+/*
+ * ═══ Báo cáo này lấy số từ ĐÂU ═════════════════════════════════════════════
+ *
+ * Lỗi thật, do người dùng thật tìm ra ở lượt đầu tiên sau khi bật sổ ghi câu
+ * trượt: hỏi "lấy từ đâu ra đó" trên trang xem báo cáo thì khung nói chưa hiểu.
+ * Trang đó khai `duKien: []` nên không lớp nào có gì để bấu víu — phép so từ
+ * khoá không có nhãn để so, mô hình không có mục để chọn.
+ *
+ * Bộ này canh ba chuyện, và chuyện THỨ HAI mới là chuyện sửa được lỗi gốc:
+ *
+ *   1. Hai dữ kiện dựng đúng từ `ReportDto`, và dòng "bộ dữ liệu" KHÔNG xuất
+ *      hiện cho báo cáo dựng trên mô hình.
+ *   2. Chúng có mặt trong DANH SÁCH gửi cho mô hình. Đây là thứ thật sự trả
+ *      lời "lấy từ đâu ra đó" — nhãn là cụm danh từ nên phép so từ khoá cố ý
+ *      không khớp câu đó, việc hiểu nó là việc của lớp mô hình.
+ *   3. Gắn vào mọi ô mà không sinh ra hai hệ quả: nhãn lặp trong danh sách, và
+ *      câu hỏi ngược "bạn muốn hỏi biểu đồ nào" cho một câu chỉ có một đáp án.
+ */
+function baoCao(part: Partial<ReportDto> = {}): ReportDto {
+  return {
+    id: 1,
+    workspaceId: 1,
+    source: 'datamodel',
+    sourceName: 'Bán hàng',
+    datasetId: null,
+    datasetSource: null,
+    datamodelId: 7,
+    name: 'Doanh thu 2026',
+    chartType: 'bar',
+    config: null,
+    modelConfig: null,
+    canvas: null,
+    ...part,
+  } as ReportDto;
+}
+
+describe('Trang xem báo cáo khai được số liệu lấy từ đâu', () => {
+  it('báo cáo trên mô hình: KHÔNG hứa một nguồn cho cả mô hình nhiều bảng', () => {
+    const dk = duKienNguonBaoCao(baoCao());
+
+    expect(dk).toHaveLength(1);
+    expect(dk[0]?.nhan).toBe('Nguồn số liệu của báo cáo Doanh thu 2026');
+    expect(dk[0]?.gia).toBe('Mô hình dữ liệu Bán hàng');
+  });
+
+  it('báo cáo trên bộ dữ liệu: nói thêm bộ đó nạp từ tệp hay từ CSDL', () => {
+    const dk = duKienNguonBaoCao(
+      baoCao({
+        source: 'dataset',
+        sourceName: 'Đơn hàng Q4',
+        datasetId: 3,
+        datasetSource: 'file',
+        datamodelId: null,
+      }),
+    );
+
+    expect(dk.map((d) => d.gia)).toEqual(['Bộ dữ liệu Đơn hàng Q4', 'Từ file']);
+  });
+
+  /*
+   * ⚠️ Ca sửa đúng lỗi gốc. Trước khi sửa, danh sách này chỉ có mấy phép tính
+   * trên bảng số ("Customer Name nào có Quantity cao nhất") — mô hình đọc hết
+   * rồi trả về 0, hoàn toàn hợp lý, vì không mục nào nói về nguồn gốc cả.
+   */
+  it('nhãn nguồn gốc có trong danh sách gửi cho mô hình', () => {
+    const goc = duKienNguonBaoCao(baoCao());
+    const o: Nguon = { ...nguonBieuDo(), duKien: goc };
+
+    const nhan = luaChonTrang([o], o, 'lấy từ đâu ra đó').map((lc) => lc.nhan);
+
+    expect(nhan).toContain('Nguồn số liệu của báo cáo Doanh thu 2026');
+  });
+
+  it('khung mười hai ô vẫn chỉ tốn MỘT chỗ trong trần nhãn', () => {
+    const goc = duKienNguonBaoCao(baoCao());
+    const o = (ten: string): Nguon => ({ ...nguonBieuDo(), ten, duKien: goc });
+    const ds = [o('Ô một'), o('Ô hai'), o('Ô ba')];
+
+    const nhan = luaChonTrang(ds, ds[0] as Nguon, 'nguồn').map((lc) => lc.nhan);
+
+    expect(nhan.filter((n) => n === 'Nguồn số liệu của báo cáo Doanh thu 2026')).toHaveLength(1);
+  });
+
+  /*
+   * Ba ô đều trả lời được câu này, nhưng cả ba trả lời GIỐNG HỆT nhau. Hỏi
+   * ngược "bạn muốn hỏi biểu đồ nào" ở đây là bắt người ta chọn giữa ba câu
+   * trả lời không khác một chữ.
+   */
+  it('ba ô cùng đáp án thì KHÔNG hỏi ngược muốn hỏi biểu đồ nào', () => {
+    const goc = duKienNguonBaoCao(baoCao());
+    const o = (ten: string): Nguon => ({ ...nguonBieuDo(), ten, duKien: goc });
+    const ds = [o('Ô một'), o('Ô hai'), o('Ô ba')];
+
+    expect(nguonMoHo(ds, 'nguồn số liệu của báo cáo Doanh thu 2026')).toBeNull();
   });
 });

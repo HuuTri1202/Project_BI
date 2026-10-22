@@ -1,3 +1,7 @@
+import { appendFileSync } from 'node:fs';
+
+import { isTest } from '../../config/env';
+
 import { coCauHinhLlm, goiMoHinh } from './dienDat';
 
 /**
@@ -96,6 +100,92 @@ const NHAC = [
 ].join(' ');
 
 /**
+ * Sổ ghi những câu LỚP NGOẠI TUYẾN KHÔNG trả lời được.
+ *
+ * ═══ Vì sao sổ này phải tồn tại ════════════════════════════════════════════
+ *
+ * Hai bộ đánh giá (`danhGia`, `danhGiaVe`) đo khung hỏi đáp trên hơn 150 câu
+ * — và cả 150 câu đó đều do người viết code nghĩ ra. Người ra đề cũng là người
+ * làm bài, nên điểm cao chỉ chứng minh được một chuyện: khung trả lời được
+ * đúng những cách nói mà người viết nó NGHĨ RA ĐƯỢC. Điểm mù thì vẫn nguyên,
+ * và theo định nghĩa thì không ai tự nhìn thấy điểm mù của mình.
+ *
+ * Thứ duy nhất phá được vòng đó là câu của người dùng thật. Sổ này đi thu.
+ *
+ * ═══ Vì sao gọi từ ROUTE, không gọi từ trong `hieuY` ═══════════════════════
+ *
+ * Bản đầu đặt lời gọi ngay trong `hieuY`, với lý do "đó là chỗ hẹp nhất mà mọi
+ * câu trượt đều đi qua". Hẹp thì đúng, nhưng hẹp không phải thứ cần: thứ cần
+ * là ranh giới "một NGƯỜI THẬT vừa gõ câu này".
+ *
+ * Giá của chỗ sai đó hiện ra ngay lần đầu chạy `llm:danh-gia`: 25 câu dựng tay
+ * của bộ đánh giá đổ thẳng vào sổ và chôn mất hai dòng người dùng thật. Một
+ * cái sổ trộn câu thật với câu máy tự sinh thì không dùng được vào việc nó
+ * sinh ra để làm.
+ *
+ * Route `/chat/hieu-y` mới là ranh giới ấy — và nó vẫn hẹp y như cũ: frontend
+ * chỉ gọi endpoint này TRONG nhánh `kq === null`, tức sau khi phép so từ khoá,
+ * lớp hỏi lại nguồn, bộ nhớ một lượt và đường dựng biểu đồ đều đã trượt (xem
+ * `HoiDapPanel.tsx`, chỗ gọi `nhoMoHinhChon`).
+ *
+ * ⚠️ Biết là CÒN SÓT một nhánh: khi trang không có lấy một nhãn nào để chọn,
+ * frontend đi thẳng tới `hetDuong` và không gọi tới đây. Nhánh đó cần trang
+ * rỗng dữ kiện nên gần như không xảy ra — chưa đáng một endpoint riêng.
+ *
+ * ═══ Thứ được ghi, và thứ KHÔNG ═══════════════════════════════════════════
+ *
+ * Ghi: câu người dùng gõ, và nhãn mà mô hình cứu được (hoặc `CHƯA HIỂU`). Cột
+ * thứ hai đó mới là phần đáng tiền — nó nói thẳng lớp ngoại tuyến LẼ RA phải
+ * khớp vào đâu, nên một dòng trong sổ dịch gần như nguyên văn thành một ca
+ * trong bộ đánh giá.
+ *
+ * KHÔNG ghi: giá trị số liệu nào (hàm này cố ý không bao giờ nhìn thấy chúng),
+ * cả danh sách 60 nhãn, và không id người dùng — cần thêm thì thêm sau, còn
+ * thu sẵn thứ chưa dùng tới thì chỉ là dữ liệu cá nhân nằm chờ rò.
+ *
+ * ═══ Vì sao là một tệp TSV, không phải một bảng ════════════════════════════
+ *
+ * Việc duy nhất phải làm với sổ này là mở ra đọc rồi chép câu vào bộ đánh giá.
+ * Một bảng thì tốn một migration, một repository và một endpoint để lôi ra —
+ * tất cả chỉ để phục vụ đúng một thao tác mà `grep` đã làm xong. Lên bảng khi
+ * nào có nhiều người dùng tới mức cần lọc theo tổ chức và theo thời gian.
+ *
+ * `appendFileSync` ghi đồng bộ, và đó là chủ ý: sổ này chỉ chạy trên đường đã
+ * trượt — một đường vốn đang chờ một lượt gọi mạng tính bằng giây — nên vài
+ * mili-giây đĩa không ai thấy, đổi lại không phải lo tranh ghi giữa hai dòng.
+ */
+const SO_TRUOT = 'chua-hieu.tsv';
+
+export function ghiTruot(cauHoi: string, nhanChon: string | null): void {
+  // Gộp mọi khoảng trắng: câu dán từ chỗ khác có thể xuống dòng, mà một dòng
+  // trong sổ phải là một câu hỏi — nếu không thì `grep` và `wc -l` đều nói sai.
+  const dong = [
+    new Date().toISOString(),
+    nhanChon ?? 'CHƯA HIỂU',
+    cauHoi.replace(/\s+/g, ' ').trim(),
+  ].join('\t');
+
+  console.info('[chat] trượt lớp ngoại tuyến:', dong);
+
+  // Test ghi ra tệp là để lại rác trong repo sau mỗi lần chạy. Dòng `console`
+  // ở trên vẫn còn, nên nhánh kiểm chứng vẫn soi được đúng thứ cần soi.
+  //
+  // ⚠️ Dòng này CỐ Ý không có test canh — khác mọi chốt khác trong tệp. Canh
+  // nó thì phải kiểm "tệp không được sinh ra", mà tệp đó có thể đã nằm sẵn từ
+  // một lần chạy thật trước đó, nên bài kiểm sẽ đỏ vì lý do chẳng liên quan.
+  // Giá của việc nó hỏng cũng chỉ là một tệp đã nằm trong `.gitignore`.
+  if (isTest) return;
+
+  try {
+    appendFileSync(SO_TRUOT, `${dong}\n`, 'utf8');
+  } catch {
+    // Sổ hỏng (chỉ đọc, hết đĩa) KHÔNG được làm hỏng câu trả lời. Cả lớp này
+    // sinh ra với lời hứa "mọi trục trặc đều vô hại"; một cái log mà phá được
+    // lời hứa đó thì tệ hơn hẳn việc mất vài dòng sổ.
+  }
+}
+
+/**
  * Hỏi mô hình xem câu hỏi ứng với nhãn nào. Mọi trục trặc đều ra `chon: null`.
  *
  * Cùng khuôn chịu lỗi với `dienDat`: chưa cấu hình, mất mạng, hết lượt, JSON
@@ -122,5 +212,8 @@ export async function hieuY(input: HieuYInput): Promise<HieuYKetQua> {
     400,
   );
 
-  return { chon: noiDung === null ? null : chonHopLe(noiDung, nhan.length), daHoi: daGoi };
+  return {
+    chon: noiDung === null ? null : chonHopLe(noiDung, nhan.length),
+    daHoi: daGoi,
+  };
 }

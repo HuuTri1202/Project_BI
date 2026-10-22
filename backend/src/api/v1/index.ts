@@ -88,7 +88,7 @@ import {
   warehouseSchema,
 } from '../../services/ingest/loadService';
 import { coCauHinhLlm, dienDat } from '../../services/chat/dienDat';
-import { hieuY } from '../../services/chat/hieuY';
+import { ghiTruot, hieuY } from '../../services/chat/hieuY';
 import { hoiTrenMoHinh } from '../../services/chat/hoiTrenMoHinh';
 import { chTableName } from '../../services/ingest/buildDdl';
 import { cubeTypeOf } from '../../services/datamodel/classifyColumn';
@@ -3832,7 +3832,20 @@ v1Router.post(
   rateLimit({ bucket: 'chat-hieu-y', max: 40, windowSeconds: 600 }),
   asyncHandler(async (req, res) => {
     const body = hieuYBodySchema.parse(req.body);
-    res.json(await hieuY(body));
+    const kq = await hieuY(body);
+    /*
+     * Sổ câu người THẬT hỏi mà lớp ngoại tuyến bó tay — xem `ghiTruot`.
+     *
+     * ⚠️ Đúng dòng này KHÔNG có test canh: route v1 đi qua `authenticate` và
+     * `requireFreshMembership`, nên dựng được nó trong test cần cả bộ tích hợp
+     * (Docker). `chatHieuY.test.ts` canh `ghiTruot` và canh việc `hieuY` KHÔNG
+     * tự ghi; cái còn thiếu là nhịp nối ở đây.
+     *
+     * `kq.chon` là chỉ số trong danh sách ĐÃ CẮT ở `TRAN_NHAN`, mà cắt thì giữ
+     * phần đầu — nên nó vẫn trỏ đúng phần tử trong `body.nhan` chưa cắt.
+     */
+    ghiTruot(body.cauHoi, kq.chon === null ? null : (body.nhan[kq.chon] ?? null));
+    res.json(kq);
   }),
 );
 

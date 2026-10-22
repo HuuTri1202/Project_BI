@@ -8,12 +8,14 @@ import {
   CANVAS_MAX_VISUALS,
   parseFolderFilter,
   REPORT_NAME_MAX,
+  type ChartType,
   type ReportDto,
 } from '@bi/shared';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 
 import { usePermissions } from '../../auth/usePermissions';
+import type { SuaBieuDo } from '../../features/chat/goiYBieuDo';
 import { Button } from '../../components/ui/Button';
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
 import { SearchSelect } from '../../components/ui/SearchSelect';
@@ -519,6 +521,74 @@ function Builder({
    */
   useEffect(() => setTrangNhomO({}), [activePageId]);
 
+  /**
+   * Khung hỏi đáp ĐIỀN một đề xuất vào ô đang chọn — xem `NguCanh.veBieuDo`.
+   *
+   * Chưa có ô nào thì DỰNG một ô mới, không im lặng không làm gì: người dùng
+   * vừa bấm "Vẽ", và một cú bấm không thấy gì đổi đọc ra như một cú bấm hỏng.
+   *
+   * `merge = false`: đây là MỘT thao tác trọn vẹn, nên Ctrl+Z phải gỡ trọn nó
+   * chứ không gỡ nửa chừng cùng mấy cú sửa đứng cạnh.
+   */
+  function veTheoDeXuat(g: { chieuId: number; thuocDoId: number; loai: ChartType }): void {
+    const thay: Partial<VisualDraft> = {
+      chartType: g.loai,
+      dimensionId: g.chieuId,
+      measureId: g.thuocDoId,
+      // Cùng luật với `assignField`: phép gộp đang chọn thuộc về thước đo CŨ,
+      // và một chiều vừa vào ô Trục thì không được đứng luôn ở ô Nhóm màu.
+      measureAgg: null,
+      seriesId: null,
+    };
+    const dangCo = selected?.id;
+    if (dangCo !== undefined) {
+      patch(dangCo, thay, false);
+      return;
+    }
+    if (drafts.length >= CANVAS_MAX_VISUALS) return;
+    const moi = { ...emptyVisual(findSlot(drafts)), ...thay };
+    editPage((list) => [...list, moi]);
+    setSelectedId(moi.id);
+  }
+
+  /*
+   * Tham chiếu CỐ ĐỊNH cho `NguCanh.veBieuDo`.
+   *
+   * `patch` và `selected` dựng lại ở mỗi lần render, nên đưa thẳng hàm trên vào
+   * ngữ cảnh là một `NguCanh` mới mỗi lần render — và `useKhaiNguCanh` quay
+   * vòng vô hạn. Ref giữ bản mới nhất, `useCallback` giữ cái vỏ bất biến.
+   */
+  /**
+   * SỬA ô đang chọn — top N, chiều xếp, tách màu. Xem `docSuaBieuDo`.
+   *
+   * Đi qua đúng `patch` mà cú kéo thả đi qua, nên Ctrl+Z phủ nó y như mọi thao
+   * tác khác — cùng ba cái chốt đã ghi ở `NguCanh.veBieuDo`.
+   */
+  function suaTheoCau(thay: SuaBieuDo): void {
+    if (selected === undefined || selected === null) return;
+    const banVa: Partial<VisualDraft> = {
+      ...(thay.soNhom === undefined ? {} : { limit: thay.soNhom }),
+      ...(thay.chieuPhuId === undefined ? {} : { seriesId: thay.chieuPhuId }),
+      ...(thay.sapXep === undefined ? {} : { options: { ...selected.options, sort: thay.sapXep } }),
+    };
+    patch(selected.id, banVa, false);
+  }
+
+  const suaRef = useRef(suaTheoCau);
+  useEffect(() => {
+    suaRef.current = suaTheoCau;
+  });
+  const suaBieuDo = useCallback((thay: SuaBieuDo) => suaRef.current(thay), []);
+
+  const veRef = useRef(veTheoDeXuat);
+  useEffect(() => {
+    veRef.current = veTheoDeXuat;
+  });
+  const veBieuDo = useCallback(
+    (g: { chieuId: number; thuocDoId: number; loai: ChartType }) => veRef.current(g),
+    [],
+  );
+
   const canTro = selected === null ? 'chưa chọn ô' : blockerOf(selected);
   const cauHinhO = selected === null || canTro !== null ? null : previewConfigOfDraft(selected);
   const soLieuO = useModelReportPreview(
@@ -548,6 +618,11 @@ function Builder({
    * tên đang hiện trên đầu ô — xem `features/reports/nhanO.ts`.
    */
   const tenO = selected === null ? null : labelOf(selected);
+  // Tên chiều đang tách màu, để khung nói "bỏ tách màu theo X" cho đúng chữ.
+  const tenChieuPhu =
+    selected?.seriesId == null
+      ? null
+      : (fields.data?.dimensions.find((d) => d.id === selected.seriesId)?.label ?? null);
   const nguCanh = useMemo(
     () => ({
       trang: model.data === undefined ? 'trình dựng báo cáo' : `mô hình ${model.data.name}`,
@@ -560,8 +635,32 @@ function Builder({
       ],
       // Đặt được câu hỏi MỚI trên mô hình đang dựng — xem `features/chat/nguCanh.ts`.
       ...(modelId === null ? {} : { moHinhId: modelId }),
+      /*
+       * Danh sách trường — mở nhóm câu "tui muốn xem X theo Y thì kéo gì".
+       *
+       * Chỉ trang này khai nó, và chỉ trang này khai được: ba cái ô để kéo vào
+       * chỉ tồn tại ở đây. Xem `features/chat/goiYBieuDo.ts`.
+       */
+      ...(fields.data === undefined ? {} : { truong: fields.data }),
+      veBieuDo,
+      /*
+       * `suaBieuDo` chỉ có mặt khi ĐANG CÓ một ô được chọn: không ô nào thì
+       * "chỉ lấy top 5" không có gì để sửa, và khung phải nói ra điều đó thay
+       * vì báo đã sửa xong. Xem `NguCanh.suaBieuDo`.
+       */
+      ...(selected === null || selected === undefined ? {} : { suaBieuDo, chieuPhu: tenChieuPhu }),
     }),
-    [model.data, soLieuO.data, tenO, modelId],
+    [
+      model.data,
+      soLieuO.data,
+      tenO,
+      modelId,
+      fields.data,
+      veBieuDo,
+      selected,
+      suaBieuDo,
+      tenChieuPhu,
+    ],
   );
   useKhaiNguCanh(nguCanh);
 

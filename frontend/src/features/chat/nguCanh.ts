@@ -1,5 +1,7 @@
-import type { ReportDataDto } from '@bi/shared';
+import type { ChartType, ExplorerFieldsDto, ReportDataDto } from '@bi/shared';
 import { createContext, useContext, useEffect } from 'react';
+
+import type { SuaBieuDo } from './goiYBieuDo';
 
 /**
  * NGỮ CẢNH — thứ trang đang mở tự khai là "những gì tôi đang biết".
@@ -137,6 +139,54 @@ export interface NguCanh {
    * Không cần một lớp kiểm nào ở frontend, và không có chỗ nào để quên nó.
    */
   moHinhId?: number;
+  /**
+   * Danh sách TRƯỜNG kéo thả được — chỉ trình dựng báo cáo khai.
+   *
+   * ═══ Khác `moHinhId` ở chỗ nào ════════════════════════════════════════
+   *
+   * `moHinhId` là một lời mời backend đi hỏi hộ. Cái này thì đúng luật chung
+   * của khung: dữ liệu trang ĐÃ TẢI VỀ và đang bày ra ở cột trái màn hình.
+   *
+   * Nó mở ra một nhóm câu hỏi mà mọi nhóm khác không với tới: "tui muốn xem
+   * doanh thu theo khu vực" — câu trả lời không phải một con số mà là một
+   * HƯỚNG DẪN kéo trường nào vào đâu. Xem `goiYBieuDo`.
+   */
+  truong?: ExplorerFieldsDto;
+  /**
+   * ĐIỀN một đề xuất vào ô đang chọn — đường GHI duy nhất của cả khung.
+   *
+   * ═══ Vì sao nó phá lệ, và vì sao vẫn đáng ═════════════════════════════
+   *
+   * Mọi thứ khác ở đây là dữ liệu trang đưa RA. Trường này đi ngược: khung gọi
+   * lại vào trang. Đổi lại, "đề xuất" mới thật là đề xuất — bấm một cái là
+   * biểu đồ hiện ra, thay vì đọc một hướng dẫn rồi tự làm lại bằng tay.
+   *
+   * Ba chỗ giữ cho nó không thành một cái cửa hậu:
+   *
+   *   1. Chỉ trình dựng khai. Trang khác không có ô nào để điền vào.
+   *   2. Nó nhận ID TRƯỜNG, không nhận cấu hình tự do — khung không dựng được
+   *      một trạng thái ô mà chính trình dựng không dựng được.
+   *   3. Nó đi qua đúng `patch` mà cú kéo thả đi qua, nên Hoàn tác (Ctrl+Z)
+   *      phủ nó y như mọi thao tác khác.
+   *
+   * ⚠️ Hàm này phải GIỮ NGUYÊN tham chiếu giữa các lần render, như mọi thứ
+   * khác trong `NguCanh`. Một hàm mới mỗi lần render là một `NguCanh` mới mỗi
+   * lần render, và `useKhaiNguCanh` sẽ quay vòng vô hạn.
+   */
+  veBieuDo?: (g: { chieuId: number; thuocDoId: number; loai: ChartType }) => void;
+  /**
+   * SỬA ô đang chọn — cùng một đường ghi, cho câu hỏi hay gặp nhất sau khi
+   * biểu đồ đã hiện ra: "chỉ lấy top 5", "tách theo nhóm hàng".
+   *
+   * Có mặt KHI VÀ CHỈ KHI trình dựng đang có một ô được chọn. Không có ô nào
+   * thì "chỉ lấy top 5" không có nghĩa, và một câu trả lời "đã rút còn 5 nhóm"
+   * trong lúc không ô nào đổi là lời nói dối tệ nhất mà khung này nói được.
+   *
+   * ⚠️ Giữ nguyên tham chiếu giữa các lần render — cùng lý do với `veBieuDo`.
+   */
+  suaBieuDo?: (thay: SuaBieuDo) => void;
+  /** Tên chiều đang tách màu ở ô đang chọn — để nói "bỏ tách" cho đúng. */
+  chieuPhu?: string | null;
 }
 
 export const NGU_CANH_RONG: NguCanh = { trang: '', nguon: [] };

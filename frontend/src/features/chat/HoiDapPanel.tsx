@@ -1,10 +1,22 @@
-import type { ExplorerQueryDto } from '@bi/shared';
+import { CHART_TYPE_LABELS, type ExplorerQueryDto } from '@bi/shared';
 import { useEffect, useRef, useState } from 'react';
 
 import { KHONG_XUAT } from '../../services/danhDauXuat';
 import { dienDatLai, hieuCauHoi, hoiTrenMoHinh } from './api';
+import {
+  cauGoiY,
+  cauSua,
+  deXuatBieuDo,
+  docSuaBieuDo,
+  goiYBieuDo,
+  goiYMoHo,
+  muonVe,
+  tachMoHo,
+  tenDeXuat,
+} from './goiYBieuDo';
+import type { GoiYBieuDo, SuaBieuDo } from './goiYBieuDo';
 import { useNguCanh } from './nguCanh';
-import type { Nguon } from './nguCanh';
+import type { NguCanh, Nguon } from './nguCanh';
 import { useNguCanhHeThong } from './nguCanhHeThong';
 import { useCoMoHinh } from './trangThai';
 import {
@@ -81,6 +93,8 @@ interface TinNhan {
   chonNguon?: { nhan: string; i: number }[];
   /** Câu hỏi gốc, để một cú bấm ở `chonNguon` hỏi lại ĐÚNG nó. */
   cauGoc?: string;
+  /** Biểu đồ dựng sẵn để bấm — chỉ trình dựng có. Xem `deXuatBieuDo`. */
+  deXuat?: GoiYBieuDo[];
   /**
    * Bot ĐANG soạn — vẽ ba chấm nhấp nháy thay cho chữ.
    *
@@ -223,6 +237,110 @@ export function HoiDapPanel(): React.ReactElement | null {
     const nguonHoi = (ro === null ? undefined : nguCanh.nguon[ro]) ?? nguon;
 
     /*
+     * "Tui muốn xem doanh thu theo khu vực" — hướng dẫn DỰNG, không phải số.
+     *
+     * ═══ Vì sao CHỈ đi trước khi câu có chữ ý định ═══════════════════════
+     *
+     * "Doanh thu theo khu vực" một mình là câu hỏi SỐ LIỆU hoàn toàn hợp lệ, và
+     * trang này trả lời được nó. Chen hướng dẫn vào trước là cướp mất câu trả
+     * lời thật.
+     *
+     * Nhưng thiếu chữ ý định KHÔNG còn làm câu đó trượt hẳn như bản trước: nó
+     * rơi xuống chỗ dự phòng bên dưới, sau khi đường số liệu đã thử và trượt.
+     * Nhờ vậy danh sách `TU_Y_DINH` không cần đóng — thiếu một cách nói chỉ đổi
+     * THỨ TỰ, không mất đường.
+     */
+    /*
+     * ═══ SỬA ô đang chọn — đứng TRƯỚC mọi đường khác ═══════════════════════
+     *
+     * Phải trước đường vẽ, vì "tách theo nhóm hàng" có chữ "theo" và sẽ bị
+     * `goiYBieuDo` đọc thành một cặp chiều–thước đo rồi dựng một biểu đồ MỚI —
+     * đúng thứ người dùng không xin. Mấy chữ "tách theo", "top", "bỏ tách" nói
+     * về cái nút của chính ta nên chúng được quyền chặn sớm; xem `docSuaBieuDo`.
+     */
+    const sua = docSuaBieuDo(nguCanh.truong, q);
+    if (sua !== null) {
+      demId.current += 2;
+      const idSua = demId.current;
+      const lucSua = gioBayGio();
+      const nguoi = { id: idSua - 1, ai: 'nguoi' as const, cau: q, luc: lucSua };
+
+      /*
+       * Không có ô nào đang chọn thì NÓI RA. Rơi xuống "chưa hiểu" ở đây là
+       * tệ nhất: người dùng đọc ra "khung không hiểu câu này", rồi gõ lại y
+       * hệt, trong khi thứ thiếu là một cú bấm vào ô biểu đồ.
+       */
+      if (nguCanh.suaBieuDo === undefined) {
+        setTinNhan((cu) => [
+          ...cu,
+          nguoi,
+          {
+            id: idSua,
+            ai: 'bot',
+            luc: lucSua,
+            chuaHieu: true,
+            cau: 'Chưa có ô biểu đồ nào đang chọn. Bấm vào ô bạn muốn sửa rồi hỏi lại câu này.',
+          },
+        ]);
+        setCauHoi('');
+        return;
+      }
+
+      /*
+       * Hoà điểm thì HỎI LẠI bằng chữ, không bằng nút.
+       *
+       * Khác chỗ hỏi lại nguồn và chỗ đề xuất cặp vẽ — hai chỗ đó có nút bấm.
+       * Ở đây chưa, vì nó cần một kiểu nút thứ ba cho một nhánh hiếm: hoà chỉ
+       * xảy ra khi hai chiều trùng nhau đúng số từ ("ngày" trúng cả "Ngày đặt"
+       * lẫn "Ngày giao"). Gõ lại đủ tên là xong, và nó không nợ thêm UI nào.
+       */
+      if (sua === 'mo-ho') {
+        const ten = tachMoHo(nguCanh.truong, q).map((d) => `"${d.label}"`);
+        setTinNhan((cu) => [
+          ...cu,
+          nguoi,
+          {
+            id: idSua,
+            ai: 'bot',
+            luc: lucSua,
+            chuaHieu: true,
+            cau: `Tách theo ${ten.join(' hay ')}? Gõ lại kèm đủ tên giúp tôi.`,
+          },
+        ]);
+        setCauHoi('');
+        return;
+      }
+
+      nguCanh.suaBieuDo(sua);
+      const kqSua = cauSua(sua, tenChieuPhuMoi(nguCanh, sua));
+      setTinNhan((cu) => [...cu, nguoi, { id: idSua, ai: 'bot', luc: lucSua, cau: kqSua.cau }]);
+      setCauHoi('');
+      setCauTruoc(q);
+      vietLai(q, idSua, kqSua);
+      return;
+    }
+
+    const gy = goiYBieuDo(nguCanh.truong, q);
+    // Khớp ngang nhau vài cặp — hỏi lại còn hơn im, xem `goiYMoHo`.
+    const moHoVe = gy === null ? goiYMoHo(nguCanh.truong, q) : [];
+    const noiVe = gy !== null || moHoVe.length > 0 ? dungCauVe(gy, moHoVe) : null;
+
+    if (noiVe !== null && muonVe(q)) {
+      demId.current += 2;
+      const idGy = demId.current;
+      const lucGy = gioBayGio();
+      setTinNhan((cu) => [
+        ...cu,
+        { id: idGy - 1, ai: 'nguoi', cau: q, luc: lucGy },
+        { id: idGy, ai: 'bot', luc: lucGy, ...noiVe.tin },
+      ]);
+      setCauHoi('');
+      setCauTruoc(q);
+      if (noiVe.kq !== null) vietLai(q, idGy, noiVe.kq);
+      return;
+    }
+
+    /*
      * Chưa biết người dùng hỏi ô nào thì HỎI LẠI, đừng đoán.
      *
      * Bỏ qua khi họ vừa chỉ đích danh (`ro`), và khi họ đã chọn ở câu trước
@@ -281,11 +399,72 @@ export function HoiDapPanel(): React.ReactElement | null {
     setCauTruoc(q);
 
     if (kq === null) {
+      /*
+       * Số liệu đã trượt, mà câu vẫn gọi tên một cặp trường — dựng nó.
+       *
+       * Đây là chỗ đỡ cho mọi cách nói nằm ngoài `TU_Y_DINH`: "biểu đồ doanh
+       * thu theo khu vực" không cần có mặt trong danh sách nào, nó chỉ cần gọi
+       * tên hai trường có thật. Và nó MIỄN PHÍ — chạy xong trước khi lớp mô
+       * hình kịp được gọi.
+       */
+      if (noiVe !== null) {
+        setTinNhan((cu) =>
+          cu.map((t) => (t.id === idBot ? { id: t.id, ai: t.ai, luc: t.luc, ...noiVe.tin } : t)),
+        );
+        if (noiVe.kq !== null) vietLai(q, idBot, noiVe.kq);
+        return;
+      }
       nhoMoHinhChon(q, idBot);
       return;
     }
 
     vietLai(q, idBot, kq);
+  }
+
+  /**
+   * Tên chiều mà câu vừa rồi tách màu theo — để câu báo gọi đúng chữ trên màn hình.
+   *
+   * Đọc từ `truong`, không đọc từ `chieuPhu` của ngữ cảnh: `chieuPhu` là chiều
+   * đang tách TRƯỚC khi sửa, còn thứ cần in ra là chiều VỪA chọn. Hai cái đó chỉ
+   * trùng nhau khi người dùng tách lại đúng chiều cũ.
+   */
+  function tenChieuPhuMoi(nguCanh: NguCanh, sua: SuaBieuDo): string | null {
+    const id = sua.chieuPhuId;
+    if (id === undefined || id === null) return null;
+    return nguCanh.truong?.dimensions.find((d) => d.id === id)?.label ?? null;
+  }
+
+  /** Thêm một câu của bot vào cuối, và trả lại mã của nó. */
+  function botNoi(cau: string, them: Partial<TinNhan> = {}): number {
+    demId.current += 1;
+    const id = demId.current;
+    setTinNhan((cu) => [...cu, { id, ai: 'bot', luc: gioBayGio(), cau, ...them }]);
+    return id;
+  }
+
+  /**
+   * Bấm "Gợi ý" ở một đề xuất — nói cách kéo, không đụng vào trang.
+   *
+   * Vẫn đi qua lớp diễn đạt như mọi câu khác: tên trường đã nằm trong `so` nên
+   * mô hình viết lại cho mượt được mà không đổi được tên nào.
+   */
+  function goiYTuDeXuat(g: GoiYBieuDo): void {
+    const kq = cauGoiY(g);
+    vietLai(tenDeXuat(g), botNoi(kq.cau), kq);
+  }
+
+  /**
+   * Bấm "Vẽ" — điền thẳng vào ô đang chọn.
+   *
+   * Nói ra CẢ Ctrl+Z. Đây là thao tác duy nhất trong khung đụng vào trang, nên
+   * người dùng phải biết đường lùi ngay lúc nó vừa xảy ra, chứ không phải đi
+   * tìm khi đã lỡ.
+   */
+  function veTuDeXuat(g: GoiYBieuDo): void {
+    nguCanh.veBieuDo?.({ chieuId: g.chieu.id, thuocDoId: g.thuocDo.id, loai: g.loai });
+    botNoi(
+      `Đã dựng "${tenDeXuat(g)}" bằng ${CHART_TYPE_LABELS[g.loai]} vào ô đang chọn. Không ưng thì Ctrl+Z.`,
+    );
   }
 
   /**
@@ -324,10 +503,26 @@ export function HoiDapPanel(): React.ReactElement | null {
     const gan = goiYGan(nguCanh.nguon, nguon, q);
     const goiY = gan.length > 0 ? gan : cauMau(nguon, goiYSoSanh(nguCanh.nguon)).slice(0, 3);
 
+    /*
+     * Ở trình dựng, bế tắc KHÔNG dừng ở mấy câu mẫu.
+     *
+     * Chỗ này là nơi người dùng vừa gõ một câu khung không hiểu — tức là đúng
+     * lúc một danh sách bấm được có giá trị nhất. Câu chữ thì vô hạn, còn thứ
+     * mô hình này dựng được thì đếm được. Xem `deXuatBieuDo`.
+     */
+    const de = deXuatBieuDo(nguCanh.truong);
+
     setTinNhan((cu) =>
       cu.map((t) =>
         t.id === idBot
-          ? { id: t.id, ai: t.ai, luc: t.luc, cau: cau ?? chung, chuaHieu: true, goiY }
+          ? {
+              id: t.id,
+              ai: t.ai,
+              luc: t.luc,
+              cau: cau ?? chung,
+              chuaHieu: true,
+              ...(de.length > 0 ? { deXuat: de } : { goiY }),
+            }
           : t,
       ),
     );
@@ -381,7 +576,26 @@ export function HoiDapPanel(): React.ReactElement | null {
      * bản tóm tắt và mấy câu so cả danh sách — chứ không góp dữ kiện của từng
      * mục, vì sáu trăm nhãn sẽ đẩy sạch trang ra khỏi danh sách.
      */
-    const luaChon = [...luaChonTrang(nguCanh.nguon, nguon, q), ...luaChonHeThong(heThong)];
+    /*
+     * ═══ Cặp trường đứng ĐẦU danh sách gửi cho mô hình ═══════════════════
+     *
+     * Backend chỉ lấy 60 nhãn đầu, và `duKienMoHinh` một mình đã đẩy ra hàng
+     * trăm nhãn (mỗi cột của mỗi bảng một nhãn). Xếp cặp vẽ xuống cuối là chúng
+     * bị cắt sạch trước khi mô hình kịp nhìn thấy.
+     *
+     * Đổi lại, câu hỏi SỐ LIỆU ở trình dựng mất vài nhãn cuối — và nó còn
+     * nguyên đường mạnh hơn hẳn ở phía sau: `nhoMoHinhHoi` đặt một truy vấn
+     * MỚI trên chính mô hình. Câu nhờ VẼ thì không có đường nào khác.
+     *
+     * `moiThuocDo` nới hẳn: ở đây không ai phải đọc hết danh sách, và thiếu một
+     * cặp nghĩa là mô hình không có cách nào chọn đúng nó.
+     */
+    const capVe = deXuatBieuDo(nguCanh.truong, 20, 99);
+    const luaChon = [
+      ...capVe.map((g) => ({ nhan: `Vẽ biểu đồ: ${tenDeXuat(g)}`, chay: () => cauGoiY(g) })),
+      ...luaChonTrang(nguCanh.nguon, nguon, q),
+      ...luaChonHeThong(heThong),
+    ];
     if (luaChon.length === 0) {
       // Không có gì để chọn thì bỏ hẳn lớp chọn-nhãn, nhưng đường đặt câu hỏi
       // mới không phụ thuộc vào danh sách đó.
@@ -421,12 +635,28 @@ export function HoiDapPanel(): React.ReactElement | null {
           return;
         }
 
+        /*
+         * Mục mô hình chọn là một CẶP VẼ thì bong bóng mang theo hai cái nút.
+         *
+         * Không có chỗ này thì mô hình hiểu đúng "theo vùng" là "theo Khu vực"
+         * rồi trả về một câu hướng dẫn kéo tay — đúng, nhưng bỏ mất đúng cú bấm
+         * mà cả tính năng sinh ra để có.
+         */
+        const cap = chon !== null && chon < capVe.length ? capVe[chon] : undefined;
+
         // Mô hình chỉ CHỌN được một mục. Câu chữ và con số vẫn do `traLoi.ts`
         // tính ra tại máy này — kể cả `luuY`, điều kiện của con số.
         setTinNhan((cu) =>
           cu.map((t) =>
             t.id === idBot
-              ? { id: t.id, ai: t.ai, cau: kq.cau, luc: t.luc, doMoHinh: 'mô hình chọn mục' }
+              ? {
+                  id: t.id,
+                  ai: t.ai,
+                  cau: kq.cau,
+                  luc: t.luc,
+                  doMoHinh: 'mô hình chọn mục',
+                  ...(cap === undefined ? {} : { deXuat: [cap] }),
+                }
               : t,
           ),
         );
@@ -675,10 +905,20 @@ export function HoiDapPanel(): React.ReactElement | null {
             soSanh={goiYSoSanh(nguCanh.nguon)}
             coHeThong={heThong.length > 0}
             onChon={setCauHoi}
+            deXuat={deXuatBieuDo(nguCanh.truong)}
+            onGoiYDeXuat={goiYTuDeXuat}
+            onVeDeXuat={nguCanh.veBieuDo === undefined ? undefined : veTuDeXuat}
           />
         ) : (
           tinNhan.map((t) => (
-            <BongBong key={t.id} tin={t} onChon={setCauHoi} onChonNguon={chonRoiHoi} />
+            <BongBong
+              key={t.id}
+              tin={t}
+              onChon={setCauHoi}
+              onChonNguon={chonRoiHoi}
+              onGoiYDeXuat={goiYTuDeXuat}
+              onVeDeXuat={nguCanh.veBieuDo === undefined ? undefined : veTuDeXuat}
+            />
           ))
         )}
       </div>
@@ -717,11 +957,15 @@ function BongBong({
   tin,
   onChon,
   onChonNguon,
+  onGoiYDeXuat,
+  onVeDeXuat,
 }: {
   tin: TinNhan;
   onChon: (q: string) => void;
   /** Bấm một mục ở câu hỏi ngược — xem `chonRoiHoi`. */
   onChonNguon?: ((i: number, q: string) => void) | undefined;
+  onGoiYDeXuat?: ((g: GoiYBieuDo) => void) | undefined;
+  onVeDeXuat?: ((g: GoiYBieuDo) => void) | undefined;
 }): React.ReactElement {
   if (tin.ai === 'nguoi') {
     return (
@@ -778,6 +1022,14 @@ function BongBong({
             khi gửi; ở đây câu hỏi không đổi một chữ nào — họ chỉ đang trả lời
             "mục nào", nên bắt bấm thêm một nhịp nữa là bắt làm lại việc vừa làm.
           */}
+          {tin.deXuat !== undefined && tin.deXuat.length > 0 && onGoiYDeXuat !== undefined && (
+            <span className="mt-2 block">
+              <span className="mb-1.5 block text-xs text-amber-700">
+                Hay dựng thẳng một trong mấy cái này:
+              </span>
+              <NutDeXuat mau={tin.deXuat} onGoiY={onGoiYDeXuat} onVe={onVeDeXuat} />
+            </span>
+          )}
           {tin.chonNguon !== undefined && tin.chonNguon.length > 0 && (
             <span className="mt-2 flex flex-col gap-1">
               {tin.chonNguon.map((m) => (
@@ -867,6 +1119,92 @@ function NutGoiY({
 }
 
 /**
+ * Một câu trả lời của đường VẼ — hoặc một hướng dẫn, hoặc một câu hỏi ngược.
+ *
+ * Hai trạng thái, một chỗ dựng: khung có đúng HAI chỗ nói về việc vẽ (trước
+ * đường số liệu, và sau khi nó trượt), và hai bản chép tay sẽ lệch nhau ở lần
+ * sửa câu chữ đầu tiên.
+ *
+ * `kq` là `null` ở nhánh hỏi ngược — không có gì để lớp diễn đạt viết lại, vì
+ * câu đó chưa chứa một con số hay một tên trường nào để mà giữ.
+ */
+function dungCauVe(
+  gy: GoiYBieuDo | null,
+  moHo: GoiYBieuDo[],
+): { tin: Omit<TinNhan, 'id' | 'ai' | 'luc'>; kq: TraLoi | null } {
+  if (gy !== null) {
+    const kq = cauGoiY(gy);
+    return { tin: { cau: kq.cau, deXuat: [gy] }, kq };
+  }
+  return {
+    tin: {
+      chuaHieu: true,
+      cau: `Câu này khớp với ${String(moHo.length)} cặp trường khác nhau. Bạn muốn cái nào?`,
+      // Quá sáu thì dãy nút dài hơn cả khung trò chuyện.
+      deXuat: moHo.slice(0, 6),
+    },
+    kq: null,
+  };
+}
+
+/**
+ * Dãy biểu đồ dựng sẵn — mỗi cái hai cú bấm khác hẳn nhau.
+ *
+ * ═══ Vì sao HAI nút, không phải một ═══════════════════════════════════════
+ *
+ * Hai người dùng khác nhau đứng trước cùng một đề xuất. Người đang học thì
+ * muốn biết nó ĐƯỢC DỰNG RA SAO — kéo trường nào vào đâu — để lần sau tự làm.
+ * Người đang vội thì muốn nhìn thấy cái biểu đồ, ngay.
+ *
+ * Gộp hai thứ đó vào một nút nghĩa là chọn hộ một trong hai, và nhóm còn lại
+ * phải làm thêm một bước thừa ở MỌI lần bấm.
+ *
+ * "Vẽ" đứng sau và là nút duy nhất tô đậm: nó là cái DUY NHẤT đụng vào trang.
+ */
+function NutDeXuat({
+  mau,
+  onGoiY,
+  onVe,
+}: {
+  mau: GoiYBieuDo[];
+  onGoiY: (g: GoiYBieuDo) => void;
+  onVe: ((g: GoiYBieuDo) => void) | undefined;
+}): React.ReactElement {
+  return (
+    <span className="flex flex-col gap-1">
+      {mau.map((g) => (
+        <span
+          key={`${String(g.thuocDo.id)}:${String(g.chieu.id)}`}
+          className="flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2 py-1"
+        >
+          <span className="min-w-0 flex-1 truncate text-xs text-slate-600" title={tenDeXuat(g)}>
+            {tenDeXuat(g)}
+          </span>
+          <button
+            type="button"
+            onClick={() => onGoiY(g)}
+            className="shrink-0 rounded px-1.5 py-0.5 text-xs text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700"
+          >
+            Gợi ý
+          </button>
+          {/* Không có đường ghi thì KHÔNG bày nút — một nút bấm vào không thấy
+              gì đổi đọc ra như một nút hỏng. */}
+          {onVe !== undefined && (
+            <button
+              type="button"
+              onClick={() => onVe(g)}
+              className="shrink-0 rounded bg-brand-600 px-2 py-0.5 text-xs font-medium text-white transition-colors hover:bg-brand-700"
+            >
+              Vẽ
+            </button>
+          )}
+        </span>
+      ))}
+    </span>
+  );
+}
+
+/**
  * Màn chào + câu mẫu, sinh từ CHÍNH nguồn đang chọn.
  *
  * Đây là chỗ nói ra năng lực thật của khung. Một danh sách viết cứng sẽ gợi ý
@@ -878,6 +1216,9 @@ function ChaoHoi({
   soSanh,
   coHeThong,
   onChon,
+  deXuat,
+  onGoiYDeXuat,
+  onVeDeXuat,
 }: {
   nguon: Nguon;
   /** Câu mẫu hỏi về CẢ danh sách, không riêng nguồn đang chọn. */
@@ -885,6 +1226,10 @@ function ChaoHoi({
   /** Hai lời gọi xuyên hệ thống có dữ liệu hay không — xem `useNguCanhHeThong`. */
   coHeThong: boolean;
   onChon: (q: string) => void;
+  /** Biểu đồ dựng sẵn — chỉ trình dựng có. Xem `deXuatBieuDo`. */
+  deXuat: GoiYBieuDo[];
+  onGoiYDeXuat: (g: GoiYBieuDo) => void;
+  onVeDeXuat: ((g: GoiYBieuDo) => void) | undefined;
 }): React.ReactElement {
   return (
     <div className="flex items-start gap-2">
@@ -898,6 +1243,18 @@ function ChaoHoi({
           {coHeThong &&
             ' Ngoài trang này, tôi tra được cả danh sách bộ dữ liệu và mô hình dữ liệu của tổ chức.'}
         </p>
+        {/*
+          Ở trình dựng, DÃY BIỂU ĐỒ đứng trước mấy câu hỏi mẫu.
+          Người mở khung ở đây đang muốn DỰNG một cái gì đó, không phải tra một
+          con số — và thứ họ phải vượt qua là một cột bốn chục trường chưa biết
+          kéo cái nào.
+        */}
+        {deXuat.length > 0 && (
+          <>
+            <p className="mt-2 mb-1.5 text-xs text-slate-400">Dựng nhanh một biểu đồ:</p>
+            <NutDeXuat mau={deXuat} onGoiY={onGoiYDeXuat} onVe={onVeDeXuat} />
+          </>
+        )}
         <p className="mt-2 mb-1.5 text-xs text-slate-400">Thử hỏi:</p>
         <NutGoiY mau={cauMau(nguon, soSanh)} onChon={onChon} />
       </div>

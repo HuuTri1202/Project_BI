@@ -248,3 +248,92 @@ describe('Mô hình "suy nghĩ trước khi trả lời"', () => {
     expect(goi).toHaveBeenCalledTimes(2);
   });
 });
+
+/*
+ * ═══ Sổ ghi câu TRƯỢT ══════════════════════════════════════════════════════
+ *
+ * Sổ đi thu câu của người dùng thật về cho bộ đánh giá — nguồn DUY NHẤT phá
+ * được chuyện người viết code vừa ra đề vừa làm bài.
+ *
+ * ⚠️ Nó được gọi từ ROUTE `/chat/hieu-y`, KHÔNG từ trong `hieuY`. Bản đầu đặt
+ * trong hàm, và lần chạy `llm:danh-gia` đầu tiên đã chứng minh đó là chỗ sai:
+ * 25 câu dựng tay của bộ đánh giá đổ thẳng vào sổ, chôn mất hai dòng người
+ * dùng thật. Ca cuối của khối này canh đúng chỗ đó.
+ *
+ * Một cái log thì không ai để ý khi nó hỏng, nên nó được canh như mọi thứ
+ * khác — và canh đúng mấy chỗ dễ hỏng mà không ai thấy:
+ *
+ *   1. Cột NHÃN mô hình cứu được. Nó nói lớp ngoại tuyến LẼ RA phải khớp vào
+ *      đâu, nên một dòng sổ dịch gần như nguyên văn thành một ca đánh giá.
+ *   2. Câu xuống dòng phải gộp thành MỘT dòng, nếu không `wc -l` đếm sai và
+ *      `grep` cắt mất nửa câu.
+ *   3. `hieuY` TỰ NÓ không được ghi gì.
+ */
+describe('Sổ ghi những câu lớp ngoại tuyến không trả lời được', () => {
+  function batSo(): { dong: () => string[] } {
+    const ghi = vi.spyOn(console, 'info').mockImplementation(() => undefined);
+    return {
+      dong: () =>
+        ghi.mock.calls
+          .filter((c) => String(c[0]).includes('trượt lớp ngoại tuyến'))
+          .map((c) => String(c[1])),
+    };
+  }
+
+  async function napGhi(): Promise<(cauHoi: string, nhanChon: string | null) => void> {
+    const m = (await napVoiEnv(DU_CAU_HINH)) as unknown as {
+      ghiTruot: (cauHoi: string, nhanChon: string | null) => void;
+    };
+    return m.ghiTruot;
+  }
+
+  it('không nhãn nào cứu được thì ghi CHƯA HIỂU', async () => {
+    const ghiTruot = await napGhi();
+    const so = batSo();
+
+    ghiTruot('vùng nào bán chạy nhất', null);
+
+    expect(so.dong()).toHaveLength(1);
+    expect(so.dong()[0]).toContain('vùng nào bán chạy nhất');
+    expect(so.dong()[0]).toContain('CHƯA HIỂU');
+  });
+
+  it('mô hình cứu được thì ghi NHÃN nó chọn, không ghi "chưa hiểu"', async () => {
+    const ghiTruot = await napGhi();
+    const so = batSo();
+
+    ghiTruot('cái này nặng bao nhiêu', 'Dung lượng của Đơn hàng Q4');
+
+    // Đây là dòng dịch thẳng thành một ca đánh giá: câu người ta gõ, và nhãn
+    // mà phép so từ khoá LẼ RA phải khớp vào.
+    expect(so.dong()[0]).toContain('Dung lượng của Đơn hàng Q4');
+    expect(so.dong()[0]).not.toContain('CHƯA HIỂU');
+  });
+
+  it('câu xuống dòng bị gộp lại thành MỘT dòng sổ', async () => {
+    const ghiTruot = await napGhi();
+    const so = batSo();
+
+    ghiTruot('doanh thu\n\n  theo   khu vực  ', null);
+
+    // Phải kết thúc ĐÚNG ở chữ cuối. Một dấu cách thừa trong ô TSV là thứ
+    // vô hình khi đọc sổ, mà nó đi thẳng vào ca đánh giá lúc chép lại.
+    expect(so.dong()[0]).toMatch(/doanh thu theo khu vực$/);
+    expect(so.dong()[0]).not.toContain('\n');
+  });
+
+  /*
+   * ⚠️ Ca canh đúng cái lỗi đã xảy ra. `llm:danh-gia` và `kiem-llm` gọi thẳng
+   * `hieuY`; nếu hàm đó tự ghi sổ thì mỗi lần đo lại đổ vài chục câu dựng tay
+   * vào đúng chỗ đang để dành cho câu người thật.
+   */
+  it('gọi thẳng `hieuY` thì KHÔNG ghi gì — sổ chỉ nhận câu qua route', async () => {
+    const { hieuY } = await napVoiEnv(DU_CAU_HINH);
+    globalThis.fetch = vi.fn().mockResolvedValue(traVe('3'));
+    const so = batSo();
+
+    await hieuY({ cauHoi: 'cái này nặng bao nhiêu', nhan: NHAN });
+
+    expect(so.dong()).toHaveLength(0);
+  });
+});

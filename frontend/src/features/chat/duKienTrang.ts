@@ -1,5 +1,7 @@
 import {
   CHART_TYPE_LABELS,
+  DATASET_SOURCE_LABELS,
+  REPORT_SOURCE_LABELS,
   type AdminUserDto,
   type BillingCycle,
   type BillingSummaryDto,
@@ -530,6 +532,59 @@ export function tomTatMoHinh(
  * cùng lý do `itemCount` của chính DTO tránh tên loại, và còn vì "Số bộ dữ liệu
  * trong thư mục Chung" sẽ hoà điểm với "Số bộ dữ liệu trong workspace này".
  */
+/**
+ * Báo cáo này lấy số từ ĐÂU — dữ kiện gắn vào mọi nguồn của trang xem báo cáo.
+ *
+ * ═══ Lỗi đo được ═══════════════════════════════════════════════════════════
+ *
+ * Người dùng thật, lượt đầu tiên sau khi bật sổ ghi câu trượt, hỏi "lấy từ đâu
+ * ra đó" trên trang xem báo cáo. Khung trả lời "tôi chưa hiểu" — và nó chưa
+ * hiểu thật, vì trang đó khai `duKien: []`: nguồn duy nhất nó có là BẢNG SỐ của
+ * từng ô. Cả hai lớp đều bó tay cùng một lý do, không phải hai lý do khác nhau:
+ * phép so từ khoá không có nhãn nào để so, và mô hình không có mục nào để chọn.
+ *
+ * Mà câu đó CÓ đáp án, nằm sẵn trong tay trang: `ReportDto` mang đủ `source`,
+ * `sourceName` và `datasetSource`. Không thiếu dữ liệu — chỉ thiếu một bản khai.
+ *
+ * ═══ Vì sao trả `DuKien[]` chứ không phải `Nguon[]` như mọi hàm khác ═══════
+ *
+ * Hai dữ kiện này nói về CẢ BÁO CÁO, không về riêng ô nào. Dựng chúng thành
+ * một nguồn riêng là thêm một con chip nữa vào hàng chọn ô, cho một thứ không
+ * phải một ô — người dùng sẽ phải chọn "báo cáo X" để hỏi về chính cái báo cáo
+ * họ đang mở.
+ *
+ * Nên chúng được gắn vào MỌI nguồn của trang. Lặp lại không tốn gì:
+ * `duKienPhang` và `luaChonTrang` đều gạt trùng theo `nhan`, nên trần 60 nhãn
+ * gửi lên mô hình chỉ tốn đúng hai chỗ dù khung có mười hai ô.
+ *
+ * Và câu trả lời GIỐNG HỆT nhau ở mọi nguồn, nên `nguonMoHo` không hỏi ngược
+ * "bạn muốn hỏi biểu đồ nào" — nó chỉ hỏi khi hai nguồn cho hai câu KHÁC nhau.
+ * Đó là lý do cái chốt ấy đếm câu trả lời chứ không đếm số nguồn khớp.
+ *
+ * ⚠️ Nhãn là CỤM DANH TỪ, không phải câu hỏi. Đặt nhãn thành "...lấy từ đâu"
+ * thì nó khớp đúng một câu tui vừa nhìn thấy, và trượt mọi cách nói khác —
+ * đúng cái bẫy "danh sách từ viết tay" đã gỡ khỏi đường vẽ. Việc hiểu "lấy từ
+ * đâu ra đó" là việc của lớp mô hình, và nó làm được ngay khi có nhãn để chọn.
+ */
+export function duKienNguonBaoCao(r: ReportDto): DuKien[] {
+  return [
+    ...dk(
+      `Nguồn số liệu của báo cáo ${r.name}`,
+      `${REPORT_SOURCE_LABELS[r.source]} ${r.sourceName}`,
+    ),
+    /*
+     * Chỉ báo cáo dựng trên BỘ DỮ LIỆU mới có dòng này. Báo cáo dựng trên mô
+     * hình thì `datasetSource` là `null` — mô hình gộp nhiều bảng, mỗi bảng một
+     * nguồn, nên một câu "từ file" cho cả mô hình là một câu nói sai. Ai cần
+     * biết tới mức đó thì mở trang mô hình, nơi `duKienMoHinh` khai từng bảng.
+     */
+    ...dk(
+      `Nguồn của bộ dữ liệu ${r.sourceName}`,
+      r.datasetSource === null ? null : DATASET_SOURCE_LABELS[r.datasetSource],
+    ),
+  ];
+}
+
 export function duKienThuMuc(thuMuc: FolderDto[]): Nguon[] {
   return thuMuc.map((t) => ({
     ten: `Thư mục ${t.name}`,

@@ -1,4 +1,4 @@
-import type { ReportDataDto } from '@bi/shared';
+import type { ExplorerFieldDto, ExplorerFieldsDto, ReportDataDto } from '@bi/shared';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { useMemo } from 'react';
 import { MemoryRouter } from 'react-router-dom';
@@ -103,27 +103,48 @@ function bang(): ReportDataDto {
 function TrangGiaLap({
   nguon,
   moHinhId,
+  truong,
+  veBieuDo,
+  suaBieuDo,
 }: {
   nguon: Nguon[];
   moHinhId?: number;
+  truong?: ExplorerFieldsDto;
+  veBieuDo?: NguCanh['veBieuDo'];
+  suaBieuDo?: NguCanh['suaBieuDo'];
 }): React.ReactElement {
   const nguCanh = useMemo(
     (): NguCanh => ({
       trang: 'Kho dữ liệu',
       nguon,
       ...(moHinhId === undefined ? {} : { moHinhId }),
+      ...(truong === undefined ? {} : { truong }),
+      ...(veBieuDo === undefined ? {} : { veBieuDo }),
+      ...(suaBieuDo === undefined ? {} : { suaBieuDo }),
     }),
-    [nguon, moHinhId],
+    [nguon, moHinhId, truong, veBieuDo, suaBieuDo],
   );
   useKhaiNguCanh(nguCanh);
   return <p>nội dung trang</p>;
 }
 
-function dung(nguon: Nguon[], moHinhId?: number): { doiMoHinh: (id: number) => void } {
+function dung(
+  nguon: Nguon[],
+  moHinhId?: number,
+  truong?: ExplorerFieldsDto,
+  veBieuDo?: NguCanh['veBieuDo'],
+  suaBieuDo?: NguCanh['suaBieuDo'],
+): { doiMoHinh: (id: number) => void } {
   const { rerender } = render(
     <MemoryRouter>
       <NguCanhProvider>
-        <TrangGiaLap nguon={nguon} moHinhId={moHinhId} />
+        <TrangGiaLap
+          nguon={nguon}
+          moHinhId={moHinhId}
+          truong={truong}
+          veBieuDo={veBieuDo}
+          suaBieuDo={suaBieuDo}
+        />
       </NguCanhProvider>
     </MemoryRouter>,
   );
@@ -548,7 +569,12 @@ describe('Trả lời xuyên hệ thống', () => {
 
     hoi('có bao nhiêu bộ dữ liệu');
 
-    expect(await screen.findByText(/12/)).toBeInTheDocument();
+    /*
+     * Khớp cả CÂU, không phải mỗi con số. `/12/` trúng luôn dấu giờ "12:39"
+     * trên mỗi bong bóng, nên ca này đỏ với mọi lần chạy trong khung giờ 12 —
+     * một quả mìn hẹn giờ, không phải một ca hỏng.
+     */
+    expect(await screen.findByText(/bộ dữ liệu trong toàn bộ tổ chức: 12/)).toBeInTheDocument();
     // Phải nói ra là nó đọc ở đâu: danh sách này KHÔNG ở trên màn hình, nên
     // người đọc không có gì để đối chiếu.
     expect(screen.getByText(/không phải trên trang đang mở/)).toBeInTheDocument();
@@ -1207,5 +1233,309 @@ describe('Hỏi lại khi không rõ người dùng hỏi mục nào', () => {
 
     expect(await screen.findByText(/Kẹo/)).toBeInTheDocument();
     expect(screen.queryByText(/Bạn muốn hỏi mục nào/)).toBeNull();
+  });
+});
+
+/**
+ * Trình dựng: "tui muốn xem doanh thu theo khu vực" ra một HƯỚNG DẪN.
+ *
+ * Phần luật đã có `goiYBieuDo.test.ts` canh, hàm thuần, không cần DOM. Ở đây
+ * canh đúng hai chuyện của khung: nhánh này có ĐỨNG TRƯỚC mấy lớp đi tìm con số
+ * không, và nó có TẮT HẲN ở trang không có ba cái ô để kéo vào không.
+ */
+describe('Gợi ý dựng biểu đồ ở trình dựng', () => {
+  const f = (x: Partial<ExplorerFieldDto>): ExplorerFieldDto =>
+    ({ id: 1, label: 'X', datasetName: 'Đơn hàng', cubeType: 'string', ...x }) as ExplorerFieldDto;
+
+  const TRUONG: ExplorerFieldsDto = {
+    dimensions: [f({ id: 1, label: 'Khu vực', datasetName: 'Khách hàng' })],
+    measures: [f({ id: 10, label: 'Doanh thu', cubeType: 'number' })],
+  };
+
+  const NGUON: Nguon[] = [
+    { ten: 'Mô hình Bán hàng', duKien: [{ nhan: 'Số bảng trong mô hình Bán hàng', gia: '3' }] },
+  ];
+
+  it('trả về hướng dẫn kéo trường, không phải một con số', async () => {
+    dung(NGUON, 7, TRUONG);
+    fireEvent.click(nutMo());
+
+    hoi('tui muốn xem doanh thu theo khu vực');
+
+    expect(await screen.findByText(/ô Chiều dữ liệu/)).toBeInTheDocument();
+    expect(screen.getByText(/Biểu đồ cột/)).toBeInTheDocument();
+    /*
+     * Đường đặt câu hỏi MỚI trên mô hình KHÔNG được chạy. Nó sẽ trả về một con
+     * số thật — cho một câu hỏi người dùng không hỏi — và tốn một lượt gọi mô
+     * hình cộng một lượt quét ClickHouse để làm việc đó.
+     */
+    expect(hoiTrenMoHinh).not.toHaveBeenCalled();
+  });
+
+  it('trang KHÔNG khai trường thì nhánh này không tồn tại', async () => {
+    // Ngoài trình dựng thì không có ô nào để kéo vào, nên một câu hướng dẫn ở
+    // đó chỉ bảo người dùng đi tìm thứ không có trên màn hình.
+    dung(NGUON, 7);
+    fireEvent.click(nutMo());
+
+    hoi('tui muốn xem doanh thu theo khu vực');
+
+    expect(await screen.findByText(/Tôi chưa hiểu câu này/)).toBeInTheDocument();
+    expect(screen.queryByText(/ô Chiều dữ liệu/)).toBeNull();
+  });
+});
+
+/**
+ * Dãy biểu đồ dựng sẵn — "đề xuất ngay", không qua câu chữ.
+ *
+ * ─── Lời than của người dùng ────────────────────────────────────────────────
+ *
+ *   "có cách nào tốt hơn … chứ ko dựa vào chat bằng câu chữ của khách hàng vì
+ *    nó rất rộng"
+ *   "kết hợp cả 2 cái, nếu người dùng yêu cầu gợi ý thì chatbot gợi ý, người
+ *    dùng yêu cầu vẽ biểu đồ thì vẽ cho người dùng luôn"
+ *
+ * Phép xếp hạng đã có `goiYBieuDo.test.ts` canh. Ở đây canh ba thứ chỉ lộ ra
+ * trong DOM: hai nút có làm HAI việc khác nhau không, cú bấm "Vẽ" có mang đúng
+ * mã trường xuống trang không, và nút "Vẽ" có BIẾN MẤT ở trang không ghi được
+ * không.
+ */
+describe('Dãy biểu đồ dựng sẵn ở trình dựng', () => {
+  const f = (x: Partial<ExplorerFieldDto>): ExplorerFieldDto =>
+    ({ id: 1, label: 'X', datasetName: 'Đơn hàng', cubeType: 'string', ...x }) as ExplorerFieldDto;
+
+  const TRUONG: ExplorerFieldsDto = {
+    dimensions: [f({ id: 1, label: 'Khu vực' })],
+    measures: [f({ id: 10, label: 'Doanh thu', cubeType: 'number' })],
+  };
+
+  const NGUON: Nguon[] = [
+    { ten: 'Mô hình Bán hàng', duKien: [{ nhan: 'Số bảng trong mô hình Bán hàng', gia: '3' }] },
+  ];
+
+  it('màn chào bày sẵn biểu đồ, mỗi cái hai nút', () => {
+    dung(NGUON, 7, TRUONG, vi.fn());
+    fireEvent.click(nutMo());
+
+    expect(screen.getByText('Doanh thu theo Khu vực')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Gợi ý' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Vẽ' })).toBeInTheDocument();
+  });
+
+  it('"Gợi ý" NÓI cách kéo và KHÔNG đụng vào trang', async () => {
+    const ve = vi.fn();
+    dung(NGUON, 7, TRUONG, ve);
+    fireEvent.click(nutMo());
+
+    fireEvent.click(screen.getByRole('button', { name: 'Gợi ý' }));
+
+    expect(await screen.findByText(/ô Chiều dữ liệu/)).toBeInTheDocument();
+    expect(ve).not.toHaveBeenCalled();
+  });
+
+  it('"Vẽ" gửi đúng mã trường xuống trang, và nói ra đường lùi', async () => {
+    const ve = vi.fn();
+    dung(NGUON, 7, TRUONG, ve);
+    fireEvent.click(nutMo());
+
+    fireEvent.click(screen.getByRole('button', { name: 'Vẽ' }));
+
+    // Mã TRƯỜNG, không phải tên: trang điền vào ô bằng id, và hai trường trùng
+    // tên là chuyện có thật.
+    expect(ve).toHaveBeenCalledWith({ chieuId: 1, thuocDoId: 10, loai: 'bar' });
+    // Đây là thao tác DUY NHẤT trong khung đụng vào trang, nên người dùng phải
+    // biết đường lùi ngay lúc nó vừa xảy ra.
+    expect(await screen.findByText(/Ctrl\+Z/)).toBeInTheDocument();
+  });
+
+  it('trang không ghi được thì KHÔNG bày nút "Vẽ"', () => {
+    // Một nút bấm vào không thấy gì đổi đọc ra như một nút hỏng.
+    dung(NGUON, 7, TRUONG);
+    fireEvent.click(nutMo());
+
+    expect(screen.getByRole('button', { name: 'Gợi ý' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Vẽ' })).toBeNull();
+  });
+
+  it('câu không hiểu ở trình dựng thì bày dãy biểu đồ, không bày câu mẫu', async () => {
+    // Đúng lúc người dùng vừa gõ một câu khung không hiểu là lúc một danh sách
+    // bấm được có giá trị nhất.
+    dung(NGUON, 7, TRUONG, vi.fn());
+    fireEvent.click(nutMo());
+
+    hoi('zzz qqq');
+
+    expect(await screen.findByText(/Tôi chưa hiểu câu này/)).toBeInTheDocument();
+    expect(screen.getByText(/Hay dựng thẳng một trong mấy cái này/)).toBeInTheDocument();
+  });
+});
+
+/**
+ * Đường VẼ có HAI lớp đỡ phía sau phép so từ khoá.
+ *
+ * ─── Lời than của người dùng ────────────────────────────────────────────────
+ *
+ *   "ko dựa vào chat bằng câu chữ của khách hàng vì nó rất rộng"
+ *
+ * Đo được là 10/30. Nguyên nhân sâu nhất không phải phép so yếu, mà là cả
+ * đường vẽ phụ thuộc vào một DANH SÁCH TỪ Ý ĐỊNH viết tay — thứ không bao giờ
+ * đóng lại được. Hai lớp đỡ dưới đây gỡ đúng chỗ đó.
+ */
+describe('Hai lớp đỡ của đường vẽ', () => {
+  const f = (x: Partial<ExplorerFieldDto>): ExplorerFieldDto =>
+    ({ id: 1, label: 'X', datasetName: 'Đơn hàng', cubeType: 'string', ...x }) as ExplorerFieldDto;
+
+  const TRUONG: ExplorerFieldsDto = {
+    dimensions: [f({ id: 1, label: 'Khu vực' })],
+    measures: [f({ id: 10, label: 'Doanh thu', cubeType: 'number' })],
+  };
+
+  const NGUON: Nguon[] = [
+    { ten: 'Mô hình Bán hàng', duKien: [{ nhan: 'Số bảng trong mô hình Bán hàng', gia: '3' }] },
+  ];
+
+  it('KHÔNG có chữ ý định: số liệu thử trước, rồi mới tới vẽ — và MIỄN PHÍ', async () => {
+    /*
+     * "doanh thu theo khu vực" không có chữ nào trong `TU_Y_DINH`. Bản trước
+     * trượt hẳn; giờ nó rơi xuống chỗ dự phòng sau khi đường số liệu trượt, và
+     * chạy xong trước khi lớp mô hình kịp được gọi.
+     */
+    dung(NGUON, 7, TRUONG, vi.fn());
+    fireEvent.click(nutMo());
+
+    hoi('doanh thu theo khu vực');
+
+    expect(await screen.findByText(/ô Chiều dữ liệu/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Vẽ' })).toBeInTheDocument();
+    expect(hieuCauHoi).not.toHaveBeenCalled();
+  });
+
+  it('so từ khoá trượt hẳn: mô hình CHỌN một cặp, và cặp đó vẫn bấm "Vẽ" được', async () => {
+    /*
+     * "theo vùng" gọi trường bằng một cái tên KHÔNG có trên nhãn, nên không
+     * phép so chuỗi nào với tới. Đây đúng là chỗ của lớp mô hình — và nó vẫn
+     * chỉ được CHỌN MỘT CHỈ SỐ trong danh sách khung dựng, không tự viết ra gì.
+     */
+    hieuCauHoi.mockResolvedValue({ chon: 0, daHoi: true });
+    dung(NGUON, 7, TRUONG, vi.fn());
+    fireEvent.click(nutMo());
+
+    hoi('tui cần số liệu theo vùng miền');
+
+    expect(await screen.findByText(/ô Chiều dữ liệu/)).toBeInTheDocument();
+
+    // Cặp vẽ phải đứng ĐẦU danh sách: backend chỉ lấy 60 nhãn, mà `duKienMoHinh`
+    // một mình đã đẩy ra hàng trăm.
+    const nhan = hieuCauHoi.mock.calls[0]?.[0].nhan ?? [];
+    expect(nhan[0]).toBe('Vẽ biểu đồ: Doanh thu theo Khu vực');
+
+    // Và nó giữ được đúng cú bấm mà cả tính năng sinh ra để có.
+    expect(screen.getByRole('button', { name: 'Vẽ' })).toBeInTheDocument();
+  });
+});
+
+describe('Hoà điểm ở đường vẽ thì hỏi lại', () => {
+  const f = (x: Partial<ExplorerFieldDto>): ExplorerFieldDto =>
+    ({ id: 1, label: 'X', datasetName: 'Đơn hàng', cubeType: 'string', ...x }) as ExplorerFieldDto;
+
+  it('hai thước đo cùng điểm -> hỏi "cái nào", và mỗi cái vẫn bấm Vẽ được', async () => {
+    // Khung đã biết chiều là "Khu vực"; thứ còn thiếu chỉ là một cú bấm.
+    const TRUONG: ExplorerFieldsDto = {
+      dimensions: [f({ id: 1, label: 'Khu vực' })],
+      measures: [
+        f({ id: 10, label: 'Doanh thu gộp', cubeType: 'number' }),
+        f({ id: 11, label: 'Doanh thu thuần', cubeType: 'number' }),
+      ],
+    };
+    dung([{ ten: 'Mô hình Bán hàng', duKien: [] }], 7, TRUONG, vi.fn());
+    fireEvent.click(nutMo());
+
+    hoi('tui muốn xem doanh thu theo khu vực');
+
+    expect(await screen.findByText(/khớp với 2 cặp trường/)).toBeInTheDocument();
+    expect(screen.getByText('Doanh thu gộp theo Khu vực')).toBeInTheDocument();
+    expect(screen.getByText('Doanh thu thuần theo Khu vực')).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: 'Vẽ' })).toHaveLength(2);
+  });
+});
+
+/**
+ * SỬA ô đang chọn — "chỉ lấy top 5", "tách theo nhóm hàng".
+ *
+ * ═══ Bộ này canh gì ════════════════════════════════════════════════════════
+ *
+ * Đường này GHI vào trang, nên hai kiểu hỏng của nó đều nặng hơn một câu trả
+ * lời sai:
+ *
+ *   1. Nói đã sửa mà KHÔNG sửa (hoặc ngược lại). Người dùng đọc câu xác nhận
+ *      rồi đi tiếp, không ai kiểm lại.
+ *   2. Sửa khi lẽ ra phải vẽ. "tách theo nhóm hàng" có chữ "theo" và sẽ bị
+ *      đường vẽ đọc thành một cặp chiều–thước đo nếu nó chạy trước.
+ */
+describe('Sửa ô biểu đồ đang chọn', () => {
+  const f = (x: Partial<ExplorerFieldDto>): ExplorerFieldDto =>
+    ({ id: 1, label: 'X', datasetName: 'Đơn hàng', cubeType: 'string', ...x }) as ExplorerFieldDto;
+
+  const TRUONG: ExplorerFieldsDto = {
+    dimensions: [f({ id: 1, label: 'Khu vực' }), f({ id: 2, label: 'Nhóm hàng' })],
+    measures: [f({ id: 10, label: 'Doanh thu', cubeType: 'number' })],
+  };
+
+  const NGUON: Nguon[] = [
+    { ten: 'Mô hình Bán hàng', duKien: [{ nhan: 'Số bảng trong mô hình Bán hàng', gia: '3' }] },
+  ];
+
+  it('"chỉ lấy top 5" gọi xuống trang đúng con số', async () => {
+    const sua = vi.fn();
+    dung(NGUON, 7, TRUONG, vi.fn(), sua);
+    fireEvent.click(nutMo());
+
+    hoi('chỉ lấy top 5');
+
+    expect(sua).toHaveBeenCalledWith({ soNhom: 5 });
+    expect(await screen.findByText(/5 nhóm mỗi trang/)).toBeInTheDocument();
+    expect(screen.getByText(/Ctrl\+Z/)).toBeInTheDocument();
+  });
+
+  it('"tách theo nhóm hàng" SỬA ô, KHÔNG dựng biểu đồ mới', async () => {
+    const sua = vi.fn();
+    const ve = vi.fn();
+    dung(NGUON, 7, TRUONG, ve, sua);
+    fireEvent.click(nutMo());
+
+    hoi('tách theo nhóm hàng');
+
+    expect(sua).toHaveBeenCalledWith({ chieuPhuId: 2 });
+    expect(ve).not.toHaveBeenCalled();
+    expect(await screen.findByText(/Nhóm hàng/)).toBeInTheDocument();
+  });
+
+  /*
+   * ⚠️ Chưa chọn ô nào thì phải NÓI RA. Rơi xuống "chưa hiểu" là tệ nhất:
+   * người dùng đọc ra "khung không hiểu câu này" rồi gõ lại y hệt, trong khi
+   * thứ thiếu chỉ là một cú bấm vào ô biểu đồ.
+   */
+  it('chưa chọn ô nào thì nói thiếu cú bấm, không nói chưa hiểu', async () => {
+    dung(NGUON, 7, TRUONG, vi.fn());
+    fireEvent.click(nutMo());
+
+    hoi('chỉ lấy top 5');
+
+    expect(await screen.findByText(/Bấm vào ô bạn muốn sửa/)).toBeInTheDocument();
+  });
+
+  it('tên chiều trúng hai trường thì hỏi lại, và KHÔNG sửa gì', async () => {
+    const sua = vi.fn();
+    const haiNgay: ExplorerFieldsDto = {
+      dimensions: [f({ id: 1, label: 'Ngày đặt' }), f({ id: 2, label: 'Ngày giao' })],
+      measures: [f({ id: 10, label: 'Doanh thu', cubeType: 'number' })],
+    };
+    dung(NGUON, 7, haiNgay, vi.fn(), sua);
+    fireEvent.click(nutMo());
+
+    hoi('tách theo ngày');
+
+    expect(await screen.findByText(/"Ngày đặt" hay "Ngày giao"/)).toBeInTheDocument();
+    expect(sua).not.toHaveBeenCalled();
   });
 });

@@ -2021,23 +2021,6 @@ function tuNhacDuLieu(tatCa: Nguon[], cauHoi: string): boolean {
 }
 
 /**
- * Câu này có phải một lượt HỎI TIẾP không.
- *
- * ═══ Vì sao phải có dấu hiệu, không chỉ "câu ngắn thì nối" ════════════════
- *
- * Nối câu trước vào MỌI câu chưa trả lời được là mở đường cho một kiểu sai rất
- * khó thấy: "hôm nay trời thế nào" nối sau "miền nào có nhóm hàng cao nhất"
- * thành một câu CÓ trả lời được, và khung sẽ nói về Miền Trung cho một câu hỏi
- * về thời tiết. Đếm số từ cũng không cứu được — hai câu đó dài bằng nhau.
- *
- * Tiếng Việt đánh dấu lượt hỏi tiếp bằng chính chữ MỞ ĐẦU: "còn…", "vậy…",
- * "thế…", "ở…", "của…". Đó là dấu hiệu thật, và nó nằm đúng chỗ dễ kiểm nhất.
- */
-export function laNoiTiep(cauHoi: string): boolean {
-  return /^(con|vay|the|o|cua|roi|va|nhung)( |$)/.test(chuanHoa(cauHoi));
-}
-
-/**
  * Cửa vào DUY NHẤT của khung — trang, rồi hệ thống, rồi thử lại kèm lượt trước.
  *
  * ═══ Vì sao thử KHÔNG CÓ bộ nhớ trước ═════════════════════════════════════
@@ -2061,7 +2044,7 @@ export function traLoiKhung(
   cauTruoc: string | null,
 ): TraLoi | null {
   const mot = traLoiTrang(tatCa, chon, cauHoi) ?? traLoiHeThong(heThong, cauHoi);
-  if (cauTruoc === null || !laNoiTiep(cauHoi)) return mot;
+  if (cauTruoc === null) return mot;
 
   /*
    * Câu nối tiếp mà TỰ NÓ nhắc tới một thứ của dữ liệu thì tự nó đủ nghĩa.
@@ -2074,6 +2057,17 @@ export function traLoiKhung(
    * chồng), và đó mới là chỗ nguy: câu trả lời đúng số, mà nó bỏ qua hẳn ngữ
    * cảnh người dùng vừa dựng ra ở lượt trước.
    */
+  /*
+   * ⚠️ Chốt này KHÔNG có ca nào trong 126 câu phân biệt được — đã thử bằng đột
+   * biến, gỡ nó ra thì bảng điểm không nhúc nhích. Giữ lại có chủ ý, vì nó nói
+   * một luật KHÁC với chốt bên dưới, chỉ là hôm nay hai luật đồng ý với nhau:
+   * ở đây là "câu tự đủ nghĩa thì trả lời bằng chính nó", còn dưới kia là "mấy
+   * chữ mới phải đổi được câu trả lời". Một câu tự đủ nghĩa mà nối vào lại ra
+   * đáp án khác sẽ trượt khỏi chốt dưới mà lọt qua chốt này — và khi đó bỏ
+   * chốt này đi là để lượt trước bẻ lái một câu hỏi vốn đã rõ ràng.
+   *
+   * Nó cũng rẻ hơn hẳn: thoát sớm, không phải chạy thêm hai lượt tính.
+   */
   if (mot !== null && tuNhacDuLieu(tatCa, cauHoi)) return mot;
 
   /*
@@ -2085,8 +2079,39 @@ export function traLoiKhung(
    * hàng — đúng cái lỗi mà bộ nhớ sinh ra để sửa.
    */
   const noi = `${cauHoi} ${cauTruoc}`;
-  // Rơi về câu trả lời không bộ nhớ nếu nối vào cũng không ra gì.
-  return traLoiTrang(tatCa, chon, noi) ?? traLoiHeThong(heThong, noi) ?? mot;
+  const kq = traLoiTrang(tatCa, chon, noi) ?? traLoiHeThong(heThong, noi);
+  // Nối vào cũng không ra gì thì rơi về câu trả lời không bộ nhớ.
+  if (kq === null) return mot;
+
+  /*
+   * ═══ CHỐT: lượt mới phải ĐỔI ĐƯỢC câu trả lời ════════════════════════════
+   *
+   * Đây là thứ thay cho danh sách chữ mở đầu cũ ("còn", "vậy", "thế", "ở"…).
+   *
+   * Cái danh sách ấy hỏng theo hai chiều cùng lúc, và chiều thứ hai mới đắt:
+   *
+   *   - Bỏ sót. "nhóm hàng thì sao" y hệt "còn nhóm hàng thì sao", chỉ thiếu
+   *     một chữ, và nó rơi thẳng xuống "chưa hiểu".
+   *   - SAI. "thấp nhất thì sao" không có chữ mở đầu nên bộ nhớ không chạy,
+   *     câu đó TỰ NÓ trả lời được bằng một Ô trong cột chồng, và khung đáp
+   *     "Miền Bắc (Thời trang), 75" cho một câu hỏi về TỔNG của miền — 255.
+   *     Một con số có thật, trả lời một câu khác. Đo được ở `danhGia.test.ts`.
+   *
+   * Phép thử mới không hỏi câu này MỞ ĐẦU bằng chữ gì, nó hỏi mấy chữ mới có
+   * LÀM GÌ không: nối vào mà ra đúng câu trả lời của lượt trước thì lượt mới
+   * chẳng đóng góp gì, và ta đang chuẩn bị đọc lại câu cũ cho một câu hỏi
+   * chẳng liên quan. Đó đúng là đường mà "hôm nay trời thế nào" đi.
+   *
+   * Nó cũng là phép thử ĐÚNG VIỆC: thứ ta cần biết không phải "câu này có
+   * dáng một lượt hỏi tiếp không" — thứ ta cần biết là "nối vào có sinh ra
+   * một câu trả lời MỚI không". Hỏi thẳng cái cần biết thì không có danh sách
+   * nào để bỏ sót.
+   *
+   * `cu === null` thì không có gì để so, và khi đó câu trả lời kia chỉ có thể
+   * do hai vế GHÉP LẠI mà ra — nhận.
+   */
+  const cu = traLoiTrang(tatCa, chon, cauTruoc) ?? traLoiHeThong(heThong, cauTruoc);
+  return cu?.cau === kq.cau ? mot : kq;
 }
 
 /* ═══ Trả lời XUYÊN HỆ THỐNG ════════════════════════════════════════════════

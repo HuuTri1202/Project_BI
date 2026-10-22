@@ -701,6 +701,51 @@ const CA: Ca[] = [
     can: ['Miền Nam', '290'],
   },
 
+  /*
+   * ─── Hỏi tiếp mà KHÔNG có chữ mở đầu ──────────────────────────────────────
+   *
+   * Năm ca trên đều mở đầu bằng "ở", "còn", "vậy", "của" — đúng danh sách mà
+   * `laNoiTiep` nhận ra. Người ta còn nói kiểu khác: bỏ hẳn chữ nối, gõ thẳng
+   * thứ muốn đổi. Bốn ca dưới đo đúng khoảng đó, và ca cuối là ca ĐỐI CHỨNG:
+   * nới bộ nhớ ra thì không được nới luôn cho một câu chẳng liên quan.
+   */
+  {
+    trang: 'bieuDoKhuVuc',
+    hoi: 'nhóm hàng thì sao',
+    truoc: 'miền nào có số lượng cao nhất',
+    can: ['Gia dụng', '302'],
+    vi: 'Y hệt ca "còn nhóm hàng thì sao" ở trên, chỉ bỏ chữ "còn"',
+  },
+  {
+    trang: 'bieuDoKhuVuc',
+    hoi: 'thấp nhất thì sao',
+    truoc: 'miền nào có số lượng cao nhất',
+    can: ['Miền Bắc', '255'],
+    vi: 'Y hệt ca "vậy thấp nhất thì sao" ở trên, chỉ bỏ chữ "vậy"',
+  },
+  {
+    trang: 'bieuDoKhuVuc',
+    hoi: 'Miền Nam là bao nhiêu',
+    truoc: 'nhóm hàng nào có số lượng cao nhất',
+    can: ['Miền Nam', '290'],
+    vi: 'Y hệt ca "của Miền Nam là bao nhiêu" ở trên, chỉ bỏ chữ "của"',
+  },
+  {
+    trang: 'bieuDoKhuVuc',
+    hoi: 'ăn gì bây giờ',
+    truoc: 'miền nào có số lượng cao nhất',
+    can: 'chua-hieu',
+    vi: 'ĐỐI CHỨNG — câu lạc không chữ mở đầu, nối vào vẫn phải bị từ chối',
+  },
+  {
+    trang: 'bieuDoKhuVuc',
+    hoi: 'Gia dụng bao nhiêu',
+    truoc: 'miền nào có số lượng cao nhất',
+    can: ['Gia dụng', '302'],
+    khong: ['Miền Trung'],
+    vi: 'KHOẢNG TRỐNG đã ghi — hỏi tổng của một giá trị CHUỖI, không có ý định nào khớp',
+  },
+
   // ─── Ảnh 2: trang chủ có các thẻ báo cáo, mắt thường nhìn thấy ────────────
   //
   // ⚠️ Lỗi người dùng gặp thật: màn hình hiện rõ năm thẻ báo cáo kèm nhãn
@@ -1100,7 +1145,7 @@ describe('Bộ đánh giá khung hỏi đáp', () => {
    * nghĩa là thay đổi đó đang đánh đổi câu này lấy câu kia mà không nói ra.
    */
   it('số câu ĐÚNG không được tụt', () => {
-    expect(dem('dung')).toBeGreaterThanOrEqual(120);
+    expect(dem('dung')).toBeGreaterThanOrEqual(124);
   });
 
   /*
