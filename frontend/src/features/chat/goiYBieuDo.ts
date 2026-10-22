@@ -129,21 +129,31 @@ export interface GoiYBieuDo {
 }
 
 /**
- * Trường khớp NHẤT với một vế của câu hỏi. Hoà điểm = `null`.
+ * MỌI trường cùng đạt điểm cao nhất với một vế của câu hỏi. Rỗng = không ai khớp.
+ *
+ * Trả về cả danh sách chứ không chỉ người thắng, vì hai trường cùng điểm không
+ * phải một lỗi để nuốt — nó là một câu hỏi chưa đủ rõ, và khung có đường hỏi
+ * lại. Xem `goiYMoHo`.
+ */
+function topTruong(ds: ExplorerFieldDto[], ve: Set<string>): ExplorerFieldDto[] {
+  const diem = ds.map((f) => ({
+    f,
+    d: [...new Set(chuanHoa(f.label).split(' '))].filter((t) => ve.has(t)).length,
+  }));
+  const cao = Math.max(0, ...diem.map((x) => x.d));
+  return cao === 0 ? [] : diem.filter((x) => x.d === cao).map((x) => x.f);
+}
+
+/**
+ * Trường khớp NHẤT. Hoà điểm = `null`.
  *
  * Hoà thì bỏ, không bẻ hoà bằng một luật phụ. Hai trường cùng điểm nghĩa là câu
  * hỏi không đủ để phân biệt chúng, và một hướng dẫn kéo nhầm trường dẫn người
  * dùng dựng ra một biểu đồ đúng hình, sai số liệu — thứ họ sẽ không kiểm lại.
  */
 function chamTruong(ds: ExplorerFieldDto[], ve: Set<string>): ExplorerFieldDto | null {
-  const diem = ds.map((f) => ({
-    f,
-    d: [...new Set(chuanHoa(f.label).split(' '))].filter((t) => ve.has(t)).length,
-  }));
-  const cao = Math.max(0, ...diem.map((x) => x.d));
-  if (cao === 0) return null;
-  const nhat = diem.filter((x) => x.d === cao);
-  return nhat.length === 1 ? (nhat[0]?.f ?? null) : null;
+  const top = topTruong(ds, ve);
+  return top.length === 1 ? (top[0] ?? null) : null;
 }
 
 /** Tách thành từ, bỏ chữ của câu hỏi. */
@@ -215,23 +225,59 @@ export function goiYBieuDo(
   if (truong === undefined) return null;
   const q = chuanHoa(cauHoi);
 
-  /*
-   * "theo" (và "từng") tách câu làm hai vế, và đó là tín hiệu mạnh nhất có
-   * trong câu: vế SAU là chiều, vế TRƯỚC là thước đo. "Doanh thu theo khu vực"
-   * — không cần hiểu gì thêm về tiếng Việt.
-   *
-   * Không có chữ nào tách thì chấm cả hai danh sách trên cả câu. Yếu hơn, nhưng
-   * hai danh sách vốn rời nhau nên một thước đo không thể thắng ở ô chiều.
-   */
-  const cat = q.split(/ theo | tung /);
-  const veDo = tuNoiDung(cat[0] ?? q);
-  const veChieu = tuNoiDung(cat.length > 1 ? (cat[cat.length - 1] ?? '') : q);
-
+  const { veDo, veChieu } = hangVe(q);
   const chieu = chamTruong(truong.dimensions, veChieu);
   const thuocDo = chamTruong(truong.measures, veDo);
   if (chieu === null || thuocDo === null) return null;
 
   return { chieu, thuocDo, loai: loaiHop(chieu, q) };
+}
+
+/**
+ * Mấy cặp mà câu hỏi khớp NGANG NHAU — rỗng = không có gì mơ hồ.
+ *
+ * ═══ Vì sao im lặng là câu trả lời tệ nhất ở đây ══════════════════════════
+ *
+ * Hoà điểm nghĩa là khung đã hiểu gần hết câu: nó biết người dùng muốn thước
+ * đo nào, chỉ không biết chiều nào trong hai cái cùng tên gần giống. Trả `null`
+ * ở đó là ném đi toàn bộ phần đã hiểu, để rồi hỏi lại từ đầu.
+ *
+ * Một câu hỏi ngược thì giữ lại tất cả, và người dùng chỉ phải trả lời đúng
+ * phần còn thiếu — bằng một cú bấm. Cùng khuôn với `nguonMoHo` ở đường hỏi-đáp,
+ * và dùng lại nguyên dãy nút "Gợi ý / Vẽ" đã có.
+ *
+ * ⚠️ Chỉ khi ĐÚNG MỘT bên hoà. Hai bên cùng hoà thì tích hai danh sách ra một
+ * mớ cặp mà phần lớn chẳng liên quan gì tới câu hỏi — bày ra một màn hình lựa
+ * chọn còn tệ hơn nói thẳng là chưa hiểu.
+ */
+export function goiYMoHo(truong: ExplorerFieldsDto | undefined, cauHoi: string): GoiYBieuDo[] {
+  if (truong === undefined || goiYBieuDo(truong, cauHoi) !== null) return [];
+
+  const q = chuanHoa(cauHoi);
+  const { veDo, veChieu } = hangVe(q);
+  const chieu = topTruong(truong.dimensions, veChieu);
+  const thuocDo = topTruong(truong.measures, veDo);
+  if (chieu.length === 0 || thuocDo.length === 0) return [];
+  if (chieu.length > 1 && thuocDo.length > 1) return [];
+
+  return chieu.flatMap((c) => thuocDo.map((d) => ({ chieu: c, thuocDo: d, loai: loaiHop(c, q) })));
+}
+
+/**
+ * Cắt câu làm hai vế quanh chữ "theo" / "từng".
+ *
+ * Tín hiệu mạnh nhất có trong câu: vế SAU là chiều, vế TRƯỚC là thước đo.
+ * "Doanh thu theo khu vực" — không cần hiểu gì thêm về tiếng Việt.
+ *
+ * Không có chữ nào tách thì cả câu đi vào cả hai vế. Yếu hơn, nhưng hai danh
+ * sách vốn rời nhau nên một thước đo không thể thắng ở ô chiều.
+ */
+function hangVe(q: string): { veDo: Set<string>; veChieu: Set<string> } {
+  const cat = q.split(/ theo | tung /);
+  return {
+    veDo: tuNoiDung(cat[0] ?? q),
+    veChieu: tuNoiDung(cat.length > 1 ? (cat[cat.length - 1] ?? '') : q),
+  };
 }
 
 /**

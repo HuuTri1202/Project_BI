@@ -5,6 +5,7 @@ import {
   cauGoiY,
   deXuatBieuDo,
   goiYBieuDo,
+  goiYMoHo,
   muonVe,
   tenDeXuat,
 } from '../src/features/chat/goiYBieuDo';
@@ -284,5 +285,49 @@ describe('loại biểu đồ người dùng GỌI TÊN', () => {
     // vậy xanh cả khi luật hoà bị bỏ — nó không đo được gì.
     const g = goiYBieuDo(MO_HINH, 'vẽ biểu đồ đường hay biểu đồ tròn doanh thu theo khu vực');
     expect(g?.loai).toBe('bar');
+  });
+});
+
+describe('goiYMoHo — hoà điểm thì hỏi lại, đừng im', () => {
+  const haiDoanhThu: ExplorerFieldsDto = {
+    dimensions: MO_HINH.dimensions,
+    measures: [
+      truong({ id: 10, label: 'Doanh thu gộp', cubeType: 'number' }),
+      truong({ id: 11, label: 'Doanh thu thuần', cubeType: 'number' }),
+    ],
+  };
+
+  it('một bên hoà thì trả về đúng mấy cặp ứng viên', () => {
+    /*
+     * Khung đã hiểu gần hết câu — nó biết chiều là "Khu vực", chỉ không biết
+     * thước đo nào trong hai cái. Trả `null` ở đó là ném đi toàn bộ phần đã
+     * hiểu để hỏi lại từ đầu.
+     */
+    const ds = goiYMoHo(haiDoanhThu, 'tui muốn xem doanh thu theo khu vực');
+
+    expect(ds).toHaveLength(2);
+    expect(ds.every((g) => g.chieu.label === 'Khu vực')).toBe(true);
+    expect(ds.map((g) => g.thuocDo.label)).toEqual(['Doanh thu gộp', 'Doanh thu thuần']);
+  });
+
+  it('KHÔNG mơ hồ thì không hỏi gì', () => {
+    expect(goiYMoHo(MO_HINH, 'tui muốn xem doanh thu theo khu vực')).toEqual([]);
+  });
+
+  it('CẢ HAI bên cùng hoà thì thôi — tích hai danh sách là một mớ vô nghĩa', () => {
+    // Bày ra một màn hình lựa chọn mà phần lớn chẳng liên quan tới câu hỏi thì
+    // còn tệ hơn nói thẳng là chưa hiểu.
+    const caHai: ExplorerFieldsDto = {
+      dimensions: [
+        truong({ id: 1, label: 'Khu vực giao' }),
+        truong({ id: 2, label: 'Khu vực bán' }),
+      ],
+      measures: haiDoanhThu.measures,
+    };
+    expect(goiYMoHo(caHai, 'tui muốn xem doanh thu theo khu vực')).toEqual([]);
+  });
+
+  it('không trường nào khớp thì cũng không hỏi', () => {
+    expect(goiYMoHo(MO_HINH, 'tui muốn xem tồn kho theo nhà cung cấp')).toEqual([]);
   });
 });

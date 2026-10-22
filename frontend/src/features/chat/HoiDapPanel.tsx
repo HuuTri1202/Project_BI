@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 
 import { KHONG_XUAT } from '../../services/danhDauXuat';
 import { dienDatLai, hieuCauHoi, hoiTrenMoHinh } from './api';
-import { cauGoiY, deXuatBieuDo, goiYBieuDo, muonVe, tenDeXuat } from './goiYBieuDo';
+import { cauGoiY, deXuatBieuDo, goiYBieuDo, goiYMoHo, muonVe, tenDeXuat } from './goiYBieuDo';
 import type { GoiYBieuDo } from './goiYBieuDo';
 import { useNguCanh } from './nguCanh';
 import type { Nguon } from './nguCanh';
@@ -241,19 +241,22 @@ export function HoiDapPanel(): React.ReactElement | null {
      * THỨ TỰ, không mất đường.
      */
     const gy = goiYBieuDo(nguCanh.truong, q);
-    if (gy !== null && muonVe(q)) {
+    // Khớp ngang nhau vài cặp — hỏi lại còn hơn im, xem `goiYMoHo`.
+    const moHoVe = gy === null ? goiYMoHo(nguCanh.truong, q) : [];
+    const noiVe = gy !== null || moHoVe.length > 0 ? dungCauVe(gy, moHoVe) : null;
+
+    if (noiVe !== null && muonVe(q)) {
       demId.current += 2;
       const idGy = demId.current;
       const lucGy = gioBayGio();
-      const kqGy = cauGoiY(gy);
       setTinNhan((cu) => [
         ...cu,
         { id: idGy - 1, ai: 'nguoi', cau: q, luc: lucGy },
-        { id: idGy, ai: 'bot', luc: lucGy, cau: kqGy.cau },
+        { id: idGy, ai: 'bot', luc: lucGy, ...noiVe.tin },
       ]);
       setCauHoi('');
       setCauTruoc(q);
-      vietLai(q, idGy, kqGy);
+      if (noiVe.kq !== null) vietLai(q, idGy, noiVe.kq);
       return;
     }
 
@@ -324,14 +327,11 @@ export function HoiDapPanel(): React.ReactElement | null {
        * tên hai trường có thật. Và nó MIỄN PHÍ — chạy xong trước khi lớp mô
        * hình kịp được gọi.
        */
-      if (gy !== null) {
-        const kqGy = cauGoiY(gy);
+      if (noiVe !== null) {
         setTinNhan((cu) =>
-          cu.map((t) =>
-            t.id === idBot ? { id: t.id, ai: t.ai, luc: t.luc, cau: kqGy.cau, deXuat: [gy] } : t,
-          ),
+          cu.map((t) => (t.id === idBot ? { id: t.id, ai: t.ai, luc: t.luc, ...noiVe.tin } : t)),
         );
-        vietLai(q, idBot, kqGy);
+        if (noiVe.kq !== null) vietLai(q, idBot, noiVe.kq);
         return;
       }
       nhoMoHinhChon(q, idBot);
@@ -1023,6 +1023,35 @@ function NutGoiY({
       ))}
     </span>
   );
+}
+
+/**
+ * Một câu trả lời của đường VẼ — hoặc một hướng dẫn, hoặc một câu hỏi ngược.
+ *
+ * Hai trạng thái, một chỗ dựng: khung có đúng HAI chỗ nói về việc vẽ (trước
+ * đường số liệu, và sau khi nó trượt), và hai bản chép tay sẽ lệch nhau ở lần
+ * sửa câu chữ đầu tiên.
+ *
+ * `kq` là `null` ở nhánh hỏi ngược — không có gì để lớp diễn đạt viết lại, vì
+ * câu đó chưa chứa một con số hay một tên trường nào để mà giữ.
+ */
+function dungCauVe(
+  gy: GoiYBieuDo | null,
+  moHo: GoiYBieuDo[],
+): { tin: Omit<TinNhan, 'id' | 'ai' | 'luc'>; kq: TraLoi | null } {
+  if (gy !== null) {
+    const kq = cauGoiY(gy);
+    return { tin: { cau: kq.cau, deXuat: [gy] }, kq };
+  }
+  return {
+    tin: {
+      chuaHieu: true,
+      cau: `Câu này khớp với ${String(moHo.length)} cặp trường khác nhau. Bạn muốn cái nào?`,
+      // Quá sáu thì dãy nút dài hơn cả khung trò chuyện.
+      deXuat: moHo.slice(0, 6),
+    },
+    kq: null,
+  };
 }
 
 /**

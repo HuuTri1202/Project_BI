@@ -1418,3 +1418,28 @@ describe('Hai lớp đỡ của đường vẽ', () => {
     expect(screen.getByRole('button', { name: 'Vẽ' })).toBeInTheDocument();
   });
 });
+
+describe('Hoà điểm ở đường vẽ thì hỏi lại', () => {
+  const f = (x: Partial<ExplorerFieldDto>): ExplorerFieldDto =>
+    ({ id: 1, label: 'X', datasetName: 'Đơn hàng', cubeType: 'string', ...x }) as ExplorerFieldDto;
+
+  it('hai thước đo cùng điểm -> hỏi "cái nào", và mỗi cái vẫn bấm Vẽ được', async () => {
+    // Khung đã biết chiều là "Khu vực"; thứ còn thiếu chỉ là một cú bấm.
+    const TRUONG: ExplorerFieldsDto = {
+      dimensions: [f({ id: 1, label: 'Khu vực' })],
+      measures: [
+        f({ id: 10, label: 'Doanh thu gộp', cubeType: 'number' }),
+        f({ id: 11, label: 'Doanh thu thuần', cubeType: 'number' }),
+      ],
+    };
+    dung([{ ten: 'Mô hình Bán hàng', duKien: [] }], 7, TRUONG, vi.fn());
+    fireEvent.click(nutMo());
+
+    hoi('tui muốn xem doanh thu theo khu vực');
+
+    expect(await screen.findByText(/khớp với 2 cặp trường/)).toBeInTheDocument();
+    expect(screen.getByText('Doanh thu gộp theo Khu vực')).toBeInTheDocument();
+    expect(screen.getByText('Doanh thu thuần theo Khu vực')).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: 'Vẽ' })).toHaveLength(2);
+  });
+});
