@@ -179,23 +179,48 @@ async function main(): Promise<void> {
    * luật đọc chỉ số của `chonHopLe` — và khi đó khung im lặng rơi về câu mẫu,
    * đúng cái im lặng mà lệnh này sinh ra để phá.
    */
+  /*
+   * ⚠️ Ca thử phải là một phép diễn đạt lại RÕ RÀNG, không phải một ca khó.
+   *
+   * Bản trước hỏi "cái này nặng bao nhiêu" (→ Dung lượng). Nó là ca kinh điển
+   * của lớp này, nhưng `danhGiaLlm` đo được rằng nhiều mô hình trả về 0 cho
+   * đúng câu đó — chúng coi "nặng" là quá xa "dung lượng". Lấy một ca khó làm
+   * phép thử sống-chết nghĩa là báo HỎNG cho một đường dây hoàn toàn tốt.
+   *
+   * "bản ghi" → "Số dòng" vẫn là diễn đạt lại thật (không trùng một chữ nào),
+   * nhưng nó không nhập nhằng. Câu hỏi lệnh này trả lời là "ĐÃ NỐI CHƯA";
+   * "CHỌN TỐT TỚI ĐÂU" là câu hỏi của `llm:danh-gia`, và nó có cả bảng điểm.
+   */
   console.log('\n── Thử đúng việc khung hỏi đáp nhờ làm: chọn một trường ──────\n');
   const kq = await hieuY({
-    cauHoi: 'cái này nặng bao nhiêu',
+    cauHoi: 'dữ liệu này có mấy bản ghi',
     nhan: ['Số dòng của Đơn hàng Q4', 'Số cột của Đơn hàng Q4', 'Dung lượng của Đơn hàng Q4'],
   });
 
-  if (kq.chon === 2) {
-    console.log(`${TICK} Chọn đúng trường "Dung lượng" cho câu hỏi "nặng bao nhiêu".`);
-    console.log('\n✅ ĐÃ NỐI và dùng được. Khung hỏi đáp sẽ hiểu được câu hỏi hỏi khác chữ.\n');
+  if (kq.chon === 0) {
+    console.log(`${TICK} Chọn đúng trường "Số dòng" cho câu hỏi "mấy bản ghi".`);
+    console.log('\n✅ ĐÃ NỐI và dùng được. Khung hỏi đáp sẽ hiểu được câu hỏi hỏi khác chữ.');
+    console.log('   Đo chất lượng chọn nhãn: npm --workspace backend run llm:danh-gia\n');
     return;
   }
 
   if (kq.chon === null) {
-    console.log(`${X} Gọi được nhưng mô hình KHÔNG trả về một chỉ số đọc được.`);
-    console.log('   Khung sẽ vẫn chạy, nhưng chỉ bằng phép so từ khoá.');
-    console.log('   Thử một mô hình bám chỉ dẫn tốt hơn (ví dụ llama-3.3-70b-versatile),');
-    console.log('   hoặc một mô hình không phải loại "suy luận dài trước khi trả lời".\n');
+    /*
+     * ⚠️ Hai chuyện KHÁC HẲN nhau cùng rơi vào đây, và lời nhắn phải nói cả
+     * hai: `hieuY` trả `null` cho cả "mô hình viết linh tinh, không đọc được
+     * chỉ số" lẫn "mô hình đọc hiểu đàng hoàng rồi trả về 0 = không nhãn nào
+     * hợp". Bản trước chỉ nói vế đầu, nên một mô hình cẩn thận bị báo là hỏng.
+     *
+     * Và nó từng khuyên đích danh một tên mô hình — tên đó về sau bị nhà cung
+     * cấp khai tử, nên lời khuyên hoá ra dẫn thẳng vào lỗi 404. Giờ chỉ đường
+     * tới danh sách còn sống thay vì chép cứng một cái tên.
+     */
+    console.log(`${X} Gọi được, nhưng mô hình không chọn trường nào.`);
+    console.log('   Hoặc nó trả lời bằng câu chữ thay vì một con số, hoặc nó trả về 0');
+    console.log('   (= "không trường nào hợp") cho một câu đáng lẽ chọn được.');
+    console.log('   Khung vẫn chạy, nhưng chỉ bằng phép so từ khoá.');
+    console.log('   Xem mô hình nào còn sống : npm --workspace backend run llm:mo-hinh');
+    console.log('   Đo chất lượng chọn nhãn  : npm --workspace backend run llm:danh-gia');
     process.exitCode = 1;
     return;
   }

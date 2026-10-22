@@ -1,0 +1,122 @@
+import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
+import { describe, expect, it } from 'vitest';
+
+/**
+ * BẢNG ĐIỂM của lớp mô hình — phát lại một bản ghi, không gọi mạng.
+ *
+ * ═══ Vì sao bộ này tồn tại ═════════════════════════════════════════════════
+ *
+ * Hai bảng điểm bên frontend (`danhGia`, `danhGiaVe`) cố ý chạy NGOẠI TUYẾN.
+ * Nên mọi câu mà phép so từ khoá bó tay — "vùng nào bán chạy", "revenue theo
+ * region", "cái này nặng bao nhiêu" — đều nằm ngoài chúng. Lớp lo đúng mấy câu
+ * khó nhất là lớp chưa từng có điểm, và "lớp mô hình xử lý được" tới giờ vẫn
+ * là một lời khẳng định chưa đo.
+ *
+ * ═══ Con số này nói gì, và KHÔNG nói gì ════════════════════════════════════
+ *
+ * NÓI: mô hình đã cấu hình, vào ngày ghi, chọn đúng bao nhiêu trên 25 câu.
+ * KHÔNG NÓI: hôm nay nó còn chọn đúng từng ấy. Một bản ghi là một bức ảnh, và
+ * mọi bức ảnh đều cũ dần. Đổi `LLM_MODEL` hay đổi nhà cung cấp thì phải ghi
+ * lại — và rãnh răng dưới cùng sẽ đỏ nếu bản ghi mới kém hơn bản cũ.
+ *
+ * Nói thẳng ra vì một con số không ghi rõ phạm vi là một con số dùng sai được.
+ *
+ * ═══ Ba kết cục, như mọi bảng điểm khác của dự án ══════════════════════════
+ *
+ *   ĐÚNG      chọn đúng nhãn, hoặc đúng là KHÔNG chọn gì khi không nhãn nào hợp.
+ *   CHƯA HIỂU trả `null` trong khi có một nhãn hợp. Trượt, nhưng trung thực —
+ *             khung nói "chưa hiểu" và người dùng hỏi lại cách khác.
+ *   SAI       chọn một nhãn KHÁC. Kết cục nguy hiểm duy nhất: câu trả lời là
+ *             một con số có thật của một câu hỏi khác.
+ *
+ * Nhóm ca ÂM (`dung: null`) là nhóm đo đúng chỗ này. Lời nhắc đã dặn "thà trả
+ * về 0 còn hơn chọn một trường chỉ hơi liên quan"; đây là chỗ xem nó có nghe.
+ *
+ * ═══ Ghi lại ═══════════════════════════════════════════════════════════════
+ *
+ *     npm --workspace backend run llm:danh-gia
+ */
+
+interface BanGhi {
+  ghiLuc: string;
+  moHinh: string;
+  ca: { cauHoi: string; soNhan: number; dung: number | null; chon: number | null }[];
+}
+
+// `__dirname` chứ không phải `import.meta`: bộ test biên dịch ra CommonJS.
+const DUONG = join(__dirname, 'llmDaGhi.json');
+
+/*
+ * Chưa ghi lần nào thì bộ này BỎ QUA, không đỏ.
+ *
+ * Máy chưa cắm khoá vẫn phải chạy được cả bộ test — cùng một luật đã áp cho
+ * chính lớp mô hình: thiếu cấu hình là một trạng thái bình thường, không phải
+ * một lỗi. Nhưng nó phải nói ra là đang bỏ qua, chứ không im lặng xanh.
+ */
+const coBanGhi = existsSync(DUONG);
+const ban: BanGhi | null = coBanGhi ? (JSON.parse(readFileSync(DUONG, 'utf8')) as BanGhi) : null;
+
+function ketCuc(c: BanGhi['ca'][number]): 'dung' | 'chuaHieu' | 'sai' {
+  if (c.chon === c.dung) return 'dung';
+  return c.chon === null ? 'chuaHieu' : 'sai';
+}
+
+describe.skipIf(ban === null)('Bảng điểm lớp mô hình (phát lại bản ghi)', () => {
+  const ca = ban?.ca ?? [];
+  const dem = (k: 'dung' | 'chuaHieu' | 'sai'): number => ca.filter((c) => ketCuc(c) === k).length;
+
+  it('in ra bảng điểm', () => {
+    const pt = (n: number): string => `${((n / ca.length) * 100).toFixed(1)}%`;
+    const truot = ca
+      .filter((c) => ketCuc(c) !== 'dung')
+      .map(
+        (c) =>
+          `  [${ketCuc(c) === 'sai' ? 'SAI ' : 'CHƯA'}] "${c.cauHoi}"\n` +
+          `         đáng lẽ: ${c.dung === null ? 'KHÔNG chọn gì' : `nhãn số ${String(c.dung + 1)}`}` +
+          ` · nhận về: ${c.chon === null ? 'không chọn' : `nhãn số ${String(c.chon + 1)}`}`,
+      );
+
+    console.log(
+      [
+        '',
+        `── Lớp mô hình trên ${String(ca.length)} câu ─────────────────────────`,
+        `   mô hình: ${ban?.moHinh ?? '?'} · ghi lúc ${ban?.ghiLuc ?? '?'}`,
+        '',
+        `  ĐÚNG       ${String(dem('dung'))}/${String(ca.length)}  ${pt(dem('dung'))}`,
+        `  CHƯA HIỂU  ${String(dem('chuaHieu'))}/${String(ca.length)}  ${pt(dem('chuaHieu'))}`,
+        `  SAI        ${String(dem('sai'))}/${String(ca.length)}  ${pt(dem('sai'))}`,
+        '',
+        ...(truot.length === 0 ? ['  (không có ca nào trượt)'] : ['── Ca trượt ──', '', ...truot]),
+        '',
+      ].join('\n'),
+    );
+
+    expect(ca.length).toBeGreaterThan(20);
+  });
+
+  /*
+   * ⚠️ RÃNH RĂNG — chỉ được sửa LÊN, như hai bảng điểm bên frontend.
+   *
+   * Ngưỡng đặt ĐÚNG BẰNG điểm của bản ghi hiện tại. Nới ra cho "thoáng" là tự
+   * bịt mắt mình trước đúng thứ bộ này sinh ra để thấy: đổi mô hình sang một
+   * con rẻ hơn mà chọn kém hơn.
+   */
+  it('số câu ĐÚNG không được tụt', () => {
+    expect(dem('dung')).toBeGreaterThanOrEqual(22);
+  });
+
+  /*
+   * SAI là kết cục nguy hiểm duy nhất ở đây: mô hình chọn một nhãn CÓ THẬT mà
+   * sai, nên khung trả về một con số có thật cho một câu hỏi khác. Người đọc
+   * không có dấu hiệu nào để nhận ra.
+   */
+  it('số câu SAI không được tăng', () => {
+    expect(dem('sai')).toBeLessThanOrEqual(0);
+  });
+});
+
+it.skipIf(coBanGhi)('chưa có bản ghi nào — chạy `npm --workspace backend run llm:danh-gia`', () => {
+  expect(coBanGhi).toBe(false);
+});

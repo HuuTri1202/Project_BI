@@ -14,6 +14,8 @@
     "seed:admin": "tsx src/scripts/seed-admin.ts",
     "backfill:personal": "tsx src/scripts/backfill-personal-tenants.ts",
     "llm:kiem": "tsx src/scripts/kiem-llm.ts",
+    "llm:danh-gia": "tsx src/scripts/danh-gia-llm.ts",
+    "llm:mo-hinh": "tsx src/scripts/llm-mo-hinh.ts",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
