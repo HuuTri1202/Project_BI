@@ -20,15 +20,19 @@ import type { TraLoi } from './traLoi';
  * bốn chục trường, và thứ họ thiếu không phải con số — là biết kéo cái nào vào
  * đâu. Trả về một con số ở đây là trả lời đúng cho một câu hỏi khác.
  *
- * ═══ Vì sao đòi một TỪ Ý ĐỊNH, không đoán theo hình dạng câu ═══════════════
+ * ═══ Ý ĐỊNH tách khỏi phép KHỚP — hai việc, hai hàm ═══════════════════════
  *
- * "Doanh thu theo khu vực" một mình là một câu hỏi SỐ LIỆU hoàn toàn hợp lệ, và
- * trang này trả lời được nó — bằng ô đang chọn, hoặc bằng một truy vấn mới trên
- * chính mô hình. Chen hướng dẫn vào trước là cướp mất câu trả lời thật.
+ * Bản đầu nhét cả hai vào một: không có từ ý định trong danh sách thì không
+ * khớp gì hết. Đo được là 10/30, và 8 ca trượt chỉ vì cách nói nằm ngoài một
+ * danh sách viết tay — "cho tui xem", "biểu đồ …", "phân tích", "so sánh".
+ * Danh sách ấy không bao giờ đóng lại được; đó là chính điều người dùng lo:
  *
- * Thứ phân biệt hai ý định nằm ở mấy chữ người dùng thêm vào: "tui MUỐN XEM",
- * "LÀM SAO để", "VẼ cho tui". Nên đó là điều kiện vào cửa, chứ không phải một
- * phép đoán theo độ dài câu hay theo việc mấy lớp kia có trả lời được không.
+ *   "ko dựa vào chat bằng câu chữ của khách hàng vì nó rất rộng"
+ *
+ * Giờ `goiYBieuDo` chỉ trả lời MỘT câu: "câu này gọi tên cặp trường nào". Còn
+ * "họ muốn một con số hay một biểu đồ" là việc của `muonVe` và của thứ tự gọi
+ * ở panel — một câu không có chữ ý định nào vẫn được khớp, chỉ là nó đứng SAU
+ * đường số liệu thay vì trước.
  *
  * ═══ Nhãn ô và tên loại biểu đồ MƯỢN của `@bi/shared` ══════════════════════
  *
@@ -45,7 +49,11 @@ import type { TraLoi } from './traLoi';
 /**
  * Chữ nói "tôi muốn DỰNG", không phải "cho tôi con số".
  *
- * ⚠️ Toàn cụm hai chữ trở lên, trừ hai cụm đã tự đủ nghĩa. Một chữ như "ve"
+ * ⚠️ Danh sách này KHÔNG cần đóng, và đó là chỗ khác hẳn bản đầu. Thiếu một
+ * cách nói ở đây không còn làm câu hỏi trượt hẳn — nó chỉ làm đường vẽ đứng
+ * sau đường số liệu, và vẫn được thử. Xem thứ tự gọi trong `HoiDapPanel`.
+ *
+ * ⚠️ Toàn cụm hai chữ trở lên, trừ mấy cụm đã tự đủ nghĩa. Một chữ như "ve"
  * (vẽ) sau khi bỏ dấu trùng với "về" — giới từ phổ biến nhất tiếng Việt — nên
  * nó sẽ bật đường này cho gần như mọi câu hỏi. Cùng cái bẫy mà `chuanHoa` đã
  * ghi với chữ "đ".
@@ -66,7 +74,22 @@ const TU_Y_DINH = [
   'keo gi',
   'keo truong nao',
   'hien thi',
+  'cho tui xem',
+  'cho toi xem',
+  'bieu do',
+  'phan tich',
+  'so sanh',
+  'xu huong',
+  'dung cho',
+  've giup',
+  've cho',
 ];
+
+/** Câu này xin một BIỂU ĐỒ, không xin một con số. */
+export function muonVe(cauHoi: string): boolean {
+  const q = chuanHoa(cauHoi);
+  return TU_Y_DINH.some((t) => q.includes(t));
+}
 
 /** Chữ của câu hỏi, không phải của dữ liệu — bỏ đi trước khi chấm điểm. */
 const TU_THUA = new Set([
@@ -143,8 +166,8 @@ function loaiHop(chieu: ExplorerFieldDto, q: string): ChartType {
 }
 
 /**
- * `null` = trang không có ô nào để kéo vào, câu này không phải lời nhờ dựng
- * biểu đồ, hoặc không đoán chắc được trường nào.
+ * `null` = trang không có ô nào để kéo vào, hoặc không đoán chắc được trường
+ * nào. KHÔNG còn phụ thuộc vào việc câu có chữ ý định hay không — xem `muonVe`.
  *
  * ⚠️ Nhận cả `undefined` thay vì bắt nơi gọi kiểm trước. Bản đầu có một câu
  * `if` ở panel, và nó THỪA: danh sách trường rỗng thì phép chấm điểm tự trả về
@@ -157,7 +180,6 @@ export function goiYBieuDo(
 ): GoiYBieuDo | null {
   if (truong === undefined) return null;
   const q = chuanHoa(cauHoi);
-  if (!TU_Y_DINH.some((t) => q.includes(t))) return null;
 
   /*
    * "theo" (và "từng") tách câu làm hai vế, và đó là tín hiệu mạnh nhất có
@@ -229,11 +251,19 @@ function diemCap(chieu: ExplorerFieldDto, thuocDo: ExplorerFieldDto): number {
 /**
  * Mấy biểu đồ đáng dựng nhất của mô hình này, nhiều nhất `tran` cái.
  *
- * ⚠️ Tối đa HAI cặp cho mỗi thước đo. Không có trần đó thì một thước đo có
- * nhiều chiều cùng bảng chiếm sạch danh sách, và người dùng mở khung ra chỉ
+ * ⚠️ Mặc định tối đa HAI cặp cho mỗi thước đo. Không có trần đó thì một thước
+ * đo nhiều chiều cùng bảng chiếm sạch danh sách, và người dùng mở khung ra chỉ
  * thấy năm biến thể của cùng một con số.
+ *
+ * `moiThuocDo` nới ra cho danh sách gửi cho MÔ HÌNH chọn: ở đó không ai phải
+ * đọc hết, và thứ quý nhất là ĐỘ PHỦ — thiếu một cặp nghĩa là mô hình không có
+ * cách nào chọn đúng nó. Xem `nhoMoHinhChon`.
  */
-export function deXuatBieuDo(truong: ExplorerFieldsDto | undefined, tran = 5): GoiYBieuDo[] {
+export function deXuatBieuDo(
+  truong: ExplorerFieldsDto | undefined,
+  tran = 5,
+  moiThuocDo = 2,
+): GoiYBieuDo[] {
   if (truong === undefined) return [];
 
   const cap = truong.measures.flatMap((thuocDo) =>
@@ -242,7 +272,7 @@ export function deXuatBieuDo(truong: ExplorerFieldsDto | undefined, tran = 5): G
       // `sort` của JS ỔN ĐỊNH từ ES2019, nên cặp cùng điểm giữ nguyên thứ tự
       // của chính cột trường — thứ tự người dùng đang nhìn thấy.
       .sort((a, b) => b.diem - a.diem)
-      .slice(0, 2),
+      .slice(0, moiThuocDo),
   );
 
   return cap

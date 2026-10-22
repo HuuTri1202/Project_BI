@@ -1354,3 +1354,67 @@ describe('Dãy biểu đồ dựng sẵn ở trình dựng', () => {
     expect(screen.getByText(/Hay dựng thẳng một trong mấy cái này/)).toBeInTheDocument();
   });
 });
+
+/**
+ * Đường VẼ có HAI lớp đỡ phía sau phép so từ khoá.
+ *
+ * ─── Lời than của người dùng ────────────────────────────────────────────────
+ *
+ *   "ko dựa vào chat bằng câu chữ của khách hàng vì nó rất rộng"
+ *
+ * Đo được là 10/30. Nguyên nhân sâu nhất không phải phép so yếu, mà là cả
+ * đường vẽ phụ thuộc vào một DANH SÁCH TỪ Ý ĐỊNH viết tay — thứ không bao giờ
+ * đóng lại được. Hai lớp đỡ dưới đây gỡ đúng chỗ đó.
+ */
+describe('Hai lớp đỡ của đường vẽ', () => {
+  const f = (x: Partial<ExplorerFieldDto>): ExplorerFieldDto =>
+    ({ id: 1, label: 'X', datasetName: 'Đơn hàng', cubeType: 'string', ...x }) as ExplorerFieldDto;
+
+  const TRUONG: ExplorerFieldsDto = {
+    dimensions: [f({ id: 1, label: 'Khu vực' })],
+    measures: [f({ id: 10, label: 'Doanh thu', cubeType: 'number' })],
+  };
+
+  const NGUON: Nguon[] = [
+    { ten: 'Mô hình Bán hàng', duKien: [{ nhan: 'Số bảng trong mô hình Bán hàng', gia: '3' }] },
+  ];
+
+  it('KHÔNG có chữ ý định: số liệu thử trước, rồi mới tới vẽ — và MIỄN PHÍ', async () => {
+    /*
+     * "doanh thu theo khu vực" không có chữ nào trong `TU_Y_DINH`. Bản trước
+     * trượt hẳn; giờ nó rơi xuống chỗ dự phòng sau khi đường số liệu trượt, và
+     * chạy xong trước khi lớp mô hình kịp được gọi.
+     */
+    dung(NGUON, 7, TRUONG, vi.fn());
+    fireEvent.click(nutMo());
+
+    hoi('doanh thu theo khu vực');
+
+    expect(await screen.findByText(/ô Chiều dữ liệu/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Vẽ' })).toBeInTheDocument();
+    expect(hieuCauHoi).not.toHaveBeenCalled();
+  });
+
+  it('so từ khoá trượt hẳn: mô hình CHỌN một cặp, và cặp đó vẫn bấm "Vẽ" được', async () => {
+    /*
+     * "theo vùng" gọi trường bằng một cái tên KHÔNG có trên nhãn, nên không
+     * phép so chuỗi nào với tới. Đây đúng là chỗ của lớp mô hình — và nó vẫn
+     * chỉ được CHỌN MỘT CHỈ SỐ trong danh sách khung dựng, không tự viết ra gì.
+     */
+    hieuCauHoi.mockResolvedValue({ chon: 0, daHoi: true });
+    dung(NGUON, 7, TRUONG, vi.fn());
+    fireEvent.click(nutMo());
+
+    hoi('tui cần số liệu theo vùng miền');
+
+    expect(await screen.findByText(/ô Chiều dữ liệu/)).toBeInTheDocument();
+
+    // Cặp vẽ phải đứng ĐẦU danh sách: backend chỉ lấy 60 nhãn, mà `duKienMoHinh`
+    // một mình đã đẩy ra hàng trăm.
+    const nhan = hieuCauHoi.mock.calls[0]?.[0].nhan ?? [];
+    expect(nhan[0]).toBe('Vẽ biểu đồ: Doanh thu theo Khu vực');
+
+    // Và nó giữ được đúng cú bấm mà cả tính năng sinh ra để có.
+    expect(screen.getByRole('button', { name: 'Vẽ' })).toBeInTheDocument();
+  });
+});

@@ -1,7 +1,13 @@
 import type { ExplorerFieldDto, ExplorerFieldsDto } from '@bi/shared';
 import { describe, expect, it } from 'vitest';
 
-import { cauGoiY, deXuatBieuDo, goiYBieuDo, tenDeXuat } from '../src/features/chat/goiYBieuDo';
+import {
+  cauGoiY,
+  deXuatBieuDo,
+  goiYBieuDo,
+  muonVe,
+  tenDeXuat,
+} from '../src/features/chat/goiYBieuDo';
 
 /**
  * "Tui muốn xem doanh thu theo khu vực" — kéo gì vào đâu, chọn biểu đồ nào.
@@ -58,14 +64,26 @@ describe('goiYBieuDo', () => {
     expect(g?.loai).toBe('pie');
   });
 
-  it('KHÔNG có chữ ý định thì không gợi ý — đó là một câu hỏi SỐ LIỆU', () => {
+  it('KHỚP được cả khi câu không có chữ ý định nào', () => {
     /*
-     * "Doanh thu theo khu vực" một mình là câu hỏi số liệu hợp lệ, và trang này
-     * trả lời được nó bằng ô đang chọn hoặc bằng một truy vấn mới. Chen hướng
-     * dẫn vào trước là cướp mất câu trả lời thật.
+     * Hợp đồng đã đổi, có chủ ý. Bản đầu gộp "câu này xin biểu đồ không" vào
+     * chính phép khớp, và 8/30 ca trượt hẳn chỉ vì cách nói nằm ngoài một danh
+     * sách viết tay. Giờ hàm này chỉ trả lời MỘT câu: "câu này gọi tên cặp
+     * trường nào".
      */
-    expect(goiYBieuDo(MO_HINH, 'doanh thu theo khu vực')).toBeNull();
-    expect(goiYBieuDo(MO_HINH, 'doanh thu theo khu vực là bao nhiêu')).toBeNull();
+    expect(goiYBieuDo(MO_HINH, 'doanh thu theo khu vực')?.chieu.label).toBe('Khu vực');
+  });
+
+  it('`muonVe` mới là thứ phân biệt "xin biểu đồ" với "xin con số"', () => {
+    /*
+     * Và panel dùng nó để xếp THỨ TỰ, không phải để chặn: có chữ ý định thì
+     * đường vẽ đi trước, không có thì nó vẫn được thử — sau khi đường số liệu
+     * đã trượt. Nhờ vậy thiếu một cách nói trong danh sách chỉ đổi thứ tự chứ
+     * không mất đường.
+     */
+    expect(muonVe('tui muốn xem doanh thu theo khu vực')).toBe(true);
+    expect(muonVe('vẽ biểu đồ doanh thu theo khu vực')).toBe(true);
+    expect(muonVe('doanh thu theo khu vực là bao nhiêu')).toBe(false);
   });
 
   it('không trường nào khớp thì không gợi ý', () => {

@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 
 import { KHONG_XUAT } from '../../services/danhDauXuat';
 import { dienDatLai, hieuCauHoi, hoiTrenMoHinh } from './api';
-import { cauGoiY, deXuatBieuDo, goiYBieuDo, tenDeXuat } from './goiYBieuDo';
+import { cauGoiY, deXuatBieuDo, goiYBieuDo, muonVe, tenDeXuat } from './goiYBieuDo';
 import type { GoiYBieuDo } from './goiYBieuDo';
 import { useNguCanh } from './nguCanh';
 import type { Nguon } from './nguCanh';
@@ -229,13 +229,19 @@ export function HoiDapPanel(): React.ReactElement | null {
     /*
      * "Tui muốn xem doanh thu theo khu vực" — hướng dẫn DỰNG, không phải số.
      *
-     * Đứng trước mọi lớp khác vì nó là lớp DUY NHẤT đọc được ý định ấy: mấy lớp
-     * sau chỉ biết đi tìm một con số, và chúng sẽ tìm ra một con số thật — cho
-     * một câu hỏi người dùng không hỏi. Chỉ trình dựng khai `truong`, nên ở mọi
-     * trang khác `goiYBieuDo` trả `null` ngay.
+     * ═══ Vì sao CHỈ đi trước khi câu có chữ ý định ═══════════════════════
+     *
+     * "Doanh thu theo khu vực" một mình là câu hỏi SỐ LIỆU hoàn toàn hợp lệ, và
+     * trang này trả lời được nó. Chen hướng dẫn vào trước là cướp mất câu trả
+     * lời thật.
+     *
+     * Nhưng thiếu chữ ý định KHÔNG còn làm câu đó trượt hẳn như bản trước: nó
+     * rơi xuống chỗ dự phòng bên dưới, sau khi đường số liệu đã thử và trượt.
+     * Nhờ vậy danh sách `TU_Y_DINH` không cần đóng — thiếu một cách nói chỉ đổi
+     * THỨ TỰ, không mất đường.
      */
     const gy = goiYBieuDo(nguCanh.truong, q);
-    if (gy !== null) {
+    if (gy !== null && muonVe(q)) {
       demId.current += 2;
       const idGy = demId.current;
       const lucGy = gioBayGio();
@@ -310,6 +316,24 @@ export function HoiDapPanel(): React.ReactElement | null {
     setCauTruoc(q);
 
     if (kq === null) {
+      /*
+       * Số liệu đã trượt, mà câu vẫn gọi tên một cặp trường — dựng nó.
+       *
+       * Đây là chỗ đỡ cho mọi cách nói nằm ngoài `TU_Y_DINH`: "biểu đồ doanh
+       * thu theo khu vực" không cần có mặt trong danh sách nào, nó chỉ cần gọi
+       * tên hai trường có thật. Và nó MIỄN PHÍ — chạy xong trước khi lớp mô
+       * hình kịp được gọi.
+       */
+      if (gy !== null) {
+        const kqGy = cauGoiY(gy);
+        setTinNhan((cu) =>
+          cu.map((t) =>
+            t.id === idBot ? { id: t.id, ai: t.ai, luc: t.luc, cau: kqGy.cau, deXuat: [gy] } : t,
+          ),
+        );
+        vietLai(q, idBot, kqGy);
+        return;
+      }
       nhoMoHinhChon(q, idBot);
       return;
     }
@@ -459,7 +483,26 @@ export function HoiDapPanel(): React.ReactElement | null {
      * bản tóm tắt và mấy câu so cả danh sách — chứ không góp dữ kiện của từng
      * mục, vì sáu trăm nhãn sẽ đẩy sạch trang ra khỏi danh sách.
      */
-    const luaChon = [...luaChonTrang(nguCanh.nguon, nguon, q), ...luaChonHeThong(heThong)];
+    /*
+     * ═══ Cặp trường đứng ĐẦU danh sách gửi cho mô hình ═══════════════════
+     *
+     * Backend chỉ lấy 60 nhãn đầu, và `duKienMoHinh` một mình đã đẩy ra hàng
+     * trăm nhãn (mỗi cột của mỗi bảng một nhãn). Xếp cặp vẽ xuống cuối là chúng
+     * bị cắt sạch trước khi mô hình kịp nhìn thấy.
+     *
+     * Đổi lại, câu hỏi SỐ LIỆU ở trình dựng mất vài nhãn cuối — và nó còn
+     * nguyên đường mạnh hơn hẳn ở phía sau: `nhoMoHinhHoi` đặt một truy vấn
+     * MỚI trên chính mô hình. Câu nhờ VẼ thì không có đường nào khác.
+     *
+     * `moiThuocDo` nới hẳn: ở đây không ai phải đọc hết danh sách, và thiếu một
+     * cặp nghĩa là mô hình không có cách nào chọn đúng nó.
+     */
+    const capVe = deXuatBieuDo(nguCanh.truong, 20, 99);
+    const luaChon = [
+      ...capVe.map((g) => ({ nhan: `Vẽ biểu đồ: ${tenDeXuat(g)}`, chay: () => cauGoiY(g) })),
+      ...luaChonTrang(nguCanh.nguon, nguon, q),
+      ...luaChonHeThong(heThong),
+    ];
     if (luaChon.length === 0) {
       // Không có gì để chọn thì bỏ hẳn lớp chọn-nhãn, nhưng đường đặt câu hỏi
       // mới không phụ thuộc vào danh sách đó.
@@ -499,12 +542,28 @@ export function HoiDapPanel(): React.ReactElement | null {
           return;
         }
 
+        /*
+         * Mục mô hình chọn là một CẶP VẼ thì bong bóng mang theo hai cái nút.
+         *
+         * Không có chỗ này thì mô hình hiểu đúng "theo vùng" là "theo Khu vực"
+         * rồi trả về một câu hướng dẫn kéo tay — đúng, nhưng bỏ mất đúng cú bấm
+         * mà cả tính năng sinh ra để có.
+         */
+        const cap = chon !== null && chon < capVe.length ? capVe[chon] : undefined;
+
         // Mô hình chỉ CHỌN được một mục. Câu chữ và con số vẫn do `traLoi.ts`
         // tính ra tại máy này — kể cả `luuY`, điều kiện của con số.
         setTinNhan((cu) =>
           cu.map((t) =>
             t.id === idBot
-              ? { id: t.id, ai: t.ai, cau: kq.cau, luc: t.luc, doMoHinh: 'mô hình chọn mục' }
+              ? {
+                  id: t.id,
+                  ai: t.ai,
+                  cau: kq.cau,
+                  luc: t.luc,
+                  doMoHinh: 'mô hình chọn mục',
+                  ...(cap === undefined ? {} : { deXuat: [cap] }),
+                }
               : t,
           ),
         );
