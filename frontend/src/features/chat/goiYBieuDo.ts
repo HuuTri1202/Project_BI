@@ -85,6 +85,30 @@ const TU_Y_DINH = [
   've cho',
 ];
 
+/**
+ * Chữ nói "chia theo THỜI GIAN" — và chúng là chữ của TA, không của khách.
+ *
+ * ⚠️ Khác hẳn "vùng" hay "lãi". Mấy chữ kia là đoán xem khách gọi TRƯỜNG của họ
+ * là gì, và khối chú thích của `DONG_NGHIA` đã ghi rõ vì sao khung không được
+ * làm vậy. Còn "tháng", "quý", "xu hướng" chỉ nói ra một YÊU CẦU — "chia theo
+ * trục thời gian" — còn trường nào đáp ứng nó thì `cubeType === 'time'` trả
+ * lời chắc chắn, không phải đoán.
+ *
+ * Và vì thế nó cũng dừng ngay khi hết chắc chắn: mô hình có HAI chiều thời
+ * gian (ngày đặt, ngày giao) thì "theo tháng" không chỉ ra cái nào, và khung
+ * nhường cho đường hỏi lại.
+ */
+const TU_THOI_GIAN = [
+  'thang',
+  'quy',
+  'nam',
+  'tuan',
+  'thoi gian',
+  'xu huong',
+  'dien bien',
+  'tang truong',
+];
+
 /** Câu này xin một BIỂU ĐỒ, không xin một con số. */
 export function muonVe(cauHoi: string): boolean {
   const q = chuanHoa(cauHoi);
@@ -226,11 +250,58 @@ export function goiYBieuDo(
   const q = chuanHoa(cauHoi);
 
   const { veDo, veChieu } = hangVe(q);
-  const chieu = chamTruong(truong.dimensions, veChieu);
   const thuocDo = chamTruong(truong.measures, veDo);
-  if (chieu === null || thuocDo === null) return null;
+  if (thuocDo === null) return null;
+
+  const chieu = chamTruong(truong.dimensions, veChieu) ?? doanChieu(truong, thuocDo, q, veChieu);
+  if (chieu === null) return null;
 
   return { chieu, thuocDo, loai: loaiHop(chieu, q) };
+}
+
+/**
+ * Chiều mà người dùng KHÔNG nói ra — `null` = không có cơ sở nào để điền.
+ *
+ * ═══ Vì sao điền hộ ở đây là chính đáng, mà đoán tên trường thì không ══════
+ *
+ * Vì nó không giấu gì. Kết quả hiện lên dưới dạng MỘT CÁI TÊN đọc được
+ * ("Doanh thu theo Ngày đặt") kèm hai cái nút, nên người dùng đọc được điều
+ * khung vừa điền hộ TRƯỚC KHI nó xảy ra. Khác hẳn một con số đã tính xong trên
+ * một cặp trường họ chưa bao giờ thấy.
+ *
+ * Hai cơ sở, không hơn:
+ *
+ *   1. Câu nhắc tới THỜI GIAN và mô hình có đúng MỘT chiều thời gian.
+ *   2. Câu chỉ nói thước đo, không nói gì về chiều, và nó đang XIN một biểu đồ
+ *      — lúc đó im lặng là câu trả lời tệ nhất, vì biểu đồ nào cũng cần một
+ *      chiều và khung biết chiều nào hợp nhất với thước đo đó.
+ *
+ * ⚠️ `veChieu` phải RỖNG ở luật (2). Khớp được mà hoà là chuyện khác hẳn —
+ * đó là lúc gọi `goiYMoHo` để hỏi lại, không phải lúc tự điền.
+ */
+function doanChieu(
+  truong: ExplorerFieldsDto,
+  thuocDo: ExplorerFieldDto,
+  q: string,
+  veChieu: Set<string>,
+): ExplorerFieldDto | null {
+  if (TU_THOI_GIAN.some((t) => q.includes(t))) {
+    const tg = truong.dimensions.filter((d) => d.cubeType === 'time');
+    /*
+     * DỪNG HẲN ở đây, không rơi xuống luật (2).
+     *
+     * Hai chiều thời gian (ngày đặt, ngày giao) thì "theo tháng" không chỉ ra
+     * cái nào — và luật (2) sẽ lặng lẽ điền một chiều KHÔNG phải thời gian, tức
+     * là bỏ ngoài tai đúng cái người dùng vừa nói. `goiYMoHo` hỏi lại ở đó.
+     */
+    return tg.length === 1 ? (tg[0] ?? null) : null;
+  }
+  if (topTruong(truong.dimensions, veChieu).length > 0 || !muonVe(q)) return null;
+
+  const xep = truong.dimensions
+    .map((c) => ({ c, diem: diemCap(c, thuocDo) }))
+    .sort((a, b) => b.diem - a.diem);
+  return xep[0]?.c ?? null;
 }
 
 /**
@@ -255,8 +326,15 @@ export function goiYMoHo(truong: ExplorerFieldsDto | undefined, cauHoi: string):
 
   const q = chuanHoa(cauHoi);
   const { veDo, veChieu } = hangVe(q);
-  const chieu = topTruong(truong.dimensions, veChieu);
   const thuocDo = topTruong(truong.measures, veDo);
+  let chieu = topTruong(truong.dimensions, veChieu);
+
+  // Nhắc tới thời gian mà mô hình có nhiều hơn một chiều thời gian — ứng viên
+  // chính là mấy chiều đó. Xem khối "DỪNG HẲN" trong `doanChieu`.
+  if (chieu.length === 0 && TU_THOI_GIAN.some((t) => q.includes(t))) {
+    chieu = truong.dimensions.filter((d) => d.cubeType === 'time');
+  }
+
   if (chieu.length === 0 || thuocDo.length === 0) return [];
   if (chieu.length > 1 && thuocDo.length > 1) return [];
 

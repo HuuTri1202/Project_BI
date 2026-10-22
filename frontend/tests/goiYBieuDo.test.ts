@@ -331,3 +331,75 @@ describe('goiYMoHo — hoà điểm thì hỏi lại, đừng im', () => {
     expect(goiYMoHo(MO_HINH, 'tui muốn xem tồn kho theo nhà cung cấp')).toEqual([]);
   });
 });
+
+describe('điền hộ chiều mà người dùng không nói ra', () => {
+  it('"theo tháng" -> chiều thời gian DUY NHẤT của mô hình', () => {
+    /*
+     * "tháng" là chữ của TA, không phải đoán tên trường của khách: nó nói ra
+     * một YÊU CẦU ("chia theo trục thời gian"), còn trường nào đáp ứng thì
+     * `cubeType === 'time'` trả lời chắc chắn.
+     */
+    const g = goiYBieuDo(MO_HINH, 'vẽ biểu đồ doanh thu theo tháng');
+    expect(g?.chieu.label).toBe('Ngày đặt');
+    expect(g?.loai).toBe('line');
+  });
+
+  it('HAI chiều thời gian thì KHÔNG điền — hết chắc chắn là dừng', () => {
+    // "theo tháng" không chỉ ra cái nào trong hai, và một hướng dẫn kéo nhầm
+    // trường dẫn tới biểu đồ đúng hình sai số liệu.
+    const haiNgay: ExplorerFieldsDto = {
+      dimensions: [
+        truong({ id: 1, label: 'Ngày đặt', cubeType: 'time' }),
+        truong({ id: 2, label: 'Ngày giao', cubeType: 'time' }),
+      ],
+      measures: MO_HINH.measures,
+    };
+    expect(goiYBieuDo(haiNgay, 'vẽ biểu đồ doanh thu theo tháng')).toBeNull();
+  });
+
+  it('chỉ nói thước đo mà đang XIN biểu đồ -> đề nghị chiều hợp nhất', () => {
+    // Biểu đồ nào cũng cần một chiều, và khung biết chiều nào hợp nhất với
+    // thước đo đó. Im lặng ở đây là câu trả lời tệ nhất.
+    expect(goiYBieuDo(MO_HINH, 'vẽ biểu đồ doanh thu')?.chieu.label).toBe('Ngày đặt');
+  });
+
+  it('chỉ nói thước đo mà KHÔNG xin biểu đồ -> im, đó là câu hỏi số liệu', () => {
+    expect(goiYBieuDo(MO_HINH, 'doanh thu là bao nhiêu')).toBeNull();
+  });
+
+  it('khớp được mà HOÀ thì không tự điền — đó là lúc hỏi lại', () => {
+    /*
+     * Hai chuyện khác hẳn nhau: "không nói gì về chiều" thì điền hộ được, còn
+     * "nói mà trúng hai cái" thì phải hỏi. Gộp lại là tự chọn một trong hai
+     * thứ người dùng vừa phân vân.
+     */
+    const hoa: ExplorerFieldsDto = {
+      dimensions: [
+        truong({ id: 1, label: 'Khu vực giao' }),
+        truong({ id: 2, label: 'Khu vực bán' }),
+      ],
+      measures: MO_HINH.measures,
+    };
+    expect(goiYBieuDo(hoa, 'vẽ biểu đồ doanh thu theo khu vực')).toBeNull();
+    expect(goiYMoHo(hoa, 'vẽ biểu đồ doanh thu theo khu vực')).toHaveLength(2);
+  });
+});
+
+describe('nhiều chiều thời gian thì hỏi, không điền bừa', () => {
+  const haiNgay: ExplorerFieldsDto = {
+    dimensions: [
+      truong({ id: 1, label: 'Ngày đặt', cubeType: 'time' }),
+      truong({ id: 2, label: 'Ngày giao', cubeType: 'time' }),
+      truong({ id: 3, label: 'Khu vực', datasetName: 'Khách hàng' }),
+    ],
+    measures: MO_HINH.measures,
+  };
+
+  it('ứng viên là mấy chiều THỜI GIAN, không phải chiều xếp hạng cao nhất', () => {
+    // Luật "chỉ nói thước đo thì điền hộ" sẽ lặng lẽ chọn một chiều KHÔNG phải
+    // thời gian — tức là bỏ ngoài tai đúng cái người dùng vừa nói.
+    const ds = goiYMoHo(haiNgay, 'vẽ biểu đồ doanh thu theo tháng');
+
+    expect(ds.map((g) => g.chieu.label)).toEqual(['Ngày đặt', 'Ngày giao']);
+  });
+});
