@@ -774,3 +774,256 @@ describe('Dòng "Tôi hiểu" nói ra thứ tự', () => {
     expect(docKetQua(bang(3), coTran, NHAN, 'desc').hieuLa).toContain('lấy 5 dòng đầu');
   });
 });
+
+/**
+ * Mốc THỜI GIAN — ô form thứ tư, và ô duy nhất đi quanh luật canh gác.
+ *
+ * "Doanh thu tháng này" là câu hỏi phổ biến nhất của một công cụ BI, và trước
+ * ô này khung trả lời được KHÔNG câu nào như thế: `giuNguyenLoi` buộc giá trị
+ * lọc phải có trong lời người dùng, nên mô hình không bao giờ viết ra được
+ * `2026-10-01`.
+ *
+ * Cách bịt: mô hình chọn một CỤM trong danh sách đóng, code giải thành ngày.
+ * Nên ba thứ phải được canh:
+ *
+ *   1. Cụm thành đúng hai bộ lọc `gte`/`lt` trên đúng cột.
+ *   2. Mô hình KHÔNG viết nổi một ngày nào vào truy vấn, kể cả khi nó thử.
+ *   3. Lượt hỏi TIẾP không bị chính cái ngày ấy làm chết form.
+ */
+describe('Mốc thời gian', () => {
+  const CO_NGAY: DatCauHoiInput['truong'] = [
+    { id: 21, nhan: 'Doanh thu', loai: 'thuoc do', phepGop: ['sum', 'avg'] },
+    { id: 11, nhan: 'Khu vực (bảng Orders)', loai: 'chieu' },
+    { id: 13, nhan: 'Ngày đặt (bảng Orders)', loai: 'chieu', thoiGian: true },
+  ];
+
+  /** Thứ Năm 2026-10-15 — chốt mốc, nếu không ca này đỏ vào ngày cuối tháng. */
+  const MOC = new Date(2026, 9, 15);
+
+  const doc = (tho: unknown, cauHoi = 'doanh thu tháng này'): ExplorerQueryDto | null =>
+    kiemForm(tho, { cauHoi, truong: CO_NGAY, moc: MOC });
+
+  it('cụm thành hai bộ lọc trên đúng cột, mốc cuối HỞ', () => {
+    const q = doc({
+      dimensionIds: [],
+      measureIds: [21],
+      khoangThoiGian: { dimensionId: 13, cum: 'thang-nay' },
+    });
+
+    expect(q?.filters).toEqual([
+      { dimensionId: 13, operator: 'gte', values: ['2026-10-01'] },
+      // `lt`, không phải `lte`: cột có thể là DateTime, và `lte '2026-10-31'`
+      // cắt mất mọi dòng của ngày 31 sau nửa đêm.
+      { dimensionId: 13, operator: 'lt', values: ['2026-11-01'] },
+    ]);
+  });
+
+  it('bộ lọc của cụm nối thêm vào bộ lọc mô hình tự điền, không thay chúng', () => {
+    // ⚠️ Câu hỏi PHẢI chứa "Miền Bắc": `giuNguyenLoi` vẫn gác bộ lọc mô hình
+    //    tự điền, và ô thời gian không nới luật đó ra cho mấy ô khác.
+    const q = doc(
+      {
+        dimensionIds: [11],
+        measureIds: [21],
+        filters: [{ dimensionId: 11, operator: 'equals', values: ['Miền Bắc'] }],
+        khoangThoiGian: { dimensionId: 13, cum: 'quy-truoc' },
+      },
+      'doanh thu Miền Bắc quý trước',
+    );
+
+    // "Doanh thu Miền Bắc quý trước" — cả hai điều kiện phải còn.
+    expect(q?.filters).toHaveLength(3);
+    expect(q?.filters?.[0]).toEqual({
+      dimensionId: 11,
+      operator: 'equals',
+      values: ['Miền Bắc'],
+    });
+    expect(q?.filters?.[1]?.values).toEqual(['2026-07-01']);
+  });
+
+  /*
+   * ⚠️ Chốt quan trọng nhất của khối này.
+   *
+   * Nếu mô hình viết được ngày vào `values` thì cả thiết kế "code giải cụm"
+   * thành vô nghĩa — nó chỉ còn là một đường vòng mà mô hình có thể bỏ qua.
+   * Một ngày lệch một tháng vẫn chạy ra số thật, cho một khoảng không ai hỏi.
+   */
+  it('mô hình TỰ viết ngày vào values thì bỏ cả form', () => {
+    expect(
+      doc({
+        dimensionIds: [],
+        measureIds: [21],
+        filters: [{ dimensionId: 13, operator: 'gte', values: ['2026-10-01'] }],
+      }),
+    ).toBeNull();
+  });
+
+  it('cụm lạ thì bỏ cả form, không đoán một khoảng', () => {
+    expect(
+      doc({
+        dimensionIds: [],
+        measureIds: [21],
+        khoangThoiGian: { dimensionId: 13, cum: 'hôm nào' },
+      }),
+    ).toBeNull();
+  });
+
+  it('cụm gán cho cột KHÔNG phải thời gian thì bỏ cả form', () => {
+    expect(
+      doc({
+        dimensionIds: [],
+        measureIds: [21],
+        khoangThoiGian: { dimensionId: 11, cum: 'thang-nay' },
+      }),
+    ).toBeNull();
+  });
+
+  /*
+   * ⚠️ Cái bẫy mà `daTinCay` sinh ra để gỡ.
+   *
+   * Lượt một: "doanh thu tháng này" -> form có `gte 2026-10-01`.
+   * Lượt hai: "còn Miền Nam thì sao" -> mô hình giữ lại cả form cũ, ĐÚNG như
+   * nó được dạy, nên nó chép lại cái ngày ấy. Ngày đó không có trong lời ai
+   * cả, nên `giuNguyenLoi` bác và CẢ FORM bị bỏ.
+   *
+   * Hậu quả nếu không gỡ: mọi câu hỏi tiếp sau một câu có mốc thời gian đều
+   * thành "chưa hiểu" — tức là bộ nhớ hội thoại chết đúng ở nhóm câu hỏi mà
+   * người ta hỏi tiếp nhiều nhất.
+   */
+  it('lượt hỏi tiếp giữ lại được mốc thời gian của lượt trước', () => {
+    const q = kiemForm(
+      {
+        dimensionIds: [],
+        measureIds: [21],
+        filters: [
+          { dimensionId: 13, operator: 'gte', values: ['2026-10-01'] },
+          { dimensionId: 13, operator: 'lt', values: ['2026-11-01'] },
+          { dimensionId: 11, operator: 'equals', values: ['Miền Nam'] },
+        ],
+      },
+      {
+        cauHoi: 'còn Miền Nam thì sao',
+        truong: CO_NGAY,
+        moc: MOC,
+        boiCanh: {
+          cauHoi: 'doanh thu tháng này',
+          truyVan: {
+            dimensionIds: [],
+            measureIds: [21],
+            filters: [
+              { dimensionId: 13, operator: 'gte', values: ['2026-10-01'] },
+              { dimensionId: 13, operator: 'lt', values: ['2026-11-01'] },
+            ],
+          },
+        },
+      },
+    );
+
+    expect(q?.filters).toHaveLength(3);
+  });
+
+  /*
+   * Nhưng cửa thứ hai KHÔNG được thành một cửa mở.
+   *
+   * Chỉ giá trị đã nằm trong form đã kiểm của lượt trước được thừa hưởng. Một
+   * ngày KHÁC, mô hình tự nghĩ ra ở lượt này, vẫn phải chết.
+   */
+  it('ngày mô hình tự đổi ở lượt sau thì vẫn bỏ cả form', () => {
+    const q = kiemForm(
+      {
+        dimensionIds: [],
+        measureIds: [21],
+        filters: [{ dimensionId: 13, operator: 'gte', values: ['2026-09-01'] }],
+      },
+      {
+        cauHoi: 'còn Miền Nam thì sao',
+        truong: CO_NGAY,
+        moc: MOC,
+        boiCanh: {
+          cauHoi: 'doanh thu tháng này',
+          truyVan: {
+            dimensionIds: [],
+            measureIds: [21],
+            filters: [{ dimensionId: 13, operator: 'gte', values: ['2026-10-01'] }],
+          },
+        },
+      },
+    );
+
+    expect(q).toBeNull();
+  });
+
+  it('lời nhắc nói rõ danh sách cụm và cấm mô hình tự viết ngày', async () => {
+    const { datCauHoi } = await napVoiEnv(DU_CAU_HINH);
+    const goi = vi.fn().mockResolvedValue(traVe('{}'));
+    globalThis.fetch = goi;
+
+    await datCauHoi({ cauHoi: 'doanh thu tháng này', truong: CO_NGAY });
+
+    const than = JSON.parse(String((goi.mock.calls[0]?.[1] as { body: string }).body)) as {
+      messages: { content: string }[];
+    };
+    const tat = than.messages.map((m) => m.content).join('\n');
+
+    expect(tat).toContain('thang-nay');
+    expect(tat).toContain('quy-truoc');
+    expect(tat).toContain('không tự viết ngày tháng vào values');
+  });
+});
+
+/**
+ * Khoảng ngày đã giải ra phải HIỆN RA cho người dùng đối chiếu.
+ *
+ * Mô hình chọn cụm, code giải thành ngày — nên người dùng không thấy được hệ
+ * thống hiểu "tháng này" là khoảng nào, trừ khi `hieuLa` nói ra. Mà đó chính
+ * là chỗ dễ sai nhất: lệch một tháng vẫn chạy ra số thật.
+ */
+describe('Dòng "Tôi hiểu" nói ra khoảng ngày', () => {
+  const NHAN = new Map([
+    [13, 'Ngày đặt'],
+    [21, 'Doanh thu'],
+  ]);
+
+  const MOT_DONG: ExplorerResultDto = {
+    columns: [{ id: 21, label: 'Doanh thu', kind: 'measure' }],
+    rows: [[9000]],
+    truncated: false,
+  };
+
+  const CO_NGAY: DatCauHoiInput['truong'] = [
+    { id: 21, nhan: 'Doanh thu', loai: 'thuoc do', phepGop: ['sum'] },
+    { id: 13, nhan: 'Ngày đặt', loai: 'chieu', thoiGian: true },
+  ];
+
+  it('cặp gte/lt của một cụm đọc thành MỘT câu, với mốc cuối nói là "trước"', () => {
+    const q = kiemForm(
+      {
+        dimensionIds: [],
+        measureIds: [21],
+        khoangThoiGian: { dimensionId: 13, cum: 'thang-nay' },
+      },
+      { cauHoi: 'doanh thu tháng này', truong: CO_NGAY, moc: new Date(2026, 9, 15) },
+    );
+
+    const { hieuLa } = docKetQua(MOT_DONG, q as ExplorerQueryDto, NHAN);
+
+    // Hai mốc thật, trên một dòng đọc được — không phải hai mệnh đề rời.
+    expect(hieuLa).toContain('lọc Ngày đặt từ 2026-10-01 đến trước 2026-11-01');
+  });
+
+  /*
+   * Một `gte` ĐƠN ĐỘC vẫn phải đọc bằng nhãn toán tử bình thường.
+   *
+   * Phép gộp cặp không được nuốt nó: "doanh thu từ 1000 trở lên" là một điều
+   * kiện có thật mà mô hình điền được, và nó không có vế trên nào.
+   */
+  it('gte đứng một mình thì vẫn đọc theo nhãn toán tử', () => {
+    const q: ExplorerQueryDto = {
+      dimensionIds: [],
+      measureIds: [21],
+      filters: [{ dimensionId: 13, operator: 'gte', values: ['2026-10-01'] }],
+    };
+
+    expect(docKetQua(MOT_DONG, q, NHAN).hieuLa).toContain('lọc Ngày đặt từ … trở lên 2026-10-01');
+  });
+});

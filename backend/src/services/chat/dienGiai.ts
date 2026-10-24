@@ -77,14 +77,43 @@ export function moTaTruyVan(truyVan: ExplorerQueryDto, nhanCua: Map<number, stri
     );
   }
 
-  for (const f of truyVan.filters ?? []) {
+  /*
+   * Cặp `gte`/`lt` trên CÙNG một chiều đọc thành MỘT câu.
+   *
+   * Một mốc thời gian sinh ra đúng cặp đó (xem `khoangThoiGian.ts`), và để
+   * nguyên hai dòng thì `hieuLa` nói "Ngày đặt từ … trở lên 2026-10-01, Ngày
+   * đặt nhỏ hơn 2026-11-01" — đúng từng chữ mà không ai đọc nổi. Dòng này là
+   * chỗ DUY NHẤT người dùng kiểm được "máy hiểu khoảng nào", nên nó phải đọc
+   * được, nếu không nó chỉ còn là chữ cho có.
+   *
+   * "đến trước" chứ không phải "đến": mốc cuối HỞ, và nói "đến 2026-11-01"
+   * là nói sai một ngày về phía rộng hơn.
+   */
+  const daGop = new Set<number>();
+  const boLoc = truyVan.filters ?? [];
+
+  boLoc.forEach((f, i) => {
+    if (f.operator !== 'gte' || daGop.has(i)) return;
+    const j = boLoc.findIndex(
+      (g, k) => k !== i && !daGop.has(k) && g.dimensionId === f.dimensionId && g.operator === 'lt',
+    );
+    if (j < 0) return;
+    daGop.add(i);
+    daGop.add(j);
+    phan.push(
+      `lọc ${ten(f.dimensionId)} từ ${f.values.join(', ')} đến trước ${boLoc[j]?.values.join(', ') ?? ''}`,
+    );
+  });
+
+  boLoc.forEach((f, i) => {
+    if (daGop.has(i)) return;
     const dieu = FILTER_OPERATOR_LABELS[f.operator];
     phan.push(
       f.values.length === 0
         ? `lọc ${ten(f.dimensionId)} ${dieu}`
         : `lọc ${ten(f.dimensionId)} ${dieu} ${f.values.join(', ')}`,
     );
-  }
+  });
 
   /*
    * `limit` PHẢI được nói ra. Nó quyết định tập dữ liệu nào được lấy về, nên

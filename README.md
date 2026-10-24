@@ -3145,10 +3145,42 @@ việc, và **không việc nào cho phép nó tạo ra nội dung**:
    trường vẫn ra một con số đẹp, nên dòng đó là thứ duy nhất cho người đọc đối
    chiếu lại.
 
+   Form có **bảy ô**, không phải ba. Ngoài `dimensionIds` / `measureIds` /
+   `filters`: `limit` cho _"top 5"_; `measureAggs` khi câu hỏi đổi phép tính
+   (_"doanh thu **trung bình** mỗi đơn"_); `timeDimension` để gom theo
+   ngày/tuần/tháng/quý/năm; và `khoangThoiGian` cho một mốc thời gian. Ô thứ
+   hai là ô dễ gây hại nhất: rơi nó thì câu trả lời là **tổng** doanh thu
+   mang đúng cái nhãn "Doanh thu" — một con số thật, cho một câu hỏi khác.
+
+   **Mốc thời gian: mô hình chọn CỤM, code giải thành ngày.** _"Doanh thu
+   tháng này"_ là câu hỏi phổ biến nhất của một công cụ BI, và nó từng là câu
+   khung **không trả lời được câu nào** — vì luật "giá trị phải là lời người
+   dùng" khiến mô hình không bao giờ viết ra được `2026-10-01`. Cách bịt
+   không phải nới luật: mô hình chỉ chọn một chuỗi trong một **danh sách
+   đóng** (`thang-nay`, `quy-truoc`, `7-ngay-qua`, `thang-1`…`thang-12`,
+   `nam-2000`…`nam-2100`), rồi `khoangThoiGian.ts` đổi nó thành hai bộ lọc
+   `gte`/`lt`. Mô hình **không viết nổi một ngày nào** vào truy vấn, kể cả khi
+   nó muốn — nó chỉ chọn được tên cụm; còn "tháng này là từ ngày nào tới ngày
+   nào" thì code biết chắc mà mô hình chỉ đoán được.
+
+   Mốc cuối **hở** (`< 2026-11-01`, không phải `<= 2026-10-31`): cột có thể là
+   `DateTime`, và khi đó mốc đóng cắt mất gần cả ngày cuối mà không có dấu
+   hiệu nào. Quý tính theo **lịch**, không theo năm tài chính — hệ chưa có chỗ
+   nào khai năm tài chính, và đoán bừa một tháng bắt đầu là đổi mọi con số của
+   mọi báo cáo. Tuần bắt đầu **thứ Hai**. Cả hai mốc đã giải ra đều hiện trong
+   `hieuLa` (_"lọc Ngày đặt từ 2026-10-01 đến trước 2026-11-01"_), vì đó là
+   chỗ duy nhất người dùng kiểm được là máy hiểu đúng khoảng nào.
+
    ⚠️ Gác bằng `authorize('datamodel', 'read')` — `admin` và `creator` có,
    `viewer` **không** (migration 26). Viewer vẫn hỏi được mọi câu về thứ đang
    hiện trên màn hình, nhưng không tự đặt được câu hỏi mới trên kho. Đó đúng là
    ranh giới migration 26 vẽ ra.
+
+   Và với viewer, khung **nói thẳng ra là thiếu quyền**, không nói "chưa
+   hiểu": đường này trả 403 cho họ ở _mọi_ câu hỏi số liệu mới, mãi mãi, nên
+   "chưa hiểu" đẩy họ vào vòng gõ lại bằng cách khác mà cách nào cũng trượt —
+   thứ chặn không nằm ở câu chữ. Mấy kiểu hỏng khác (mất mạng, hết lượt, chưa
+   cấu hình) thì vẫn là "chưa hiểu", vì chúng tạm thời.
 
 **Hỏi tiếp được.** _"Doanh thu Miền Bắc"_ → _"còn tháng 4 thì sao"_. Thứ được
 nhớ là **cái form của lượt trước**, không phải đoạn chat: một lượt hỏi tiếp gần
@@ -3159,6 +3191,14 @@ Luật "giá trị phải là lời người dùng" khi đó nới corpus ra **c
 chuyện** — lượt hỏi tiếp giữ lại bộ lọc của lượt trước, mà chữ "Miền Bắc" nằm ở
 câu trước. Nới corpus, **không** bỏ luật: một giá trị không có trong câu nào vẫn
 bỏ cả form. Đổi chip nguồn, hay đổi sang mô hình khác, thì quên lượt trước.
+
+**F5 không xoá cuộc trò chuyện.** Đoạn chat và form của lượt trước nằm trong
+`sessionStorage` — đúng vòng đời của chữ "phiên" mà khung vẫn dùng, nên nó
+không sống qua lần đóng trình duyệt. Giữ cả form là có lý do: thiếu nó thì sau
+F5 _"còn tháng 4 thì sao"_ mất chỗ bám và thành một câu hỏi cụt, dù đoạn chat
+ngay trên vẫn hiện đủ. Tin đang soạn dở bị loại khi ghi — khôi phục nó lại là
+một bong bóng ba chấm nhấp nháy vĩnh viễn, vì lời gọi sinh ra nó đã chết cùng
+trang cũ.
 
 **Biết khung đang có mô hình hay đang chạy ngoại tuyến.** Ngay trên tiêu đề
 khung: nhãn _có mô hình_ hay _ngoại tuyến_. Và vì "đã cấu hình" khác "đang gọi
@@ -3180,22 +3220,57 @@ cũ không còn trên màn hình và một ngữ cảnh vô hình là thứ tệ
 npm --workspace frontend run danh-gia
 ```
 
-89 câu hỏi thật, chạy qua đúng chuỗi thật của khung, và đếm ra **ba** kết cục
-chứ không hai:
+**191 câu hỏi thật trên 25 trang**, chạy qua đúng chuỗi thật của khung, và đếm
+ra **ba** kết cục chứ không hai:
 
-|                        |                                                |
-| ---------------------- | ---------------------------------------------- |
-| **ĐÚNG** 86/89 (96,6%) | trả lời, và con số/cái tên trong đó đúng       |
-| **CHƯA HIỂU** 1/89     | trả `null` — trượt, nhưng **trung thực**       |
-| **SAI** 2/89           | trả lời mà sai: kết cục **duy nhất** nguy hiểm |
+|                          |                                                |
+| ------------------------ | ---------------------------------------------- |
+| **ĐÚNG** 190/191 (99,5%) | trả lời, và con số/cái tên trong đó đúng       |
+| **CHƯA HIỂU** 1/191      | trả `null` — trượt, nhưng **trung thực**       |
+| **SAI** 0/191            | trả lời mà sai: kết cục **duy nhất** nguy hiểm |
 
 Tách "chưa hiểu" khỏi "sai" là phần quan trọng nhất của cách đo: gộp hai thứ
 thành một con số "độ chính xác" là xoá đúng cái phân biệt mà cả thiết kế này
 dựng lên để giữ. Hai ngưỡng trong bộ đo chỉ được sửa **lên** — một thay đổi
-"cải thiện câu A" mà lặng lẽ làm hỏng câu B sẽ đỏ ngay.
+"cải thiện câu A" mà lặng lẽ làm hỏng câu B sẽ đỏ ngay. Ngưỡng của SAI là
+`toBe(0)`, không phải một ngưỡng: nó không có mức nào khác.
+
+Mỗi đợt mở rộng bộ đo đều lòi ra SAI **ngay lần chạy đầu** — 2 câu ở đợt 7→12
+trang, 5 câu ở đợt 12→25 trang. Hai trong số đó chạm đúng dữ liệu không được
+khai (số tài khoản nhận tiền, tài khoản đăng nhập của kết nối): chúng không
+LỘ gì, nhưng chúng trả lời vòng sang dữ kiện khác bằng giọng rất chắc chắn,
+đúng lúc người hỏi đang dò xem khung biết gì về bí mật. Giờ cả hai có ca canh
+riêng, và ca đỏ ở đó nghĩa là có người vừa khai thêm một thứ không được khai.
 
 Bộ này **không gọi mạng**: nó đo lớp ngoại tuyến, thứ phải chạy được khi chưa có
 khoá API nào. Ba lớp mô hình ở trên không nằm trong con số đó.
+
+**Đo riêng đường mô hình dựng truy vấn:**
+
+```bash
+npm --workspace backend run test -- danhGiaTruyVan
+```
+
+Bộ trên dừng ở lớp ngoại tuyến, nên đường đắt nhất và nguy hiểm nhất của khung
+— đường mô hình dựng một truy vấn MỚI rồi quét kho — có một thời gian dài
+**không có bảng điểm nào**. Dựng một cái thì ngay lần chạy đầu ra **8 câu SAI**,
+và tất cả cùng một gốc:
+
+`buildQuery` sắp theo thước đo đầu tiên và mặc định sắp **giảm**. _"Sản phẩm nào
+bán ÍT nhất"_ nhận về danh sách bán **chạy** nhất, rồi `docKetQua` liệt kê theo
+đúng thứ tự ấy — nên dòng đầu, thứ người ta đọc như câu trả lời, là đáp án của
+câu hỏi ngược lại. Có `limit` thì sai **cả tập**: _"3 sản phẩm bán chậm nhất"_
+cắt ba dòng đầu của chiều giảm.
+
+Nay `huongSap()` đọc hướng từ câu hỏi bằng **code** — cùng hai biểu thức chính
+quy với lớp ngoại tuyến, vì hai lớp trả lời khác nhau cho cùng một câu còn tệ
+hơn cả hai cùng sai — và `hieuLa` nói ra thứ tự, **cả khi** nó là mặc định:
+chỉ nói lúc bị lật thì người đọc không phân biệt được "máy hiểu là cao nhất"
+với "máy không nghĩ tới chuyện đó".
+
+Bộ này thay đúng hai thứ — mô hình ngôn ngữ (mỗi ca tự khai JSON nó trả về) và
+ClickHouse — còn `kiemForm`, `buildQuery`, `docKetQua` là code thật. Nên tháo
+một dây nối là nó đỏ.
 
 **Kiểm tra đã nối được mô hình chưa:**
 
@@ -3227,7 +3302,12 @@ riêng câu trả lời — không gửi bảng số liệu, không gửi số t
 | `backend/src/services/chat/dienGiai.ts`        | Đọc kết quả thành câu, và dòng "Tôi hiểu:"       |
 | `backend/src/services/chat/hoiTrenMoHinh.ts`   | Ghép ba bước của đường đặt câu hỏi mới           |
 | `backend/src/services/chat/dienDat.ts`         | Lớp viết lại + luật đối chiếu số                 |
-| `frontend/tests/danhGia.test.ts`               | Bộ ĐO: 71 câu hỏi thật, ba kết cục               |
+| `backend/src/services/chat/khoangThoiGian.ts`  | Cụm thời gian ("tháng này") → hai mốc ngày       |
+| `frontend/src/features/chat/goiYBieuDo.ts`     | Câu xin VẼ → một cặp chiều × thước đo            |
+| `frontend/src/features/chat/nhoHoiThoai.ts`    | Giữ đoạn chat + form qua một lần F5              |
+| `frontend/tests/danhGia.test.ts`               | Bộ ĐO lớp ngoại tuyến: 191 câu, 25 trang         |
+| `backend/tests/danhGiaTruyVan.test.ts`         | Bộ ĐO đường mô hình dựng truy vấn                |
+| `backend/tests/khoangThoiGian.test.ts`         | Mốc ngày: vắt qua biên năm, tuần bắt đầu thứ Hai |
 
 ---
 

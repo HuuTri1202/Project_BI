@@ -9,6 +9,7 @@ import {
 } from '@bi/shared';
 
 import { coCauHinhLlm, goiMoHinh } from './dienDat';
+import { CUM_CO_DINH, giaiCum } from './khoangThoiGian';
 
 /**
  * Để mô hình ĐIỀN MỘT CÁI FORM truy vấn — không để nó viết truy vấn.
@@ -98,6 +99,13 @@ export interface DatCauHoiInput {
    * đã có `datamodel:read`, tức đã gọi thẳng `/query` với bất kỳ form nào.
    */
   boiCanh?: { cauHoi: string; truyVan: ExplorerQueryDto } | undefined;
+  /**
+   * "Bây giờ" theo đó mà giải cụm thời gian. Vắng mặt = `new Date()`.
+   *
+   * Có mặt CHỈ để test chốt được mốc. Một hàm ngày tháng tự đọc `Date.now()`
+   * thì không kiểm được, và nó sẽ đỏ đúng vào ngày cuối tháng.
+   */
+  moc?: Date | undefined;
 }
 
 export interface DatCauHoiKetQua {
@@ -217,6 +225,33 @@ function loiNguoiDung(input: DatCauHoiInput): string {
   return input.boiCanh === undefined ? input.cauHoi : `${input.boiCanh.cauHoi} ${input.cauHoi}`;
 }
 
+/**
+ * Giá trị này đã nằm trong form ĐÃ ĐƯỢC KIỂM của lượt trước chưa.
+ *
+ * ═══ Vì sao cần một cửa thứ hai bên cạnh `giuNguyenLoi` ═══════════════════
+ *
+ * Vì `khoangThoiGian` sinh ra `2026-10-01`, và chuỗi đó không bao giờ có
+ * trong lời người dùng. Lượt sau ("còn Miền Nam thì sao") mô hình giữ lại cả
+ * form cũ — đúng như nó được dạy — nên nó chép lại cái ngày ấy, rồi
+ * `giuNguyenLoi` bác, rồi CẢ FORM bị bỏ. Hậu quả: mọi câu hỏi tiếp sau một
+ * câu có mốc thời gian đều thành "chưa hiểu".
+ *
+ * Luật không bị nới, nó được nói chính xác hơn: giá trị phải là chữ của
+ * NGƯỜI DÙNG, hoặc là chữ CHÍNH HỆ NÀY đã dựng và đã kiểm ở lượt trước. Thứ
+ * duy nhất vẫn bị chặn — và là thứ luật này sinh ra để chặn — là một chuỗi
+ * mô hình tự nghĩ ra.
+ *
+ * ⚠️ `boiCanh` đi từ client lên, nên nó không được tin vì "backend từng dựng
+ * ra nó": nó đã qua `explorerQueryBodySchema` như mọi thân request khác, và
+ * mọi `dimensionId` trong đó vẫn bị kiểm lại ở vòng trên. Cái được thừa
+ * hưởng chỉ là mấy GIÁ TRỊ — và ai gọi được đường này thì đã có
+ * `datamodel:read`, tức đã gọi thẳng `/query` với bất kỳ bộ lọc nào.
+ */
+function daTinCay(input: DatCauHoiInput, values: readonly string[]): boolean {
+  const cu = new Set((input.boiCanh?.truyVan.filters ?? []).flatMap((f) => f.values));
+  return values.every((v) => cu.has(v));
+}
+
 export function kiemForm(tho: unknown, input: DatCauHoiInput): ExplorerQueryDto | null {
   if (typeof tho !== 'object' || tho === null) return null;
   const o = tho as Record<string, unknown>;
@@ -245,10 +280,11 @@ export function kiemForm(tho: unknown, input: DatCauHoiInput): ExplorerQueryDto 
 
   const truyVan: ExplorerQueryDto = { dimensionIds, measureIds };
 
+  const ra: { dimensionId: number; operator: FilterOperator; values: string[] }[] = [];
+
   const loc = o.filters;
   if (loc !== undefined && loc !== null) {
     if (!Array.isArray(loc)) return null;
-    const ra: { dimensionId: number; operator: FilterOperator; values: string[] }[] = [];
 
     for (const x of loc) {
       if (typeof x !== 'object' || x === null) return null;
@@ -275,15 +311,49 @@ export function kiemForm(tho: unknown, input: DatCauHoiInput): ExplorerQueryDto 
       const khongCanGiaTri = operator === 'set' || operator === 'notSet';
       if (khongCanGiaTri ? values.length > 0 : values.length === 0) return null;
 
-      // ⚠️ Luật canh gác: giá trị phải là lời của chính người dùng.
-      if (!giuNguyenLoi(loiNguoiDung(input), values)) return null;
+      // ⚠️ Luật canh gác: giá trị phải là lời của chính người dùng — hoặc là
+      //    thứ CHÍNH HỆ NÀY đã dựng ra ở lượt trước. Xem `daTinCay`.
+      if (!giuNguyenLoi(loiNguoiDung(input), values) && !daTinCay(input, values)) return null;
 
       ra.push({ dimensionId: id, operator, values });
     }
-
-    if (ra.length > 10) return null;
-    if (ra.length > 0) truyVan.filters = ra;
   }
+
+  /*
+   * ─── `khoangThoiGian` — "doanh thu THÁNG NÀY" ────────────────────────────
+   *
+   * Mô hình chọn MỘT cụm trong danh sách đóng; CODE giải nó thành hai mốc
+   * ngày. Xem `khoangThoiGian.ts` cho lý do vì sao chia việc đúng chỗ đó.
+   *
+   * ⚠️ Hai bộ lọc sinh ra ở đây KHÔNG đi qua `giuNguyenLoi`, và đó là chỗ
+   * nguy hiểm nhất của cả hàm — nên nói thẳng vì sao nó vẫn đúng: luật ấy
+   * tồn tại để chặn CHUỖI DO MÔ HÌNH BỊA. `2026-10-01` dưới đây không do mô
+   * hình viết; nó là kết quả của `giaiCum`, một hàm thuần chạy trên một danh
+   * sách đóng. Mô hình không viết nổi một ngày nào vào truy vấn, kể cả khi nó
+   * muốn — nó chỉ chọn được tên cụm.
+   *
+   * Đừng nới chỗ này thành "nhận luôn ngày mô hình viết cho nhanh". Một ngày
+   * lệch một tháng vẫn chạy ra số thật, cho một khoảng không ai hỏi.
+   */
+  const ktg = o.khoangThoiGian;
+  if (ktg !== undefined && ktg !== null) {
+    if (typeof ktg !== 'object') return null;
+    const k = ktg as Record<string, unknown>;
+
+    const id = soNguyenDuong(k.dimensionId);
+    if (id === null || !chieuHopLe.has(id)) return null;
+    if (input.truong.find((x) => x.id === id && x.loai === 'chieu')?.thoiGian !== true) return null;
+
+    if (typeof k.cum !== 'string') return null;
+    const khoang = giaiCum(k.cum, input.moc ?? new Date());
+    if (khoang === null) return null;
+
+    ra.push({ dimensionId: id, operator: 'gte', values: [khoang.tu] });
+    ra.push({ dimensionId: id, operator: 'lt', values: [khoang.truocKhi] });
+  }
+
+  if (ra.length > 10) return null;
+  if (ra.length > 0) truyVan.filters = ra;
 
   /*
    * ─── `limit` — "top 5" là một phép của TRUY VẤN ──────────────────────────
@@ -401,6 +471,11 @@ const NHAC = [
   'theo ngày/tuần/tháng/quý/năm — id PHẢI là một chiều được ghi "gom theo thời gian được".',
   '"measureAggs":[{"id":id,"agg":"avg"}] khi họ đổi phép tính của thước đo (trung bình, nhỏ',
   'nhất, lớn nhất, đếm) — agg PHẢI nằm trong danh sách "phép gộp" của chính thước đo đó.',
+  '"khoangThoiGian":{"dimensionId":id,"cum":"thang-nay"} khi câu hỏi có mốc thời gian.',
+  `cum CHỈ nhận một trong: ${CUM_CO_DINH.join(', ')}, thang-1..thang-12,`,
+  'quy-1..quy-4, nam-2000..nam-2100. TUYỆT ĐỐI không tự viết ngày tháng vào values —',
+  'hệ thống tự đổi cum thành ngày. dimensionId phải là chiều "gom theo thời gian được".',
+  'thang-3 nghĩa là tháng 3 của năm nay; muốn năm khác thì dùng nam-YYYY.',
   'TUYỆT ĐỐI không điền hướng sắp xếp: hệ thống tự đọc "cao nhất"/"thấp nhất" từ câu hỏi.',
   'CHỈ dùng id có trong danh sách. Tuyệt đối không bịa id.',
   'values PHẢI là chữ lấy nguyên từ câu hỏi của người dùng — không dịch, không viết tắt,',
