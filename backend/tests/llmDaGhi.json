@@ -1,156 +1,282 @@
 {
-  "ghiLuc": "2026-10-22T07:02:10.575Z",
+  "ghiLuc": "2026-10-24T09:22:01.660Z",
   "moHinh": "openai/gpt-oss-120b",
+  "soLuot": 3,
   "ca": [
     {
       "cauHoi": "cái này nặng bao nhiêu",
       "soNhan": 6,
       "dung": 2,
-      "chon": null
+      "chon": [
+        2,
+        2,
+        2
+      ],
+      "hong": 0
     },
     {
       "cauHoi": "file này to không",
       "soNhan": 6,
       "dung": 2,
-      "chon": 2
+      "chon": [
+        2,
+        2,
+        2
+      ],
+      "hong": 0
     },
     {
       "cauHoi": "dữ liệu này có mấy bản ghi",
       "soNhan": 6,
       "dung": 0,
-      "chon": 0
+      "chon": [
+        0,
+        0,
+        0
+      ],
+      "hong": 0
     },
     {
       "cauHoi": "bao nhiêu trường",
       "soNhan": 6,
       "dung": 1,
-      "chon": null
+      "chon": [
+        null,
+        null,
+        null
+      ],
+      "hong": 0
     },
     {
       "cauHoi": "lấy từ đâu ra đó",
       "soNhan": 6,
       "dung": 3,
-      "chon": 3
+      "chon": [
+        3,
+        3,
+        3
+      ],
+      "hong": 0
     },
     {
       "cauHoi": "nhập từ excel nào vậy",
       "soNhan": 6,
       "dung": 3,
-      "chon": 3
+      "chon": [
+        3,
+        3,
+        3
+      ],
+      "hong": 0
     },
     {
       "cauHoi": "nạp xong chưa",
       "soNhan": 6,
       "dung": 4,
-      "chon": 4
+      "chon": [
+        4,
+        4,
+        4
+      ],
+      "hong": 0
     },
     {
       "cauHoi": "vùng nào bán chạy nhất",
       "soNhan": 8,
       "dung": 0,
-      "chon": 0
+      "chon": [
+        0,
+        0,
+        0
+      ],
+      "hong": 0
     },
     {
       "cauHoi": "miền nào doanh thu kém nhất",
       "soNhan": 8,
       "dung": 1,
-      "chon": 1
+      "chon": [
+        1,
+        1,
+        1
+      ],
+      "hong": 0
     },
     {
       "cauHoi": "revenue theo region",
       "soNhan": 8,
       "dung": 2,
-      "chon": 2
+      "chon": [
+        2,
+        2,
+        2
+      ],
+      "hong": 0
     },
     {
       "cauHoi": "tỉnh nào đứng đầu",
       "soNhan": 8,
       "dung": 0,
-      "chon": null
+      "chon": [
+        null,
+        null,
+        null
+      ],
+      "hong": 0
     },
     {
       "cauHoi": "doanh số dạo này lên hay xuống",
       "soNhan": 8,
       "dung": 6,
-      "chon": 6
+      "chon": [
+        6,
+        6,
+        6
+      ],
+      "hong": 0
     },
     {
       "cauHoi": "cộng hết lại là bao nhiêu",
       "soNhan": 8,
       "dung": 4,
-      "chon": 4
+      "chon": [
+        4,
+        4,
+        4
+      ],
+      "hong": 0
     },
     {
       "cauHoi": "mỗi vùng trung bình được mấy",
       "soNhan": 8,
       "dung": 5,
-      "chon": 5
+      "chon": [
+        5,
+        5,
+        5
+      ],
+      "hong": 0
     },
     {
       "cauHoi": "có mấy vùng tất cả",
       "soNhan": 8,
       "dung": 3,
-      "chon": 3
+      "chon": [
+        3,
+        3,
+        3
+      ],
+      "hong": 0
     },
     {
       "cauHoi": "báo cáo này lấy số ở đâu",
       "soNhan": 8,
       "dung": 7,
-      "chon": 7
+      "chon": [
+        7,
+        7,
+        7
+      ],
+      "hong": 0
     },
     {
       "cauHoi": "tui muốn xem doanh thu theo vùng",
       "soNhan": 5,
       "dung": 0,
-      "chon": 0
+      "chon": [
+        0,
+        0,
+        0
+      ],
+      "hong": 0
     },
     {
       "cauHoi": "vẽ doanh thu theo thời gian",
       "soNhan": 5,
       "dung": 2,
-      "chon": 2
+      "chon": [
+        2,
+        2,
+        2
+      ],
+      "hong": 0
     },
     {
       "cauHoi": "biểu đồ số lượng đơn từng miền",
       "soNhan": 5,
       "dung": 3,
-      "chon": 3
+      "chon": [
+        3,
+        3,
+        3
+      ],
+      "hong": 0
     },
     {
       "cauHoi": "xem tiền theo loại hàng",
       "soNhan": 5,
       "dung": 1,
-      "chon": 1
+      "chon": [
+        1,
+        1,
+        1
+      ],
+      "hong": 0
     },
     {
       "cauHoi": "hôm nay trời thế nào",
       "soNhan": 8,
       "dung": null,
-      "chon": null
+      "chon": [
+        null,
+        null,
+        null
+      ],
+      "hong": 0
     },
     {
       "cauHoi": "ai tạo cái báo cáo này",
       "soNhan": 8,
       "dung": null,
-      "chon": null
+      "chon": [
+        null,
+        null,
+        null
+      ],
+      "hong": 0
     },
     {
       "cauHoi": "lợi nhuận ròng bao nhiêu",
       "soNhan": 8,
       "dung": null,
-      "chon": null
+      "chon": [
+        null,
+        null,
+        null
+      ],
+      "hong": 0
     },
     {
       "cauHoi": "xoá bộ dữ liệu này đi",
       "soNhan": 6,
       "dung": null,
-      "chon": null
+      "chon": [
+        null,
+        null,
+        null
+      ],
+      "hong": 0
     },
     {
       "cauHoi": "mật khẩu của tôi là gì",
       "soNhan": 6,
       "dung": null,
-      "chon": null
+      "chon": [
+        null,
+        null,
+        null
+      ],
+      "hong": 0
     }
   ]
 }

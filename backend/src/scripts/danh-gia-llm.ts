@@ -118,6 +118,28 @@ const CA: Ca[] = [
   { cauHoi: 'mật khẩu của tôi là gì', nhan: TRANG_KHO, dung: null },
 ];
 
+/**
+ * So LUOT chay moi cau.
+ *
+ * Mot luot do duoc "mo hinh chon dung khong". Nhieu luot do them mot thu khac
+ * han va quan trong hon cho nguoi dung: no co chon GIONG NHAU khong.
+ *
+ * `temperature: 0` khong du de lap lai duoc — do that, hai lan chay cung bo 25
+ * cau lech nhau mot cau. Chot ranh rang tren mot luot duy nhat nghia la chot
+ * tren nhieu: mot ngay nao do bai kiem do vi hang xao lo, khong vi ai lam hong
+ * gi — va mot bai kiem do oan la bai kiem nguoi ta bat dau bo qua.
+ */
+const SO_LUOT = Number(process.argv[2] ?? '3');
+
+/**
+ * Nghỉ giữa hai lượt gọi, tính bằng mili-giây.
+ *
+ * Nhà cung cấp miễn phí nào cũng chặn theo PHÚT, và bộ này bắn 25×N lượt liền
+ * nhau. Bắn hết tốc lực thì nửa sau ăn 429, và khi đó bản ghi đo tốc độ chặn
+ * chứ không đo chất lượng chọn nhãn — đã xảy ra thật ở lần chạy ba lượt đầu.
+ */
+const NGHI_MS = Number(process.argv[3] ?? '1500');
+
 async function main(): Promise<void> {
   if (!coCauHinhLlm()) {
     console.log('\n❌ Chưa cấu hình mô hình. Điền LLM_BASE_URL/LLM_API_KEY/LLM_MODEL vào');
@@ -126,26 +148,54 @@ async function main(): Promise<void> {
     return;
   }
 
-  console.log(`\n── Hỏi mô hình ${String(CA.length)} câu ───────────────────────\n`);
-  const ghi: { cauHoi: string; soNhan: number; dung: number | null; chon: number | null }[] = [];
+  console.log(`\n── Hỏi mô hình ${String(CA.length)} câu × ${String(SO_LUOT)} lượt ──────────\n`);
+  const ghi: {
+    cauHoi: string;
+    soNhan: number;
+    dung: number | null;
+    chon: (number | null)[];
+    /** Lượt nào GỌI HỎNG — không phải mô hình chọn sai, mà là chưa đo được. */
+    hong: number;
+  }[] = [];
 
   for (const [i, ca] of CA.entries()) {
-    // Tuần tự chứ không song song: nhà cung cấp miễn phí nào cũng có trần
-    // theo phút, và một loạt 25 câu bắn cùng lúc sẽ ăn 429 giữa chừng — bản
-    // ghi khi đó đo tốc độ chặn chứ không đo chất lượng chọn nhãn.
-    const kq = await hieuY({ cauHoi: ca.cauHoi, nhan: ca.nhan });
-    ghi.push({ cauHoi: ca.cauHoi, soNhan: ca.nhan.length, dung: ca.dung, chon: kq.chon });
-    const dau = kq.chon === ca.dung ? '✓' : '✗';
-    console.log(`  ${dau} ${String(i + 1).padStart(2)}. ${ca.cauHoi}`);
+    const chon: (number | null)[] = [];
+    let hong = 0;
+    for (let lan = 0; lan < SO_LUOT; lan += 1) {
+      // Tuần tự chứ không song song: nhà cung cấp miễn phí nào cũng có trần
+      // theo phút, và một loạt câu bắn cùng lúc sẽ ăn 429 giữa chừng — bản ghi
+      // khi đó đo tốc độ chặn chứ không đo chất lượng chọn nhãn.
+      const kq = await hieuY({ cauHoi: ca.cauHoi, nhan: ca.nhan });
+      /*
+       * ⚠️ Gọi hỏng KHÔNG được chấm là "mô hình không chọn".
+       *
+       * Lần chạy ba lượt đầu tiên rơi đúng vào bẫy này: hạn mức theo phút của
+       * nhà cung cấp chặn gần nửa số lượt, và bảng điểm đọc chúng thành mô
+       * hình bó tay — 23/25 tụt xuống 13/25 trong khi mô hình không đổi một
+       * chữ. Một bộ đánh giá đo nhầm thứ nó đang đo thì tệ hơn là không có.
+       */
+      if (kq.trangThai === 'goi-hong') hong += 1;
+      else chon.push(kq.chon);
+
+      // Nhường hạn mức theo phút. Bộ này chạy tay, vài chục giây không ai mất.
+      await new Promise((r) => setTimeout(r, NGHI_MS));
+    }
+    ghi.push({ cauHoi: ca.cauHoi, soNhan: ca.nhan.length, dung: ca.dung, chon, hong });
+
+    const deu = chon.every((c) => c === chon[0]);
+    const dung = chon.length > 0 && chon.every((c) => c === ca.dung);
+    const dau = chon.length === 0 ? '?' : dung ? '✓' : deu ? '✗' : '~';
+    const ghiChu = chon.length === 0 ? '   ← KHÔNG ĐO ĐƯỢC' : deu ? '' : '   ← TRÔI';
+    console.log(`  ${dau} ${String(i + 1).padStart(2)}. ${ca.cauHoi}${ghiChu}`);
   }
 
   const duong = 'backend/tests/llmDaGhi.json';
   writeFileSync(
     'tests/llmDaGhi.json',
-    `${JSON.stringify({ ghiLuc: new Date().toISOString(), moHinh: process.env['LLM_MODEL'] ?? '?', ca: ghi }, null, 2)}\n`,
+    `${JSON.stringify({ ghiLuc: new Date().toISOString(), moHinh: process.env['LLM_MODEL'] ?? '?', soLuot: SO_LUOT, ca: ghi }, null, 2)}\n`,
     'utf8',
   );
-  console.log(`\n✅ Đã ghi ${String(ghi.length)} ca ra ${duong}.`);
+  console.log(`\n✅ Đã ghi ${String(ghi.length)} ca × ${String(SO_LUOT)} lượt ra ${duong}.`);
   console.log('   Xem bảng điểm: npm --workspace backend test danhGiaLlm\n');
 }
 

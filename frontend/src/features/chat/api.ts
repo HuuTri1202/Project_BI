@@ -3,6 +3,59 @@ import type { ExplorerQueryDto } from '@bi/shared';
 import { apiClient } from '../../services/apiClient';
 
 /**
+ * NHỚ TRONG PHIÊN — cùng một câu hỏi thì cùng một câu trả lời.
+ *
+ * ═══ Vấn đề đo được ════════════════════════════════════════════════════════
+ *
+ * Chạy đúng một bộ 25 câu hai lần, cùng mô hình, cùng `temperature: 0`: một
+ * câu đổi đáp án. 4% trôi mà không có gì đổi ở đầu vào — xem `SEED` bên
+ * `services/chat/dienDat.ts`.
+ *
+ * 4% nghe nhỏ, nhưng nó rơi đúng vào thói quen tệ nhất có thể: người dùng
+ * không tin một câu trả lời thì họ GÕ LẠI Y HỆT để kiểm. Và nhận về câu khác.
+ * Không có cách nào nhanh hơn để mất sạch niềm tin vào cả khung.
+ *
+ * Cache này không làm mô hình bớt trôi — nó làm cái trôi ấy KHÔNG LỌT vào
+ * trong một phiên. Hỏi lại là đọc lại đúng câu cũ.
+ *
+ * ═══ Thứ CỐ Ý không nằm trong đây ══════════════════════════════════════════
+ *
+ * `hoiTrenMoHinh` KHÔNG được nhớ. Nó chạy một truy vấn thật trên kho, và số
+ * liệu thì đổi — nạp thêm một tệp, đồng bộ một kết nối là con số khác. Nhớ nó
+ * lại nghĩa là trả về số của mười phút trước, đúng kiểu sai mà cả khung dựng
+ * lên để chặn. Hai thứ trên nhớ được vì chúng không đọc số liệu: một cái CHỌN
+ * một nhãn, một cái VIẾT LẠI một câu đã tính xong.
+ *
+ * ═══ Vì sao một `Map` chứ không phải react-query ═══════════════════════════
+ *
+ * Cùng lý do đã ghi ở trên: ở đây không có `invalidate`, không ai đọc lại, và
+ * khoá thì gồm cả danh sách nhãn — một khoá truy vấn cho nó là thêm một thứ
+ * phải nhớ xoá. Map sống đúng bằng vòng đời của tab, tức đúng nghĩa "phiên".
+ */
+const TRAN_NHO = 200;
+const nho = new Map<string, unknown>();
+
+function doc<T>(khoa: string): T | undefined {
+  return nho.get(khoa) as T | undefined;
+}
+
+function ghi(khoa: string, gia: unknown): void {
+  // Map giữ thứ tự chèn, nên khoá cũ nhất luôn đứng đầu — xoá nó là FIFO mà
+  // không phải nuôi thêm một cấu trúc nào. Một phiên thật không bao giờ chạm
+  // trần này; nó chỉ chặn một tab mở cả tuần phình mãi.
+  if (nho.size >= TRAN_NHO) {
+    const cu = nho.keys().next().value;
+    if (cu !== undefined) nho.delete(cu);
+  }
+  nho.set(khoa, gia);
+}
+
+/** Chỉ dùng trong test — khung không có đường nào gọi tới. */
+export function xoaNhoPhien(): void {
+  nho.clear();
+}
+
+/**
  * Nhờ backend viết lại câu trả lời cho mượt hơn.
  *
  * ═══ Vì sao KHÔNG có `hooks.ts` và `keys.ts` như các tính năng khác ════════
@@ -27,7 +80,21 @@ export async function dienDatLai(input: {
   cau: string;
   so: string[];
 }): Promise<string> {
+  const khoa = `dd:${JSON.stringify(input)}`;
+  const da = doc<string>(khoa);
+  if (da !== undefined) return da;
+
   const { data } = await apiClient.post<{ cau: string }>('/v1/chat/dien-dat', input);
+
+  /*
+   * Chỉ nhớ khi mô hình THẬT SỰ viết lại được.
+   *
+   * Backend trả nguyên `cau` khi chưa cấu hình, khi gọi hỏng, hoặc khi luật
+   * đối chiếu bác bản viết lại. Nhớ mấy trường hợp đó lại nghĩa là câu này
+   * vĩnh viễn không bao giờ được viết lại nữa trong phiên, kể cả sau khi nhà
+   * cung cấp đã sống lại.
+   */
+  if (data.cau !== input.cau) ghi(khoa, data.cau);
   return data.cau;
 }
 
@@ -40,14 +107,25 @@ export async function dienDatLai(input: {
  * Gửi đi CHỈ CÓ NHÃN, không có giá trị nào: mô hình chọn trường, nó không cần
  * thấy số liệu để làm việc đó. Xem `services/chat/hieuY.ts` bên backend.
  */
+/** Ba trạng thái, không phải hai — xem `services/chat/hieuY.ts`. */
+export interface HieuCauHoiKetQua {
+  chon: number | null;
+  trangThai: 'chua-cau-hinh' | 'da-doc' | 'goi-hong';
+}
+
 export async function hieuCauHoi(input: {
   cauHoi: string;
   nhan: string[];
-}): Promise<{ chon: number | null; daHoi: boolean }> {
-  const { data } = await apiClient.post<{ chon: number | null; daHoi: boolean }>(
-    '/v1/chat/hieu-y',
-    input,
-  );
+}): Promise<HieuCauHoiKetQua> {
+  const khoa = `hy:${JSON.stringify(input)}`;
+  const da = doc<HieuCauHoiKetQua>(khoa);
+  if (da !== undefined) return da;
+
+  const { data } = await apiClient.post<HieuCauHoiKetQua>('/v1/chat/hieu-y', input);
+
+  // Chỉ nhớ khi mô hình đã đọc thật. Nhớ một lượt GỌI HỎNG lại là khoá chặt
+  // câu hỏi đó ở trạng thái hỏng cho tới hết phiên, kể cả khi mạng đã về.
+  if (data.trangThai === 'da-doc') ghi(khoa, data);
   return data;
 }
 

@@ -46,17 +46,34 @@ export interface HieuYInput {
   nhan: string[];
 }
 
+/**
+ * Lượt gọi mô hình đã đi tới đâu — BA trạng thái, không phải hai.
+ *
+ * ═══ Vì sao một boolean là không đủ ════════════════════════════════════════
+ *
+ * `daHoi: boolean` gộp ba chuyện khác hẳn nhau thành hai ô, và cả hai cách gộp
+ * đều sinh ra một câu nói sai trên màn hình:
+ *
+ *   - Máy chưa cắm khoá và mạng vừa rớt cùng ra `false` — khung nói chung
+ *     chung "chưa hiểu", trong khi nguyên nhân thứ hai sẽ tự hết sau một phút.
+ *   - Tệ hơn: lỗi 500/429 của nhà cung cấp từng ra `true`, nên khung khẳng
+ *     định "Tôi đã đọc hết số liệu và không có mục nào trả lời được" — nói
+ *     chắc nịch về một việc chưa hề xảy ra.
+ *
+ * Ba trạng thái thì mỗi cái một câu, và không câu nào hứa quá thứ đã làm.
+ */
+export type TrangThaiHoi =
+  /** Máy này chưa cấu hình mô hình — chưa ai đọc gì cả. */
+  | 'chua-cau-hinh'
+  /** Mô hình đã đọc hết danh sách và trả lời. */
+  | 'da-doc'
+  /** Có gọi, nhưng hỏng: mạng, hết giờ, hoặc nhà cung cấp trả lỗi. */
+  | 'goi-hong';
+
 export interface HieuYKetQua {
   /** Chỉ số (0-based) trong `nhan`, hoặc `null` khi không nhãn nào khớp. */
   chon: number | null;
-  /**
-   * Mô hình có THẬT SỰ được hỏi không.
-   *
-   * Phân biệt "đã đọc hết số liệu của trang và không có mục nào trả lời được"
-   * với "máy này chưa cấu hình mô hình nên chưa ai đọc gì cả". Hai câu đó nói
-   * hai chuyện khác hẳn cho người dùng, và frontend cần biết để nói đúng câu.
-   */
-  daHoi: boolean;
+  trangThai: TrangThaiHoi;
 }
 
 /**
@@ -194,7 +211,7 @@ export function ghiTruot(cauHoi: string, nhanChon: string | null): void {
  */
 export async function hieuY(input: HieuYInput): Promise<HieuYKetQua> {
   const nhan = input.nhan.slice(0, TRAN_NHAN);
-  if (!coCauHinhLlm() || nhan.length === 0) return { chon: null, daHoi: false };
+  if (!coCauHinhLlm() || nhan.length === 0) return { chon: null, trangThai: 'chua-cau-hinh' };
 
   const danhSach = nhan.map((n, i) => `${String(i + 1)}. ${n}`).join('\n');
 
@@ -214,6 +231,6 @@ export async function hieuY(input: HieuYInput): Promise<HieuYKetQua> {
 
   return {
     chon: noiDung === null ? null : chonHopLe(noiDung, nhan.length),
-    daHoi: daGoi,
+    trangThai: daGoi ? 'da-doc' : 'goi-hong',
   };
 }

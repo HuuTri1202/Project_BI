@@ -79,47 +79,98 @@ export function diaChiGoi(): string {
  * tham so do la cach tu do cau hinh cho moi nha, thay vi mot bang "nha nao
  * nhan tham so nao" chac chan muc.
  */
+/**
+ * Hạt giống cố định gửi kèm mỗi lượt gọi.
+ *
+ * ═══ Vì sao cần, khi `temperature: 0` đã có ═══════════════════════════════
+ *
+ * `temperature: 0` KHÔNG đủ để lặp lại được. Chạy đúng một bộ 25 câu hai lần
+ * trên cùng mô hình, cùng nhiệt độ: một câu đổi đáp án ("cái này nặng bao
+ * nhiêu" — lần một không chọn gì, lần hai chọn đúng). 4% trôi, không có gì
+ * đổi ở đầu vào. Nguyên nhân nằm ở phía nhà cung cấp — gộp lô, thứ tự cộng
+ * dồn số thực trên GPU — chứ không ở lời nhắc.
+ *
+ * `seed` là núm DUY NHẤT mà API chuẩn OpenAI cho để giảm chuyện đó. Nó không
+ * hứa hết trôi (chính OpenAI gọi đây là "best effort"), nhưng nó miễn phí.
+ *
+ * Giá trị nào cũng được, miễn CỐ ĐỊNH — đổi nó là tự tay sinh ra đúng cái trôi
+ * mà nó đang đi chặn.
+ */
+const SEED = 7;
+
+/**
+ * Nhà cung cấp này có nhận mấy tham số phụ không — nhớ lại sau lần đầu.
+ *
+ * ═══ Vì sao phải nhớ ═══════════════════════════════════════════════════════
+ *
+ * Luật "thử lại một lần không kèm tham số" là cách tự cấu hình cho mọi nhà
+ * cung cấp, và nó đúng. Nhưng nó đang chạy LẠI TỪ ĐẦU ở mỗi lượt hỏi: với nhà
+ * nào từ chối, mỗi câu người dùng gõ tốn HAI lượt HTTP, mãi mãi.
+ *
+ * Đo được trên Groq + `openai/gpt-oss-120b`: lượt đầu luôn trả 400
+ * ("`reasoning_effort` must be one of `low`, `medium`, or `high`"), lượt hai
+ * mới chạy. Tức gấp đôi độ trễ, gấp đôi sức ép lên hạn mức theo phút — và
+ * chạm hạn mức thì khung im lặng rơi về so từ khoá, đúng cái bất ổn đang đi
+ * sửa.
+ *
+ * Nhớ một biến là đủ: thử một lần, sai thì thôi không gửi nữa trong cả đời
+ * tiến trình. Khởi động lại là thử lại — rẻ, và đúng lúc đáng thử lại nhất
+ * (đổi mô hình thì cũng phải khởi động lại).
+ */
+let nhanThamSoPhu = true;
+
 export async function goiMoHinh(
   messages: { role: string; content: string }[],
   maxTokens: number,
 ): Promise<{ noiDung: string | null; daGoi: boolean }> {
-  const than = (themSuyNghi: boolean): string =>
+  const than = (kemThamSoPhu: boolean): string =>
     JSON.stringify({
       model: env.LLM_MODEL,
       temperature: 0,
       max_tokens: maxTokens,
       messages,
-      ...(themSuyNghi ? { reasoning_effort: 'none' } : {}),
+      ...(kemThamSoPhu ? { reasoning_effort: 'none', seed: SEED } : {}),
     });
 
-  try {
-    let res = await fetch(diaChiGoi(), {
+  const goi = (kemThamSoPhu: boolean): Promise<Response> =>
+    fetch(diaChiGoi(), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${String(env.LLM_API_KEY)}`,
       },
-      body: than(true),
+      body: than(kemThamSoPhu),
       signal: AbortSignal.timeout(8_000),
     });
 
-    if (!res.ok) {
-      res = await fetch(diaChiGoi(), {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${String(env.LLM_API_KEY)}`,
-        },
-        body: than(false),
-        signal: AbortSignal.timeout(8_000),
-      });
+  try {
+    let res = await goi(nhanThamSoPhu);
+
+    if (!res.ok && nhanThamSoPhu) {
+      // Nhà này không nhận — thôi không gửi nữa, cho mọi lượt sau.
+      nhanThamSoPhu = false;
+      res = await goi(false);
     }
 
-    if (!res.ok) return { noiDung: null, daGoi: true };
+    /*
+     * ⚠️ Lỗi HTTP là GỌI HỎNG, không phải "mô hình đã đọc xong".
+     *
+     * Bản trước trả `daGoi: true` ở đây, và hậu quả nằm ở tận giao diện: khung
+     * đọc `daHoi` rồi nói "Tôi đã đọc hết số liệu đang có trên trang này và
+     * không có mục nào trả lời được câu này". Nhà cung cấp vừa trả 500 hay 429
+     * mà khung lại khẳng định đã đọc hết — một câu nói sai, nói rất chắc chắn,
+     * đúng lúc người dùng không có cách nào kiểm lại.
+     */
+    if (!res.ok) return { noiDung: null, daGoi: false };
     return { noiDung: docCau(await res.json()), daGoi: true };
   } catch {
     return { noiDung: null, daGoi: false };
   }
+}
+
+/** Chỉ dùng trong test — khung không có đường nào gọi tới. */
+export function quenThamSoPhu(): void {
+  nhanThamSoPhu = true;
 }
 
 /** Mô hình được cấu hình đủ để gọi hay chưa. */

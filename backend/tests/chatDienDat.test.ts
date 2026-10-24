@@ -256,3 +256,77 @@ describe('Địa chỉ gọi', () => {
     expect(diaChiGoi()).toBe('https://api.groq.com/openai/v1/chat/completions');
   });
 });
+
+/**
+ * Nhớ xem nhà cung cấp có nhận mấy tham số phụ không.
+ *
+ * ─── Vấn đề đo được ─────────────────────────────────────────────────────────
+ *
+ * Luật "thử lại một lần không kèm tham số" đang chạy LẠI TỪ ĐẦU ở mỗi lượt
+ * hỏi. Với nhà nào từ chối, mỗi câu người dùng gõ tốn HAI lượt HTTP, mãi mãi.
+ *
+ * Đo trên Groq + `openai/gpt-oss-120b`: lượt đầu luôn 400 ("`reasoning_effort`
+ * must be one of `low`, `medium`, or `high`"), lượt hai mới chạy. Gấp đôi độ
+ * trễ, gấp đôi sức ép lên hạn mức theo phút — và chạm hạn mức thì khung im
+ * lặng rơi về so từ khoá. Chính nó làm một lần ghi bảng điểm tụt 23/25 xuống
+ * 13/25 trong khi mô hình không đổi một chữ.
+ */
+describe('Nhớ nhà cung cấp từ chối tham số phụ', () => {
+  it('bị từ chối một lần thì mọi lượt SAU chỉ còn MỘT lượt gọi', async () => {
+    const { goiMoHinh, quenThamSoPhu } = (await napVoiEnv(DU_CAU_HINH)) as unknown as {
+      goiMoHinh: (
+        m: { role: string; content: string }[],
+        t: number,
+      ) => Promise<{ noiDung: string | null; daGoi: boolean }>;
+      quenThamSoPhu: () => void;
+    };
+    quenThamSoPhu();
+
+    const goi = vi.fn((_u: string, init: { body: string }) =>
+      Promise.resolve(
+        JSON.parse(init.body).reasoning_effort === undefined
+          ? ({
+              ok: true,
+              json: async () => ({ choices: [{ message: { content: '2' } }] }),
+            } as unknown as Response)
+          : ({ ok: false, status: 400, json: async () => ({}) } as unknown as Response),
+      ),
+    );
+    globalThis.fetch = goi as unknown as typeof globalThis.fetch;
+
+    await goiMoHinh([{ role: 'user', content: 'x' }], 400);
+    expect(goi).toHaveBeenCalledTimes(2);
+
+    goi.mockClear();
+    await goiMoHinh([{ role: 'user', content: 'y' }], 400);
+    expect(goi).toHaveBeenCalledTimes(1);
+  });
+
+  it('gửi `seed` cố định để bớt trôi giữa hai lượt giống hệt nhau', async () => {
+    const { goiMoHinh, quenThamSoPhu } = (await napVoiEnv(DU_CAU_HINH)) as unknown as {
+      goiMoHinh: (m: { role: string; content: string }[], t: number) => Promise<unknown>;
+      quenThamSoPhu: () => void;
+    };
+    quenThamSoPhu();
+
+    const goi = vi.fn(() =>
+      Promise.resolve({
+        ok: true,
+        json: async () => ({ choices: [{ message: { content: '1' } }] }),
+      } as unknown as Response),
+    );
+    globalThis.fetch = goi as unknown as typeof globalThis.fetch;
+
+    await goiMoHinh([{ role: 'user', content: 'x' }], 400);
+
+    const than = JSON.parse(
+      (goi.mock.calls[0] as unknown as [string, { body: string }])[1].body,
+    ) as {
+      seed?: number;
+      temperature: number;
+    };
+    expect(than.seed).toBe(7);
+    // `temperature: 0` vẫn phải còn — `seed` là thứ CỘNG THÊM, không thay thế.
+    expect(than.temperature).toBe(0);
+  });
+});

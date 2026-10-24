@@ -606,7 +606,7 @@ export function HoiDapPanel(): React.ReactElement | null {
     }
 
     void hieuCauHoi({ cauHoi: q, nhan: luaChon.map((lc) => lc.nhan) })
-      .then(({ chon, daHoi }) => {
+      .then(({ chon, trangThai }) => {
         const kq = chon === null ? null : (luaChon[chon]?.chay() ?? null);
         if (kq === null) {
           /*
@@ -625,12 +625,22 @@ export function HoiDapPanel(): React.ReactElement | null {
             nhoMoHinhHoi(q, idBot, moHinh);
             return;
           }
+          /*
+           * Ba trạng thái, ba câu — và không câu nào hứa quá thứ đã làm.
+           *
+           * `goi-hong` là câu mới và nó sửa một lời nói sai: nhà cung cấp trả
+           * 500 hay hết giờ 8 giây mà khung vẫn khẳng định "tôi đã đọc hết" là
+           * nói chắc nịch về một việc chưa hề xảy ra. Nó cũng là trạng thái
+           * TỰ HẾT — nói ra để người dùng thử lại, thay vì tưởng bot dốt đi.
+           */
           hetDuong(
             q,
             idBot,
-            daHoi
+            trangThai === 'da-doc'
               ? `Tôi đã đọc hết số liệu đang có trên ${nguCanh.trang} và không có mục nào trả lời được câu này.`
-              : undefined,
+              : trangThai === 'goi-hong'
+                ? 'Tôi chưa gọi được mô hình ngôn ngữ (mạng, hoặc nhà cung cấp đang lỗi), nên lần này chỉ so được bằng từ khoá. Thử hỏi lại sau một lát.'
+                : undefined,
           );
           return;
         }
