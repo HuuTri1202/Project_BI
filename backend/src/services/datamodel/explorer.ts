@@ -183,13 +183,21 @@ async function indexModel(tenantId: number, dataModelId: number): Promise<ModelI
   return { columns: columns, measures: measureIndex };
 }
 
-/** Danh sách phẳng cho bộ chọn — §10.7. */
-export async function explorerFields(
-  tenantId: number,
-  dataModelId: number,
-): Promise<ExplorerFieldsDto> {
-  const index = await indexModel(tenantId, dataModelId);
-
+/**
+ * Danh sách phẳng cho bộ chọn, dựng từ một chỉ mục ĐÃ NẠP — §10.7.
+ *
+ * ═══ Vì sao tách khỏi `explorerFields` ════════════════════════════════════
+ *
+ * `hoiTrenMoHinh` cần cả hai thứ cho MỘT câu hỏi: danh sách trường (để mô hình
+ * chọn) rồi kết quả truy vấn (để đọc ra số). Hai lời gọi, hai lần `indexModel`,
+ * và `indexModel` là BỐN vòng MySQL — nên mỗi câu hỏi tốn tám vòng cho một thứ
+ * không đổi giữa chúng.
+ *
+ * Cùng lập luận đã viết cho `InternalQueryOptions.ctx`, chỉ ở phía còn lại:
+ * nạp một lần ở nơi gọi rồi truyền xuống. Hàm này là mảnh thuần để làm được
+ * điều đó — không mạng, không MySQL, chỉ đổi hình dạng dữ liệu.
+ */
+export function fieldsFromIndex(index: ModelIndex): ExplorerFieldsDto {
   return {
     dimensions: [...index.columns.entries()].map(([id, c]) => ({
       id,
@@ -207,6 +215,14 @@ export async function explorerFields(
       nguon: m.nguon,
     })),
   };
+}
+
+/** Giữ nguyên cho mọi đường gọi lẻ (Explorer, xem trước một ô). */
+export async function explorerFields(
+  tenantId: number,
+  dataModelId: number,
+): Promise<ExplorerFieldsDto> {
+  return fieldsFromIndex(await indexModel(tenantId, dataModelId));
 }
 
 /**

@@ -1,5 +1,4 @@
 import type {
-  ExplorerFieldsDto,
   ExplorerQueryDto,
   ExplorerResultDto,
   MeasureSourceDto,
@@ -51,7 +50,7 @@ import { buildQuery, type ModelIndex } from '../src/services/datamodel/explorer'
 // ─── Mô hình giả: thay mô hình ngôn ngữ và kho, giữ nguyên phần giữa ─────────
 
 const gia = vi.hoisted(() => ({
-  explorerFields: vi.fn(),
+  loadModelContext: vi.fn(),
   runExplorerQuery: vi.fn(),
   datCauHoi: vi.fn(),
 }));
@@ -64,7 +63,7 @@ const gia = vi.hoisted(() => ({
  */
 vi.mock('../src/services/datamodel/explorer', async (goc) => ({
   ...(await goc<Record<string, unknown>>()),
-  explorerFields: gia.explorerFields,
+  loadModelContext: gia.loadModelContext,
   runExplorerQuery: gia.runExplorerQuery,
 }));
 
@@ -100,20 +99,14 @@ const CHI_MUC: ModelIndex = {
   ]),
 };
 
-const TRUONG: ExplorerFieldsDto = {
-  dimensions: [{ id: 11, label: 'Sản phẩm', datasetName: 'Products', cubeType: 'string' }],
-  measures: [
-    {
-      id: 21,
-      label: 'Doanh thu',
-      datasetName: 'Products',
-      cubeType: 'number',
-      agg: 'sum',
-      availableAggs: ['sum', 'avg'],
-      nguon: NGUON,
-    },
-  ],
-};
+/*
+ * KHÔNG dựng tay danh sách trường nữa.
+ *
+ * `hoiTrenMoHinh` nay nạp chỉ mục một lần rồi gọi `fieldsFromIndex(ctx.index)`
+ * — nên chỉ cần giả `loadModelContext`, và phép đổi chỉ mục thành danh sách
+ * trường là code THẬT. Dựng tay cái danh sách đó là tự viết đáp án cho một
+ * bước mà bộ này đang đo.
+ */
 
 /**
  * Năm sản phẩm, và thứ hạng theo TỔNG khác hẳn thứ hạng theo TRUNG BÌNH.
@@ -331,7 +324,7 @@ const CAC_CA: Ca[] = [
 
 beforeEach(() => {
   vi.clearAllMocks();
-  gia.explorerFields.mockResolvedValue(TRUONG);
+  gia.loadModelContext.mockResolvedValue({ index: CHI_MUC, schemaVersion: 'v1' });
   gia.runExplorerQuery.mockImplementation(
     (
       _t: number,
@@ -491,5 +484,41 @@ describe('Lý do và gợi ý ra tới hợp đồng của endpoint', () => {
     // Và nhãn gọn: `TRUONG` khai chiều là "Sản phẩm", `hoiTrenMoHinh` thêm
     // "(bảng Products)" để mô hình phân biệt — câu gợi ý thì không được mang nó.
     expect(goiY.join(' ')).not.toContain('bảng Products');
+  });
+});
+
+/**
+ * Một câu hỏi = MỘT lần nạp chỉ mục mô hình.
+ *
+ * ═══ Con số bị tiêu ════════════════════════════════════════════════════════
+ *
+ * `indexModel` là BỐN vòng MySQL (`findOne` + ba truy vấn danh sách). Bản đầu
+ * gọi `explorerFields` rồi `runExplorerQuery`, mỗi hàm tự nạp chỉ mục của
+ * riêng nó — nên một câu hỏi tốn TÁM vòng cho một thứ không đổi giữa hai lời
+ * gọi. Pool mặc định 10 kết nối, nên chúng còn xếp hàng chờ nhau khi vài người
+ * hỏi cùng lúc.
+ *
+ * Kiểu hỏng này không bao giờ tự lộ: câu trả lời vẫn đúng, chỉ chậm gấp đôi ở
+ * phần MySQL. Nên nó phải có một bài ĐẾM, không phải một bài đọc kết quả.
+ */
+describe('Chỉ mục mô hình nạp một lần cho mỗi câu hỏi', () => {
+  it('nạp đúng một lần, và truy vấn DÙNG LẠI đúng chỉ mục đó', async () => {
+    gia.datCauHoi.mockResolvedValue({
+      truyVan: { dimensionIds: [11], measureIds: [21] },
+      daHoi: true,
+      lyDo: null,
+    });
+
+    await hoiTrenMoHinh(1, 1, 1, 'sản phẩm nào bán chạy nhất');
+
+    expect(gia.loadModelContext).toHaveBeenCalledTimes(1);
+
+    /*
+     * ⚠️ Và `ctx` phải THẬT SỰ đi xuống. Thiếu nó thì `runExplorerQuery` tự
+     * nạp lại — số lời gọi `loadModelContext` ở trên vẫn là 1 vì bản thật nằm
+     * sau một mock, nên chỉ bài đếm ở trên KHÔNG đủ để bắt chuyện đó.
+     */
+    const internal = gia.runExplorerQuery.mock.calls[0]?.[4] as { ctx?: unknown } | undefined;
+    expect(internal?.ctx).toBe(await gia.loadModelContext.mock.results[0]?.value);
   });
 });

@@ -1,6 +1,6 @@
 import type { ExplorerQueryDto, MeasureAgg } from '@bi/shared';
 
-import { explorerFields, runExplorerQuery } from '../datamodel/explorer';
+import { fieldsFromIndex, loadModelContext, runExplorerQuery } from '../datamodel/explorer';
 import { chuanHoa, datCauHoi, LY_DO_NOI, type TruongChon } from './datCauHoi';
 import { docKetQua } from './dienGiai';
 import { goiYTiep } from './goiYTiep';
@@ -131,7 +131,19 @@ export async function hoiTrenMoHinh(
   /** Lượt hỏi trước — xem `DatCauHoiInput.boiCanh`. */
   boiCanh?: { cauHoi: string; truyVan: ExplorerQueryDto },
 ): Promise<HoiTrenMoHinhKetQua> {
-  const truongs = await explorerFields(tenantId, dataModelId);
+  /*
+   * Nạp chỉ mục ĐÚNG MỘT LẦN cho cả câu hỏi.
+   *
+   * Bản đầu gọi `explorerFields` rồi `runExplorerQuery`, và mỗi hàm tự nạp chỉ
+   * mục của riêng nó — `indexModel` là bốn vòng MySQL, nên một câu hỏi tốn
+   * TÁM vòng cho một thứ không đổi giữa hai lời gọi. Pool mặc định 10 kết nối,
+   * nên chúng còn xếp hàng chờ nhau khi có vài người hỏi cùng lúc.
+   *
+   * `loadModelContext` + `ctx` là đường đã có sẵn cho đúng việc này; xem
+   * `InternalQueryOptions.ctx`, nơi cùng lập luận được viết cho khung 12 ô.
+   */
+  const ctx = await loadModelContext(tenantId, dataModelId);
+  const truongs = fieldsFromIndex(ctx.index);
 
   /*
    * THƯỚC ĐO xếp trước CHIỀU.
@@ -185,7 +197,7 @@ export async function hoiTrenMoHinh(
    * trong bảng điểm chuyển sang SAI. Xem `huongSap`.
    */
   const huong = huongSap(cauHoi, boiCanh?.cauHoi);
-  const kq = await runExplorerQuery(tenantId, userId, dataModelId, truyVan, { order: huong });
+  const kq = await runExplorerQuery(tenantId, userId, dataModelId, truyVan, { order: huong, ctx });
 
   /*
    * Nhãn để mô tả truy vấn lấy từ `columns` của KẾT QUẢ khi có, chứ không phải
