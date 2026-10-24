@@ -1129,3 +1129,49 @@ export const hieuYBodySchema = z.object({
   cauHoi: z.string().min(1).max(500),
   nhan: z.array(z.string().min(1).max(300)).min(1).max(60),
 });
+
+/**
+ * Chọn HAI CỘT của một bảng đang hiện trên màn hình — cùng lớp điền form của
+ * `datCauHoi`, nhưng danh sách trường do client gửi lên.
+ *
+ * ═══ Vì sao client được gửi danh sách, khác hẳn `/chat/cau-hoi` ═══════════
+ *
+ * Ở đó danh sách trường do backend tự nạp từ mô hình trên đường dẫn: cho client
+ * quyết "mô hình được thấy trường nào" là mở một cửa không cần mở, vì chính
+ * backend mới biết người gọi có quyền đọc mô hình nào.
+ *
+ * Ở đây thì KHÔNG có cửa nào để mở. Bảng này đã nằm trên màn hình người gọi —
+ * nó là kết quả một truy vấn họ vừa chạy, bằng quyền của chính họ. Gửi lên tên
+ * cột của nó không lộ thêm một ô dữ liệu nào, và endpoint không đọc gì từ kho.
+ *
+ * ⚠️ `id` là CHỈ SỐ CỘT trong bảng đó, không phải id trong CSDL. Nó chỉ sống
+ * trong một lượt gọi: client gửi đi rồi tự tra ngược vào bảng của chính mình.
+ *
+ * ⚠️ Và nó phải DƯƠNG — `min(1)`, không phải `min(0)`.
+ *
+ * Lỗi đo được: client đánh số cột từ 0, nên cột đầu tiên mang `id: 0`. Lớp
+ * dưới đọc id bằng `soNguyenDuong`, và một id lạ thì bỏ CẢ FORM — nên mọi câu
+ * hỏi về cột đầu tiên trả về `{}` lặng lẽ. Đo được ba lượt liền trên "khu vực
+ * nào có doanh thu cao nhất" (`Sales` nằm ở cột 0): `daHoi=true`, form rỗng,
+ * không một dấu hiệu nào. Ba câu về cột khác thì đúng.
+ *
+ * Luật `soNguyenDuong` thì ĐÚNG và không được nới: id trong CSDL bắt đầu từ 1,
+ * nên một số 0 đi tới đó là dấu hiệu có gì sai. Chỗ phải sửa là bên gọi — và
+ * chốt `min(1)` ở đây là chỗ bắt được nó ngay, thay vì một form rỗng.
+ *
+ * Trần 120 khớp `TRAN_TRUONG` của `datCauHoi` — gửi nhiều hơn chỉ tốn tiền,
+ * vì lớp dưới cắt ngay.
+ */
+export const chonCotBodySchema = z.object({
+  cauHoi: z.string().min(1).max(500),
+  cot: z
+    .array(
+      z.object({
+        id: z.number().int().min(1).max(1000),
+        nhan: z.string().min(1).max(300),
+        loai: z.enum(['chieu', 'thuoc do']),
+      }),
+    )
+    .min(1)
+    .max(120),
+});

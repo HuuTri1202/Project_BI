@@ -174,18 +174,3 @@ export async function confirmOrder(input: ConfirmInput): Promise<ConfirmResult> 
   return data;
 }
 
-export interface OverrideInput {
-  tenantId: number;
-  planId: number;
-  durationDays: number;
-  /** BẮT BUỘC. Database cũng cưỡng chế bằng `ck_subscriptions_override_has_reason`. */
-  reason: string;
-}
-
-export async function overrideSubscription(input: OverrideInput): Promise<{ subscriptionId: number }> {
-  const { data } = await apiClient.post<{ subscriptionId: number }>(
-    '/admin/billing/subscriptions/override',
-    input,
-  );
-  return data;
-}

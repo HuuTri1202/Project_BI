@@ -180,5 +180,3 @@ export const PLATFORM_ERROR_CODES = {
   TENANT_NOT_EMPTY: 'TenantNotEmpty',
 } as const;
 
-export type PlatformErrorCode =
-  (typeof PLATFORM_ERROR_CODES)[keyof typeof PLATFORM_ERROR_CODES];

@@ -16,8 +16,3 @@ import type { FolderDto } from './folder';
  * hai tên là một kiểu, nên không có phép ép nào phải viết thêm.
  */
 export type ReportFolderDto = FolderDto;
-
-/** Chuyển một báo cáo sang thư mục khác. `null` = đưa về Chung. */
-export interface MoveReportInput {
-  folderId: number | null;
-}

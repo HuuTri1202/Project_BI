@@ -1,5 +1,6 @@
 import {
   CHART_SHELF_LABELS,
+  CHART_SORT_LABELS,
   CHART_TYPE_HINTS,
   CHART_TYPE_LABELS,
   type ChartSort,
@@ -8,6 +9,7 @@ import {
   type ExplorerFieldsDto,
 } from '@bi/shared';
 
+import type { DuKien } from './nguCanh';
 import { chuanHoa } from './traLoi';
 import type { TraLoi } from './traLoi';
 
@@ -145,6 +147,22 @@ const TU_THUA = new Set([
   'cai',
   'thi',
   'la',
+  /*
+   * ⚠️ Mấy chữ đệm cuối câu — thêm vào vì `conLai` dưới đây ĐẾM chữ còn lại.
+   *
+   * "tui muốn xem discount như thế nào": `the` và `nao` đã có trong danh sách,
+   * nhưng `nhu` thì chưa — và một chữ sót lại là đủ để `conLai` kết luận người
+   * dùng đang nói về một chiều nào đó, rồi chặn phép điền hộ.
+   *
+   * Danh sách này KHÔNG cần đóng, và đó là lý do nó được phép tồn tại: sót một
+   * chữ đệm thì câu hỏi rơi xuống lớp mô hình thay vì được trả lời ngay tại
+   * máy. Mất một nhịp, không mất câu trả lời — ngược hẳn với một danh sách mà
+   * thiếu một mục là trượt hẳn.
+   */
+  'nhu',
+  'duoc',
+  'voi',
+  'nhe',
 ]);
 
 export interface GoiYBieuDo {
@@ -250,7 +268,7 @@ export function goiYBieuDo(
   if (truong === undefined) return null;
   const q = chuanHoa(cauHoi);
 
-  const { veDo, veChieu } = hangVe(q);
+  const { veDo, veChieu } = veTruong(truong, q);
   const thuocDo = chamTruong(truong.measures, veDo);
   if (thuocDo === null) return null;
 
@@ -299,6 +317,27 @@ function doanChieu(
   }
   if (topTruong(truong.dimensions, veChieu).length > 0 || !muonVe(q)) return null;
 
+  /*
+   * ⚠️ CHỐT: luật (2) chỉ đúng khi câu THẬT SỰ không nói gì về chiều.
+   *
+   * Lỗi đo được: "tui muốn xem khu vực có discount như thế nào" trên mô hình
+   * Global-Superstore ra "Discount theo Order Date". Thước đo đúng, chiều sai
+   * hẳn — và sai vì một lý do khó chịu: người dùng ĐÃ nói ra chiều họ muốn
+   * ("khu vực"), chỉ là trường tên "Region" nên phép so từ khoá không bắt
+   * được một chữ nào. Luật (2) đọc "không khớp chiều nào" thành "không nói gì
+   * về chiều", rồi điền hộ một chiều thời gian vì `diemCap` cộng điểm cho nó.
+   *
+   * Hai cách đọc đó khác nhau ở đúng chỗ quan trọng nhất. "Không nói gì" thì
+   * điền hộ là giúp; "có nói mà ta không hiểu" thì điền hộ là BỎ NGOÀI TAI
+   * đúng phần người dùng vừa gõ ra — và vì kết quả hiện lên kèm tên đọc được,
+   * họ sẽ tưởng khung đã hiểu rồi hiểu sai.
+   *
+   * `conLai` phân biệt hai cách đọc ấy: còn chữ nào không giải thích được bằng
+   * chính thước đo vừa khớp thì nhường, để câu rơi xuống lớp mô hình — lớp DUY
+   * NHẤT có cửa hiểu "khu vực" là "Region". Xem `capChoMoHinh`.
+   */
+  if (conLai(q, thuocDo).size > 0) return null;
+
   const xep = truong.dimensions
     .map((c) => ({ c, diem: diemCap(c, thuocDo) }))
     .sort((a, b) => b.diem - a.diem);
@@ -326,7 +365,7 @@ export function goiYMoHo(truong: ExplorerFieldsDto | undefined, cauHoi: string):
   if (truong === undefined || goiYBieuDo(truong, cauHoi) !== null) return [];
 
   const q = chuanHoa(cauHoi);
-  const { veDo, veChieu } = hangVe(q);
+  const { veDo, veChieu } = veTruong(truong, q);
   const thuocDo = topTruong(truong.measures, veDo);
   let chieu = topTruong(truong.dimensions, veChieu);
 
@@ -357,6 +396,43 @@ function hangVe(q: string): { veDo: Set<string>; veChieu: Set<string> } {
     veDo: tuNoiDung(cat[0] ?? q),
     veChieu: tuNoiDung(cat.length > 1 ? (cat[cat.length - 1] ?? '') : q),
   };
+}
+
+/**
+ * Hai vế, kèm một bản NỚI cho vế nào phép tách không khớp được ai.
+ *
+ * ═══ Vì sao thứ tự trong câu KHÔNG được phép quyết định tất cả ════════════
+ *
+ * `hangVe` đọc "X theo Y" là "thước đo X, chiều Y" — tín hiệu mạnh nhất có
+ * trong tiếng Việt, và đúng gần như mọi lần. Nhưng người ta cũng nói ngược:
+ *
+ *     "khu vực theo doanh thu"     (chiều trước, thước đo sau)
+ *
+ * Bản trước trượt hẳn câu đó: vế trước chấm trên danh sách THƯỚC ĐO và không
+ * ai khớp, nên `goiYBieuDo` trả `null` ngay, dù cả hai trường đều có tên đầy
+ * đủ ngay trong câu.
+ *
+ * Nới thế này an toàn vì hai danh sách RỜI NHAU: một thước đo không nằm trong
+ * `dimensions` và ngược lại, nên vế nới ra không thể kéo một trường sang nhầm
+ * ô. Và nó chỉ chạy khi phép tách theo thứ tự đã khớp đúng không ai — khớp
+ * được rồi thì giữ nguyên, kể cả khi khớp hoà (hoà là việc của `goiYMoHo`).
+ */
+function veTruong(
+  truong: ExplorerFieldsDto,
+  q: string,
+): { veDo: Set<string>; veChieu: Set<string> } {
+  const { veDo, veChieu } = hangVe(q);
+  const ca = tuNoiDung(q);
+  return {
+    veDo: topTruong(truong.measures, veDo).length > 0 ? veDo : ca,
+    veChieu: topTruong(truong.dimensions, veChieu).length > 0 ? veChieu : ca,
+  };
+}
+
+/** Chữ trong câu KHÔNG giải thích được bằng thước đo vừa khớp. */
+function conLai(q: string, thuocDo: ExplorerFieldDto): Set<string> {
+  const cua = new Set(chuanHoa(thuocDo.label).split(' '));
+  return new Set([...tuNoiDung(q)].filter((t) => !cua.has(t)));
 }
 
 /**
@@ -441,6 +517,46 @@ export function deXuatBieuDo(
 }
 
 /**
+ * Danh sách cặp gửi cho MÔ HÌNH chọn — xoay quanh thước đo câu hỏi đã gọi tên.
+ *
+ * ═══ Vì sao `deXuatBieuDo` một mình KHÔNG đủ cho chỗ này ══════════════════
+ *
+ * Nó xếp mọi cặp theo `diemCap` rồi cắt ở `tran`. `sort` ổn định, nên sau khi
+ * mấy cặp chiều-thời-gian đứng đầu, phần còn lại giữ nguyên thứ tự `flatMap`:
+ * TẤT CẢ cặp của thước đo thứ nhất, rồi mới tới thước đo thứ hai. Trên
+ * Global-Superstore — năm thước đo, gần hai chục chiều — hai mươi suất đầu bị
+ * một mình "Quantity" ăn gần hết, và "Discount theo Region" không bao giờ lọt
+ * vào danh sách để mà được chọn.
+ *
+ * Mà đó đúng là danh sách mô hình ngôn ngữ nhìn vào. Thiếu một cặp ở đây
+ * không phải mô hình chọn sai — nó là mô hình KHÔNG CÓ CÁCH NÀO chọn đúng.
+ *
+ * Nên khi câu hỏi đã gọi tên được một thước đo (phần dễ: "discount" trùng
+ * nguyên chữ), mọi chiều của ĐÚNG thước đo ấy được xếp lên đầu. Phần khó —
+ * "khu vực" là chiều nào — để mô hình làm, và giờ nó có đủ lựa chọn để làm.
+ *
+ * Không khớp thước đo nào thì rơi về danh sách chung: không có gì để xoay
+ * quanh, và một danh sách rộng vẫn hơn không có danh sách.
+ */
+export function capChoMoHinh(
+  truong: ExplorerFieldsDto | undefined,
+  cauHoi: string,
+  tran = 20,
+): GoiYBieuDo[] {
+  if (truong === undefined) return [];
+  const q = chuanHoa(cauHoi);
+
+  const thuocDo = chamTruong(truong.measures, veTruong(truong, q).veDo);
+  if (thuocDo === null) return deXuatBieuDo(truong, tran, 99);
+
+  const rieng = truong.dimensions.map((chieu) => ({ chieu, thuocDo, loai: loaiHop(chieu, q) }));
+  // Thước đo khác vẫn được góp mặt ở phần đuôi: khớp được một thước đo không
+  // có nghĩa là chắc chắn người dùng muốn đúng cái đó.
+  const them = deXuatBieuDo(truong, tran, 99).filter((g) => g.thuocDo.id !== thuocDo.id);
+  return [...rieng, ...them].slice(0, tran);
+}
+
+/**
  * Tên đề xuất — ĐÚNG công thức tiêu đề mà ô sẽ mang sau khi vẽ (`titleOf`).
  *
  * Lệch một chữ là người dùng bấm "Doanh thu theo Khu vực" rồi nhìn lên thấy ô
@@ -448,6 +564,85 @@ export function deXuatBieuDo(
  */
 export function tenDeXuat(g: GoiYBieuDo): string {
   return `${g.thuocDo.label} theo ${g.chieu.label}`;
+}
+
+/**
+ * Tên của MỘT DÃY đề xuất — kèm tên bảng ở đúng chỗ hai tên trùng nhau.
+ *
+ * ═══ Lỗi đo được ══════════════════════════════════════════════════════════
+ *
+ * Trên Global-Superstore, "tui muốn xem profit theo market" ra câu hỏi ngược
+ * "khớp với 2 cặp trường khác nhau, bạn muốn cái nào?" — kèm HAI cái nút đọc
+ * y hệt nhau: "Profit theo Market" và "Profit theo Market". Mô hình có hai
+ * bảng cùng mang cột `Market`, nên `tenDeXuat` trả về cùng một chuỗi.
+ *
+ * Một câu hỏi ngược mà hai lựa chọn không phân biệt được thì tệ hơn hẳn việc
+ * không hỏi: nó bắt người dùng chọn, rồi không cho họ cơ sở nào để chọn.
+ *
+ * Kèm tên bảng CHỈ ở chỗ trùng, không kèm đại trà — `backend/hoiTrenMoHinh`
+ * cũng đính tên bảng vào nhãn chiều vì đúng lý do này, nhưng ở đó danh sách
+ * chỉ mô hình đọc. Danh sách này người dùng đọc, nên mỗi chữ thừa là một chữ
+ * phải lướt qua.
+ */
+export function tenPhanBiet(ds: GoiYBieuDo[]): string[] {
+  const demTheo = (xs: string[]): Map<string, number> => {
+    const m = new Map<string, number>();
+    for (const x of xs) m.set(x, (m.get(x) ?? 0) + 1);
+    return m;
+  };
+
+  const tran = ds.map(tenDeXuat);
+  const dem = demTheo(tran);
+
+  // Bảng của CHIỀU gỡ được gần như mọi ca: hai bảng cùng có cột `Market`.
+  const themChieu = ds.map((g, i) =>
+    (dem.get(tran[i] ?? '') ?? 0) < 2
+      ? (tran[i] ?? '')
+      : `${tran[i] ?? ''} (bảng ${g.chieu.datasetName})`,
+  );
+  const dem2 = demTheo(themChieu);
+
+  // Còn trùng nữa thì chính THƯỚC ĐO mới là chỗ khác nhau.
+  return ds.map((g, i) => {
+    const t = themChieu[i] ?? '';
+    return (dem2.get(t) ?? 0) < 2 ? t : `${t.slice(0, -1)} · thước đo ở ${g.thuocDo.datasetName})`;
+  });
+}
+
+/**
+ * Cặp trường mà lớp ĐIỀN FORM vừa chọn, dựng lại thành một đề xuất biểu đồ.
+ *
+ * ═══ Vì sao đường này mới là đường hiểu được tiếng Việt tự do ═════════════
+ *
+ * `hieuY` cho mô hình chọn MỘT mục trong danh sách cặp sẵn có, nên không gian
+ * lựa chọn là tích `chiều × thước đo` — nó phình theo cấp số nhân và bị cắt ở
+ * trần 60 nhãn. `datCauHoi` thì cho mô hình điền `{dimensionIds, measureIds}`,
+ * tức CHỌN RIÊNG từng ô, nên không gian chỉ là `chiều + thước đo` và trần của
+ * nó là 120 TRƯỜNG chứ không phải 120 cặp.
+ *
+ * Khác biệt đó quyết định đúng thứ người dùng vừa than: "thị trường" hiểu
+ * được, "market" cũng hiểu được, và hiểu được trên mô hình bao nhiêu cột cũng
+ * thế — vì mô hình không phải tìm một cặp có sẵn, nó ghép hai lựa chọn độc lập.
+ *
+ * Lớp đó đã chạy sẵn cho câu hỏi SỐ LIỆU. Chỗ này chỉ đọc lại cái form nó vừa
+ * điền và dựng thành đề xuất, thay vì vứt đi rồi nói "chưa hiểu".
+ *
+ * ⚠️ Id lạ thì trả `null`. Form đã qua `explorerQueryBodySchema` ở backend,
+ * nhưng danh sách trường trên máy này có thể cũ hơn — ai đó vừa xoá một cột.
+ */
+export function capTheoId(
+  truong: ExplorerFieldsDto | undefined,
+  chieuId: number | undefined,
+  thuocDoId: number | undefined,
+  cauHoi: string,
+): GoiYBieuDo | null {
+  if (truong === undefined || chieuId === undefined || thuocDoId === undefined) return null;
+
+  const chieu = truong.dimensions.find((d) => d.id === chieuId);
+  const thuocDo = truong.measures.find((m) => m.id === thuocDoId);
+  if (chieu === undefined || thuocDo === undefined) return null;
+
+  return { chieu, thuocDo, loai: loaiHop(chieu, chuanHoa(cauHoi)) };
 }
 
 /* ═══ SỬA biểu đồ đã vẽ ══════════════════════════════════════════════════════
@@ -614,4 +809,56 @@ export function cauSua(thay: SuaBieuDo, tenChieuPhu: string | null): TraLoi {
     cau: `Đã ${ve.join(', ')} cho ô đang chọn. Không ưng thì Ctrl+Z.`,
     so,
   };
+}
+
+/**
+ * Ô biểu đồ đang chọn đang được đặt như thế nào.
+ *
+ * ═══ Lỗ hổng mà nó lấp: SỬA được mà ĐỌC không được ═════════════════════════
+ *
+ * `docSuaBieuDo` cho khung đổi số nhóm, đổi thứ tự, đổi chiều tách màu. Nhưng
+ * ô đang chọn khai `duKien: []`, nên hỏi ngược lại — "ô này đang lấy mấy
+ * nhóm", "đang tách màu theo gì", "đang là biểu đồ loại gì" — thì khung chịu.
+ * Lệch hẳn một bên: ghi được mà không đọc được.
+ *
+ * Nó cũng là thứ làm câu xác nhận của `cauSua` kiểm lại được. Khung nói "đã
+ * rút còn 5 nhóm" rồi người dùng hỏi lại "giờ mấy nhóm" — không có mấy dữ kiện
+ * này thì không có cách nào đối chiếu, và một câu xác nhận không kiểm lại được
+ * thì chỉ là một lời hứa.
+ *
+ * ⚠️ Gọi ô bằng ĐÚNG TÊN Ô TRÊN MÀN HÌNH (`CHART_SHELF_LABELS`), không gọi
+ * "chiều"/"thước đo". Người dùng nhìn thấy chữ "Trục ngang" và "Giá trị" ở
+ * trình dựng; khung trả lời bằng từ vựng khác là bắt họ dịch một lần nữa, và
+ * câu hỏi "trục ngang là trường nào" sẽ không khớp nhãn nào.
+ */
+export function duKienODangChon(o: {
+  /** Tên ô, đúng như tiêu đề đang hiện trên đầu ô. */
+  ten: string;
+  loai: ChartType;
+  chieu: string | null;
+  thuocDo: string | null;
+  chieuPhu: string | null;
+  soNhom: number;
+  sapXep: ChartSort;
+}): DuKien[] {
+  const o2 = CHART_SHELF_LABELS[o.loai];
+  const d: DuKien[] = [
+    { nhan: `Loại biểu đồ của ô ${o.ten}`, gia: CHART_TYPE_LABELS[o.loai] },
+    { nhan: `Số nhóm mỗi trang của ô ${o.ten}`, gia: String(o.soNhom) },
+    { nhan: `Thứ tự nhóm của ô ${o.ten}`, gia: CHART_SORT_LABELS[o.sapXep] },
+    {
+      /*
+       * Ô thứ ba gọi tên KHÁC NHAU theo loại biểu đồ: "Nhóm màu" ở cột và
+       * đường, "Trục Y" ở heatmap, "Cột nhóm thứ hai" ở bảng. Chép cứng một
+       * cái tên ở đây là nói sai tên ô cho hai loại biểu đồ.
+       */
+      nhan: `Trường ở ô ${o2.series} của ${o.ten}`,
+      // Nói thẳng "chưa chọn" chứ không bỏ trống dòng này: câu "ô này tách màu
+      // theo gì" phải có câu trả lời, và "chưa chọn" LÀ câu trả lời đúng.
+      gia: o.chieuPhu ?? 'chưa chọn',
+    },
+  ];
+  if (o.chieu !== null) d.push({ nhan: `Trường ở ô ${o2.dimension} của ${o.ten}`, gia: o.chieu });
+  if (o.thuocDo !== null) d.push({ nhan: `Trường ở ô ${o2.measure} của ${o.ten}`, gia: o.thuocDo });
+  return d;
 }

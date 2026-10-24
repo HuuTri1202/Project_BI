@@ -140,6 +140,21 @@ const CA: Ca[] = [
     loai: 'pie',
   },
 
+  /* ─── CHIỀU đứng trước, THƯỚC ĐO đứng sau ──────────────────────────────── */
+  {
+    hoi: 'tui muốn xem khu vực theo doanh thu',
+    chieu: 'Khu vực',
+    do: 'Doanh thu',
+    loai: 'bar',
+    vi: 'nói ngược vẫn là một câu đủ nghĩa — xem `veTruong`',
+  },
+  {
+    hoi: 'tui muốn xem nhóm hàng theo lợi nhuận',
+    chieu: 'Nhóm hàng',
+    do: 'Lợi nhuận',
+    loai: 'bar',
+  },
+
   /* ─── Thiếu hẳn một vế ─────────────────────────────────────────────────── */
   {
     hoi: 'vẽ biểu đồ doanh thu',
@@ -185,6 +200,14 @@ const CA: Ca[] = [
     loai: 'bar',
     moHinh: true,
   },
+  {
+    hoi: 'tui muốn xem vùng có doanh thu như thế nào',
+    chieu: 'Khu vực',
+    do: 'Doanh thu',
+    loai: 'bar',
+    moHinh: true,
+    vi: 'người dùng ĐÃ nói ra chiều, chỉ là bằng chữ của họ — xem chốt `conLai`',
+  },
 ];
 
 type KetQua = 'dung' | 'chua' | 'sai';
@@ -228,9 +251,28 @@ describe('Bộ đánh giá đường VẼ', () => {
     expect(diem.filter((x) => x.kq === 'sai').map((x) => `${x.c.hoi} → ${x.thuc}`)).toEqual([]);
   });
 
+  /*
+   * ⚠️ Ca `moHinh` bị loại khỏi BẢNG ĐIỂM, nhưng KHÔNG được loại khỏi luật này.
+   *
+   * Loại hẳn chúng đi là chỗ một lỗi thật nằm im suốt nhiều tháng: "tui muốn
+   * xem doanh thu theo vùng" trả về "Doanh thu theo Ngày đặt" — một cặp trường
+   * KHÁC, tức đúng kết cục nguy hiểm duy nhất của bộ này — mà không bài kiểm
+   * nào nhìn vào, vì ca ấy mang cờ `moHinh`.
+   *
+   * Cờ đó chỉ nói "lớp ngoại tuyến không với tới được câu này", và câu trả lời
+   * đúng cho một câu không với tới được là IM LẶNG. Không phải một phỏng đoán.
+   */
+  it('mấy câu để lớp mô hình lo cũng KHÔNG được đoán bừa', () => {
+    const bua = CA.filter((c) => c.moHinh === true)
+      .map((c) => ({ c, ...cham(c) }))
+      .filter((x) => x.kq === 'sai');
+
+    expect(bua.map((x) => `${x.c.hoi} → ${x.thuc}`)).toEqual([]);
+  });
+
   it('số câu ĐÚNG không được tụt', () => {
     // ⚠️ Chỉ được NÂNG, và phải đặt ĐÚNG BẰNG điểm hiện tại. Một ràng răng lỏng
     // hơn điểm thật sẽ im lặng nuốt đúng một ca vừa hỏng.
-    expect(dem('dung')).toBeGreaterThanOrEqual(25);
+    expect(dem('dung')).toBeGreaterThanOrEqual(27);
   });
 });

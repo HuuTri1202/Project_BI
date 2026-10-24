@@ -1,7 +1,16 @@
-import type { ConnectionDto, FolderDto, OrderDetailDto, PlanDto } from '@bi/shared';
+import type {
+  ConnectionDto,
+  ExplorerResultDto,
+  FolderDto,
+  OrderDetailDto,
+  PlanDto,
+} from '@bi/shared';
 import { describe, expect, it } from 'vitest';
 
 import {
+  duKienKhamPha,
+  duKienMoHinh,
+  nguonTrinhDung,
   duKienMotDonHang,
   duKienMotKetNoi,
   duKienMuaGoi,
@@ -192,5 +201,235 @@ describe('phạm vi của con số tổng', () => {
     expect(d?.nhan).toBe('Số thành viên của tổ chức');
     expect(d?.gia).toBe('3');
     expect(d?.luuY).toContain('ĐANG LỌC');
+  });
+});
+
+/**
+ * Kết quả tab Khám phá — bảng số người dùng vừa bấm Chạy.
+ *
+ * ⚠️ Cả hai ca dưới đều canh chỗ mà một con số CÓ THẬT đọc ra thành kết luận
+ * sai, chứ không canh chỗ tính nhầm:
+ *
+ *   - `truncated` mà không nói ra: "tổng doanh thu" tính trên phần bị cắt rồi
+ *     đọc thành tổng của cả mô hình, sai cả nghìn lần bằng một con số thật.
+ *   - Tên cột lấy `label` trơn: thước đo gieo sẵn trùng tên với cột nó gộp,
+ *     nên "Total amount" vừa là tiền MỘT đơn vừa là tổng tiền cả nhóm.
+ */
+describe('duKienKhamPha', () => {
+  const kq = (part: Partial<ExplorerResultDto> = {}): ExplorerResultDto => ({
+    columns: [
+      { id: 1, label: 'Khu vực', kind: 'dimension' },
+      { id: 2, label: 'Total amount', kind: 'measure', mota: 'Tổng của Total amount' },
+    ],
+    rows: [
+      ['Miền Bắc', 300],
+      ['Miền Nam', 500],
+    ],
+    truncated: false,
+    ...part,
+  });
+
+  it('chưa chạy gì, hoặc chạy ra 0 dòng, thì không có nguồn nào', () => {
+    expect(duKienKhamPha(null)).toEqual([]);
+    expect(duKienKhamPha(kq({ rows: [] }))).toEqual([]);
+  });
+
+  it('tên cột lấy từ `mota` khi có', () => {
+    expect(duKienKhamPha(kq())[0]?.bangTho?.cot).toEqual(['Khu vực', 'Tổng của Total amount']);
+  });
+
+  it('kết quả bị cắt thì `luuY` phải NÓI RA là đã cắt', () => {
+    const cat = duKienKhamPha(kq({ truncated: true }))[0]?.bangTho?.luuY ?? '';
+    const du = duKienKhamPha(kq())[0]?.bangTho?.luuY ?? '';
+
+    expect(cat).toContain('CẮT');
+    expect(cat).toContain('chưa lấy hết');
+    expect(du).not.toContain('CẮT');
+  });
+
+  it('khai cả số dòng và số cột để hỏi tra cứu được', () => {
+    const d = duKienKhamPha(kq())[0]?.duKien ?? [];
+
+    expect(d).toContainEqual({ nhan: 'Số dòng của kết quả Khám phá', gia: '2' });
+    expect(d).toContainEqual({ nhan: 'Số cột của kết quả Khám phá', gia: '2' });
+  });
+});
+
+/**
+ * Nguồn của trình dựng — ô đang chọn phải MANG THEO dữ kiện của nó.
+ *
+ * ─── Lỗ hổng đo được ────────────────────────────────────────────────────────
+ *
+ * Ô đang chọn khai `duKien: []`, nên khung SỬA được số nhóm và chiều tách màu
+ * mà hỏi ngược "ô này đang lấy mấy nhóm" thì chịu. Ghi được mà không đọc được.
+ *
+ * Bộ này canh phần NỐI, thứ mà `goiYBieuDo.test.ts` không với tới: bộ kia kiểm
+ * `duKienODangChon` dựng đúng dữ kiện, nhưng một bản vá bỏ chúng ra khỏi mảng
+ * nguồn vẫn để nó xanh y nguyên.
+ */
+describe('nguonTrinhDung', () => {
+  const bang = {
+    rows: [{ label: 'Miền Bắc', value: 300 }],
+    dimensionLabel: 'Khu vực',
+    measureLabel: 'Doanh thu',
+    grouped: false,
+  };
+  const duKienO = [{ nhan: 'Số nhóm mỗi trang của ô X', gia: '20' }];
+
+  /*
+   * ⚠️ Thứ tự là một CHỐT, không phải thẩm mỹ. Backend chỉ lấy 60 nhãn đầu, mà
+   * `duKienMoHinh` của một mô hình nhiều bảng đẩy ra hàng trăm nhãn — xếp ô
+   * đang chọn xuống sau là nó bị cắt sạch trước khi mô hình kịp nhìn thấy.
+   */
+  it('ô đang chọn mang theo dữ kiện của nó, và đứng TRƯỚC cấu trúc mô hình', () => {
+    const moHinh = {
+      id: 1,
+      name: 'Bán hàng',
+      datasets: [],
+      measures: [],
+      relationships: [],
+      creatorName: null,
+    } as unknown as Parameters<typeof nguonTrinhDung>[3];
+    const ds = nguonTrinhDung('Ô X', bang, duKienO, moHinh);
+
+    expect(ds[0]?.ten).toBe('Ô X');
+    expect(ds[0]?.duKien).toEqual(duKienO);
+    expect(ds.length).toBeGreaterThan(1);
+    expect(ds[1]?.ten).toBe('Mô hình Bán hàng');
+  });
+
+  it('chưa chọn ô nào thì không có nguồn ô', () => {
+    expect(nguonTrinhDung(null, bang, duKienO, undefined)).toEqual([]);
+    expect(nguonTrinhDung('Ô X', undefined, duKienO, undefined)).toEqual([]);
+  });
+});
+
+/**
+ * Quan hệ giữa các bảng — thứ tab Quan hệ VẼ RA mà khung từng chỉ biết đếm.
+ *
+ * ─── Lỗ hổng đo được ────────────────────────────────────────────────────────
+ *
+ * Màn hình vẽ rõ Orders nối Customers qua cột nào, kiểu gì. Khung chỉ khai
+ * `Số quan hệ của mô hình X`, nên "Orders nối Customers qua cột nào" rơi xuống
+ * "chưa hiểu" trong lúc câu trả lời đang nằm trước mắt người hỏi.
+ */
+/*
+ * ═══ Thứ tự nguồn quyết định câu trả lời ═══════════════════════════════════
+ *
+ * Hai thứ treo vào phần tử đầu mảng: chip mặc định của khung, và — qua
+ * `duKienPhang` — 60 nhãn nào tới được lớp mô hình. Bảng người dùng đang mở
+ * phải đứng đầu, nếu không thì "cột này kiểu gì" được chấm trên một bảng khác.
+ */
+describe('duKienMoHinh — bảng đang mở xếp trước', () => {
+  const bang = (id: number, ten: string) => ({
+    id,
+    datasetId: id * 10,
+    datasetName: ten,
+    displayName: null,
+    chTable: `ch_${ten}`,
+    source: 'file',
+    originalFilename: `${ten}.csv`,
+    sourceSchema: null,
+    sourceTable: null,
+    connectionName: null,
+    columns: [],
+  });
+
+  const moHinh = {
+    id: 1,
+    name: 'Bán hàng',
+    datasets: [bang(1, 'Orders'), bang(2, 'Customers')],
+    measures: [],
+    relationships: [],
+    creatorName: null,
+  } as unknown as Parameters<typeof duKienMoHinh>[0];
+
+  it('không nói bảng nào thì bản tóm tắt đứng đầu, như cũ', () => {
+    expect(duKienMoHinh(moHinh).map((n) => n.ten)).toEqual([
+      'Mô hình Bán hàng',
+      'Orders',
+      'Customers',
+    ]);
+  });
+
+  it('bảng đang mở lên đầu, và KHÔNG xuất hiện hai lần', () => {
+    expect(duKienMoHinh(moHinh, 2).map((n) => n.ten)).toEqual([
+      'Customers',
+      'Mô hình Bán hàng',
+      'Orders',
+    ]);
+  });
+
+  /*
+   * Id của một bảng vừa bị gỡ khỏi mô hình ở tab khác. Rơi về thứ tự cũ còn
+   * hơn ném — người dùng chỉ đang hỏi một câu, không làm gì sai.
+   */
+  it('id lạ thì rơi về thứ tự cũ, không ném', () => {
+    expect(duKienMoHinh(moHinh, 999).map((n) => n.ten)).toEqual([
+      'Mô hình Bán hàng',
+      'Orders',
+      'Customers',
+    ]);
+    expect(duKienMoHinh(moHinh, null).map((n) => n.ten)[0]).toBe('Mô hình Bán hàng');
+  });
+});
+
+describe('duKienMoHinh — quan hệ', () => {
+  const noi = (
+    traiBang: string,
+    traiCot: string,
+    phaiBang: string,
+    phaiCot: string,
+    kind: 'one_to_many' | 'many_to_one' | 'one_to_one' = 'one_to_many',
+  ) => ({
+    id: 1,
+    kind,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    left: { datasetRef: 1, datasetName: traiBang, columnId: 1, columnName: traiCot },
+    right: { datasetRef: 2, datasetName: phaiBang, columnId: 2, columnName: phaiCot },
+  });
+
+  const moHinh = (rels: ReturnType<typeof noi>[]): Parameters<typeof duKienMoHinh>[0] =>
+    ({
+      id: 1,
+      name: 'Bán hàng',
+      datasets: [],
+      measures: [],
+      relationships: rels,
+      creatorName: null,
+    }) as unknown as Parameters<typeof duKienMoHinh>[0];
+
+  const chung = (rels: ReturnType<typeof noi>[]) => duKienMoHinh(moHinh(rels))[0]?.duKien ?? [];
+
+  it('mỗi mối nối là một dữ kiện, gọi tên cả hai cột', () => {
+    const d = chung([noi('Orders', 'customer_id', 'Customers', 'id')]);
+
+    expect(d).toContainEqual({
+      nhan: 'Quan hệ giữa bảng Orders và bảng Customers',
+      gia: 'Orders.customer_id nối Customers.id — Một → nhiều',
+    });
+  });
+
+  /*
+   * ⚠️ KIỂU quan hệ phải có mặt. Nó quyết định một phép SUM có bị nhân bản
+   * hay không — doc của `RelationshipWarningDto` gọi nối sai kiểu là nguồn của
+   * câu "số bị sai" đầu tiên người dùng gặp. Bỏ nó đi thì câu trả lời đúng chữ
+   * mà thiếu đúng phần giải thích được con số.
+   */
+  it('nói ra kiểu nối, và mỗi kiểu một chữ khác nhau', () => {
+    const cua = (rels: ReturnType<typeof noi>[]): string =>
+      chung(rels).find((x) => x.nhan === 'Quan hệ giữa bảng A và bảng B')?.gia ?? '';
+    const mot = cua([noi('A', 'x', 'B', 'y', 'one_to_one')]);
+    const nhieu = cua([noi('A', 'x', 'B', 'y', 'many_to_one')]);
+
+    expect(mot).toContain('Một → một');
+    expect(nhieu).toContain('Nhiều → một');
+  });
+
+  it('mô hình chưa có quan hệ nào thì KHÔNG khai danh sách rỗng', () => {
+    const nhan = chung([]).map((x) => x.nhan);
+
+    expect(nhan).toContain('Số quan hệ của mô hình Bán hàng');
+    expect(nhan).not.toContain('Danh sách quan hệ của mô hình Bán hàng');
   });
 });

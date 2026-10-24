@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
+import type { DataModelDetailDto, ExplorerResultDto } from '@bi/shared';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, NavLink, Navigate, Outlet, useNavigate, useParams } from 'react-router-dom';
 
 import { usePermissions } from '../../auth/usePermissions';
@@ -8,7 +9,7 @@ import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
 import { Page, PageBody, PageHeader } from '../../components/ui/Page';
 import { ErrorState, TableSkeleton } from '../../components/ui/states';
 import { CreateReportMenu } from '../../features/tenant/CreateReportMenu';
-import { duKienMoHinh } from '../../features/chat/duKienTrang';
+import { duKienKhamPha, duKienMoHinh } from '../../features/chat/duKienTrang';
 import { useKhaiNguCanh } from '../../features/chat/nguCanh';
 import { CreateDataModelModal } from '../../features/datamodels/CreateDataModelModal';
 import {
@@ -68,6 +69,21 @@ const TABS: TabDef[] = [
 
 const TAB_CLASS = '-mb-px shrink-0 border-b-2 px-4 py-2.5 text-sm font-medium transition-colors';
 
+/**
+ * Thứ ba tab con nhận qua `Outlet`.
+ *
+ * Trước đây nó là chính `DataModelDetailDto`. Thêm `ghiKetQua` vào buộc phải
+ * bọc lại thành một object — đổi lại, tab Khám phá có đường báo ngược kết quả
+ * lên mà không cần thêm một context nào nữa.
+ */
+export interface NgoaiCanhMoHinh {
+  moHinh: DataModelDetailDto;
+  /** Báo bảng kết quả vừa chạy, hoặc `null` khi xoá/rời tab. */
+  ghiKetQua: (kq: ExplorerResultDto | null) => void;
+  /** Báo bảng đang MỞ XEM ở tab Schemas, hoặc `null` khi đóng/rời tab. */
+  ghiBangMo: (id: number | null) => void;
+}
+
 export default function DataModelPage(): React.ReactElement {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -103,10 +119,45 @@ export default function DataModelPage(): React.ReactElement {
    * `DataModelDatasetDto`, câu "mô hình này dựng từ tệp nào" trả lời được ngay
    * ở đây mà không phải gọi thêm request nào.
    */
+  /**
+   * Kết quả tab Khám phá — do tab đẩy NGƯỢC lên đây, không tự khai ở dưới đó.
+   *
+   * ═══ Vì sao tab không được tự khai ════════════════════════════════════════
+   *
+   * `useKhaiNguCanh` là một phép GÁN ĐÈ: ai gọi sau thì bản khai của người đó
+   * thắng. Mà effect của React chạy từ con lên cha, nên trang này — cha — luôn
+   * chạy SAU tab và sẽ xoá sạch bản khai của tab ngay lần mount đầu tiên. Sau
+   * đó thì tuỳ `data` có đổi tham chiếu hay không mà bên nào thắng, tức là
+   * đúng kiểu hỏng phụ thuộc thứ tự mà không ai tái hiện được.
+   *
+   * Nên chỉ MỘT nơi khai, và đó là nơi này. Tab chỉ báo lên nó vừa chạy ra gì
+   * — cùng khuôn `onRows` mà trang xem báo cáo đang dùng cho trang nhóm.
+   */
+  const [ketQuaKhamPha, setKetQuaKhamPha] = useState<ExplorerResultDto | null>(null);
+  const ghiKetQua = useCallback((kq: ExplorerResultDto | null): void => {
+    setKetQuaKhamPha(kq);
+  }, []);
+
+  /**
+   * Bảng đang mở xem ở tab Schemas — cùng khuôn báo-ngược với `ghiKetQua`, và
+   * cùng lý do: một nơi khai duy nhất, tab chỉ nói nó đang cho xem gì.
+   *
+   * Thứ nó đổi là THỨ TỰ nguồn, mà thứ tự quyết định hai chuyện: chip mặc định
+   * của khung, và 60 nhãn nào tới được lớp mô hình. Xem `duKienMoHinh`.
+   */
+  const [bangMo, setBangMo] = useState<number | null>(null);
+  const ghiBangMo = useCallback((idBang: number | null): void => {
+    setBangMo(idBang);
+  }, []);
+
   const nguCanh = useMemo(
     () => ({
       trang: data === undefined ? 'mô hình dữ liệu' : `mô hình ${data.name}`,
-      nguon: data === undefined ? [] : duKienMoHinh(data),
+      nguon: [
+        // Bảng vừa chạy đứng TRƯỚC: đó là thứ người ta vừa nhìn.
+        ...duKienKhamPha(ketQuaKhamPha),
+        ...(data === undefined ? [] : duKienMoHinh(data, bangMo)),
+      ],
       /*
        * Khai `moHinhId` mở ra nhóm câu hỏi MỚI: khung được phép tự dựng một
        * truy vấn trên mô hình này khi mọi phép so ngoại tuyến đã trượt. Xem
@@ -115,7 +166,7 @@ export default function DataModelPage(): React.ReactElement {
        */
       ...(activeId === null ? {} : { moHinhId: activeId }),
     }),
-    [data, activeId],
+    [data, activeId, ketQuaKhamPha, bangMo],
   );
   useKhaiNguCanh(nguCanh);
 
@@ -254,7 +305,7 @@ export default function DataModelPage(): React.ReactElement {
 
         {isError && <ErrorState message={getApiError(error).message} />}
         {isPending && !isError && activeId !== null && <TableSkeleton rows={6} />}
-        {data !== undefined && <Outlet context={data} />}
+        {data !== undefined && <Outlet context={{ moHinh: data, ghiKetQua, ghiBangMo }} />}
       </PageBody>
 
       <CreateDataModelModal open={creating} onClose={() => setCreating(false)} />

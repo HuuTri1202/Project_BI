@@ -21,7 +21,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 async function napVoiEnv(bien: Record<string, string | undefined>): Promise<{
   hieuY: (i: { cauHoi: string; nhan: string[] }) => Promise<{
     chon: number | null;
-    daHoi: boolean;
+    trangThai: 'chua-cau-hinh' | 'da-doc' | 'goi-hong';
   }>;
   chonHopLe: (raw: string, soNhan: number) => number | null;
   TRAN_NHAN: number;
@@ -70,7 +70,7 @@ describe('Chỉ nhận một chỉ số nằm trong danh sách đã gửi', () =
     // Mô hình đếm từ 1; frontend đánh mảng từ 0.
     expect(await hieuY({ cauHoi: 'cái này nặng bao nhiêu', nhan: NHAN })).toEqual({
       chon: 2,
-      daHoi: true,
+      trangThai: 'da-doc',
     });
   });
 
@@ -82,7 +82,7 @@ describe('Chỉ nhận một chỉ số nằm trong danh sách đã gửi', () =
     // với "máy này chưa cấu hình nên chưa ai đọc gì".
     expect(await hieuY({ cauHoi: 'hôm nay trời thế nào', nhan: NHAN })).toEqual({
       chon: null,
-      daHoi: true,
+      trangThai: 'da-doc',
     });
   });
 
@@ -123,12 +123,15 @@ describe('Chỉ nhận một chỉ số nằm trong danh sách đã gửi', () =
 });
 
 describe('Không cấu hình thì không hỏng, và nói rõ là CHƯA hỏi', () => {
-  it('thiếu khoá: không gọi mạng, không chọn gì, daHoi = false', async () => {
+  it('thiếu khoá: không gọi mạng, không chọn gì, và nói rõ là CHƯA cấu hình', async () => {
     const { hieuY } = await napVoiEnv({ ...DU_CAU_HINH, LLM_API_KEY: undefined });
     const goi = vi.fn();
     globalThis.fetch = goi;
 
-    expect(await hieuY({ cauHoi: 'gì đó', nhan: NHAN })).toEqual({ chon: null, daHoi: false });
+    expect(await hieuY({ cauHoi: 'gì đó', nhan: NHAN })).toEqual({
+      chon: null,
+      trangThai: 'chua-cau-hinh',
+    });
     expect(goi).not.toHaveBeenCalled();
   });
 
@@ -138,7 +141,10 @@ describe('Không cấu hình thì không hỏng, và nói rõ là CHƯA hỏi', 
 
     // `daHoi: false` ở đây là cố ý: nói "tôi đã đọc hết và không có" trong khi
     // thật ra chưa đọc được gì là một lời khẳng định sai.
-    expect(await hieuY({ cauHoi: 'gì đó', nhan: NHAN })).toEqual({ chon: null, daHoi: false });
+    expect(await hieuY({ cauHoi: 'gì đó', nhan: NHAN })).toEqual({
+      chon: null,
+      trangThai: 'goi-hong',
+    });
   });
 
   it('danh sách nhãn rỗng thì không gọi mạng', async () => {
@@ -244,7 +250,15 @@ describe('Mô hình "suy nghĩ trước khi trả lời"', () => {
       .mockResolvedValue({ ok: false, status: 500, json: async () => ({}) } as unknown as Response);
     globalThis.fetch = goi;
 
-    expect(await hieuY({ cauHoi: 'gì đó', nhan: NHAN })).toEqual({ chon: null, daHoi: true });
+    /*
+     * ⚠️ `goi-hong`, KHÔNG phải `da-doc`. Nhà cung cấp trả 500 nghĩa là chưa ai
+     * đọc gì cả; nhận là "đã đọc" làm khung khẳng định "tôi đã đọc hết số liệu
+     * và không có mục nào trả lời được" — nói chắc nịch về một việc chưa xảy ra.
+     */
+    expect(await hieuY({ cauHoi: 'gì đó', nhan: NHAN })).toEqual({
+      chon: null,
+      trangThai: 'goi-hong',
+    });
     expect(goi).toHaveBeenCalledTimes(2);
   });
 });

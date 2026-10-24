@@ -11,6 +11,8 @@ import {
   type DatasetDetailDto,
   type DatasetDto,
   type DatasetPreviewDto,
+  type ExplorerResultDto,
+  type ReportDataDto,
   type FolderDto,
   type HomeDataDto,
   type OrderDto,
@@ -20,6 +22,7 @@ import {
   type PlatformTenantDto,
   type PlatformUserDto,
   type PlatformWorkspaceDto,
+  RELATIONSHIP_KIND_LABELS,
   type ReportDto,
   type WarehouseSchemaDto,
 } from '@bi/shared';
@@ -294,6 +297,86 @@ export function duKienChiTietDataset(
 }
 
 /**
+ * Nguồn của TRÌNH DỰNG: ô đang chọn, rồi tới cấu trúc mô hình.
+ *
+ * ═══ Vì sao tách ra khỏi trang ═════════════════════════════════════════════
+ *
+ * `ReportBuilderPage` gọi mười hook và kéo theo cả kéo-thả, thu phóng, lịch
+ * sử — dựng nó trong jsdom để canh đúng một mảng là một cái giá không đáng.
+ * Mà chỗ dễ hỏng lại nằm gọn trong mảng ấy: bỏ `duKienO` ra thì khung im lặng
+ * mất khả năng đọc ô đang chọn, và không có gì đỏ.
+ *
+ * Nên phần thuần tuý ở đây, trang chỉ còn việc đưa vào. Hàm này test được mà
+ * không cần một DOM nào.
+ *
+ * ⚠️ Ô đang chọn đứng TRƯỚC. Backend chỉ lấy 60 nhãn đầu, và `duKienMoHinh`
+ * của một mô hình nhiều bảng đẩy ra hàng trăm nhãn — xếp sau là ô người dùng
+ * đang nhìn bị cắt sạch trước khi mô hình kịp thấy.
+ */
+export function nguonTrinhDung(
+  tenO: string | null,
+  bang: ReportDataDto | undefined,
+  duKienO: DuKien[],
+  moHinh: DataModelDetailDto | undefined,
+): Nguon[] {
+  return [
+    ...(bang === undefined || tenO === null ? [] : [{ ten: tenO, duKien: duKienO, bang }]),
+    ...(moHinh === undefined ? [] : duKienMoHinh(moHinh)),
+  ];
+}
+
+/**
+ * Kết quả tab KHÁM PHÁ — bảng số người dùng vừa bấm Chạy và đang nhìn vào.
+ *
+ * ═══ Lỗ hổng mà nó lấp ═════════════════════════════════════════════════════
+ *
+ * Trang mô hình khai rất kỹ CẤU TRÚC — bảng nào, cột nào, kiểu gì, mấy quan hệ
+ * — nhưng không khai một con số nào của KẾT QUẢ. Nên người dùng kéo chiều, kéo
+ * thước đo, bấm Chạy, nhìn một bảng đầy số, rồi hỏi "cao nhất là gì" và nhận
+ * về "chưa hiểu". Thứ họ đang nhìn thẳng vào lại là thứ khung mù nhất.
+ *
+ * ═══ Vì sao là `bangTho` chứ không phải `bang` ═════════════════════════════
+ *
+ * `bang` (`ReportDataDto`) đã có người chọn sẵn MỘT chiều và MỘT thước đo. Kết
+ * quả Khám phá thì không: nó có thể ba chiều bốn thước đo, và không cột nào
+ * được đề cử. Câu hỏi mới là thứ chọn ra hai cột đó — đúng việc `bangTuBangTho`
+ * sinh ra để làm.
+ *
+ * ⚠️ `luuY` không phải tuỳ chọn. `ExplorerResultDto.truncated` nói kết quả đã
+ * chạm trần dòng, và một câu "tổng doanh thu" tính trên phần bị cắt mà đọc
+ * thành tổng của cả mô hình thì sai bằng một con số có thật. Cùng cái bẫy đã
+ * ghi ở `DatasetPreviewDto`.
+ */
+export function duKienKhamPha(kq: ExplorerResultDto | null): Nguon[] {
+  if (kq === null || kq.rows.length === 0) return [];
+
+  const soDong = kq.rows.length.toLocaleString('vi-VN');
+  return [
+    {
+      ten: 'Kết quả Khám phá',
+      duKien: [
+        { nhan: 'Số dòng của kết quả Khám phá', gia: soDong },
+        { nhan: 'Số cột của kết quả Khám phá', gia: String(kq.columns.length) },
+      ],
+      bangTho: {
+        /*
+         * Dùng `mota` khi có ("Tổng của Total amount"), không dùng `label` trơn.
+         * Doc của `ExplorerResultDto.columns` đã ghi vì sao: thước đo gieo sẵn
+         * TRÙNG TÊN với cột nó gộp, nên "Total amount" vừa có nghĩa là tiền của
+         * MỘT đơn vừa có nghĩa là tổng tiền cả nhóm. Khung lặp lại cái tên trơn
+         * là lặp lại đúng chỗ nhập nhằng mà bảng trên màn hình đã gỡ ra.
+         */
+        cot: kq.columns.map((c) => c.mota ?? c.label),
+        dong: kq.rows,
+        luuY: kq.truncated
+          ? `tính trên ${soDong} dòng ĐÃ BỊ CẮT của kết quả Khám phá — truy vấn chạm trần, còn dữ liệu chưa lấy hết`
+          : `tính trên ${soDong} dòng kết quả Khám phá đang hiện`,
+      },
+    },
+  ];
+}
+
+/**
  * Trang Mô hình dữ liệu — mỗi BẢNG trong mô hình là một nguồn, cộng một nguồn
  * cho chính mô hình.
  *
@@ -301,7 +384,25 @@ export function duKienChiTietDataset(
  * vừa thêm vào `DataModelDatasetDto`. Trước đó DTO chỉ có `datasetName` —
  * tên người dùng đặt, không dính gì tới tệp.
  */
-export function duKienMoHinh(m: DataModelDetailDto): Nguon[] {
+export function duKienMoHinh(
+  m: DataModelDetailDto,
+  /**
+   * Bảng người dùng ĐANG MỞ ở tab Schemas — `DataModelDatasetDto.id`.
+   *
+   * ═══ Vì sao thứ tự ở đây quyết định câu trả lời ══════════════════════════
+   *
+   * Hai chuyện cùng treo vào phần tử đầu mảng. Một, chip mặc định của khung là
+   * nguồn số 0 — nên "cột này kiểu gì" được chấm trên bảng nào là do thứ tự
+   * này quyết. Hai, `duKienPhang` xếp nguồn ĐANG CHỌN lên đầu rồi backend cắt
+   * ở 60 nhãn: một mô hình 8 bảng × 25 cột sinh ra hơn 230 dữ kiện, nên từ
+   * bảng thứ ba trở đi KHÔNG một nhãn nào tới được lớp mô hình.
+   *
+   * Người dùng vừa bấm mở một bảng là đã nói rõ họ đang nhìn bảng nào. Không
+   * đọc lấy điều đó thì khung trả lời về một bảng khác — bằng một con số có
+   * thật, và không có gì trên màn hình nói đó là bảng nào.
+   */
+  bangTruoc?: number | null,
+): Nguon[] {
   const tenBang = (i: number): string => {
     const ds = m.datasets[i];
     return ds === undefined ? '' : (ds.displayName ?? ds.datasetName);
@@ -335,6 +436,36 @@ export function duKienMoHinh(m: DataModelDetailDto): Nguon[] {
     chung.push({
       nhan: `Danh sách thước đo của mô hình ${m.name}`,
       gia: m.measures.map((me) => `${me.name} (${me.agg})`).join('; '),
+    });
+  }
+
+  /*
+   * ═══ Từng QUAN HỆ một, không chỉ đếm ═════════════════════════════════════
+   *
+   * Tab Quan hệ VẼ RA các mối nối trên màn hình — bảng nào với bảng nào, qua
+   * cột nào, kiểu một-nhiều hay nhiều-một. Mà khung chỉ biết đúng CON SỐ
+   * `Số quan hệ`, nên "Orders nối Customers qua cột nào" rơi xuống "chưa
+   * hiểu" trong lúc câu trả lời đang nằm trước mắt người hỏi.
+   *
+   * ⚠️ Nói ra cả KIỂU quan hệ, không chỉ hai cái tên cột. Kiểu nối là thứ
+   * quyết định một phép SUM có bị nhân bản hay không — doc của
+   * `RelationshipWarningDto` gọi nó là nguồn của câu "số bị sai" đầu tiên mà
+   * người dùng gặp. Một câu trả lời bỏ nó đi thì đúng chữ mà thiếu đúng phần
+   * giải thích được con số.
+   */
+  for (const r of m.relationships) {
+    chung.push({
+      nhan: `Quan hệ giữa bảng ${r.left.datasetName} và bảng ${r.right.datasetName}`,
+      gia:
+        `${r.left.datasetName}.${r.left.columnName} nối ${r.right.datasetName}.${r.right.columnName}` +
+        ` — ${RELATIONSHIP_KIND_LABELS[r.kind]}`,
+    });
+  }
+
+  if (m.relationships.length > 0) {
+    chung.push({
+      nhan: `Danh sách quan hệ của mô hình ${m.name}`,
+      gia: m.relationships.map((r) => `${r.left.datasetName} ↔ ${r.right.datasetName}`).join('; '),
     });
   }
 
@@ -375,7 +506,13 @@ export function duKienMoHinh(m: DataModelDetailDto): Nguon[] {
     return { ten, duKien: d };
   });
 
-  return [{ ten: `Mô hình ${m.name}`, duKien: chung }, ...bang];
+  const tomTat: Nguon = { ten: `Mô hình ${m.name}`, duKien: chung };
+  const i = bangTruoc == null ? -1 : m.datasets.findIndex((ds) => ds.id === bangTruoc);
+  const mo = i < 0 ? undefined : bang[i];
+
+  // Bảng đang mở đứng TRƯỚC cả bản tóm tắt. Id lạ (bảng vừa bị xoá ở tab khác)
+  // thì rơi về thứ tự cũ, không ném.
+  return mo === undefined ? [tomTat, ...bang] : [mo, tomTat, ...bang.filter((_, j) => j !== i)];
 }
 
 /* ═══ Phần 2: các trang còn lại của khu người dùng ═══════════════════════════
@@ -571,6 +708,26 @@ export function duKienNguonBaoCao(r: ReportDto): DuKien[] {
     ...dk(
       `Nguồn số liệu của báo cáo ${r.name}`,
       `${REPORT_SOURCE_LABELS[r.source]} ${r.sourceName}`,
+      /*
+       * ⚠️ Vế này không phải trang trí — nó sửa một câu ĐÚNG mà đọc ra nghĩa KHÁC.
+       *
+       * Lỗi đo được: báo cáo tên "doanh thu theo name", trên khung có hai ô
+       * "doanh thu theo Name" và "Sale price theo Name". Người dùng chọn ô thứ
+       * hai, hỏi "lấy từ đâu ra đó", nhận về "Nguồn số liệu của báo cáo doanh
+       * thu theo name là …". Đúng từng chữ, nhưng tên báo cáo trùng gần hệt tên
+       * ô BÊN CẠNH, nên nó đọc thành "khung đang trả lời về biểu đồ khác" — và
+       * người đọc không có dấu hiệu nào để biết là không phải.
+       *
+       * Gốc rễ không nằm ở cái tên trùng: đây là dữ kiện DUY NHẤT gắn vào mọi
+       * nguồn, nên là dữ kiện duy nhất mà chủ ngữ không phải con chip đang
+       * chọn. Một câu đổi chủ ngữ giữa chừng thì phải tự nói ra là nó đổi.
+       *
+       * Đặt ở `luuY`, KHÔNG nhét vào `nhan`: `traCuu` chấm điểm bằng số TỪ
+       * trùng giữa nhãn và câu hỏi, nên mỗi chữ thêm vào nhãn là một đường khớp
+       * nhầm mới. `luuY` đứng ngoài phép chấm, và lời nhắc của lớp diễn đạt đã
+       * buộc mô hình giữ lại vế điều kiện.
+       */
+      'Mọi biểu đồ trong báo cáo này đều lấy số từ đó.',
     ),
     /*
      * Chỉ báo cáo dựng trên BỘ DỮ LIỆU mới có dòng này. Báo cáo dựng trên mô
@@ -818,10 +975,22 @@ export function duKienBangGia(plans: PlanDto[]): Nguon[] {
       duKien: [
         ...dk(`Giá gói ${p.name}`, dinhDangTien(p.priceVnd)),
         ...dk(`Chu kỳ gói ${p.name}`, `${String(p.durationDays)} ngày`),
-        ...dk(`Gói ${p.name} cho mấy workspace`, dinhDangHanMuc(p.maxWorkspaces)),
-        ...dk(`Gói ${p.name} cho mấy báo cáo`, dinhDangHanMuc(p.maxReports)),
-        ...dk(`Gói ${p.name} cho mấy thành viên`, dinhDangHanMuc(p.maxMembers)),
-        ...dk(`Gói ${p.name} cho bao nhiêu dung lượng`, dinhDangHanMuc(p.maxStorageBytes, true)),
+        /*
+         * ⚠️ CỤM DANH TỪ, không phải câu hỏi — luật đã ghi ở `duKienNguonBaoCao`,
+         * và đây là chỗ vi phạm nó đắt nhất.
+         *
+         * LỖI ĐO ĐƯỢC: nhãn cũ là "Gói Pro cho bao nhiêu dung lượng", nên câu
+         * "giá gói Pro bao nhiêu" trùng với nó BỐN chữ (gói, pro, bao, nhiêu)
+         * trong khi nhãn đúng "Giá gói Pro" chỉ trùng ba. Người dùng hỏi giá,
+         * nhận về dung lượng — một con số có thật, của một câu hỏi khác.
+         *
+         * Chữ để hỏi nằm trong nhãn thì nó cạnh tranh bằng chính chữ để hỏi,
+         * chứ không bằng nghĩa. Và `TU_HOI` không gỡ được: "bao" cũng là "báo".
+         */
+        ...dk(`Hạn mức workspace của gói ${p.name}`, dinhDangHanMuc(p.maxWorkspaces)),
+        ...dk(`Hạn mức báo cáo của gói ${p.name}`, dinhDangHanMuc(p.maxReports)),
+        ...dk(`Hạn mức thành viên của gói ${p.name}`, dinhDangHanMuc(p.maxMembers)),
+        ...dk(`Hạn mức dung lượng của gói ${p.name}`, dinhDangHanMuc(p.maxStorageBytes, true)),
         ...dk(`Mô tả gói ${p.name}`, p.description),
       ],
     })),

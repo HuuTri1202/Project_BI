@@ -6,7 +6,6 @@ import {
   PLAN_NAME_MAX,
 } from '@bi/shared';
 import { z } from 'zod';
-import { TENANT_SORT_KEYS, USER_SORT_KEYS } from '../../repositories/platform';
 import { paginationSchema } from '../../utils/pagination';
 
 /**
@@ -71,9 +70,6 @@ export const setActiveBodySchema = z.object({
 export const idParamSchema = z.object({
   id: z.coerce.number().int().positive(),
 });
-
-/** Chỉ để nhắc rằng hai danh sách whitelist phải khớp nhau; không dùng lúc chạy. */
-export const SORT_KEYS_FOR_DOCS = { TENANT_SORT_KEYS, USER_SORT_KEYS };
 
 // ─── §11 Gói dịch vụ & thanh toán ────────────────────────────────────────────
 

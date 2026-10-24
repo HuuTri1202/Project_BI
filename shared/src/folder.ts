@@ -84,14 +84,6 @@ export interface FolderDto {
   updatedAt: string;
 }
 
-export interface CreateFolderInput {
-  name: string;
-}
-
-export interface RenameFolderInput {
-  name: string;
-}
-
 /**
  * Bộ lọc thư mục trên URL.
  *

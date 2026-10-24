@@ -78,5 +78,3 @@ export const WORKSPACE_ERROR_CODES = {
   LAST_WORKSPACE: 'LastWorkspace',
 } as const;
 
-export type WorkspaceErrorCode =
-  (typeof WORKSPACE_ERROR_CODES)[keyof typeof WORKSPACE_ERROR_CODES];

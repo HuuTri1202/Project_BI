@@ -122,20 +122,6 @@ export function isAwaitingLatePayment(
   return Number.isFinite(expiresAt) && now < expiresAt + LATE_PAYMENT_WINDOW_HOURS * 3_600_000;
 }
 
-/**
- * Đơn đã kết thúc: khách không cần làm gì thêm, giao diện không cần hỏi lại.
- *
- * ⚠️ `expired` vẫn có thể thành `paid` khi tiền về muộn — xem
- * `isAwaitingLatePayment`. Danh sách này không nói điều ngược lại.
- */
-export const ORDER_STATUSES_FINAL: readonly OrderStatus[] = [
-  'paid',
-  'failed',
-  'expired',
-  'refunded',
-  'cancelled',
-];
-
 export const SUBSCRIPTION_STATUSES = [
   'active',
   /** Hết hạn tự nhiên. */
@@ -202,8 +188,6 @@ export const BILLING_ERROR_CODES = {
    */
   LIMIT_EXCEEDED: 'LimitExceeded',
 } as const;
-
-export type BillingErrorCode = (typeof BILLING_ERROR_CODES)[keyof typeof BILLING_ERROR_CODES];
 
 // ─── DTO ─────────────────────────────────────────────────────────────────────
 
@@ -399,18 +383,4 @@ export interface CreateOrderInput {
   planId: number;
   paymentMethodId: number;
   cycle: BillingCycle;
-}
-
-export interface ConfirmOrderInput {
-  /**
-   * Số tham chiếu giao dịch trên sao kê ngân hàng. BẮT BUỘC, không có ô trống.
-   *
-   * Hai việc trong một trường: nó là khoá idempotency thật ở tầng database
-   * (`UNIQUE (provider, provider_txn_ref)`), và nó khiến mọi lần xác nhận tay
-   * truy ngược được về một dòng sao kê cụ thể khi có tranh chấp.
-   */
-  providerTxnRef: string;
-  /** Số tiền THỰC NHẬN. Có thể lệch với `amountVnd` của đơn — cố ý cho phép. */
-  amountVnd: number;
-  reason?: string | undefined;
 }

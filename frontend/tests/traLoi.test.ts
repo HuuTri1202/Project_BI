@@ -13,6 +13,7 @@ import {
   moHinhTheoTen,
   nguonMoHo,
   traLoi,
+  traLoiBangThoEp,
   traLoiHeThong,
   traLoiTrang,
 } from '../src/features/chat/traLoi';
@@ -788,6 +789,74 @@ describe('Bảng dữ liệu thô: câu hỏi chọn cột', () => {
     expect(kq?.cau).not.toContain('170');
   });
 
+  /*
+   * ═══ Hai cột do LỚP MÔ HÌNH ép ═════════════════════════════════════════
+   *
+   * Bảng tiêu đề tiếng Anh, câu hỏi tiếng Việt: phép so từ khoá không có một
+   * chữ nào để bám. Hai cột số nên luật "chỉ có một cột đo thì khỏi chọn" cũng
+   * không cứu được — đúng hình dạng mà lớp chọn cột sinh ra để lo.
+   */
+  const ANH = (): Nguon =>
+    nguon(
+      ['Region', 'City', 'Sales', 'Profit'],
+      [
+        ['East', 'Boston', 100, 7],
+        ['East', 'New York', 50, 30],
+        ['West', 'Seattle', 90, 4],
+      ],
+    );
+
+  it('không ép cột thì câu tiếng Việt KHÔNG có đáp án nào', () => {
+    const bt = ANH().bangTho;
+    expect(bt && traLoiBangThoEp(bt, 'thành phố nào lời nhất')).toBeNull();
+  });
+
+  it('ép đúng hai cột thì tính trên ĐÚNG hai cột đó', () => {
+    const bt = ANH().bangTho;
+    const kq = bt && traLoiBangThoEp(bt, 'thành phố nào lời nhất', { nhan: 1, do: 3 });
+
+    // New York lời 30 — cao nhất. Boston bán nhiều nhất (100) nhưng không hỏi.
+    expect(kq?.cau).toContain('New York');
+    expect(kq?.cau).not.toContain('Boston');
+  });
+
+  /*
+   * ⚠️ Chỉ số ép vẫn bị kiểm lại. Đặt một cột CHỮ vào ô ĐO thì `oThanhSo` trả
+   * `null` cho mọi dòng, câu trả lời biến mất im lặng, và nó trông như mô hình
+   * bó tay chứ không như một cột đặt nhầm ô.
+   */
+  it('ép một cột CHỮ vào ô đo thì BỎ phép ép, không dựng bừa', () => {
+    const bt = ANH().bangTho;
+    // Cột 1 là "City" — chữ, không đo được. Bỏ phép ép thì không còn cột đo
+    // nào, và câu hỏi quay về đúng chỗ nó đứng khi chưa ai chọn hộ: `null`.
+    expect(bt && traLoiBangThoEp(bt, 'thành phố nào lời nhất', { nhan: null, do: 1 })).toBeNull();
+    // Cột 9 không tồn tại — cùng luật, và cột nhãn thì rơi về phép đoán cũ.
+    expect(bt && traLoiBangThoEp(bt, 'thành phố nào lời nhất', { nhan: 9, do: 9 })).toBeNull();
+  });
+
+  /*
+   * ⚠️ Bỏ chỉ số sai phải RƠI VỀ phép so từ khoá, không phải rơi xuống `null`.
+   *
+   * Khác biệt chỉ lộ ra khi câu hỏi TỰ gọi tên được cột: nhận bừa chỉ số sai
+   * thì `oThanhSo` trả `null` cho mọi dòng và câu trả lời biến mất — người
+   * dùng mất một đáp án mà khung vốn có sẵn, chỉ vì mô hình chỉ trệch một ô.
+   */
+  it('chỉ số ép sai thì vẫn còn đường cũ: câu hỏi tự gọi tên cột', () => {
+    const bt = nguon(
+      ['Sản phẩm', 'Doanh thu', 'Lợi nhuận'],
+      [
+        ['Staples', 100, 7],
+        ['Boston', 50, 30],
+      ],
+    ).bangTho;
+
+    // Ép cột 0 ("Sản phẩm" — chữ) vào ô ĐO. Bỏ nó đi thì chính câu hỏi chỉ ra
+    // cột "Doanh thu", và Staples 100 là cao nhất.
+    const kq = bt && traLoiBangThoEp(bt, 'doanh thu cao nhất là bao nhiêu', { nhan: null, do: 0 });
+
+    expect(kq?.cau).toContain('100');
+  });
+
   /** Cột toàn true/false không phải thước đo: cộng nó ra một con số không ai hỏi. */
   it('cột boolean không được coi là cột đo', () => {
     const n = nguon(
@@ -1115,11 +1184,145 @@ describe('Trang xem báo cáo khai được số liệu lấy từ đâu', () =>
    * ngược "bạn muốn hỏi biểu đồ nào" ở đây là bắt người ta chọn giữa ba câu
    * trả lời không khác một chữ.
    */
+  /*
+   * ⚠️ Ca canh một câu ĐÚNG mà đọc ra NGHĨA KHÁC — xem `luuY` trong
+   * `duKienNguonBaoCao`.
+   *
+   * Dựng lại đúng màn hình đã sinh ra lỗi: báo cáo tên "doanh thu theo name",
+   * trên khung có hai ô "doanh thu theo Name" và "Sale price theo Name". Chọn ô
+   * thứ hai rồi hỏi nguồn, câu trả lời mở đầu bằng tên gần hệt tên ô KIA — nên
+   * nó phải tự nói ra là nó đúng cho cả khung, không riêng ô nào.
+   */
+  it('nói rõ nguồn đúng cho MỌI ô, vì tên báo cáo trùng được với tên một ô', () => {
+    const goc = duKienNguonBaoCao(baoCao({ name: 'doanh thu theo name' }));
+    const o: Nguon = { ...nguonBieuDo(), ten: 'Sale price theo Name', duKien: goc };
+
+    const lc = luaChonTrang([o], o, 'lấy từ đâu ra đó').find((x) =>
+      x.nhan.startsWith('Nguồn số liệu của báo cáo'),
+    );
+
+    expect(lc?.chay().cau).toMatch(/Mọi biểu đồ trong báo cáo này đều lấy số từ đó\.$/);
+  });
+
   it('ba ô cùng đáp án thì KHÔNG hỏi ngược muốn hỏi biểu đồ nào', () => {
     const goc = duKienNguonBaoCao(baoCao());
     const o = (ten: string): Nguon => ({ ...nguonBieuDo(), ten, duKien: goc });
     const ds = [o('Ô một'), o('Ô hai'), o('Ô ba')];
 
     expect(nguonMoHo(ds, 'nguồn số liệu của báo cáo Doanh thu 2026')).toBeNull();
+  });
+});
+
+/*
+ * ═══ Hỏi về một GIÁ TRỊ CHUỖI, không phải một nhãn trục ════════════════════
+ *
+ * Trên biểu đồ cột chồng "Số lượng theo Khu vực" tách màu theo "Nhóm hàng",
+ * câu "Gia dụng bao nhiêu" không khớp nhãn trục nào — nên trước bản này nó rơi
+ * thẳng xuống "chưa hiểu", trong khi "Gia dụng" đang là một mảng màu mà người
+ * dùng đang chỉ vào.
+ *
+ * Hai chốt được canh riêng:
+ *
+ *   1. Phải cộng qua MỌI nhãn trục, không trả về một Ô. Một ô Gia dụng là 100;
+ *      câu hỏi về cả mảng màu thì phải là 302. Trả về 100 là đúng số, sai thứ
+ *      được hỏi — và 100 cũng là một con số có thật trên biểu đồ.
+ *   2. Nhãn trục xét TRƯỚC tên chuỗi. Đó là hành vi đã có từ trước, và đổi thứ
+ *      tự là lặng lẽ đổi câu trả lời của những câu đang đúng.
+ */
+describe('Giá trị của một CHUỖI trên biểu đồ hai chiều', () => {
+  const haiChieu = (): Nguon => ({
+    ten: 'Số lượng theo Khu vực',
+    duKien: [],
+    bang: {
+      rows: [
+        { label: 'Miền Bắc', series: 'Gia dụng', value: 100 },
+        { label: 'Miền Bắc', series: 'Điện tử', value: 80 },
+        { label: 'Miền Nam', series: 'Gia dụng', value: 102 },
+        { label: 'Miền Nam', series: 'Điện tử', value: 95 },
+        { label: 'Miền Trung', series: 'Gia dụng', value: 100 },
+        // Chuỗi chỉ có MỘT dòng — để canh vế "cộng qua N" không bật vô cớ.
+        { label: 'Miền Bắc', series: 'Sách', value: 7 },
+      ],
+      dimensionLabel: 'Khu vực',
+      measureLabel: 'Số lượng',
+      seriesLabel: 'Nhóm hàng',
+      grouped: false,
+    },
+  });
+
+  it('cộng qua MỌI nhãn trục, không trả về một ô', () => {
+    const kq = traLoi(haiChieu(), 'Gia dụng bao nhiêu');
+
+    expect(kq?.cau).toContain('302');
+    expect(kq?.cau).toContain('cộng qua 3 Khu vực');
+    // 100 là một ô Gia dụng có thật — đúng cái con số không được trả về.
+    expect(kq?.so).toEqual(['302']);
+  });
+
+  it('cộng qua đúng số nhãn mà chuỗi đó có mặt, không phải tổng số nhãn', () => {
+    const kq = traLoi(haiChieu(), 'Điện tử bao nhiêu');
+
+    expect(kq?.cau).toContain('175');
+    expect(kq?.cau).toContain('cộng qua 2 Khu vực');
+  });
+
+  /*
+   * Một chuỗi chỉ xuất hiện ở một nhãn thì "cộng qua 1 Khu vực" là một vế
+   * không mang thông tin nào — nó chỉ làm câu trả lời dài ra và nghe như vừa
+   * có một phép tính xảy ra.
+   */
+  it('chuỗi chỉ có MỘT dòng thì KHÔNG nói "cộng qua"', () => {
+    const kq = traLoi(haiChieu(), 'Sách bao nhiêu');
+
+    expect(kq?.cau).toContain('7');
+    expect(kq?.cau).not.toContain('cộng qua');
+  });
+
+  it('nhãn trục xét TRƯỚC tên chuỗi', () => {
+    const kq = traLoi(haiChieu(), 'Miền Nam bao nhiêu');
+
+    // 197 = tổng của Miền Nam, không phải tổng của một nhóm hàng nào.
+    expect(kq?.cau).toContain('Miền Nam');
+    expect(kq?.cau).toContain('197');
+  });
+
+  it('không gọi tên nhãn lẫn chuỗi nào thì vẫn CHƯA HIỂU', () => {
+    expect(traLoi(haiChieu(), 'thời tiết bao nhiêu')).toBeNull();
+  });
+});
+
+/*
+ * ⚠️ Tên chuỗi DÀI NHẤT thắng — cùng luật, cùng lý do với `timDong`.
+ *
+ * "Gia dụng" và "Gia dụng cao cấp" cùng nằm trong câu hỏi về cái thứ hai. Lấy
+ * cái ngắn là trả lời về một mảng màu KHÁC, bằng một con số có thật trên đúng
+ * biểu đồ đó — nên không có một dấu hiệu nào cho thấy đã nhầm.
+ */
+describe('Tên chuỗi lồng nhau', () => {
+  const long: Nguon = {
+    ten: 'Số lượng theo Khu vực',
+    duKien: [],
+    bang: {
+      rows: [
+        { label: 'Miền Bắc', series: 'Gia dụng', value: 100 },
+        { label: 'Miền Nam', series: 'Gia dụng', value: 100 },
+        { label: 'Miền Bắc', series: 'Gia dụng cao cấp', value: 11 },
+      ],
+      dimensionLabel: 'Khu vực',
+      measureLabel: 'Số lượng',
+      seriesLabel: 'Nhóm hàng',
+      grouped: false,
+    },
+  };
+
+  it('hỏi tên dài thì KHÔNG trả lời bằng nhóm tên ngắn', () => {
+    const kq = traLoi(long, 'Gia dụng cao cấp bao nhiêu');
+
+    expect(kq?.cau).toContain('11');
+    expect(kq?.so).toEqual(['11']);
+  });
+
+  it('hỏi tên ngắn vẫn ra đúng nhóm tên ngắn', () => {
+    expect(traLoi(long, 'Gia dụng bao nhiêu')?.so).toEqual(['200']);
   });
 });

@@ -66,16 +66,6 @@ export async function findBySlug(tenantId: number, slug: string): Promise<Worksp
   return row ? toWorkspace(row) : null;
 }
 
-export async function listByTenant(tenantId: number): Promise<Workspace[]> {
-  const [rows] = await mysqlPool.query<WorkspaceRow[]>(
-    `SELECT ${SELECT_COLUMNS} FROM workspaces
-      WHERE tenant_id = ? AND deleted_at IS NULL
-      ORDER BY name ASC`,
-    [tenantId],
-  );
-  return rows.map(toWorkspace);
-}
-
 export interface CreateWorkspaceInput {
   name: string;
   slug: string;
@@ -93,12 +83,4 @@ export async function createWorkspace(
     [tenantId, input.name, input.slug, input.description ?? null, input.createdBy ?? null],
   );
   return result.insertId;
-}
-
-export async function countByTenant(tenantId: number): Promise<number> {
-  const [rows] = await mysqlPool.query<RowDataPacket[]>(
-    'SELECT COUNT(*) AS total FROM workspaces WHERE tenant_id = ? AND deleted_at IS NULL',
-    [tenantId],
-  );
-  return Number(rows[0]?.['total'] ?? 0);
 }

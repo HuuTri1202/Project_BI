@@ -1,6 +1,15 @@
-import { FILTER_OPERATORS, type ExplorerQueryDto, type FilterOperator } from '@bi/shared';
+import {
+  FILTER_OPERATORS,
+  MEASURE_AGGS,
+  TIME_GRANULARITIES,
+  type ExplorerQueryDto,
+  type FilterOperator,
+  type MeasureAgg,
+  type TimeGranularity,
+} from '@bi/shared';
 
 import { coCauHinhLlm, goiMoHinh } from './dienDat';
+import { CUM_CO_DINH, giaiCum } from './khoangThoiGian';
 
 /**
  * Để mô hình ĐIỀN MỘT CÁI FORM truy vấn — không để nó viết truy vấn.
@@ -48,6 +57,24 @@ export interface TruongChon {
   id: number;
   nhan: string;
   loai: 'chieu' | 'thuoc do';
+  /**
+   * Chiều này gom theo thời gian được không — chỉ có nghĩa với `loai: 'chieu'`.
+   *
+   * Cần thiết vì `timeDimension` gom một cột theo tháng/quý/năm, và Cube ném
+   * lỗi khi cột đó là chuỗi. Không có trường này thì mô hình gom "Tên sản phẩm"
+   * theo tháng được, và người dùng nhận một lỗi 500 thay vì "chưa hiểu".
+   */
+  thoiGian?: boolean;
+  /**
+   * MỌI phép gộp thước đo này nhận — chỉ có nghĩa với `loai: 'thuoc do'`.
+   *
+   * Gồm cả phép ĐANG KHAI lẫn các phép đổi được (`availableAggs`), vì đó đúng
+   * là tập mà `buildQuery` chấp nhận. Nó ném `HttpError 400` cho một phép ngoài
+   * tập — cố ý, để không ai lặng lẽ nhận số tính bằng phép khác. Nhưng ở đường
+   * hỏi đáp thì một 400 là câu trả lời tệ hơn "chưa hiểu", nên `kiemForm` chặn
+   * trước, và nó chỉ chặn được khi biết tập này.
+   */
+  phepGop?: readonly MeasureAgg[];
 }
 
 export interface DatCauHoiInput {
@@ -72,6 +99,13 @@ export interface DatCauHoiInput {
    * đã có `datamodel:read`, tức đã gọi thẳng `/query` với bất kỳ form nào.
    */
   boiCanh?: { cauHoi: string; truyVan: ExplorerQueryDto } | undefined;
+  /**
+   * "Bây giờ" theo đó mà giải cụm thời gian. Vắng mặt = `new Date()`.
+   *
+   * Có mặt CHỈ để test chốt được mốc. Một hàm ngày tháng tự đọc `Date.now()`
+   * thì không kiểm được, và nó sẽ đỏ đúng vào ngày cuối tháng.
+   */
+  moc?: Date | undefined;
 }
 
 export interface DatCauHoiKetQua {
@@ -79,6 +113,8 @@ export interface DatCauHoiKetQua {
   truyVan: ExplorerQueryDto | null;
   /** Mô hình có THẬT SỰ được hỏi không — xem `HieuYKetQua.daHoi`. */
   daHoi: boolean;
+  /** Vì sao bỏ form, nếu đó là một lý do nói ra được — xem `LyDoBoForm`. */
+  lyDo: LyDoBoForm | null;
 }
 
 /**
@@ -91,13 +127,25 @@ export interface DatCauHoiKetQua {
 export const TRAN_TRUONG = 120;
 
 /**
+ * Trần `limit` mà một câu hỏi trò chuyện được phép đặt.
+ *
+ * Thấp hơn hẳn trần 5000 của `explorerQueryBodySchema`, và vì một lý do khác
+ * hẳn: ở đây `limit` chỉ sinh ra từ chữ "top N" trong một câu nói, mà "top
+ * 501" thì không phải là một câu nói. `docKetQua` cũng chỉ đọc ra 15 dòng.
+ */
+const TRAN_LIMIT = 500;
+
+/**
  * Bỏ dấu + hạ chữ thường, để so câu hỏi với giá trị lọc.
  *
  * ⚠️ `đ`/`Đ` phải thay TAY — chúng là ký tự Latin riêng (U+0111/U+0110) nên
  * `NFD` không tách được gì. Cùng cái bẫy đã ghi ở `services/dataset/storageKey.ts`
  * và ở `features/chat/traLoi.ts` bên frontend.
+ *
+ * Xuất ra để `hoiTrenMoHinh` đọc hướng sắp bằng ĐÚNG phép chuẩn hoá này — hai
+ * bản chuẩn hoá hơi khác nhau trong cùng một đường là một lớp lỗi vô hình.
  */
-function chuanHoa(raw: string): string {
+export function chuanHoa(raw: string): string {
   return raw
     .normalize('NFD')
     .replace(/[̀-ͯ]/g, '')
@@ -179,7 +227,108 @@ function loiNguoiDung(input: DatCauHoiInput): string {
   return input.boiCanh === undefined ? input.cauHoi : `${input.boiCanh.cauHoi} ${input.cauHoi}`;
 }
 
-export function kiemForm(tho: unknown, input: DatCauHoiInput): ExplorerQueryDto | null {
+/**
+ * Giá trị này đã nằm trong form ĐÃ ĐƯỢC KIỂM của lượt trước chưa.
+ *
+ * ═══ Vì sao cần một cửa thứ hai bên cạnh `giuNguyenLoi` ═══════════════════
+ *
+ * Vì `khoangThoiGian` sinh ra `2026-10-01`, và chuỗi đó không bao giờ có
+ * trong lời người dùng. Lượt sau ("còn Miền Nam thì sao") mô hình giữ lại cả
+ * form cũ — đúng như nó được dạy — nên nó chép lại cái ngày ấy, rồi
+ * `giuNguyenLoi` bác, rồi CẢ FORM bị bỏ. Hậu quả: mọi câu hỏi tiếp sau một
+ * câu có mốc thời gian đều thành "chưa hiểu".
+ *
+ * Luật không bị nới, nó được nói chính xác hơn: giá trị phải là chữ của
+ * NGƯỜI DÙNG, hoặc là chữ CHÍNH HỆ NÀY đã dựng và đã kiểm ở lượt trước. Thứ
+ * duy nhất vẫn bị chặn — và là thứ luật này sinh ra để chặn — là một chuỗi
+ * mô hình tự nghĩ ra.
+ *
+ * ⚠️ `boiCanh` đi từ client lên, nên nó không được tin vì "backend từng dựng
+ * ra nó": nó đã qua `explorerQueryBodySchema` như mọi thân request khác, và
+ * mọi `dimensionId` trong đó vẫn bị kiểm lại ở vòng trên. Cái được thừa
+ * hưởng chỉ là mấy GIÁ TRỊ — và ai gọi được đường này thì đã có
+ * `datamodel:read`, tức đã gọi thẳng `/query` với bất kỳ bộ lọc nào.
+ */
+function daTinCay(input: DatCauHoiInput, values: readonly string[]): boolean {
+  const cu = new Set((input.boiCanh?.truyVan.filters ?? []).flatMap((f) => f.values));
+  return values.every((v) => cu.has(v));
+}
+
+/**
+ * Vì sao form bị bỏ — chỉ những lý do NGƯỜI DÙNG LÀM ĐƯỢC GÌ ĐÓ.
+ *
+ * ═══ Vì sao không phải cả 31 lý do ════════════════════════════════════════
+ *
+ * `kiemForm` có hơn ba mươi chỗ `return null`, và người dùng thấy đúng một câu
+ * "Tôi chưa hiểu câu này" cho cả ba mươi. Phần lớn số đó là "mô hình trả về
+ * rác" — nói ra cũng không ai làm gì được, và nó còn phơi ruột của một lớp mà
+ * người dùng không cần biết có tồn tại.
+ *
+ * Ba lý do dưới đây thì khác: mỗi cái ứng với một việc làm được. Nói ra là
+ * biến một đường cụt vô hình thành một bước tiếp theo; im lặng là đẩy người ta
+ * vào vòng gõ lại bằng cách khác, mà cách nào cũng trượt vì thứ chặn không nằm
+ * ở câu chữ.
+ *
+ * ⚠️ Enum ĐÓNG, và câu chữ do CODE viết (xem `LY_DO_NOI`). Mô hình không góp
+ * một ký tự nào vào câu hiện lên màn hình — cùng luật với mọi lớp khác ở đây.
+ */
+export type LyDoBoForm =
+  /** Giá trị lọc không phải lời người dùng, và cũng không phải của lượt trước. */
+  | 'gia-tri-la'
+  /** Thước đo không nhận phép gộp mà câu hỏi đòi. */
+  | 'phep-gop-la'
+  /** Câu hỏi có mốc thời gian, mô hình dữ liệu không có cột ngày nào dùng được. */
+  | 'thieu-cot-ngay';
+
+/** Câu nói cho người dùng — một chỗ duy nhất, để không ai viết lại mỗi nơi một kiểu. */
+export const LY_DO_NOI: Record<LyDoBoForm, string> = {
+  'gia-tri-la':
+    'Tôi không chắc giá trị bạn nói được ghi thế nào trong dữ liệu, nên tôi không ' +
+    'dám lọc theo nó — lọc sai thì truy vấn trả về rỗng và tôi sẽ nói "không có ' +
+    'dòng nào" một cách rất chắc chắn. Thử gõ đúng chữ như nó hiện trong bảng.',
+  'phep-gop-la':
+    'Thước đo này không nhận phép tính đó. Mở tab Thước đo của mô hình để xem nó ' +
+    'nhận phép nào, hoặc tạo một thước đo mới với phép bạn cần.',
+  'thieu-cot-ngay':
+    'Câu hỏi có mốc thời gian, nhưng mô hình này chưa có cột ngày nào dùng được. ' +
+    'Mở tab Schemas và đặt kiểu ngày cho cột thời gian của bảng, rồi hỏi lại.',
+};
+
+/**
+ * `kiemForm` kèm lý do — xem `LyDoBoForm`.
+ *
+ * Tồn tại như một hàm riêng để `kiemForm` giữ nguyên chữ ký: nó được gọi ở hơn
+ * ba mươi chỗ trong test, và đổi chữ ký của nó chỉ để lấy một chuỗi là sửa ba
+ * mươi chỗ cho một thứ hai mươi bảy chỗ không dùng.
+ */
+export function kiemFormCoLyDo(
+  tho: unknown,
+  input: DatCauHoiInput,
+): { truyVan: ExplorerQueryDto | null; lyDo: LyDoBoForm | null } {
+  let lyDo: LyDoBoForm | null = null;
+  /*
+   * `ghi` LUÔN trả `null`, và mọi chỗ gọi nó đều `return ghi(...)`. Nên không
+   * có đường nào vừa ghi được lý do vừa dựng xong truy vấn — "form sống" và
+   * "có lý do" loại trừ nhau theo cấu trúc, không cần một chốt kiểm lại.
+   *
+   * Bản đầu có chốt `truyVan === null ? lyDo : null`. Vòng đột biến cho thấy
+   * nó SỐNG: xoá chốt đi không bài nào đỏ, vì không ca nào tới được nhánh đó.
+   * Một chốt không thể sai là một chốt không nên tồn tại — nó mời người đọc
+   * sau đi tìm tình huống nó đang chặn.
+   */
+  const truyVan = kiemForm(tho, input, (l) => {
+    lyDo = l;
+    return null;
+  });
+  return { truyVan, lyDo };
+}
+
+export function kiemForm(
+  tho: unknown,
+  input: DatCauHoiInput,
+  /** Ghi lại lý do bỏ form. Mặc định không ghi gì — xem `kiemFormCoLyDo`. */
+  ghi: (ly: LyDoBoForm) => null = () => null,
+): ExplorerQueryDto | null {
   if (typeof tho !== 'object' || tho === null) return null;
   const o = tho as Record<string, unknown>;
 
@@ -207,10 +356,11 @@ export function kiemForm(tho: unknown, input: DatCauHoiInput): ExplorerQueryDto 
 
   const truyVan: ExplorerQueryDto = { dimensionIds, measureIds };
 
+  const ra: { dimensionId: number; operator: FilterOperator; values: string[] }[] = [];
+
   const loc = o.filters;
   if (loc !== undefined && loc !== null) {
     if (!Array.isArray(loc)) return null;
-    const ra: { dimensionId: number; operator: FilterOperator; values: string[] }[] = [];
 
     for (const x of loc) {
       if (typeof x !== 'object' || x === null) return null;
@@ -237,14 +387,135 @@ export function kiemForm(tho: unknown, input: DatCauHoiInput): ExplorerQueryDto 
       const khongCanGiaTri = operator === 'set' || operator === 'notSet';
       if (khongCanGiaTri ? values.length > 0 : values.length === 0) return null;
 
-      // ⚠️ Luật canh gác: giá trị phải là lời của chính người dùng.
-      if (!giuNguyenLoi(loiNguoiDung(input), values)) return null;
+      // ⚠️ Luật canh gác: giá trị phải là lời của chính người dùng — hoặc là
+      //    thứ CHÍNH HỆ NÀY đã dựng ra ở lượt trước. Xem `daTinCay`.
+      if (!giuNguyenLoi(loiNguoiDung(input), values) && !daTinCay(input, values)) {
+        return ghi('gia-tri-la');
+      }
 
       ra.push({ dimensionId: id, operator, values });
     }
+  }
 
-    if (ra.length > 10) return null;
-    if (ra.length > 0) truyVan.filters = ra;
+  /*
+   * ─── `khoangThoiGian` — "doanh thu THÁNG NÀY" ────────────────────────────
+   *
+   * Mô hình chọn MỘT cụm trong danh sách đóng; CODE giải nó thành hai mốc
+   * ngày. Xem `khoangThoiGian.ts` cho lý do vì sao chia việc đúng chỗ đó.
+   *
+   * ⚠️ Hai bộ lọc sinh ra ở đây KHÔNG đi qua `giuNguyenLoi`, và đó là chỗ
+   * nguy hiểm nhất của cả hàm — nên nói thẳng vì sao nó vẫn đúng: luật ấy
+   * tồn tại để chặn CHUỖI DO MÔ HÌNH BỊA. `2026-10-01` dưới đây không do mô
+   * hình viết; nó là kết quả của `giaiCum`, một hàm thuần chạy trên một danh
+   * sách đóng. Mô hình không viết nổi một ngày nào vào truy vấn, kể cả khi nó
+   * muốn — nó chỉ chọn được tên cụm.
+   *
+   * Đừng nới chỗ này thành "nhận luôn ngày mô hình viết cho nhanh". Một ngày
+   * lệch một tháng vẫn chạy ra số thật, cho một khoảng không ai hỏi.
+   */
+  const ktg = o.khoangThoiGian;
+  if (ktg !== undefined && ktg !== null) {
+    if (typeof ktg !== 'object') return null;
+    const k = ktg as Record<string, unknown>;
+
+    const id = soNguyenDuong(k.dimensionId);
+    if (id === null || !chieuHopLe.has(id)) return null;
+    if (input.truong.find((x) => x.id === id && x.loai === 'chieu')?.thoiGian !== true) {
+      return ghi('thieu-cot-ngay');
+    }
+
+    if (typeof k.cum !== 'string') return null;
+    const khoang = giaiCum(k.cum, input.moc ?? new Date());
+    if (khoang === null) return null;
+
+    ra.push({ dimensionId: id, operator: 'gte', values: [khoang.tu] });
+    ra.push({ dimensionId: id, operator: 'lt', values: [khoang.truocKhi] });
+  }
+
+  if (ra.length > 10) return null;
+  if (ra.length > 0) truyVan.filters = ra;
+
+  /*
+   * ─── `limit` — "top 5" là một phép của TRUY VẤN ──────────────────────────
+   *
+   * Không có nó thì truy vấn lấy 500 dòng rồi `docKetQua` in ra 15. Với một
+   * câu hỏi xuôi chiều thì vô hại; với "5 sản phẩm BÁN CHẬM nhất" thì không,
+   * vì lát cắt và hướng sắp quyết định cùng nhau xem TẬP nào được lấy về.
+   */
+  const tran = o.limit;
+  if (tran !== undefined && tran !== null) {
+    const n = soNguyenDuong(tran);
+    if (n === null || n > TRAN_LIMIT) return null;
+    truyVan.limit = n;
+  }
+
+  /*
+   * ─── `measureAggs` — đánh rơi là trả lời bằng một PHÉP TÍNH khác ─────────
+   *
+   * Đây là ô nguy hiểm nhất trong ba ô thêm ở đây. "Doanh thu TRUNG BÌNH mỗi
+   * đơn" mà rơi mất phép gộp thì câu trả lời là TỔNG doanh thu — một con số
+   * thật, định dạng đẹp, mang đúng cái nhãn "Doanh thu", trả lời một câu hỏi
+   * khác. `buildQuery` có gắn tên phép vào nhãn cột khi phép bị đổi, nên khi ô
+   * này được tôn trọng thì màn hình nói ra; khi nó bị rơi thì không có gì nói.
+   *
+   * Lọc theo `phepGop` chứ không chỉ theo `MEASURE_AGGS`: một phép hợp lệ về
+   * từ vựng nhưng cột không nhận sẽ làm `buildQuery` ném 400.
+   */
+  const gop = o.measureAggs;
+  if (gop !== undefined && gop !== null) {
+    if (!Array.isArray(gop)) return null;
+    const nhan = new Map(
+      input.truong.filter((t) => t.loai === 'thuoc do').map((t) => [t.id, t.phepGop ?? []]),
+    );
+    const ra: { id: number; agg: MeasureAgg }[] = [];
+
+    for (const x of gop) {
+      if (typeof x !== 'object' || x === null) return null;
+      const g = x as Record<string, unknown>;
+
+      const id = soNguyenDuong(g.id);
+      if (id === null || !doHopLe.has(id)) return null;
+
+      const phep = g.agg;
+      if (typeof phep !== 'string' || !(MEASURE_AGGS as readonly string[]).includes(phep)) {
+        return null;
+      }
+      if (!(nhan.get(id) ?? []).includes(phep as MeasureAgg)) return ghi('phep-gop-la');
+
+      ra.push({ id, agg: phep as MeasureAgg });
+    }
+
+    if (ra.length > 20) return null;
+    if (ra.length > 0) truyVan.measureAggs = ra;
+  }
+
+  /*
+   * ─── `timeDimension` — "doanh thu THEO THÁNG" ────────────────────────────
+   *
+   * Không có ô này thì mọi câu hỏi theo thời gian đều nằm ngoài không gian trả
+   * lời, trừ khi mô hình tình cờ có sẵn một cột "Tháng" riêng.
+   *
+   * ⚠️ `thoiGian` là chốt bắt buộc, không phải trang trí: Cube ném lỗi khi gom
+   * một cột chuỗi theo tháng, và một lỗi hạ tầng là câu trả lời tệ hơn hẳn
+   * "chưa hiểu".
+   */
+  const tg = o.timeDimension;
+  if (tg !== undefined && tg !== null) {
+    if (typeof tg !== 'object') return null;
+    const t = tg as Record<string, unknown>;
+
+    const id = soNguyenDuong(t.dimensionId);
+    if (id === null || !chieuHopLe.has(id)) return null;
+    if (input.truong.find((x) => x.id === id && x.loai === 'chieu')?.thoiGian !== true) {
+      return ghi('thieu-cot-ngay');
+    }
+
+    const muc = t.granularity;
+    if (typeof muc !== 'string' || !(TIME_GRANULARITIES as readonly string[]).includes(muc)) {
+      return null;
+    }
+
+    truyVan.timeDimension = { dimensionId: id, granularity: muc as TimeGranularity };
   }
 
   return truyVan;
@@ -276,6 +547,18 @@ const NHAC = [
   '"filters":[{"dimensionId":id,"operator":"equals","values":["giá trị"]}]}',
   'Toán tử hợp lệ: equals, notEquals, contains, notContains, gt, gte, lt, lte, set, notSet.',
   'set và notSet không có values; các toán tử khác phải có ít nhất một values.',
+  'Ba ô KHÔNG bắt buộc, chỉ điền khi câu hỏi thật sự nói tới:',
+  '"limit":N khi người dùng xin "top N" hoặc "N cái ... nhất".',
+  '"timeDimension":{"dimensionId":id,"granularity":"day|week|month|quarter|year"} khi họ hỏi',
+  'theo ngày/tuần/tháng/quý/năm — id PHẢI là một chiều được ghi "gom theo thời gian được".',
+  '"measureAggs":[{"id":id,"agg":"avg"}] khi họ đổi phép tính của thước đo (trung bình, nhỏ',
+  'nhất, lớn nhất, đếm) — agg PHẢI nằm trong danh sách "phép gộp" của chính thước đo đó.',
+  '"khoangThoiGian":{"dimensionId":id,"cum":"thang-nay"} khi câu hỏi có mốc thời gian.',
+  `cum CHỈ nhận một trong: ${CUM_CO_DINH.join(', ')}, thang-1..thang-12,`,
+  'quy-1..quy-4, nam-2000..nam-2100. TUYỆT ĐỐI không tự viết ngày tháng vào values —',
+  'hệ thống tự đổi cum thành ngày. dimensionId phải là chiều "gom theo thời gian được".',
+  'thang-3 nghĩa là tháng 3 của năm nay; muốn năm khác thì dùng nam-YYYY.',
+  'TUYỆT ĐỐI không điền hướng sắp xếp: hệ thống tự đọc "cao nhất"/"thấp nhất" từ câu hỏi.',
   'CHỈ dùng id có trong danh sách. Tuyệt đối không bịa id.',
   'values PHẢI là chữ lấy nguyên từ câu hỏi của người dùng — không dịch, không viết tắt,',
   'không đổi cách viết. Không chắc giá trị viết thế nào trong dữ liệu thì bỏ filter đó đi.',
@@ -293,10 +576,28 @@ const NHAC = [
  */
 export async function datCauHoi(input: DatCauHoiInput): Promise<DatCauHoiKetQua> {
   const truong = input.truong.slice(0, TRAN_TRUONG);
-  if (!coCauHinhLlm() || truong.length === 0) return { truyVan: null, daHoi: false };
+  if (!coCauHinhLlm() || truong.length === 0) return { truyVan: null, daHoi: false, lyDo: null };
 
+  /*
+   * Mỗi dòng nói thêm ĐÚNG thứ cần để điền hai ô mới, và chỉ khi có thứ đó.
+   *
+   * Không ghi "gom theo thời gian được" thì mô hình không có cách nào biết
+   * chiều nào là ngày tháng — tên cột tiếng Anh viết tắt thì nó đoán, và
+   * `kiemForm` sẽ bỏ cả form, tức câu hỏi theo tháng không bao giờ chạy.
+   */
   const danhSach = truong
-    .map((t) => `${String(t.id)} = ${t.nhan} (${t.loai === 'chieu' ? 'chiều' : 'thước đo'})`)
+    .map((t) => {
+      const loai = t.loai === 'chieu' ? 'chiều' : 'thước đo';
+      const them =
+        t.loai === 'chieu'
+          ? t.thoiGian === true
+            ? ', gom theo thời gian được'
+            : ''
+          : (t.phepGop ?? []).length > 1
+            ? `, phép gộp: ${(t.phepGop ?? []).join('/')}`
+            : '';
+      return `${String(t.id)} = ${t.nhan} (${loai}${them})`;
+    })
     .join('\n');
 
   const { noiDung, daGoi } = await goiMoHinh(
@@ -333,6 +634,6 @@ ${danhSach}`,
     2000,
   );
 
-  if (noiDung === null) return { truyVan: null, daHoi: daGoi };
-  return { truyVan: kiemForm(docJson(noiDung), { ...input, truong }), daHoi: daGoi };
+  if (noiDung === null) return { truyVan: null, daHoi: daGoi, lyDo: null };
+  return { ...kiemFormCoLyDo(docJson(noiDung), { ...input, truong }), daHoi: daGoi };
 }

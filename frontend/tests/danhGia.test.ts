@@ -18,7 +18,24 @@ import {
   duKienThuMuc,
   tongTheoThuMuc,
   tomTatThuMuc,
+  duKienBangGia,
+  duKienDanhSachBaoCao,
+  duKienDanhSachNguoiDung,
+  duKienDanhSachToChuc,
+  duKienDonHang,
+  duKienHoSo,
   duKienKetNoi,
+  duKienMotDonHang,
+  duKienMotKetNoi,
+  duKienMuaGoi,
+  duKienPhuongThucThanhToan,
+  duKienTongQuanHeThong,
+  duKienWorkspace,
+  duKienWorkspaceHeThong,
+  duKienMoHinh,
+  duKienThanhToan,
+  duKienThanhVien,
+  duKienToChuc,
   duKienKhoDuLieu,
   duKienTrangChu,
   tomTatBoDuLieu,
@@ -486,9 +503,309 @@ const TRANG = {
     heThong: HE_THONG,
   },
   // Một trang KHÔNG dính gì tới dữ liệu — để đo nhóm câu hỏi xuyên hệ thống.
+  /*
+   * Trang chi tiết một mô hình — để đo nhóm câu về QUAN HỆ giữa các bảng, thứ
+   * tab Quan hệ vẽ rõ trên màn hình mà khung từng chỉ biết đếm.
+   */
+  moHinh: {
+    ten: 'Mô hình dữ liệu (có quan hệ)',
+    nguon: duKienMoHinh({
+      id: 1,
+      name: 'Bán hàng',
+      datasets: [],
+      measures: [],
+      creatorName: 'Mai',
+      relationships: [
+        {
+          id: 1,
+          kind: 'one_to_many',
+          createdAt: '2026-01-01T00:00:00.000Z',
+          left: { datasetRef: 1, datasetName: 'Orders', columnId: 1, columnName: 'customer_id' },
+          right: { datasetRef: 2, datasetName: 'Customers', columnId: 2, columnName: 'id' },
+        },
+      ],
+    } as unknown as Parameters<typeof duKienMoHinh>[0]),
+    chon: 0,
+    heThong: HE_THONG,
+  },
   hoSo: {
     ten: 'Hồ sơ cá nhân',
     nguon: [{ ten: 'Hồ sơ của tôi', duKien: [{ nhan: 'Email của tôi', gia: 'a@b.vn' }] }],
+    chon: 0,
+    heThong: HE_THONG,
+  },
+} satisfies Record<string, NguCanhThu>;
+
+/* ═══ Năm trang CHƯA TỪNG được đo ═══════════════════════════════════════════
+ *
+ * Bộ này phủ 7 trang; khung thì có builder cho 30. Mười lăm trang còn lại chưa
+ * có một ca nào, nên "trang nào cũng trả lời chính xác" ở đó là một lời khẳng
+ * định chứ không phải một con số. Năm trang dưới đây là năm trang người dùng
+ * mở nhiều nhất trong số ấy.
+ */
+
+const BAO_CAO = [
+  {
+    id: 1,
+    name: 'Doanh thu 2026',
+    source: 'datamodel',
+    sourceName: 'Bán hàng',
+    chartType: 'bar',
+    canvas: null,
+    folderName: null,
+    creatorName: 'Mai',
+    updatedAt: '2026-03-02T03:00:00.000Z',
+  },
+  {
+    id: 2,
+    name: 'Tồn kho',
+    source: 'dataset',
+    sourceName: 'Kho Q1',
+    chartType: 'line',
+    canvas: { pages: [{ id: 'p1', name: 'Trang 1', visuals: [{ id: 'v1' }, { id: 'v2' }] }] },
+    folderName: 'Vận hành',
+    creatorName: 'Hùng',
+    updatedAt: '2026-03-05T03:00:00.000Z',
+  },
+] as unknown as Parameters<typeof duKienDanhSachBaoCao>[0];
+
+const THANH_VIEN = [
+  {
+    id: 1,
+    fullName: 'Trần Thu Hà',
+    email: 'ha@congty.vn',
+    role: 'admin',
+    jobTitle: 'Trưởng phòng dữ liệu',
+    joinedAt: '2025-11-01T03:00:00.000Z',
+    lastLoginAt: '2026-03-10T03:00:00.000Z',
+    removedAt: null,
+    memberActive: true,
+    userActive: true,
+  },
+  {
+    id: 2,
+    fullName: 'Lê Minh',
+    email: 'minh@congty.vn',
+    role: 'viewer',
+    jobTitle: null,
+    joinedAt: '2026-01-15T03:00:00.000Z',
+    lastLoginAt: null,
+    removedAt: null,
+    memberActive: false,
+    userActive: true,
+  },
+] as unknown as Parameters<typeof duKienThanhVien>[0];
+
+const THANH_TOAN = {
+  plan: { id: 2, name: 'Pro', priceVnd: 2_000_000, durationDays: 30 },
+  subscription: { status: 'active', periodEnd: '2026-04-01T03:00:00.000Z' },
+  usage: {
+    workspaces: { used: 3, limit: 10 },
+    reports: { used: 12, limit: 50 },
+    members: { used: 4, limit: null },
+    storageBytes: { used: 1_048_576, limit: 10_737_418_240 },
+  },
+} as unknown as Parameters<typeof duKienThanhToan>[0];
+
+const TRANG_THEM = {
+  dsBaoCao: {
+    ten: 'Báo cáo (danh sách)',
+    nguon: duKienDanhSachBaoCao(BAO_CAO, 7),
+    chon: 0,
+    heThong: HE_THONG,
+  },
+  thanhVien: {
+    ten: 'Thành viên',
+    nguon: duKienThanhVien(THANH_VIEN, 2),
+    chon: 0,
+    heThong: HE_THONG,
+  },
+  ketNoi: {
+    ten: 'Kết nối',
+    nguon: duKienKetNoi(KET_NOI),
+    chon: 0,
+    heThong: HE_THONG,
+  },
+  thanhToan: {
+    ten: 'Thanh toán',
+    nguon: duKienThanhToan(THANH_TOAN),
+    chon: 0,
+    heThong: HE_THONG,
+  },
+  toChuc: {
+    ten: 'Tổ chức',
+    nguon: duKienToChuc({ name: 'Công ty ABC', slug: 'cong-ty-abc' }),
+    chon: 0,
+    heThong: HE_THONG,
+  },
+} satisfies Record<string, NguCanhThu>;
+
+/* ═══ Mười ba trang CÒN LẠI ═════════════════════════════════════════════════
+ *
+ * Đợt trước đo 5 trang và lần chạy ĐẦU TIÊN đỏ 2 câu SAI. Không có lý do gì để
+ * tin mấy trang chưa đo còn lại sạch hơn, nên đo nốt — kể cả khu /admin, nơi
+ * một câu trả lời sai đi tới người vận hành chứ không tới người dùng cuối.
+ *
+ * ⚠️ Bốn ca ở đây canh BẢO MẬT, không đo chất lượng: số tài khoản nhận tiền,
+ * thông tin đăng nhập CSDL, chuỗi QR. Chúng CỐ Ý không nằm trong bản khai, và
+ * một câu trả lời ở đó còn đi tiếp lên mô hình ngôn ngữ của hãng thứ ba qua
+ * lớp diễn đạt. Ca đỏ ở đây nghĩa là có người vừa khai thêm một thứ không
+ * được phép khai.
+ */
+
+const GOI = [
+  {
+    id: 2,
+    name: 'Pro',
+    priceVnd: 2_000_000,
+    durationDays: 30,
+    maxWorkspaces: 10,
+    maxReports: 50,
+    maxMembers: null,
+    maxStorageBytes: 10_737_418_240,
+    description: 'Gói cho đội nhỏ',
+  },
+] as unknown as Parameters<typeof duKienBangGia>[0];
+
+const DON = [
+  {
+    id: 9,
+    orderCode: 'DH2026030001',
+    planName: 'Pro',
+    amountVnd: 2_000_000,
+    status: 'pending',
+    paymentMethodName: 'Chuyển khoản SePay',
+    createdAt: '2026-03-01T03:00:00.000Z',
+    paidAt: null,
+  },
+] as unknown as Parameters<typeof duKienDonHang>[0];
+
+const PHUONG_THUC = [
+  { id: 1, name: 'Chuyển khoản SePay', provider: 'sepay', isActive: true, isConfigured: false },
+  { id: 2, name: 'Tiền mặt', provider: 'manual', isActive: false, isConfigured: true },
+] as unknown as Parameters<typeof duKienPhuongThucThanhToan>[0];
+
+const TONG_QUAN = {
+  activeTenants: 12,
+  lockedTenants: 2,
+  totalUsers: 87,
+  lockedUsers: 3,
+  totalWorkspaces: 41,
+  rangeDays: 30,
+} as unknown as Parameters<typeof duKienTongQuanHeThong>[0];
+
+const TO_CHUC_HT = [
+  {
+    id: 1,
+    name: 'Công ty ABC',
+    userCount: 14,
+    workspaceCount: 3,
+    isActive: true,
+    isPersonal: false,
+    createdAt: '2025-06-01T03:00:00.000Z',
+  },
+  {
+    id: 2,
+    name: 'Không gian của Hùng',
+    userCount: 1,
+    workspaceCount: 1,
+    isActive: false,
+    isPersonal: true,
+    createdAt: '2026-01-02T03:00:00.000Z',
+  },
+] as unknown as Parameters<typeof duKienDanhSachToChuc>[0];
+
+const NGUOI_DUNG_HT = [
+  {
+    id: 1,
+    fullName: 'Phạm Quốc Bảo',
+    email: 'bao@hethong.vn',
+    jobTitle: 'Vận hành',
+    platformRole: 'superadmin',
+    tenants: [
+      { id: 1, name: 'Công ty ABC' },
+      { id: 2, name: 'Kho tổng' },
+    ],
+    isActive: true,
+    lastLoginAt: '2026-03-09T03:00:00.000Z',
+  },
+] as unknown as Parameters<typeof duKienDanhSachNguoiDung>[0];
+
+const WS_HT = [
+  {
+    id: 5,
+    name: 'Phân tích',
+    tenantName: 'Công ty ABC',
+    reportCount: 18,
+    isActive: true,
+    description: 'Khu báo cáo của phòng phân tích',
+    createdAt: '2025-09-01T03:00:00.000Z',
+  },
+] as unknown as Parameters<typeof duKienWorkspaceHeThong>[0];
+
+const TRANG_NOT = {
+  bangGia: { ten: 'Bảng giá', nguon: duKienBangGia(GOI), chon: 0, heThong: HE_THONG },
+  donHang: { ten: 'Đơn hàng', nguon: duKienDonHang(DON, 4), chon: 0, heThong: HE_THONG },
+  muaGoi: {
+    ten: 'Mua gói',
+    nguon: duKienMuaGoi(GOI[0], 'yearly'),
+    chon: 0,
+    heThong: HE_THONG,
+  },
+  motDonHang: {
+    ten: 'Một đơn hàng',
+    nguon: duKienMotDonHang(DON[0]),
+    chon: 0,
+    heThong: HE_THONG,
+  },
+  motKetNoi: {
+    ten: 'Sửa một kết nối',
+    nguon: duKienMotKetNoi(KET_NOI[0] ?? null),
+    chon: 0,
+    heThong: HE_THONG,
+  },
+  wsCuaToi: {
+    ten: 'Workspace của tôi',
+    nguon: duKienWorkspace([
+      { id: 1, name: 'Phân tích' },
+      { id: 2, name: 'Vận hành' },
+    ]),
+    chon: 0,
+    heThong: HE_THONG,
+  },
+  hoSoThat: {
+    ten: 'Hồ sơ (bản khai thật)',
+    nguon: duKienHoSo({ fullName: 'Trần Thu Hà', email: 'ha@congty.vn', jobTitle: 'Trưởng phòng' }),
+    chon: 0,
+    heThong: HE_THONG,
+  },
+  adminTongQuan: {
+    ten: 'Console — Tổng quan',
+    nguon: duKienTongQuanHeThong(TONG_QUAN),
+    chon: 0,
+    heThong: HE_THONG,
+  },
+  adminToChuc: {
+    ten: 'Console — Tổ chức',
+    nguon: duKienDanhSachToChuc(TO_CHUC_HT, 14),
+    chon: 0,
+    heThong: HE_THONG,
+  },
+  adminNguoiDung: {
+    ten: 'Console — Người dùng',
+    nguon: duKienDanhSachNguoiDung(NGUOI_DUNG_HT, 87),
+    chon: 0,
+    heThong: HE_THONG,
+  },
+  adminWorkspace: {
+    ten: 'Console — Workspace',
+    nguon: duKienWorkspaceHeThong(WS_HT, 41),
+    chon: 0,
+    heThong: HE_THONG,
+  },
+  adminThanhToan: {
+    ten: 'Console — Phương thức thanh toán',
+    nguon: duKienPhuongThucThanhToan(PHUONG_THUC),
     chon: 0,
     heThong: HE_THONG,
   },
@@ -512,8 +829,10 @@ function traLoiThat(
 /** `'chua-hieu'` = ca này ĐÁNG RA phải từ chối trả lời. */
 type MongDoi = string[] | 'chua-hieu';
 
+const MOI_TRANG = { ...TRANG, ...TRANG_THEM, ...TRANG_NOT };
+
 interface Ca {
-  trang: keyof typeof TRANG;
+  trang: keyof typeof MOI_TRANG;
   hoi: string;
   can: MongDoi;
   /** Chuỗi KHÔNG được xuất hiện — bắt câu đúng số mà sai trường. */
@@ -743,8 +1062,31 @@ const CA: Ca[] = [
     truoc: 'miền nào có số lượng cao nhất',
     can: ['Gia dụng', '302'],
     khong: ['Miền Trung'],
-    vi: 'KHOẢNG TRỐNG đã ghi — hỏi tổng của một giá trị CHUỖI, không có ý định nào khớp',
+    vi: 'Hỏi tổng của một giá trị CHUỖI — cộng qua cả ba Khu vực',
   },
+
+  {
+    trang: 'bieuDoKhuVuc',
+    hoi: 'Điện tử là bao nhiêu',
+    can: ['Điện tử', '290'],
+    khong: ['115'],
+    vi: 'MỘT Ô của cột chồng là 115; câu hỏi về cả mảng màu thì phải là 290',
+  },
+  { trang: 'bieuDoKhuVuc', hoi: 'Thời trang bao nhiêu', can: ['Thời trang', '263'] },
+
+  // ─── Quan hệ giữa các bảng: tab Quan hệ vẽ rõ, khung từng chỉ biết đếm ───
+  {
+    trang: 'moHinh',
+    hoi: 'Orders nối với Customers qua cột nào',
+    can: ['customer_id', 'id'],
+  },
+  {
+    trang: 'moHinh',
+    hoi: 'quan hệ giữa Orders và Customers là gì',
+    can: ['Một → nhiều'],
+    vi: 'KIỂU nối là thứ quyết định một phép SUM có bị nhân bản hay không',
+  },
+  { trang: 'moHinh', hoi: 'mô hình này có mấy quan hệ', can: ['1'] },
 
   // ─── Ảnh 2: trang chủ có các thẻ báo cáo, mắt thường nhìn thấy ────────────
   //
@@ -1085,6 +1427,180 @@ const CA: Ca[] = [
     can: 'chua-hieu',
     vi: 'Cần một truy vấn MỚI. Đây là trần của thiết kế hiện tại — bước (4)',
   },
+  // ─── Báo cáo (danh sách) ──────────────────────────────────────────────────
+  { trang: 'dsBaoCao', hoi: 'có bao nhiêu báo cáo', can: ['7'] },
+  { trang: 'dsBaoCao', hoi: 'báo cáo Doanh thu 2026 dựng trên gì', can: ['Bán hàng'] },
+  { trang: 'dsBaoCao', hoi: 'ai tạo báo cáo Doanh thu 2026', can: ['Mai'] },
+  { trang: 'dsBaoCao', hoi: 'báo cáo Tồn kho có mấy biểu đồ', can: ['2'] },
+  { trang: 'dsBaoCao', hoi: 'thư mục của báo cáo Tồn kho', can: ['Vận hành'] },
+  {
+    trang: 'dsBaoCao',
+    hoi: 'loại biểu đồ của báo cáo Tồn kho',
+    can: ['đường'],
+    vi: 'đọc từ CHART_TYPE_LABELS, đúng chữ in trên thẻ báo cáo',
+  },
+
+  // ─── Thành viên ───────────────────────────────────────────────────────────
+  { trang: 'thanhVien', hoi: 'tổ chức có bao nhiêu thành viên', can: ['2'] },
+  { trang: 'thanhVien', hoi: 'vai trò của Trần Thu Hà là gì', can: ['quản trị viên'] },
+  { trang: 'thanhVien', hoi: 'email của Trần Thu Hà', can: ['ha@congty.vn'] },
+  { trang: 'thanhVien', hoi: 'có mấy quản trị viên', can: ['1'] },
+  {
+    trang: 'thanhVien',
+    hoi: 'Lê Minh còn hoạt động không',
+    can: ['tạm dừng'],
+    vi: 'memberActive=false — thứ nhìn bảng mới thấy',
+  },
+  {
+    trang: 'thanhVien',
+    hoi: 'Lê Minh đăng nhập lần cuối lúc nào',
+    can: ['chưa đăng nhập lần nào'],
+  },
+
+  // ─── Kết nối ──────────────────────────────────────────────────────────────
+  { trang: 'ketNoi', hoi: 'có bao nhiêu kết nối', can: ['2'] },
+  { trang: 'ketNoi', hoi: 'kết nối MySQL bán hàng thuộc loại gì', can: ['mysql'] },
+  { trang: 'ketNoi', hoi: 'database của kết nối MySQL bán hàng', can: ['sales'] },
+  { trang: 'ketNoi', hoi: 'kết nối MySQL bán hàng có bật SSL không', can: ['không'] },
+  {
+    trang: 'ketNoi',
+    hoi: 'kết nối MySQL bán hàng kiểm tra lần cuối lúc nào',
+    can: ['chưa kiểm tra lần nào'],
+  },
+  /*
+   * ⚠️ CA CANH BẢO MẬT, không phải ca đo chất lượng.
+   *
+   * Tên đăng nhập và mật khẩu vào CSDL của khách là THÔNG TIN ĐĂNG NHẬP. Khung
+   * không khai chúng, và một câu trả lời ở đây còn đi tiếp lên mô hình ngôn ngữ
+   * qua lớp diễn đạt. Ca này đỏ nghĩa là có người vừa khai thêm một dữ kiện
+   * không được phép khai.
+   */
+  {
+    trang: 'ketNoi',
+    hoi: 'tài khoản đăng nhập của kết nối MySQL bán hàng là gì',
+    can: 'chua-hieu',
+    vi: 'thông tin đăng nhập CỐ Ý không được khai — xem `duKienKetNoi`',
+  },
+
+  // ─── Thanh toán ───────────────────────────────────────────────────────────
+  { trang: 'thanhToan', hoi: 'tổ chức đang dùng gói nào', can: ['Pro'] },
+  { trang: 'thanhToan', hoi: 'giá gói đang dùng', can: ['2.000.000'] },
+  { trang: 'thanhToan', hoi: 'đã dùng bao nhiêu báo cáo', can: ['12', '50'] },
+  { trang: 'thanhToan', hoi: 'gói hiện tại hết hạn lúc nào', can: ['2026'] },
+  {
+    trang: 'thanhToan',
+    hoi: 'đã dùng bao nhiêu thành viên',
+    can: ['4'],
+    vi: 'hạn mức null — phải nói "không giới hạn", không in ra chữ null',
+  },
+
+  // ─── Tổ chức ──────────────────────────────────────────────────────────────
+  { trang: 'toChuc', hoi: 'tên tổ chức là gì', can: ['Công ty ABC'] },
+  { trang: 'toChuc', hoi: 'slug của tổ chức', can: ['cong-ty-abc'] },
+  // ─── Bảng giá ─────────────────────────────────────────────────────────────
+  { trang: 'bangGia', hoi: 'có mấy gói đang bán', can: ['1'] },
+  { trang: 'bangGia', hoi: 'giá gói Pro bao nhiêu', can: ['2.000.000'] },
+  { trang: 'bangGia', hoi: 'gói Pro cho mấy báo cáo', can: ['50'] },
+  {
+    trang: 'bangGia',
+    hoi: 'gói Pro cho mấy thành viên',
+    can: ['Không giới hạn'],
+    vi: 'hạn mức null — phải thành chữ, không in ra null',
+  },
+
+  // ─── Đơn hàng ─────────────────────────────────────────────────────────────
+  { trang: 'donHang', hoi: 'tổ chức có bao nhiêu đơn hàng', can: ['4'] },
+  { trang: 'donHang', hoi: 'đơn DH2026030001 mua gói nào', can: ['Pro'] },
+  { trang: 'donHang', hoi: 'đơn DH2026030001 đã thanh toán chưa', can: ['chưa thanh toán'] },
+  { trang: 'donHang', hoi: 'có mấy đơn đang chờ thanh toán', can: ['1'] },
+
+  // ─── Mua gói ──────────────────────────────────────────────────────────────
+  {
+    trang: 'muaGoi',
+    hoi: 'đang mua theo chu kỳ nào',
+    can: ['theo năm'],
+    vi: 'chu kỳ KHÔNG nằm trong PlanDto — nó là cú bấm vừa rồi, và nó quyết số tiền',
+  },
+  { trang: 'muaGoi', hoi: 'giá gói Pro', can: ['2.000.000'] },
+
+  // ─── Một đơn hàng ─────────────────────────────────────────────────────────
+  { trang: 'motDonHang', hoi: 'số tiền đơn DH2026030001', can: ['2.000.000'] },
+  {
+    trang: 'motDonHang',
+    hoi: 'số tài khoản ngân hàng để chuyển tiền là gì',
+    can: 'chua-hieu',
+    vi: 'CANH BẢO MẬT: OrderDetailDto có bankAccountNo/qrPayload, bản khai CỐ Ý không đọc',
+  },
+
+  // ─── Sửa một kết nối ──────────────────────────────────────────────────────
+  { trang: 'motKetNoi', hoi: 'database của kết nối MySQL bán hàng', can: ['sales'] },
+  {
+    trang: 'motKetNoi',
+    hoi: 'có bao nhiêu kết nối đang có',
+    can: ['2', 'toàn bộ tổ chức'],
+    vi:
+      'Màn một kết nối KHÔNG khai bản tóm tắt — nên câu này rơi xuống lớp XUYÊN ' +
+      'HỆ THỐNG, và câu trả lời phải TỰ NÓI RA phạm vi. Kỳ vọng ban đầu của bộ ' +
+      'này là "chua-hieu", và nó sai: khung trả lời đúng, kèm đúng vế điều kiện.',
+  },
+
+  // ─── Workspace của tôi ────────────────────────────────────────────────────
+  {
+    trang: 'wsCuaToi',
+    hoi: 'tôi vào được mấy workspace',
+    can: ['2'],
+    vi: 'phạm vi của NGƯỜI ĐANG ĐĂNG NHẬP, không phải của cả tổ chức',
+  },
+
+  // ─── Hồ sơ ────────────────────────────────────────────────────────────────
+  { trang: 'hoSoThat', hoi: 'email của tôi là gì', can: ['ha@congty.vn'] },
+  { trang: 'hoSoThat', hoi: 'chức danh của tôi', can: ['Trưởng phòng'] },
+  {
+    trang: 'hoSoThat',
+    hoi: 'mật khẩu của tôi là gì',
+    can: 'chua-hieu',
+    vi: 'CANH BẢO MẬT: hồ sơ CỐ Ý không khai gì về mật khẩu',
+  },
+
+  // ─── Console: Tổng quan ───────────────────────────────────────────────────
+  { trang: 'adminTongQuan', hoi: 'có bao nhiêu tổ chức đang hoạt động', can: ['12'] },
+  { trang: 'adminTongQuan', hoi: 'tổng số người dùng', can: ['87'] },
+  { trang: 'adminTongQuan', hoi: 'có mấy người dùng đang bị khoá', can: ['3'] },
+
+  // ─── Console: Tổ chức ─────────────────────────────────────────────────────
+  { trang: 'adminToChuc', hoi: 'số tổ chức toàn hệ thống', can: ['14'] },
+  { trang: 'adminToChuc', hoi: 'tổ chức Công ty ABC có mấy người dùng', can: ['14'] },
+  {
+    trang: 'adminToChuc',
+    hoi: 'tổ chức Công ty ABC còn hoạt động không',
+    can: ['đang hoạt động'],
+  },
+
+  // ─── Console: Người dùng ──────────────────────────────────────────────────
+  { trang: 'adminNguoiDung', hoi: 'số người dùng toàn hệ thống', can: ['87'] },
+  { trang: 'adminNguoiDung', hoi: 'email của Phạm Quốc Bảo', can: ['bao@hethong.vn'] },
+  { trang: 'adminNguoiDung', hoi: 'Phạm Quốc Bảo thuộc mấy tổ chức', can: ['2'] },
+  { trang: 'adminNguoiDung', hoi: 'vai trò nền tảng của Phạm Quốc Bảo', can: ['superadmin'] },
+
+  // ─── Console: Workspace ───────────────────────────────────────────────────
+  { trang: 'adminWorkspace', hoi: 'số workspace toàn hệ thống', can: ['41'] },
+  { trang: 'adminWorkspace', hoi: 'workspace Phân tích thuộc tổ chức nào', can: ['Công ty ABC'] },
+  { trang: 'adminWorkspace', hoi: 'workspace Phân tích có mấy báo cáo', can: ['18'] },
+
+  // ─── Console: Phương thức thanh toán ──────────────────────────────────────
+  { trang: 'adminThanhToan', hoi: 'có mấy phương thức thanh toán', can: ['2'] },
+  { trang: 'adminThanhToan', hoi: 'có mấy phương thức đang bật', can: ['1'] },
+  {
+    trang: 'adminThanhToan',
+    hoi: 'phương thức nào chưa cấu hình xong',
+    can: ['Chuyển khoản SePay'],
+  },
+  {
+    trang: 'adminThanhToan',
+    hoi: 'số tài khoản nhận tiền của Chuyển khoản SePay là gì',
+    can: 'chua-hieu',
+    vi: 'CANH BẢO MẬT: bankAccountNo/bankBin CỐ Ý không khai — xem `duKienPhuongThucThanhToan`',
+  },
 ];
 
 // ─── Chạy và đếm ─────────────────────────────────────────────────────────────
@@ -1092,7 +1608,7 @@ const CA: Ca[] = [
 type KetCuc = 'dung' | 'chuaHieu' | 'sai';
 
 function xu(ca: Ca): { ketCuc: KetCuc; cau: string | null } {
-  const cau = traLoiThat(TRANG[ca.trang], ca.hoi, ca.truoc ?? null, ca.chip);
+  const cau = traLoiThat(MOI_TRANG[ca.trang], ca.hoi, ca.truoc ?? null, ca.chip);
 
   if (cau === null) return { ketCuc: ca.can === 'chua-hieu' ? 'dung' : 'chuaHieu', cau };
   // Trả lời một câu đáng ra phải từ chối là SAI, không phải "chưa hiểu".
@@ -1115,7 +1631,7 @@ describe('Bộ đánh giá khung hỏi đáp', () => {
       .filter((r) => r.ketCuc !== 'dung')
       .map(
         (r) =>
-          `  [${r.ketCuc === 'sai' ? 'SAI ' : 'CHƯA'}] ${TRANG[r.ca.trang].ten} · "${r.ca.hoi}"\n` +
+          `  [${r.ketCuc === 'sai' ? 'SAI ' : 'CHƯA'}] ${MOI_TRANG[r.ca.trang].ten} · "${r.ca.hoi}"\n` +
           `         mong đợi: ${r.ca.can === 'chua-hieu' ? 'từ chối trả lời' : r.ca.can.join(' + ')}\n` +
           `         nhận về : ${r.cau ?? '(chưa hiểu)'}` +
           (r.ca.vi === undefined ? '' : `\n         ghi chú  : ${r.ca.vi}`),
@@ -1145,7 +1661,7 @@ describe('Bộ đánh giá khung hỏi đáp', () => {
    * nghĩa là thay đổi đó đang đánh đổi câu này lấy câu kia mà không nói ra.
    */
   it('số câu ĐÚNG không được tụt', () => {
-    expect(dem('dung')).toBeGreaterThanOrEqual(124);
+    expect(dem('dung')).toBeGreaterThanOrEqual(190);
   });
 
   /*

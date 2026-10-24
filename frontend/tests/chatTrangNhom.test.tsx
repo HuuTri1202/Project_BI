@@ -247,6 +247,9 @@ describe('trang xem báo cáo khai số liệu này lấy từ đâu', () => {
       expect(cuoi(lan).nguon[0]?.duKien).toContainEqual({
         nhan: 'Nguồn số liệu của báo cáo Cost price theo Product Name',
         gia: 'Mô hình dữ liệu Bán hàng',
+        // Tên báo cáo ở đây trùng gần hệt tên một ô — đúng tình huống `luuY`
+        // sinh ra để gỡ. Xem `duKienNguonBaoCao`.
+        luuY: 'Mọi biểu đồ trong báo cáo này đều lấy số từ đó.',
       });
     });
   });

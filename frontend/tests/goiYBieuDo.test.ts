@@ -2,15 +2,19 @@ import type { ExplorerFieldDto, ExplorerFieldsDto } from '@bi/shared';
 import { describe, expect, it } from 'vitest';
 
 import {
+  capChoMoHinh,
+  capTheoId,
   cauGoiY,
   cauSua,
   deXuatBieuDo,
   docSuaBieuDo,
+  duKienODangChon,
   goiYBieuDo,
   goiYMoHo,
   muonVe,
   tachMoHo,
   tenDeXuat,
+  tenPhanBiet,
 } from '../src/features/chat/goiYBieuDo';
 
 /**
@@ -508,5 +512,204 @@ describe('cauSua', () => {
    */
   it('tên chiều và con số nằm trong `so` để lớp viết lại không bẻ được', () => {
     expect(cauSua({ soNhom: 5, chieuPhuId: 2 }, 'Nhóm hàng').so).toEqual(['5', 'Nhóm hàng']);
+  });
+});
+
+/**
+ * Ô đang chọn khai nó đang được đặt thế nào.
+ *
+ * ─── Lỗ hổng đo được ────────────────────────────────────────────────────────
+ *
+ * Khung SỬA được số nhóm, thứ tự, chiều tách màu — mà hỏi ngược lại "ô này
+ * đang lấy mấy nhóm" thì chịu, vì ô đang chọn khai `duKien: []`. Ghi được mà
+ * không đọc được.
+ *
+ * Nó cũng là thứ làm câu xác nhận của `cauSua` kiểm lại được: khung nói "đã
+ * rút còn 5 nhóm", người dùng hỏi "giờ mấy nhóm" và đối chiếu.
+ */
+describe('duKienODangChon', () => {
+  const o = {
+    ten: 'Doanh thu theo Khu vực',
+    loai: 'bar' as const,
+    chieu: 'Khu vực',
+    thuocDo: 'Doanh thu',
+    chieuPhu: null,
+    soNhom: 20,
+    sapXep: 'value' as const,
+  };
+
+  it('khai loại biểu đồ, số nhóm và thứ tự bằng đúng chữ trên màn hình', () => {
+    const d = duKienODangChon(o);
+
+    expect(d).toContainEqual({
+      nhan: 'Loại biểu đồ của ô Doanh thu theo Khu vực',
+      gia: 'Biểu đồ cột',
+    });
+    expect(d).toContainEqual({ nhan: 'Số nhóm mỗi trang của ô Doanh thu theo Khu vực', gia: '20' });
+    expect(d).toContainEqual({
+      nhan: 'Thứ tự nhóm của ô Doanh thu theo Khu vực',
+      gia: 'Theo giá trị (lớn → nhỏ)',
+    });
+  });
+
+  /*
+   * ⚠️ "chưa tách màu" LÀ một câu trả lời, không phải một ô trống. Bỏ hẳn dòng
+   * này đi thì câu "ô này tách màu theo gì" rơi xuống "chưa hiểu", trong khi
+   * khung biết thừa câu trả lời.
+   */
+  it('chưa tách màu thì vẫn khai, và nói thẳng là chưa chọn', () => {
+    expect(duKienODangChon(o)).toContainEqual({
+      nhan: 'Trường ở ô Nhóm màu của Doanh thu theo Khu vực',
+      gia: 'chưa chọn',
+    });
+    expect(duKienODangChon({ ...o, chieuPhu: 'Nhóm hàng' })).toContainEqual({
+      nhan: 'Trường ở ô Nhóm màu của Doanh thu theo Khu vực',
+      gia: 'Nhóm hàng',
+    });
+  });
+
+  /*
+   * ⚠️ Gọi ô bằng ĐÚNG tên ô trên trình dựng ("Trục ngang", "Giá trị"), không
+   * gọi "chiều"/"thước đo". Người dùng nhìn thấy chữ nào thì hỏi bằng chữ ấy;
+   * khung dùng từ vựng khác là bắt họ dịch, và câu hỏi sẽ không khớp nhãn nào.
+   */
+  it('ô thứ ba đổi tên theo loại biểu đồ, không chép cứng một cái tên', () => {
+    const cot = duKienODangChon(o).map((x) => x.nhan);
+    const nhiet = duKienODangChon({ ...o, loai: 'heatmap' }).map((x) => x.nhan);
+    const bang = duKienODangChon({ ...o, loai: 'table' }).map((x) => x.nhan);
+
+    expect(cot).toContain('Trường ở ô Nhóm màu của Doanh thu theo Khu vực');
+    expect(nhiet).toContain('Trường ở ô Trục Y của Doanh thu theo Khu vực');
+    expect(bang).toContain('Trường ở ô Cột nhóm thứ hai của Doanh thu theo Khu vực');
+  });
+
+  it('hai ô kéo-thả chính gọi bằng đúng tên trên màn hình', () => {
+    const d = duKienODangChon(o);
+
+    expect(d).toContainEqual({
+      nhan: 'Trường ở ô Chiều dữ liệu của Doanh thu theo Khu vực',
+      gia: 'Khu vực',
+    });
+    expect(d).toContainEqual({
+      nhan: 'Trường ở ô Giá trị của Doanh thu theo Khu vực',
+      gia: 'Doanh thu',
+    });
+  });
+
+  /*
+   * Hai ô chính bỏ hẳn dòng khi còn trống, khác ô thứ ba luôn có mặt. Chủ ý:
+   * "chưa kéo gì vào Giá trị" là trạng thái DANG DỞ của một ô chưa vẽ được,
+   * còn "chưa chọn Nhóm màu" là một lựa chọn hợp lệ của một biểu đồ hoàn chỉnh.
+   */
+  it('hai ô chính còn trống thì KHÔNG khai một dòng rỗng', () => {
+    const nhan = duKienODangChon({ ...o, chieu: null, thuocDo: null }).map((x) => x.nhan);
+
+    expect(nhan).not.toContain('Trường ở ô Chiều dữ liệu của Doanh thu theo Khu vực');
+    expect(nhan).not.toContain('Trường ở ô Giá trị của Doanh thu theo Khu vực');
+    expect(nhan).toContain('Trường ở ô Nhóm màu của Doanh thu theo Khu vực');
+  });
+});
+
+/*
+ * ═══ Danh sách gửi cho MÔ HÌNH chọn ════════════════════════════════════════
+ *
+ * Lỗi đo được trên Global-Superstore: "tui muốn xem khu vực có discount như
+ * thế nào". Phần dễ khung làm được — "discount" trùng nguyên chữ tên thước đo.
+ * Phần khó — "khu vực" là chiều nào — phải để mô hình làm, mà mô hình chỉ chọn
+ * được trong danh sách nó NHÌN THẤY. `deXuatBieuDo` cắt ở 20 cặp theo thứ tự
+ * `flatMap`, nên hai mươi suất ấy bị thước đo đầu bảng ăn gần hết.
+ */
+describe('Danh sách cặp gửi cho mô hình xoay quanh thước đo đã gọi tên', () => {
+  it('mọi chiều của ĐÚNG thước đo câu hỏi nói tới đều có mặt', () => {
+    const cap = capChoMoHinh(MO_HINH, 'tui muốn xem khu vực có số đơn như thế nào');
+
+    const cua = cap.filter((g) => g.thuocDo.label === 'Số đơn').map((g) => g.chieu.label);
+    expect(cua).toEqual(MO_HINH.dimensions.map((d) => d.label));
+  });
+
+  /*
+   * Khớp được một thước đo không có nghĩa là chắc chắn người dùng muốn đúng
+   * cái đó — phần đuôi vẫn phải chừa chỗ cho mấy thước đo khác.
+   */
+  it('thước đo khác vẫn còn chỗ ở phần đuôi', () => {
+    const cap = capChoMoHinh(MO_HINH, 'tui muốn xem khu vực có số đơn như thế nào');
+
+    expect(cap.some((g) => g.thuocDo.label !== 'Số đơn')).toBe(true);
+  });
+
+  it('không gọi tên được thước đo nào thì rơi về danh sách chung', () => {
+    const cap = capChoMoHinh(MO_HINH, 'vẽ cái gì đó đi');
+
+    expect(cap.length).toBeGreaterThan(0);
+    expect(new Set(cap.map((g) => g.thuocDo.label)).size).toBeGreaterThan(1);
+  });
+});
+
+/*
+ * ═══ Hai lựa chọn phải PHÂN BIỆT ĐƯỢC ══════════════════════════════════════
+ *
+ * Lỗi đo được: "tui muốn xem profit theo market" ra câu hỏi ngược kèm hai cái
+ * nút đọc y hệt nhau — mô hình có hai bảng cùng mang cột `Market`. Bắt người
+ * dùng chọn mà không cho họ cơ sở nào để chọn thì tệ hơn là không hỏi.
+ */
+describe('Tên đề xuất phân biệt được khi hai cặp trùng tên', () => {
+  it('trùng tên thì kèm tên bảng, không trùng thì để nguyên', () => {
+    const g = (chieuBang: string, id: number) => ({
+      chieu: truong({ id, label: 'Market', datasetName: chieuBang }),
+      thuocDo: truong({ id: 99, label: 'Profit', datasetName: 'Orders', cubeType: 'number' }),
+      loai: 'bar' as const,
+    });
+    const khac = {
+      chieu: truong({ id: 7, label: 'Khu vực', datasetName: 'Orders' }),
+      thuocDo: truong({ id: 99, label: 'Profit', datasetName: 'Orders', cubeType: 'number' }),
+      loai: 'bar' as const,
+    };
+
+    expect(tenPhanBiet([g('Orders', 1), g('People', 2), khac])).toEqual([
+      'Profit theo Market (bảng Orders)',
+      'Profit theo Market (bảng People)',
+      'Profit theo Khu vực',
+    ]);
+  });
+
+  /*
+   * Hai bảng của CHIỀU giống nhau nốt thì chỗ khác nhau nằm ở thước đo —
+   * nếu không, hai dòng lại đọc y hệt, chỉ là dài hơn.
+   */
+  it('chiều cùng bảng thì phân biệt bằng bảng của thước đo', () => {
+    const g = (doBang: string, id: number) => ({
+      chieu: truong({ id: 1, label: 'Market', datasetName: 'Orders' }),
+      thuocDo: truong({ id, label: 'Profit', datasetName: doBang, cubeType: 'number' }),
+      loai: 'bar' as const,
+    });
+
+    expect(tenPhanBiet([g('Orders', 50), g('Returns', 51)])).toEqual([
+      'Profit theo Market (bảng Orders · thước đo ở Orders)',
+      'Profit theo Market (bảng Orders · thước đo ở Returns)',
+    ]);
+  });
+});
+
+/*
+ * ═══ Cặp trường do lớp ĐIỀN FORM chọn ══════════════════════════════════════
+ *
+ * Đường duy nhất hiểu được "thị trường" là "Market": mô hình chọn riêng từng ô
+ * nên không gian là `chiều + thước đo`, không phải tích của hai cái.
+ */
+describe('Dựng đề xuất từ form mô hình vừa điền', () => {
+  it('id có thật -> đúng cặp trường, loại biểu đồ đọc từ chính chiều', () => {
+    const g = capTheoId(MO_HINH, 3, 10, 'tui muốn xem doanh thu của thị trường');
+
+    expect(g?.chieu.label).toBe('Ngày đặt');
+    expect(g?.thuocDo.label).toBe('Doanh thu');
+    // Chiều thời gian -> biểu đồ đường, đúng luật `loaiHop` đang dùng.
+    expect(g?.loai).toBe('line');
+  });
+
+  it('id lạ -> null, không dựng bừa một cặp nào', () => {
+    expect(capTheoId(MO_HINH, 999, 10, 'x')).toBeNull();
+    expect(capTheoId(MO_HINH, 1, 999, 'x')).toBeNull();
+    expect(capTheoId(undefined, 1, 10, 'x')).toBeNull();
+    expect(capTheoId(MO_HINH, undefined, 10, 'x')).toBeNull();
   });
 });

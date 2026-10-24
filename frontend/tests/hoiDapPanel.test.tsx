@@ -9,6 +9,7 @@ import * as heThongHook from '../src/features/chat/nguCanhHeThong';
 import * as trangThaiHook from '../src/features/chat/trangThai';
 import { NguCanhProvider } from '../src/features/chat/NguCanhProvider';
 import { useKhaiNguCanh, type NguCanh, type Nguon } from '../src/features/chat/nguCanh';
+import { xoaPhien } from '../src/features/chat/nhoHoiThoai';
 import { THUOC_TINH_KHONG_XUAT } from '../src/services/danhDauXuat';
 
 /**
@@ -29,6 +30,7 @@ import { THUOC_TINH_KHONG_XUAT } from '../src/services/danhDauXuat';
  */
 
 vi.mock('../src/features/chat/api', () => ({
+  chonCot: vi.fn(),
   dienDatLai: vi.fn(),
   hieuCauHoi: vi.fn(),
   hoiTrenMoHinh: vi.fn(),
@@ -49,6 +51,7 @@ vi.mock('../src/features/chat/nguCanhHeThong', () => ({ useNguCanhHeThong: vi.fn
 // thường vì phần lớn ca ở đây không nói gì về nó.
 vi.mock('../src/features/chat/trangThai', () => ({ useCoMoHinh: vi.fn() }));
 
+const chonCot = vi.mocked(chatApi.chonCot);
 const dienDatLai = vi.mocked(chatApi.dienDatLai);
 const hieuCauHoi = vi.mocked(chatApi.hieuCauHoi);
 const useNguCanhHeThong = vi.mocked(heThongHook.useNguCanhHeThong);
@@ -56,6 +59,14 @@ const hoiTrenMoHinh = vi.mocked(chatApi.hoiTrenMoHinh);
 const useCoMoHinh = vi.mocked(trangThaiHook.useCoMoHinh);
 
 beforeEach(() => {
+  /*
+   * Phiên chat sống trong `sessionStorage` nên nó CHẢY từ ca này sang ca khác
+   * — một ca sẽ mở ra và thấy đoạn trò chuyện của ca trước. Xoá ở đây, không
+   * phải trong từng describe: quên một chỗ là một ca đỏ vì lý do chẳng liên
+   * quan gì tới thứ nó kiểm.
+   */
+  xoaPhien();
+
   /*
    * Mặc định: CHƯA cấu hình mô hình, nên lời gọi hỏng và câu mẫu ở lại.
    *
@@ -69,7 +80,11 @@ beforeEach(() => {
   // Mặc định: mô hình KHÔNG được hỏi — đúng trạng thái máy chưa có khoá, và
   // cũng là trạng thái mà mọi ca về phép so từ khoá muốn kiểm.
   hieuCauHoi.mockReset();
-  hieuCauHoi.mockResolvedValue({ chon: null, daHoi: false });
+  hieuCauHoi.mockResolvedValue({ chon: null, trangThai: 'chua-cau-hinh' });
+
+  // Mặc định: lớp chọn cột cũng chưa cấu hình — đúng trạng thái máy chưa khoá.
+  chonCot.mockReset();
+  chonCot.mockResolvedValue({ chieu: null, thuocDo: null, daHoi: false });
 
   // Mặc định: KHÔNG có nguồn xuyên hệ thống — đúng trạng thái của một viewer
   // (không có `dataset:read`) và của mọi ca chỉ nói về trang đang mở.
@@ -454,7 +469,7 @@ describe('Mô hình chọn nhãn khi phép so từ khoá trượt', () => {
    * trong bảng đồng nghĩa — vì nó không có nghĩa gì cả, đúng thứ cần ở đây.
    */
   it('bong bóng "chưa hiểu" tự nâng cấp thành câu trả lời', async () => {
-    hieuCauHoi.mockResolvedValue({ chon: 1, daHoi: true });
+    hieuCauHoi.mockResolvedValue({ chon: 1, trangThai: 'da-doc' });
     dung(trang);
     fireEvent.click(nutMo());
 
@@ -480,7 +495,7 @@ describe('Mô hình chọn nhãn khi phép so từ khoá trượt', () => {
    * mất điều kiện của nó đúng ở chỗ không ai nghĩ là phải kiểm.
    */
   it('câu dựng ra vẫn mang điều kiện của con số', async () => {
-    hieuCauHoi.mockResolvedValue({ chon: 0, daHoi: true });
+    hieuCauHoi.mockResolvedValue({ chon: 0, trangThai: 'da-doc' });
     dung(trang);
     fireEvent.click(nutMo());
 
@@ -492,7 +507,7 @@ describe('Mô hình chọn nhãn khi phép so từ khoá trượt', () => {
   });
 
   it('chỉ gửi NHÃN lên, không gửi giá trị nào', async () => {
-    hieuCauHoi.mockResolvedValue({ chon: null, daHoi: true });
+    hieuCauHoi.mockResolvedValue({ chon: null, trangThai: 'da-doc' });
     dung(trang);
     fireEvent.click(nutMo());
 
@@ -508,8 +523,27 @@ describe('Mô hình chọn nhãn khi phép so từ khoá trượt', () => {
    * "Đã đọc hết và không có" là một câu KHÁC HẲN "tôi chưa hiểu câu này": một
    * câu nói trang này không có số liệu đó, câu kia nói người dùng gõ sai.
    */
+  /*
+   * ⚠️ GỌI HỎNG phải nói ra, và nói KHÁC câu "đã đọc hết".
+   *
+   * Nhà cung cấp trả 500, hoặc hết giờ 8 giây, mà khung vẫn khẳng định "Tôi đã
+   * đọc hết số liệu và không có mục nào trả lời được" là nói chắc nịch về một
+   * việc chưa hề xảy ra. Và nó che mất thứ người dùng cần biết nhất: trạng
+   * thái này TỰ HẾT, thử lại một lát là được.
+   */
+  it('gọi mô hình hỏng thì NÓI RA, không giả vờ đã đọc hết', async () => {
+    hieuCauHoi.mockResolvedValue({ chon: null, trangThai: 'goi-hong' });
+    dung(trang);
+    fireEvent.click(nutMo());
+
+    hoi('giá cổ phiếu hôm nay');
+
+    expect(await screen.findByText(/chưa gọi được mô hình/)).toBeInTheDocument();
+    expect(screen.queryByText(/đã đọc hết số liệu/)).not.toBeInTheDocument();
+  });
+
   it('mô hình đọc hết mà không có thì nói đúng câu đó', async () => {
-    hieuCauHoi.mockResolvedValue({ chon: null, daHoi: true });
+    hieuCauHoi.mockResolvedValue({ chon: null, trangThai: 'da-doc' });
     dung(trang);
     fireEvent.click(nutMo());
 
@@ -519,7 +553,7 @@ describe('Mô hình chọn nhãn khi phép so từ khoá trượt', () => {
   });
 
   it('máy chưa cấu hình mô hình thì giữ nguyên câu "chưa hiểu"', async () => {
-    hieuCauHoi.mockResolvedValue({ chon: null, daHoi: false });
+    hieuCauHoi.mockResolvedValue({ chon: null, trangThai: 'chua-cau-hinh' });
     dung(trang);
     fireEvent.click(nutMo());
 
@@ -636,7 +670,7 @@ describe('Trả lời xuyên hệ thống', () => {
    */
   it('danh sách gửi cho mô hình có cả câu xuyên hệ thống, trang xếp TRƯỚC', async () => {
     useNguCanhHeThong.mockReturnValue(toanToChuc);
-    hieuCauHoi.mockResolvedValue({ chon: null, daHoi: true });
+    hieuCauHoi.mockResolvedValue({ chon: null, trangThai: 'da-doc' });
     dung(trangMotNguon);
     fireEvent.click(nutMo());
 
@@ -674,7 +708,7 @@ describe('Câu trả lời được viết thành CHỮ, ở cả hai đường'
      * `chon: 0` vì nguồn ở khối này chỉ khai ĐÚNG MỘT dữ kiện, và nguồn không
      * có biểu đồ nên danh sách lựa chọn chính là `duKien` theo thứ tự khai.
      */
-    hieuCauHoi.mockResolvedValue({ chon: 0, daHoi: true });
+    hieuCauHoi.mockResolvedValue({ chon: 0, trangThai: 'da-doc' });
     dienDatLai.mockResolvedValue('Tệp của Đơn hàng Q4 nặng 4,2 MB.');
     dung(trang);
     fireEvent.click(nutMo());
@@ -709,7 +743,7 @@ describe('Đặt câu hỏi MỚI trên mô hình dữ liệu', () => {
   ];
 
   it('trả lời được câu mà không trang nào có sẵn số liệu', async () => {
-    hieuCauHoi.mockResolvedValue({ chon: null, daHoi: true });
+    hieuCauHoi.mockResolvedValue({ chon: null, trangThai: 'da-doc' });
     hoiTrenMoHinh.mockResolvedValue({
       cau: 'Khu vực: Doanh thu 1.200.000.',
       so: ['1.200.000'],
@@ -732,7 +766,7 @@ describe('Đặt câu hỏi MỚI trên mô hình dữ liệu', () => {
    * vấn sai trường vẫn cho ra một con số đẹp.
    */
   it('câu trả lời LUÔN kèm dòng "Tôi hiểu:"', async () => {
-    hieuCauHoi.mockResolvedValue({ chon: null, daHoi: true });
+    hieuCauHoi.mockResolvedValue({ chon: null, trangThai: 'da-doc' });
     hoiTrenMoHinh.mockResolvedValue({
       cau: 'Khu vực: Doanh thu 1.200.000.',
       so: ['1.200.000'],
@@ -749,7 +783,7 @@ describe('Đặt câu hỏi MỚI trên mô hình dữ liệu', () => {
   });
 
   it('trang KHÔNG có mô hình, câu hỏi cũng không gọi tên mô hình nào — không gọi tới nó', async () => {
-    hieuCauHoi.mockResolvedValue({ chon: null, daHoi: true });
+    hieuCauHoi.mockResolvedValue({ chon: null, trangThai: 'da-doc' });
     dung(trang);
     fireEvent.click(nutMo());
 
@@ -767,7 +801,7 @@ describe('Đặt câu hỏi MỚI trên mô hình dữ liệu', () => {
    * trong khi danh sách mô hình đang nằm sẵn trong tay khung.
    */
   it('gọi tên một mô hình thì hỏi được từ trang BẤT KỲ', async () => {
-    hieuCauHoi.mockResolvedValue({ chon: null, daHoi: true });
+    hieuCauHoi.mockResolvedValue({ chon: null, trangThai: 'da-doc' });
     useNguCanhHeThong.mockReturnValue([
       { ten: 'Tổng quan toàn tổ chức', duKien: [] },
       { ten: 'Bán hàng', duKien: [], moHinhId: 7 },
@@ -809,7 +843,7 @@ describe('Đặt câu hỏi MỚI trên mô hình dữ liệu', () => {
   });
 
   it('bị 403 (viewer) thì bong bóng "chưa hiểu" ở lại, không có hộp lỗi', async () => {
-    hieuCauHoi.mockResolvedValue({ chon: null, daHoi: true });
+    hieuCauHoi.mockResolvedValue({ chon: null, trangThai: 'da-doc' });
     // `hoiTrenMoHinh` đã `mockRejectedValue` ở `beforeEach` — đúng trạng thái
     // của một viewer không có `datamodel:read`.
     dung(trang, 7);
@@ -824,7 +858,7 @@ describe('Đặt câu hỏi MỚI trên mô hình dữ liệu', () => {
   });
 
   it('mô hình không dựng được truy vấn nào thì giữ nguyên "chưa hiểu"', async () => {
-    hieuCauHoi.mockResolvedValue({ chon: null, daHoi: true });
+    hieuCauHoi.mockResolvedValue({ chon: null, trangThai: 'da-doc' });
     hoiTrenMoHinh.mockResolvedValue({ cau: null, so: [], hieuLa: null, daHoi: true });
     dung(trang, 7);
     fireEvent.click(nutMo());
@@ -872,7 +906,7 @@ describe('Bộ nhớ hội thoại', () => {
   }
 
   it('lượt sau mang theo câu hỏi VÀ form của lượt trước', async () => {
-    hieuCauHoi.mockResolvedValue({ chon: null, daHoi: true });
+    hieuCauHoi.mockResolvedValue({ chon: null, trangThai: 'da-doc' });
     traLoiDuoc('Khu vực: Doanh thu 1.200.000.');
     dung(trang, 7);
     fireEvent.click(nutMo());
@@ -896,7 +930,7 @@ describe('Bộ nhớ hội thoại', () => {
    * vẫn là một câu sai, nên quên ở đây rẻ hơn.
    */
   it('đổi sang mô hình khác thì KHÔNG mang form cũ theo', async () => {
-    hieuCauHoi.mockResolvedValue({ chon: null, daHoi: true });
+    hieuCauHoi.mockResolvedValue({ chon: null, trangThai: 'da-doc' });
     traLoiDuoc('Khu vực: Doanh thu 1.200.000.');
     const { doiMoHinh } = dung(trang, 7);
     fireEvent.click(nutMo());
@@ -914,7 +948,7 @@ describe('Bộ nhớ hội thoại', () => {
   });
 
   it('lượt không ra câu trả lời thì không được nhớ', async () => {
-    hieuCauHoi.mockResolvedValue({ chon: null, daHoi: true });
+    hieuCauHoi.mockResolvedValue({ chon: null, trangThai: 'da-doc' });
     hoiTrenMoHinh.mockResolvedValue({
       cau: null,
       so: [],
@@ -942,7 +976,7 @@ describe('Bộ nhớ hội thoại', () => {
       ...trang,
       { ten: 'Đơn hàng Q3', duKien: [{ nhan: 'Số dòng của Đơn hàng Q3', gia: '9.000' }] },
     ];
-    hieuCauHoi.mockResolvedValue({ chon: null, daHoi: true });
+    hieuCauHoi.mockResolvedValue({ chon: null, trangThai: 'da-doc' });
     traLoiDuoc('Khu vực: Doanh thu 1.200.000.');
     dung(hai, 7);
     fireEvent.click(nutMo());
@@ -1030,7 +1064,7 @@ describe('Nhìn ra khung đang có mô hình hay đang ngoại tuyến', () => {
   });
 
   it('mô hình CHỌN mục thì nói rõ là nó chọn, không phải nó viết', async () => {
-    hieuCauHoi.mockResolvedValue({ chon: 0, daHoi: true });
+    hieuCauHoi.mockResolvedValue({ chon: 0, trangThai: 'da-doc' });
     dung(trang);
     fireEvent.click(nutMo());
 
@@ -1416,7 +1450,7 @@ describe('Hai lớp đỡ của đường vẽ', () => {
      * phép so chuỗi nào với tới. Đây đúng là chỗ của lớp mô hình — và nó vẫn
      * chỉ được CHỌN MỘT CHỈ SỐ trong danh sách khung dựng, không tự viết ra gì.
      */
-    hieuCauHoi.mockResolvedValue({ chon: 0, daHoi: true });
+    hieuCauHoi.mockResolvedValue({ chon: 0, trangThai: 'da-doc' });
     dung(NGUON, 7, TRUONG, vi.fn());
     fireEvent.click(nutMo());
 
@@ -1537,5 +1571,522 @@ describe('Sửa ô biểu đồ đang chọn', () => {
 
     expect(await screen.findByText(/"Ngày đặt" hay "Ngày giao"/)).toBeInTheDocument();
     expect(sua).not.toHaveBeenCalled();
+  });
+});
+
+/*
+ * ═══ Bế tắc ở trình dựng phải nói ra VÌ SAO ════════════════════════════════
+ *
+ * Dựng lại đúng mô hình đã sinh ra lỗi: tên cột tiếng Anh, thước đo toàn phép
+ * đếm. Người dùng gõ tiếng Việt nên phép so từ khoá không có một chữ nào để
+ * bám, và thứ thật sự chặn họ không nằm ở câu chữ — mô hình KHÔNG có thước đo
+ * nào cho giá. "Tôi chưa hiểu câu này" giấu đúng việc cần làm.
+ */
+describe('Bế tắc ở trình dựng kể tên thước đo đang có', () => {
+  const f = (x: Partial<ExplorerFieldDto>): ExplorerFieldDto =>
+    ({ id: 1, label: 'X', datasetName: 'users', cubeType: 'string', ...x }) as ExplorerFieldDto;
+
+  const TRUONG: ExplorerFieldsDto = {
+    dimensions: [
+      f({ id: 1, label: 'created_at', cubeType: 'time' }),
+      f({ id: 2, label: 'updated_at', cubeType: 'time' }),
+    ],
+    measures: [
+      f({ id: 10, label: 'Số dòng', cubeType: 'number' }),
+      f({ id: 11, label: 'table_count', cubeType: 'number' }),
+    ],
+  };
+
+  const NGUON: Nguon[] = [
+    { ten: 'Mô hình qr order', duKien: [{ nhan: 'Số bảng trong mô hình qr order', gia: '2' }] },
+  ];
+
+  it('kể tên thước đo đang có và chỉ sang nơi tạo thước đo mới', async () => {
+    dung(NGUON, 7, TRUONG, vi.fn());
+    fireEvent.click(nutMo());
+
+    hoi('giúp tui vẽ biểu đồ xem sản phẩm theo giá');
+
+    const bong = await screen.findByText(/thước đo mô hình này đang có/);
+    expect(bong).toHaveTextContent('Số dòng, table_count');
+    expect(bong).toHaveTextContent('tab Thước đo');
+  });
+
+  /*
+   * Trang XEM báo cáo không có tab Thước đo để mà chỉ sang — nói ra ở đó chỉ
+   * là một đường cụt thứ hai. `deXuatBieuDo` rỗng chính là dấu hiệu đó.
+   */
+  it('trang không có trình dựng thì KHÔNG nhắc tới tab Thước đo', async () => {
+    dung(NGUON);
+    fireEvent.click(nutMo());
+
+    hoi('giúp tui vẽ biểu đồ xem sản phẩm theo giá');
+
+    const bong = await screen.findByText(/Tôi chưa hiểu câu này/);
+    expect(bong).not.toHaveTextContent('tab Thước đo');
+  });
+});
+
+/*
+ * ═══ Câu xin VẼ đi qua lớp ĐIỀN FORM ═══════════════════════════════════════
+ *
+ * Lời than của người dùng: "khi thị trường thì ko hiểu nhưng ghi market thì
+ * hiểu được". Lớp chọn-nhãn phải tìm một CẶP có sẵn trong danh sách bị cắt ở
+ * 60; lớp điền-form chọn riêng từng ô nên nó về được một id dù người dùng gọi
+ * trường bằng chữ của họ. Xem `capTheoId`.
+ */
+describe('Câu xin vẽ nhận cặp trường từ form mô hình điền', () => {
+  const f = (x: Partial<ExplorerFieldDto>): ExplorerFieldDto =>
+    ({ id: 1, label: 'X', datasetName: 'Orders', cubeType: 'string', ...x }) as ExplorerFieldDto;
+
+  const TRUONG: ExplorerFieldsDto = {
+    dimensions: [f({ id: 1, label: 'Khu vực' })],
+    measures: [f({ id: 10, label: 'Doanh thu', cubeType: 'number' })],
+  };
+
+  const NGUON: Nguon[] = [
+    { ten: 'Mô hình Bán hàng', duKien: [{ nhan: 'Số bảng trong mô hình Bán hàng', gia: '3' }] },
+  ];
+
+  /** Câu không lớp ngoại tuyến nào chạm tới được: không chữ nào trùng tên trường. */
+  const CAU = 'tui muốn vẽ biểu đồ xem thị trường ra sao';
+
+  it('dựng đề xuất từ `truyVan`, kèm nút Vẽ — không dừng ở "chưa hiểu"', async () => {
+    hoiTrenMoHinh.mockResolvedValue({
+      cau: 'Doanh thu cao nhất là 500.',
+      so: [],
+      hieuLa: null,
+      daHoi: true,
+      truyVan: { dimensionIds: [1], measureIds: [10] },
+    });
+    dung(NGUON, 7, TRUONG, vi.fn());
+    fireEvent.click(nutMo());
+
+    hoi(CAU);
+
+    expect(await screen.findByText('Doanh thu theo Khu vực')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Vẽ' })).toBeInTheDocument();
+    expect(screen.queryByText(/Tôi chưa hiểu câu này/)).not.toBeInTheDocument();
+  });
+
+  /*
+   * Form trỏ vào một trường không còn trong danh sách trên máy này — ai đó vừa
+   * xoá một cột. Thà về đường cũ còn hơn dựng bừa một cặp.
+   */
+  it('id lạ thì KHÔNG dựng đề xuất nào', async () => {
+    hoiTrenMoHinh.mockResolvedValue({
+      cau: 'Doanh thu cao nhất là 500.',
+      so: [],
+      hieuLa: null,
+      daHoi: true,
+      truyVan: { dimensionIds: [999], measureIds: [10] },
+    });
+    dung(NGUON, 7, TRUONG, vi.fn());
+    fireEvent.click(nutMo());
+
+    hoi(CAU);
+
+    expect(await screen.findByText(/Doanh thu cao nhất là 500/)).toBeInTheDocument();
+    expect(screen.queryByText('Doanh thu theo Khu vực')).not.toBeInTheDocument();
+  });
+});
+
+/*
+ * ═══ Bảng đang hiện: mô hình CHỌN HAI CỘT ══════════════════════════════════
+ *
+ * Tiêu đề cột tiếng Anh, câu hỏi tiếng Việt — phép so từ khoá không có một chữ
+ * nào để bám. Liệt kê sẵn mọi CẶP cột thì vượt trần 60 nhãn (18 × 6 = 108), nên
+ * lớp chọn-nhãn không với tới được. Lớp này chọn riêng từng ô.
+ */
+describe('Bảng thô: mô hình chọn hai cột rồi khung tự tính', () => {
+  const NGUON: Nguon[] = [
+    {
+      ten: 'Kết quả Khám phá',
+      duKien: [],
+      bangTho: {
+        cot: ['Region', 'City', 'Sales', 'Profit'],
+        dong: [
+          ['East', 'Boston', 100, 7],
+          ['East', 'New York', 50, 30],
+          ['West', 'Seattle', 90, 4],
+        ],
+        luuY: 'tính trên 3 dòng kết quả Khám phá đang hiện',
+      },
+    },
+  ];
+
+  const CAU = 'thành phố nào lời nhất';
+
+  it('chọn đúng hai cột thì ra câu trả lời, kèm nhãn "mô hình chọn cột"', async () => {
+    // id 2 = cột "City", id 4 = cột "Profit" — đánh số từ MỘT, xem `nhoChonCot`.
+    chonCot.mockResolvedValue({ chieu: 2, thuocDo: 4, daHoi: true });
+    dung(NGUON);
+    fireEvent.click(nutMo());
+
+    hoi(CAU);
+
+    // New York: Profit 30 — cao nhất, và KHÔNG phải Boston (Sales 100).
+    const bong = await screen.findByText(/New York/);
+    expect(bong).toHaveTextContent('30');
+    expect(await screen.findByText(/mô hình chọn cột/)).toBeInTheDocument();
+  });
+
+  /*
+   * ⚠️ Cột ĐẦU TIÊN phải với tới được, và nó chỉ với tới được nếu id đánh số
+   * từ MỘT: lớp dưới đọc id bằng `soNguyenDuong`, nên `id: 0` làm hỏng cả form
+   * một cách lặng lẽ. Đo được trên bảng thật ba lượt liền.
+   */
+  it('đánh số cột từ MỘT, nên cột đầu tiên vẫn chọn được', async () => {
+    chonCot.mockResolvedValue({ chieu: 1, thuocDo: 3, daHoi: true });
+    dung(NGUON);
+    fireEvent.click(nutMo());
+
+    hoi('khu vực nào bán nhiều nhất');
+
+    // id 1 = "Region", id 3 = "Sales". East = 100 + 50 = 150 > West = 90.
+    const bong = await screen.findByText(/East/);
+    expect(bong).toHaveTextContent('150');
+    expect(chonCot.mock.calls[0]?.[0].cot[0]).toMatchObject({ id: 1, nhan: 'Region' });
+  });
+
+  /*
+   * Không ép cột thì chính câu hỏi phải chỉ ra hai cột — và nó không chỉ ra
+   * được chữ nào. Ca này canh rằng câu trả lời ở trên ĐẾN TỪ lớp chọn cột, chứ
+   * không phải từ một phép đoán nào sẵn có.
+   */
+  it('mô hình không chọn được cột nào -> vẫn là bế tắc', async () => {
+    chonCot.mockResolvedValue({ chieu: null, thuocDo: null, daHoi: true });
+    dung(NGUON);
+    fireEvent.click(nutMo());
+
+    hoi(CAU);
+
+    expect(await screen.findByText(/Tôi chưa hiểu câu này/)).toBeInTheDocument();
+  });
+
+  /** Lượt gọi hỏng KHÔNG được làm mất bong bóng — nó rơi về đúng bế tắc cũ. */
+  it('lớp chọn cột gọi hỏng -> rơi về bế tắc, không treo ba chấm', async () => {
+    chonCot.mockRejectedValue(new Error('mạng'));
+    dung(NGUON);
+    fireEvent.click(nutMo());
+
+    hoi(CAU);
+
+    expect(await screen.findByText(/Tôi chưa hiểu câu này/)).toBeInTheDocument();
+  });
+});
+
+/**
+ * `viewer` gặp một bế tắc KHÁC HẲN "chưa hiểu" — và phải được nói ra như thế.
+ *
+ * Migration 26 cố ý lấy `datamodel:read` khỏi `viewer`, nên với họ đường đặt
+ * câu hỏi mới LUÔN trả 403: mọi câu hỏi số liệu mới, mãi mãi, không ngoại lệ.
+ * Trả về "Tôi chưa hiểu câu này" là nói sai — khung hiểu thừa, nó chỉ không
+ * được phép chạy truy vấn — và nó đẩy người dùng vào vòng gõ lại bằng cách
+ * khác, mà cách nào cũng trượt vì thứ chặn không nằm ở câu chữ.
+ */
+describe('403 không phải "chưa hiểu"', () => {
+  /** Một lỗi axios thật, vì `getApiError` soi `isAxiosError`. */
+  function loi403(): Error {
+    return Object.assign(new Error('Request failed with status code 403'), {
+      isAxiosError: true,
+      response: {
+        status: 403,
+        data: { error: 'Forbidden', message: 'Vai trò của bạn không được phép xem mô hình.' },
+      },
+    });
+  }
+
+  const NGUON = [{ ten: 'Đơn hàng', duKien: [{ nhan: 'Số dòng của Đơn hàng', gia: '12.431' }] }];
+
+  it('403 -> nói thẳng là thiếu quyền, và chỉ ra việc cần làm', async () => {
+    hoiTrenMoHinh.mockReset();
+    hoiTrenMoHinh.mockRejectedValue(loi403());
+
+    dung(NGUON, 7);
+    fireEvent.click(nutMo());
+    hoi('doanh thu miền bắc tháng 3 là bao nhiêu');
+
+    const cau = await screen.findByText(/không được phép đọc mô hình dữ liệu/);
+
+    // Phải nêu việc làm được, không chỉ nêu rào chắn.
+    expect(cau).toHaveTextContent('quản trị tổ chức');
+    // Và KHÔNG được nói dối là chưa hiểu.
+    expect(screen.queryByText(/Tôi chưa hiểu câu này/)).toBeNull();
+  });
+
+  /*
+   * Mấy kiểu hỏng khác thì "chưa hiểu" VẪN đúng: chúng tạm thời, và câu trả
+   * lời bằng dữ liệu đang hiện vẫn là thứ tốt nhất khung làm được lúc đó. Gộp
+   * chúng vào câu nói về quyền là dạy người dùng đi xin một thứ họ đã có.
+   */
+  it('mất mạng -> vẫn là "chưa hiểu", không phải chuyện quyền', async () => {
+    hoiTrenMoHinh.mockReset();
+    hoiTrenMoHinh.mockRejectedValue(new Error('Network Error'));
+
+    dung(NGUON, 7);
+    fireEvent.click(nutMo());
+    hoi('doanh thu miền bắc tháng 3 là bao nhiêu');
+
+    await screen.findByText(/Tôi chưa hiểu câu này/);
+    expect(screen.queryByText(/không được phép đọc mô hình dữ liệu/)).toBeNull();
+  });
+});
+
+/**
+ * F5 KHÔNG được xoá cuộc trò chuyện — xem `nhoHoiThoai.ts`.
+ *
+ * Tải lại trang là thao tác thường nhất ở đây: hỏi một con số, đi sửa dữ liệu,
+ * F5 để xem số mới — và mất cả đoạn đối chiếu vừa dựng.
+ *
+ * Tháo rồi dựng lại cây component là đúng thứ F5 làm với state React, nên đó
+ * là cách kiểm trung thực nhất mà không cần một trình duyệt thật.
+ */
+describe('Cuộc trò chuyện sống qua một lần tải lại', () => {
+  const NGUON = [
+    { ten: 'Đơn hàng Q4', duKien: [{ nhan: 'Số dòng của Đơn hàng Q4', gia: '12.431' }] },
+  ];
+
+  it('hỏi, tải lại, câu hỏi và câu trả lời vẫn còn', () => {
+    const { unmount } = render(
+      <MemoryRouter>
+        <NguCanhProvider>
+          <TrangGiaLap nguon={NGUON} />
+        </NguCanhProvider>
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(nutMo());
+    hoi('đơn hàng q4 bao nhiêu dòng');
+    expect(screen.getByText(/12\.431/)).toBeInTheDocument();
+
+    unmount();
+
+    render(
+      <MemoryRouter>
+        <NguCanhProvider>
+          <TrangGiaLap nguon={NGUON} />
+        </NguCanhProvider>
+      </MemoryRouter>,
+    );
+
+    // Khung mở ra ở trạng thái ĐÓNG — tự bật lên sau mỗi F5 là một cái khung
+    // tự tiện. Nhưng mở ra thì đoạn cũ phải còn nguyên.
+    fireEvent.click(nutMo());
+    expect(screen.getByText('đơn hàng q4 bao nhiêu dòng')).toBeInTheDocument();
+    expect(screen.getByText(/12\.431/)).toBeInTheDocument();
+  });
+
+  /*
+   * ⚠️ Một bong bóng BA CHẤM được ghi lại sẽ nhấp nháy mãi mãi: lời gọi sinh
+   * ra nó đã chết cùng trang cũ, nên không còn gì tới để thay nó. Người dùng
+   * ngồi chờ một câu trả lời không bao giờ đến.
+   */
+  it('tin đang soạn dở KHÔNG được khôi phục thành ba chấm vĩnh viễn', async () => {
+    // Một lời gọi không bao giờ về — đúng trạng thái lúc người dùng bấm F5.
+    hoiTrenMoHinh.mockReset();
+    hoiTrenMoHinh.mockReturnValue(new Promise(() => undefined));
+
+    const { unmount } = render(
+      <MemoryRouter>
+        <NguCanhProvider>
+          <TrangGiaLap nguon={NGUON} moHinhId={7} />
+        </NguCanhProvider>
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(nutMo());
+    hoi('doanh thu miền bắc tháng 3');
+    await screen.findByLabelText('Đang soạn câu trả lời');
+
+    unmount();
+
+    render(
+      <MemoryRouter>
+        <NguCanhProvider>
+          <TrangGiaLap nguon={NGUON} moHinhId={7} />
+        </NguCanhProvider>
+      </MemoryRouter>,
+    );
+    fireEvent.click(nutMo());
+
+    expect(screen.queryByLabelText('Đang soạn câu trả lời')).toBeNull();
+    // Câu hỏi thì vẫn giữ: họ đã hỏi thật, và một câu hỏi không có trả lời là
+    // mô tả đúng chuyện vừa xảy ra.
+    expect(screen.getByText('doanh thu miền bắc tháng 3')).toBeInTheDocument();
+  });
+});
+
+/**
+ * Bế tắc CÓ LÝ DO, và gợi ý SAU một câu trả lời đúng.
+ *
+ * Hai thứ này chỉ có giá trị khi người dùng thật sự THẤY, nên chúng được canh
+ * ở tầng DOM chứ không chỉ ở hàm sinh ra chúng:
+ *
+ *   1. Backend trả `lyDo` mà panel vẫn in "Tôi chưa hiểu câu này" thì cả cơ
+ *      chế thành vô ích — và nó vô ích một cách im lặng.
+ *   2. Gợi ý phải hiện dưới một câu trả lời ĐÚNG, với tiêu đề khác câu dùng
+ *      cho lúc bế tắc: "có phải bạn muốn hỏi" sau một câu trả lời đúng là nói
+ *      với người dùng rằng họ vừa hỏi sai.
+ */
+describe('Lý do bế tắc và gợi ý hỏi tiếp', () => {
+  const NGUON = [{ ten: 'Đơn hàng', duKien: [{ nhan: 'Số dòng của Đơn hàng', gia: '12.431' }] }];
+
+  const KQ = {
+    cau: null as string | null,
+    so: [] as string[],
+    hieuLa: null as string | null,
+    daHoi: true,
+    lyDo: null as string | null,
+    goiY: [] as string[],
+    truyVan: null as never,
+  };
+
+  it('backend trả lý do -> panel in lý do, KHÔNG in "chưa hiểu"', async () => {
+    hoiTrenMoHinh.mockReset();
+    hoiTrenMoHinh.mockResolvedValue({
+      ...KQ,
+      lyDo: 'Thước đo này không nhận phép tính đó. Mở tab Thước đo của mô hình.',
+    });
+
+    dung(NGUON, 7);
+    fireEvent.click(nutMo());
+    hoi('doanh thu trung bình theo khu vực');
+
+    await screen.findByText(/Mở tab Thước đo của mô hình/);
+    expect(screen.queryByText(/Tôi chưa hiểu câu này/)).toBeNull();
+  });
+
+  /*
+   * Không có lý do thì câu chung vẫn phải còn.
+   *
+   * Phần lớn kiểu hỏng là "mô hình trả về rác" — nói ra cũng không ai làm gì
+   * được. Bỏ mất câu chung ở nhánh đó là để lại một bong bóng trống.
+   */
+  it('không có lý do -> vẫn là câu "chưa hiểu" như trước', async () => {
+    hoiTrenMoHinh.mockReset();
+    hoiTrenMoHinh.mockResolvedValue({ ...KQ });
+
+    dung(NGUON, 7);
+    fireEvent.click(nutMo());
+    hoi('câu gì đó rất lạ');
+
+    await screen.findByText(/Tôi chưa hiểu câu này/);
+  });
+
+  it('câu trả lời ĐÚNG -> hiện gợi ý hỏi tiếp, với tiêu đề "Hỏi tiếp"', async () => {
+    hoiTrenMoHinh.mockReset();
+    hoiTrenMoHinh.mockResolvedValue({
+      ...KQ,
+      cau: 'Miền Bắc: Doanh thu 1.200.',
+      so: ['1.200'],
+      hieuLa: 'Doanh thu theo Khu vực, xếp từ cao xuống',
+      goiY: ['Khu vực nào Doanh thu thấp nhất', 'Doanh thu theo tháng'],
+      truyVan: { dimensionIds: [11], measureIds: [21] } as never,
+    });
+
+    dung(NGUON, 7);
+    fireEvent.click(nutMo());
+    hoi('doanh thu theo khu vực');
+
+    await screen.findByText('Miền Bắc: Doanh thu 1.200.');
+
+    expect(screen.getByText('Hỏi tiếp:')).toBeInTheDocument();
+    // "Có phải bạn muốn hỏi" là câu của lúc BẾ TẮC — dùng lại ở đây là nói
+    // với người dùng rằng họ vừa hỏi sai.
+    expect(screen.queryByText('Có phải bạn muốn hỏi:')).toBeNull();
+    expect(
+      screen.getByRole('button', { name: 'Khu vực nào Doanh thu thấp nhất' }),
+    ).toBeInTheDocument();
+  });
+
+  /** Bấm một gợi ý thì nó ĐIỀN vào ô nhập — câu này người ta có thể muốn sửa. */
+  it('bấm gợi ý thì điền vào ô câu hỏi', async () => {
+    hoiTrenMoHinh.mockReset();
+    hoiTrenMoHinh.mockResolvedValue({
+      ...KQ,
+      cau: 'Miền Bắc: Doanh thu 1.200.',
+      so: ['1.200'],
+      goiY: ['Doanh thu theo tháng'],
+      truyVan: { dimensionIds: [11], measureIds: [21] } as never,
+    });
+
+    dung(NGUON, 7);
+    fireEvent.click(nutMo());
+    hoi('doanh thu theo khu vực');
+    await screen.findByText('Miền Bắc: Doanh thu 1.200.');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Doanh thu theo tháng' }));
+
+    expect(screen.getByLabelText('Câu hỏi')).toHaveValue('Doanh thu theo tháng');
+  });
+});
+
+/**
+ * Quãng CHỜ phải nói ra nó đang làm gì.
+ *
+ * Một câu hỏi số liệu trên trang mô hình đi qua HAI lượt gọi mô hình nối đuôi
+ * nhau — lớp chọn-nhãn đọc thứ trang đang giữ, trượt, rồi lớp điền-form dựng
+ * một truy vấn mới và quét kho. Bốn năm giây ba chấm nhấp nháy mà không biết
+ * gì đang xảy ra, và không biết thì bốn giây dài hơn hẳn bốn giây.
+ *
+ * Lượt thứ hai không bỏ được (xem khối chú thích ở `dangLam`), nên thứ được
+ * xoá là sự IM LẶNG. Và nhãn ấy chỉ có ích khi nó ĐỔI theo giai đoạn: một
+ * nhãn đứng im suốt cả quãng chờ không nói thêm gì so với ba chấm.
+ */
+describe('Quãng chờ nói ra nó đang làm gì', () => {
+  const NGUON = [{ ten: 'Đơn hàng', duKien: [{ nhan: 'Số dòng của Đơn hàng', gia: '12.431' }] }];
+
+  it('giai đoạn 1 nói đang đọc số liệu của TRANG, và gọi tên trang', async () => {
+    // Lớp chọn-nhãn treo, nên khung đứng ở giai đoạn một.
+    hieuCauHoi.mockReset();
+    hieuCauHoi.mockReturnValue(new Promise(() => undefined));
+
+    dung(NGUON, 7);
+    fireEvent.click(nutMo());
+    hoi('doanh thu miền bắc tháng 3');
+
+    await screen.findByLabelText('Đang soạn câu trả lời');
+    expect(screen.getByText(/Đang đọc số liệu trên Kho dữ liệu/)).toBeInTheDocument();
+  });
+
+  it('trượt lớp chọn-nhãn -> nhãn ĐỔI sang đang dựng truy vấn', async () => {
+    // Mô hình đã đọc hết nhãn của trang và không mục nào trả lời được.
+    hieuCauHoi.mockReset();
+    hieuCauHoi.mockResolvedValue({ chon: null, trangThai: 'da-doc' });
+    // Đường mô hình treo, nên khung đứng ở giai đoạn hai.
+    hoiTrenMoHinh.mockReset();
+    hoiTrenMoHinh.mockReturnValue(new Promise(() => undefined));
+
+    dung(NGUON, 7);
+    fireEvent.click(nutMo());
+    hoi('doanh thu miền bắc tháng 3');
+
+    await screen.findByText(/Đang dựng một truy vấn mới trên mô hình dữ liệu/);
+    // Và nhãn cũ phải đi — hai nhãn cùng lúc là nói hai việc đang chạy.
+    expect(screen.queryByText(/Đang đọc số liệu trên Kho dữ liệu/)).toBeNull();
+  });
+
+  it('câu trả lời về thì nhãn chờ biến mất cùng ba chấm', async () => {
+    hieuCauHoi.mockReset();
+    hieuCauHoi.mockResolvedValue({ chon: null, trangThai: 'da-doc' });
+    hoiTrenMoHinh.mockReset();
+    hoiTrenMoHinh.mockResolvedValue({
+      cau: 'Miền Bắc: Doanh thu 1.200.',
+      so: ['1.200'],
+      hieuLa: 'Doanh thu theo Khu vực',
+      daHoi: true,
+      lyDo: null,
+      goiY: [],
+      truyVan: { dimensionIds: [11], measureIds: [21] } as never,
+    });
+
+    dung(NGUON, 7);
+    fireEvent.click(nutMo());
+    hoi('doanh thu miền bắc tháng 3');
+
+    await screen.findByText('Miền Bắc: Doanh thu 1.200.');
+    expect(screen.queryByText(/Đang dựng một truy vấn mới/)).toBeNull();
+    expect(screen.queryByLabelText('Đang soạn câu trả lời')).toBeNull();
   });
 });

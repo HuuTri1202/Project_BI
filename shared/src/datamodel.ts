@@ -74,20 +74,6 @@ export const COLUMN_ROLE_LABELS: Record<ColumnRole, string> = {
 };
 
 /**
- * Một câu nói NÓ LÀ GÌ, cho người chưa từng dùng công cụ BI nào.
- *
- * Từ tiếng Anh trong ngoặc chỉ giúp người đã biết khái niệm mà quen tên khác.
- * Người chưa biết thì cần một câu, và câu đó phải nói bằng ví dụ chứ không phải
- * định nghĩa: "cột để chia nhóm" hiểu được ngay, "thuộc tính phân rã dữ liệu
- * theo trục ngữ nghĩa" thì không.
- */
-export const COLUMN_ROLE_HINTS: Record<ColumnRole, string> = {
-  dimension: 'Cột để chia nhóm — theo khu vực, theo tháng, theo sản phẩm.',
-  measure: 'Con số để tính — tổng doanh thu, số đơn, giá trung bình.',
-  hidden: 'Không đưa vào mô hình. Vẫn nằm trong kho, chỉ không hiện ra để chọn.',
-};
-
-/**
  * Kiểu của một chiều theo cách Cube hiểu.
  *
  * ⚠️ TRỰC GIAO với `ColumnRole`, và trộn hai thứ này là lỗi sẽ xảy ra trong
@@ -940,14 +926,6 @@ export interface CreateRelationshipInput {
   kind: RelationshipKind;
 }
 
-export interface CreateMeasureInput {
-  datamodelDatasetId: number;
-  name: string;
-  agg: MeasureAgg;
-  /** Bỏ trống KHI VÀ CHỈ KHI `agg === 'count'`. */
-  columnId?: number;
-}
-
 export interface SaveLayoutInput {
   positions: { id: number; x: number; y: number }[];
 }
@@ -977,5 +955,3 @@ export const DATAMODEL_ERROR_CODES = {
   /** Hai vế của công thức thuộc hai bảng khác nhau; ghép chéo bảng cho ra tỉ lệ sai. */
   MEASURE_CROSS_DATASET: 'MeasureCrossDataset',
 } as const;
-
-export type DataModelErrorCode = (typeof DATAMODEL_ERROR_CODES)[keyof typeof DATAMODEL_ERROR_CODES];

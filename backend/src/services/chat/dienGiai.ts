@@ -77,14 +77,54 @@ export function moTaTruyVan(truyVan: ExplorerQueryDto, nhanCua: Map<number, stri
     );
   }
 
-  for (const f of truyVan.filters ?? []) {
+  /*
+   * Cặp `gte`/`lt` trên CÙNG một chiều đọc thành MỘT câu.
+   *
+   * Một mốc thời gian sinh ra đúng cặp đó (xem `khoangThoiGian.ts`), và để
+   * nguyên hai dòng thì `hieuLa` nói "Ngày đặt từ … trở lên 2026-10-01, Ngày
+   * đặt nhỏ hơn 2026-11-01" — đúng từng chữ mà không ai đọc nổi. Dòng này là
+   * chỗ DUY NHẤT người dùng kiểm được "máy hiểu khoảng nào", nên nó phải đọc
+   * được, nếu không nó chỉ còn là chữ cho có.
+   *
+   * "đến trước" chứ không phải "đến": mốc cuối HỞ, và nói "đến 2026-11-01"
+   * là nói sai một ngày về phía rộng hơn.
+   */
+  const daGop = new Set<number>();
+  const boLoc = truyVan.filters ?? [];
+
+  boLoc.forEach((f, i) => {
+    if (f.operator !== 'gte' || daGop.has(i)) return;
+    const j = boLoc.findIndex(
+      (g, k) => k !== i && !daGop.has(k) && g.dimensionId === f.dimensionId && g.operator === 'lt',
+    );
+    if (j < 0) return;
+    daGop.add(i);
+    daGop.add(j);
+    phan.push(
+      `lọc ${ten(f.dimensionId)} từ ${f.values.join(', ')} đến trước ${boLoc[j]?.values.join(', ') ?? ''}`,
+    );
+  });
+
+  boLoc.forEach((f, i) => {
+    if (daGop.has(i)) return;
     const dieu = FILTER_OPERATOR_LABELS[f.operator];
     phan.push(
       f.values.length === 0
         ? `lọc ${ten(f.dimensionId)} ${dieu}`
         : `lọc ${ten(f.dimensionId)} ${dieu} ${f.values.join(', ')}`,
     );
-  }
+  });
+
+  /*
+   * `limit` PHẢI được nói ra. Nó quyết định tập dữ liệu nào được lấy về, nên
+   * một "top 5" mà mô hình tự nghĩ ra từ câu hỏi là thứ người đọc cần thấy —
+   * y hệt lý do mấy bộ lọc ở trên có mặt trong câu này.
+   *
+   * Phép gộp thì KHÔNG cần dòng riêng: `buildQuery` đã gắn tên phép vào nhãn
+   * cột khi phép bị đổi ("Doanh thu (Trung bình)"), và `nhanCua` lấy nhãn từ
+   * chính kết quả, nên nó đã nằm sẵn trong `ten(...)` ở trên.
+   */
+  if (truyVan.limit !== undefined) phan.push(`lấy ${String(truyVan.limit)} dòng đầu`);
 
   return phan.join(', ');
 }
@@ -117,9 +157,28 @@ export function docKetQua(
   kq: ExplorerResultDto,
   truyVan: ExplorerQueryDto,
   nhanCua: Map<number, string>,
+  /**
+   * Hướng đã sắp — xem `huongSap`. Vắng mặt = không nói gì về thứ tự.
+   *
+   * ⚠️ Phải nói ra CẢ KHI hướng là mặc định. Chỉ nói lúc nó bị lật thì người
+   * đọc không phân biệt được "máy hiểu là cao nhất" với "máy không nghĩ tới
+   * chuyện đó" — mà cả tác dụng của `hieuLa` nằm ở chỗ phân biệt ấy.
+   */
+  huong?: 'asc' | 'desc',
 ): TraLoiTruyVan {
-  const hieuLa = moTaTruyVan(truyVan, nhanCua);
   const cat = kq.truncated ? ` — truy vấn đã chạm trần số dòng nên đây chưa phải toàn bộ` : '';
+
+  /*
+   * Thứ tự chỉ đáng nói khi có NHIỀU dòng để mà xếp.
+   *
+   * Một con số duy nhất thì "xếp từ cao xuống" là chữ thừa, và chữ thừa trong
+   * `hieuLa` làm loãng đúng cái dòng mà người đọc phải soi.
+   */
+  const noiThuTu =
+    huong !== undefined && kq.columns.some((c) => c.kind === 'dimension') && kq.rows.length > 1;
+  const hieuLa =
+    moTaTruyVan(truyVan, nhanCua) +
+    (noiThuTu ? `, xếp ${huong === 'asc' ? 'từ thấp lên' : 'từ cao xuống'}` : '');
 
   if (kq.rows.length === 0) {
     return { cau: `Không có dòng nào thoả điều kiện này.`, so: [], hieuLa };

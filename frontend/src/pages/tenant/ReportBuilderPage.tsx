@@ -15,6 +15,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 
 import { usePermissions } from '../../auth/usePermissions';
+import { duKienODangChon } from '../../features/chat/goiYBieuDo';
 import type { SuaBieuDo } from '../../features/chat/goiYBieuDo';
 import { Button } from '../../components/ui/Button';
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
@@ -81,7 +82,7 @@ import {
   type VisualDraft,
 } from '../../features/reports/builder/visual';
 import { getApiError } from '../../services/apiClient';
-import { duKienMoHinh } from '../../features/chat/duKienTrang';
+import { nguonTrinhDung } from '../../features/chat/duKienTrang';
 import { useKhaiNguCanh } from '../../features/chat/nguCanh';
 
 /**
@@ -391,8 +392,14 @@ function Builder({
     setSeeded(true);
   }, [seeded, loaded, resetHistory]);
 
-  const dimensions = fields.data?.dimensions ?? [];
-  const measures = fields.data?.measures ?? [];
+  /*
+   * ⚠️ `useMemo` ở đây KHÔNG phải để tiết kiệm. `?? []` dựng một mảng MỚI mỗi
+   * lần render khi `fields.data` chưa về, và hai mảng này đi (qua `duKienO`)
+   * vào `nguCanh` — một `NguCanh` mới mỗi lần render là `useKhaiNguCanh` quay
+   * vòng vô hạn. Cùng cái bẫy đã ghi ở `NguCanh.veBieuDo`.
+   */
+  const dimensions = useMemo(() => fields.data?.dimensions ?? [], [fields.data]);
+  const measures = useMemo(() => fields.data?.measures ?? [], [fields.data]);
 
   /**
    * Ô đang chọn — TÍNH RA, không lưu, và có ô mặc định là ô đầu tiên.
@@ -623,16 +630,36 @@ function Builder({
     selected?.seriesId == null
       ? null
       : (fields.data?.dimensions.find((d) => d.id === selected.seriesId)?.label ?? null);
+
+  /*
+   * Ô đang chọn đang được đặt thế nào — để khung ĐỌC được thứ nó SỬA được.
+   *
+   * Nhãn trường đọc bằng `fieldLabelsOf`, đúng hàm mà tiêu đề ô dùng: hai chỗ
+   * cùng gọi một trường bằng một cái tên, kể cả khi hai trường trùng tên.
+   */
+  /*
+   * ⚠️ `useMemo` KHÔNG phải để tiết kiệm. Mảng này đi thẳng vào `nguCanh`, mà
+   * `nguCanh` đi vào `useKhaiNguCanh` — một mảng mới ở mỗi lần render là một
+   * `NguCanh` mới ở mỗi lần render, và effect sẽ quay vòng vô hạn. Cùng cái
+   * bẫy đã ghi ở `NguCanh.veBieuDo`; eslint bắt được nó trước khi tui chạy.
+   */
+  const duKienO = useMemo(() => {
+    if (selected === null || tenO === null) return [];
+    const nhan = fieldLabelsOf(selected, dimensions, measures);
+    return duKienODangChon({
+      ten: tenO,
+      loai: selected.chartType,
+      chieu: nhan.dimension,
+      thuocDo: nhan.measure,
+      chieuPhu: tenChieuPhu,
+      soNhom: selected.limit,
+      sapXep: selected.options.sort,
+    });
+  }, [selected, tenO, tenChieuPhu, dimensions, measures]);
   const nguCanh = useMemo(
     () => ({
       trang: model.data === undefined ? 'trình dựng báo cáo' : `mô hình ${model.data.name}`,
-      nguon: [
-        // Số liệu của ô đang chọn đứng TRƯỚC: đó là thứ người ta vừa nhìn.
-        ...(soLieuO.data === undefined || tenO === null
-          ? []
-          : [{ ten: tenO, duKien: [], bang: soLieuO.data }]),
-        ...(model.data === undefined ? [] : duKienMoHinh(model.data)),
-      ],
+      nguon: nguonTrinhDung(tenO, soLieuO.data, duKienO, model.data),
       // Đặt được câu hỏi MỚI trên mô hình đang dựng — xem `features/chat/nguCanh.ts`.
       ...(modelId === null ? {} : { moHinhId: modelId }),
       /*
@@ -654,6 +681,7 @@ function Builder({
       model.data,
       soLieuO.data,
       tenO,
+      duKienO,
       modelId,
       fields.data,
       veBieuDo,
