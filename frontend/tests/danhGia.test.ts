@@ -19,6 +19,7 @@ import {
   tongTheoThuMuc,
   tomTatThuMuc,
   duKienKetNoi,
+  duKienMoHinh,
   duKienKhoDuLieu,
   duKienTrangChu,
   tomTatBoDuLieu,
@@ -486,6 +487,31 @@ const TRANG = {
     heThong: HE_THONG,
   },
   // Một trang KHÔNG dính gì tới dữ liệu — để đo nhóm câu hỏi xuyên hệ thống.
+  /*
+   * Trang chi tiết một mô hình — để đo nhóm câu về QUAN HỆ giữa các bảng, thứ
+   * tab Quan hệ vẽ rõ trên màn hình mà khung từng chỉ biết đếm.
+   */
+  moHinh: {
+    ten: 'Mô hình dữ liệu (có quan hệ)',
+    nguon: duKienMoHinh({
+      id: 1,
+      name: 'Bán hàng',
+      datasets: [],
+      measures: [],
+      creatorName: 'Mai',
+      relationships: [
+        {
+          id: 1,
+          kind: 'one_to_many',
+          createdAt: '2026-01-01T00:00:00.000Z',
+          left: { datasetRef: 1, datasetName: 'Orders', columnId: 1, columnName: 'customer_id' },
+          right: { datasetRef: 2, datasetName: 'Customers', columnId: 2, columnName: 'id' },
+        },
+      ],
+    } as unknown as Parameters<typeof duKienMoHinh>[0]),
+    chon: 0,
+    heThong: HE_THONG,
+  },
   hoSo: {
     ten: 'Hồ sơ cá nhân',
     nguon: [{ ten: 'Hồ sơ của tôi', duKien: [{ nhan: 'Email của tôi', gia: 'a@b.vn' }] }],
@@ -745,6 +771,20 @@ const CA: Ca[] = [
     khong: ['Miền Trung'],
     vi: 'KHOẢNG TRỐNG đã ghi — hỏi tổng của một giá trị CHUỖI, không có ý định nào khớp',
   },
+
+  // ─── Quan hệ giữa các bảng: tab Quan hệ vẽ rõ, khung từng chỉ biết đếm ───
+  {
+    trang: 'moHinh',
+    hoi: 'Orders nối với Customers qua cột nào',
+    can: ['customer_id', 'id'],
+  },
+  {
+    trang: 'moHinh',
+    hoi: 'quan hệ giữa Orders và Customers là gì',
+    can: ['Một → nhiều'],
+    vi: 'KIỂU nối là thứ quyết định một phép SUM có bị nhân bản hay không',
+  },
+  { trang: 'moHinh', hoi: 'mô hình này có mấy quan hệ', can: ['1'] },
 
   // ─── Ảnh 2: trang chủ có các thẻ báo cáo, mắt thường nhìn thấy ────────────
   //
@@ -1145,7 +1185,7 @@ describe('Bộ đánh giá khung hỏi đáp', () => {
    * nghĩa là thay đổi đó đang đánh đổi câu này lấy câu kia mà không nói ra.
    */
   it('số câu ĐÚNG không được tụt', () => {
-    expect(dem('dung')).toBeGreaterThanOrEqual(124);
+    expect(dem('dung')).toBeGreaterThanOrEqual(127);
   });
 
   /*

@@ -9,6 +9,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   duKienKhamPha,
+  duKienMoHinh,
   nguonTrinhDung,
   duKienMotDonHang,
   duKienMotKetNoi,
@@ -300,5 +301,74 @@ describe('nguonTrinhDung', () => {
   it('chưa chọn ô nào thì không có nguồn ô', () => {
     expect(nguonTrinhDung(null, bang, duKienO, undefined)).toEqual([]);
     expect(nguonTrinhDung('Ô X', undefined, duKienO, undefined)).toEqual([]);
+  });
+});
+
+/**
+ * Quan hệ giữa các bảng — thứ tab Quan hệ VẼ RA mà khung từng chỉ biết đếm.
+ *
+ * ─── Lỗ hổng đo được ────────────────────────────────────────────────────────
+ *
+ * Màn hình vẽ rõ Orders nối Customers qua cột nào, kiểu gì. Khung chỉ khai
+ * `Số quan hệ của mô hình X`, nên "Orders nối Customers qua cột nào" rơi xuống
+ * "chưa hiểu" trong lúc câu trả lời đang nằm trước mắt người hỏi.
+ */
+describe('duKienMoHinh — quan hệ', () => {
+  const noi = (
+    traiBang: string,
+    traiCot: string,
+    phaiBang: string,
+    phaiCot: string,
+    kind: 'one_to_many' | 'many_to_one' | 'one_to_one' = 'one_to_many',
+  ) => ({
+    id: 1,
+    kind,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    left: { datasetRef: 1, datasetName: traiBang, columnId: 1, columnName: traiCot },
+    right: { datasetRef: 2, datasetName: phaiBang, columnId: 2, columnName: phaiCot },
+  });
+
+  const moHinh = (rels: ReturnType<typeof noi>[]): Parameters<typeof duKienMoHinh>[0] =>
+    ({
+      id: 1,
+      name: 'Bán hàng',
+      datasets: [],
+      measures: [],
+      relationships: rels,
+      creatorName: null,
+    }) as unknown as Parameters<typeof duKienMoHinh>[0];
+
+  const chung = (rels: ReturnType<typeof noi>[]) => duKienMoHinh(moHinh(rels))[0]?.duKien ?? [];
+
+  it('mỗi mối nối là một dữ kiện, gọi tên cả hai cột', () => {
+    const d = chung([noi('Orders', 'customer_id', 'Customers', 'id')]);
+
+    expect(d).toContainEqual({
+      nhan: 'Quan hệ giữa bảng Orders và bảng Customers',
+      gia: 'Orders.customer_id nối Customers.id — Một → nhiều',
+    });
+  });
+
+  /*
+   * ⚠️ KIỂU quan hệ phải có mặt. Nó quyết định một phép SUM có bị nhân bản
+   * hay không — doc của `RelationshipWarningDto` gọi nối sai kiểu là nguồn của
+   * câu "số bị sai" đầu tiên người dùng gặp. Bỏ nó đi thì câu trả lời đúng chữ
+   * mà thiếu đúng phần giải thích được con số.
+   */
+  it('nói ra kiểu nối, và mỗi kiểu một chữ khác nhau', () => {
+    const cua = (rels: ReturnType<typeof noi>[]): string =>
+      chung(rels).find((x) => x.nhan === 'Quan hệ giữa bảng A và bảng B')?.gia ?? '';
+    const mot = cua([noi('A', 'x', 'B', 'y', 'one_to_one')]);
+    const nhieu = cua([noi('A', 'x', 'B', 'y', 'many_to_one')]);
+
+    expect(mot).toContain('Một → một');
+    expect(nhieu).toContain('Nhiều → một');
+  });
+
+  it('mô hình chưa có quan hệ nào thì KHÔNG khai danh sách rỗng', () => {
+    const nhan = chung([]).map((x) => x.nhan);
+
+    expect(nhan).toContain('Số quan hệ của mô hình Bán hàng');
+    expect(nhan).not.toContain('Danh sách quan hệ của mô hình Bán hàng');
   });
 });

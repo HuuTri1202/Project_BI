@@ -22,6 +22,7 @@ import {
   type PlatformTenantDto,
   type PlatformUserDto,
   type PlatformWorkspaceDto,
+  RELATIONSHIP_KIND_LABELS,
   type ReportDto,
   type WarehouseSchemaDto,
 } from '@bi/shared';
@@ -417,6 +418,36 @@ export function duKienMoHinh(m: DataModelDetailDto): Nguon[] {
     chung.push({
       nhan: `Danh sách thước đo của mô hình ${m.name}`,
       gia: m.measures.map((me) => `${me.name} (${me.agg})`).join('; '),
+    });
+  }
+
+  /*
+   * ═══ Từng QUAN HỆ một, không chỉ đếm ═════════════════════════════════════
+   *
+   * Tab Quan hệ VẼ RA các mối nối trên màn hình — bảng nào với bảng nào, qua
+   * cột nào, kiểu một-nhiều hay nhiều-một. Mà khung chỉ biết đúng CON SỐ
+   * `Số quan hệ`, nên "Orders nối Customers qua cột nào" rơi xuống "chưa
+   * hiểu" trong lúc câu trả lời đang nằm trước mắt người hỏi.
+   *
+   * ⚠️ Nói ra cả KIỂU quan hệ, không chỉ hai cái tên cột. Kiểu nối là thứ
+   * quyết định một phép SUM có bị nhân bản hay không — doc của
+   * `RelationshipWarningDto` gọi nó là nguồn của câu "số bị sai" đầu tiên mà
+   * người dùng gặp. Một câu trả lời bỏ nó đi thì đúng chữ mà thiếu đúng phần
+   * giải thích được con số.
+   */
+  for (const r of m.relationships) {
+    chung.push({
+      nhan: `Quan hệ giữa bảng ${r.left.datasetName} và bảng ${r.right.datasetName}`,
+      gia:
+        `${r.left.datasetName}.${r.left.columnName} nối ${r.right.datasetName}.${r.right.columnName}` +
+        ` — ${RELATIONSHIP_KIND_LABELS[r.kind]}`,
+    });
+  }
+
+  if (m.relationships.length > 0) {
+    chung.push({
+      nhan: `Danh sách quan hệ của mô hình ${m.name}`,
+      gia: m.relationships.map((r) => `${r.left.datasetName} ↔ ${r.right.datasetName}`).join('; '),
     });
   }
 
