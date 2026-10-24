@@ -684,6 +684,26 @@ export function duKienNguonBaoCao(r: ReportDto): DuKien[] {
     ...dk(
       `Nguồn số liệu của báo cáo ${r.name}`,
       `${REPORT_SOURCE_LABELS[r.source]} ${r.sourceName}`,
+      /*
+       * ⚠️ Vế này không phải trang trí — nó sửa một câu ĐÚNG mà đọc ra nghĩa KHÁC.
+       *
+       * Lỗi đo được: báo cáo tên "doanh thu theo name", trên khung có hai ô
+       * "doanh thu theo Name" và "Sale price theo Name". Người dùng chọn ô thứ
+       * hai, hỏi "lấy từ đâu ra đó", nhận về "Nguồn số liệu của báo cáo doanh
+       * thu theo name là …". Đúng từng chữ, nhưng tên báo cáo trùng gần hệt tên
+       * ô BÊN CẠNH, nên nó đọc thành "khung đang trả lời về biểu đồ khác" — và
+       * người đọc không có dấu hiệu nào để biết là không phải.
+       *
+       * Gốc rễ không nằm ở cái tên trùng: đây là dữ kiện DUY NHẤT gắn vào mọi
+       * nguồn, nên là dữ kiện duy nhất mà chủ ngữ không phải con chip đang
+       * chọn. Một câu đổi chủ ngữ giữa chừng thì phải tự nói ra là nó đổi.
+       *
+       * Đặt ở `luuY`, KHÔNG nhét vào `nhan`: `traCuu` chấm điểm bằng số TỪ
+       * trùng giữa nhãn và câu hỏi, nên mỗi chữ thêm vào nhãn là một đường khớp
+       * nhầm mới. `luuY` đứng ngoài phép chấm, và lời nhắc của lớp diễn đạt đã
+       * buộc mô hình giữ lại vế điều kiện.
+       */
+      'Mọi biểu đồ trong báo cáo này đều lấy số từ đó.',
     ),
     /*
      * Chỉ báo cáo dựng trên BỘ DỮ LIỆU mới có dòng này. Báo cáo dựng trên mô

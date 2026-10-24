@@ -1115,6 +1115,26 @@ describe('Trang xem báo cáo khai được số liệu lấy từ đâu', () =>
    * ngược "bạn muốn hỏi biểu đồ nào" ở đây là bắt người ta chọn giữa ba câu
    * trả lời không khác một chữ.
    */
+  /*
+   * ⚠️ Ca canh một câu ĐÚNG mà đọc ra NGHĨA KHÁC — xem `luuY` trong
+   * `duKienNguonBaoCao`.
+   *
+   * Dựng lại đúng màn hình đã sinh ra lỗi: báo cáo tên "doanh thu theo name",
+   * trên khung có hai ô "doanh thu theo Name" và "Sale price theo Name". Chọn ô
+   * thứ hai rồi hỏi nguồn, câu trả lời mở đầu bằng tên gần hệt tên ô KIA — nên
+   * nó phải tự nói ra là nó đúng cho cả khung, không riêng ô nào.
+   */
+  it('nói rõ nguồn đúng cho MỌI ô, vì tên báo cáo trùng được với tên một ô', () => {
+    const goc = duKienNguonBaoCao(baoCao({ name: 'doanh thu theo name' }));
+    const o: Nguon = { ...nguonBieuDo(), ten: 'Sale price theo Name', duKien: goc };
+
+    const lc = luaChonTrang([o], o, 'lấy từ đâu ra đó').find((x) =>
+      x.nhan.startsWith('Nguồn số liệu của báo cáo'),
+    );
+
+    expect(lc?.chay().cau).toMatch(/Mọi biểu đồ trong báo cáo này đều lấy số từ đó\.$/);
+  });
+
   it('ba ô cùng đáp án thì KHÔNG hỏi ngược muốn hỏi biểu đồ nào', () => {
     const goc = duKienNguonBaoCao(baoCao());
     const o = (ten: string): Nguon => ({ ...nguonBieuDo(), ten, duKien: goc });

@@ -1558,3 +1558,56 @@ describe('Sửa ô biểu đồ đang chọn', () => {
     expect(sua).not.toHaveBeenCalled();
   });
 });
+
+/*
+ * ═══ Bế tắc ở trình dựng phải nói ra VÌ SAO ════════════════════════════════
+ *
+ * Dựng lại đúng mô hình đã sinh ra lỗi: tên cột tiếng Anh, thước đo toàn phép
+ * đếm. Người dùng gõ tiếng Việt nên phép so từ khoá không có một chữ nào để
+ * bám, và thứ thật sự chặn họ không nằm ở câu chữ — mô hình KHÔNG có thước đo
+ * nào cho giá. "Tôi chưa hiểu câu này" giấu đúng việc cần làm.
+ */
+describe('Bế tắc ở trình dựng kể tên thước đo đang có', () => {
+  const f = (x: Partial<ExplorerFieldDto>): ExplorerFieldDto =>
+    ({ id: 1, label: 'X', datasetName: 'users', cubeType: 'string', ...x }) as ExplorerFieldDto;
+
+  const TRUONG: ExplorerFieldsDto = {
+    dimensions: [
+      f({ id: 1, label: 'created_at', cubeType: 'time' }),
+      f({ id: 2, label: 'updated_at', cubeType: 'time' }),
+    ],
+    measures: [
+      f({ id: 10, label: 'Số dòng', cubeType: 'number' }),
+      f({ id: 11, label: 'table_count', cubeType: 'number' }),
+    ],
+  };
+
+  const NGUON: Nguon[] = [
+    { ten: 'Mô hình qr order', duKien: [{ nhan: 'Số bảng trong mô hình qr order', gia: '2' }] },
+  ];
+
+  it('kể tên thước đo đang có và chỉ sang nơi tạo thước đo mới', async () => {
+    dung(NGUON, 7, TRUONG, vi.fn());
+    fireEvent.click(nutMo());
+
+    hoi('giúp tui vẽ biểu đồ xem sản phẩm theo giá');
+
+    const bong = await screen.findByText(/thước đo mô hình này đang có/);
+    expect(bong).toHaveTextContent('Số dòng, table_count');
+    expect(bong).toHaveTextContent('tab Thước đo');
+  });
+
+  /*
+   * Trang XEM báo cáo không có tab Thước đo để mà chỉ sang — nói ra ở đó chỉ
+   * là một đường cụt thứ hai. `deXuatBieuDo` rỗng chính là dấu hiệu đó.
+   */
+  it('trang không có trình dựng thì KHÔNG nhắc tới tab Thước đo', async () => {
+    dung(NGUON);
+    fireEvent.click(nutMo());
+
+    hoi('giúp tui vẽ biểu đồ xem sản phẩm theo giá');
+
+    const bong = await screen.findByText(/Tôi chưa hiểu câu này/);
+    expect(bong).not.toHaveTextContent('tab Thước đo');
+  });
+});

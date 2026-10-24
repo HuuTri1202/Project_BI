@@ -512,6 +512,44 @@ export function HoiDapPanel(): React.ReactElement | null {
      */
     const de = deXuatBieuDo(nguCanh.truong);
 
+    /*
+     * ═══ Kể tên THƯỚC ĐO đang có, thay vì chỉ nói "chưa hiểu" ══════════════
+     *
+     * Lỗi đo được: mô hình "qr order" có ba thước đo — "Số dòng", "Số dòng (2)",
+     * "table_count". Người dùng gõ "giúp tui vẽ biểu đồ xem sản phẩm theo giá"
+     * và nhận "Tôi chưa hiểu câu này" kèm năm gợi ý toàn "Số dòng theo
+     * created_at". Họ đọc ra là khung dốt nên hỏi lại bằng cách khác — mà cách
+     * nào cũng trượt, vì thứ chặn không nằm ở câu chữ:
+     *
+     *     mô hình KHÔNG có thước đo nào cho giá.
+     *
+     * Trình dựng chỉ vẽ được `thước đo × chiều`, và thước đo là một bản ghi
+     * trong `datamodel_measures`, không phải một cột số bất kỳ — xem
+     * `explorerFields`: `measures` dựng từ bảng đó, `dimensions` từ cột
+     * `role = 'dimension'`. Nên "tổng giá" chưa tồn tại cho tới khi có người
+     * tạo nó ở tab Thước đo.
+     *
+     * Câu "chưa hiểu" giấu đúng việc cần làm. Kể tên mấy thước đo đang có là
+     * cách ngắn nhất để người dùng tự thấy cái họ cần không nằm trong đó — và
+     * nó đúng với MỌI cách hỏi, kể cả khi mô hình đặt tên cột bằng tiếng Anh
+     * còn người dùng hỏi bằng tiếng Việt, là lúc phép so từ khoá không còn
+     * một chữ nào để bám.
+     *
+     * ⚠️ Chỉ ở trình dựng (`de.length > 0`). Trang xem báo cáo không có tab
+     * Thước đo để mà chỉ sang, và nói ra ở đó là chỉ một đường cụt thứ hai.
+     *
+     * ⚠️ Cắt ở 8 tên: dài hơn thì nó thành một cái bảng trong bong bóng chat,
+     * và con số tổng đã nói đủ phần còn lại.
+     */
+    const doDuoc = nguCanh.truong?.measures.map((m) => m.label) ?? [];
+    const keTen =
+      de.length === 0 || doDuoc.length === 0
+        ? ''
+        : ` Tôi chỉ vẽ được biểu đồ của ${String(doDuoc.length)} thước đo mô hình này đang có: ` +
+          `${doDuoc.slice(0, 8).join(', ')}${doDuoc.length > 8 ? ', …' : ''}. ` +
+          'Cần một con số khác — tổng hay trung bình của một cột chẳng hạn — thì tạo thước đo ' +
+          'ở tab Thước đo của mô hình trước, rồi hỏi lại.';
+
     setTinNhan((cu) =>
       cu.map((t) =>
         t.id === idBot
@@ -519,7 +557,7 @@ export function HoiDapPanel(): React.ReactElement | null {
               id: t.id,
               ai: t.ai,
               luc: t.luc,
-              cau: cau ?? chung,
+              cau: `${cau ?? chung}${keTen}`,
               chuaHieu: true,
               ...(de.length > 0 ? { deXuat: de } : { goiY }),
             }
