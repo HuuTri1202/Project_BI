@@ -41,6 +41,18 @@ export type YDinh =
 export interface TraLoi {
   cau: string;
   /**
+   * Câu này nói "không mục nào thoả" — đúng, nhưng là câu YẾU NHẤT.
+   *
+   * Nó khẳng định trang không có mục nào hợp, trong khi một dữ kiện ĐÃ KHAI có
+   * thể trả lời thẳng. LỖI ĐO ĐƯỢC: "phương thức nào chưa cấu hình xong" nhận
+   * về "Không mục nào — cả 2 mục đều có …", trong lúc bản tóm tắt của trang
+   * mang đúng dữ kiện "Phương thức nào CHƯA cấu hình xong: Chuyển khoản SePay".
+   *
+   * Nên `traLoiTrang` hạ nó xuống cuối hàng, chứ không bỏ: không còn gì khác
+   * thì "không mục nào" vẫn hơn hẳn "tôi chưa hiểu".
+   */
+  rong?: true;
+  /**
    * Những con số ĐÃ định dạng mà câu trả lời đứng trên.
    *
    * Là chuỗi chứ không phải số, cố ý: luật đối chiếu ở backend chỉ cần kiểm
@@ -187,7 +199,26 @@ const TU_KHOA: { y: YDinh; tu: string[] }[] = [
    */
   {
     y: 'dem',
-    tu: ['bao nhieu nhom', 'co may', 'so luong nhom', 'may nhom', 'bao nhieu muc', 'co bao nhieu'],
+    tu: [
+      'bao nhieu nhom',
+      'co may',
+      'so luong nhom',
+      'may nhom',
+      'bao nhieu muc',
+      'co bao nhieu',
+      /*
+       * `may` TRẦN, khác hẳn `bao nhieu` trần ở trên — và khác vì tiếng Việt.
+       *
+       * "mấy" gần như luôn đứng TRƯỚC danh từ được đếm: "thuộc mấy tổ chức",
+       * "vào được mấy workspace". Không có lối dùng nào tương đương với "Boston
+       * bao nhiêu" — tức là không có câu hỏi GIÁ TRỊ nào bị nó nuốt.
+       *
+       * LỖI ĐO ĐƯỢC: "Phạm Quốc Bảo thuộc mấy tổ chức" hoà điểm với nhãn
+       * "… thuộc những tổ chức nào" rồi bị bỏ cả hai, trong khi nhánh `dem` đã
+       * biết cách chọn: nó chỉ chấm trên dữ kiện có giá trị LÀ SỐ.
+       */
+      'may',
+    ],
   },
   { y: 'xu_huong', tu: ['xu huong', 'tang hay giam', 'tang khong', 'giam khong', 'dang tang'] },
   /*
@@ -810,13 +841,63 @@ function timHaiDong(
  * ("của") là trùng ngẫu nhiên, còn hai ứng viên bằng điểm nghĩa là câu hỏi chưa
  * đủ rõ — cả hai đều phải ra `null` để khung nói "chưa hiểu" thay vì chọn bừa.
  */
-function traCuu(duKien: DuKien[], cauHoi: string): TraLoi | null {
+/**
+ * Hư từ: bỏ khỏi phía CÂU HỎI trước khi chấm điểm.
+ *
+ * "của" là hư từ sở hữu, "có" là động từ tồn tại — không chữ nào là tên của
+ * một thứ dữ liệu, mà cả hai lại nằm trong rất nhiều nhãn, nên chúng thổi điểm
+ * lên ở khắp nơi.
+ *
+ * LỖI ĐO ĐƯỢC: "có bao nhiêu kết nối đang có" trên màn MỘT kết nối thắng bằng
+ * đúng chữ "có" của nhãn "Kết nối … có bật SSL không", rồi trả lời "không" cho
+ * một câu hỏi đếm. Bỏ "có" đi thì mọi nhãn hoà điểm, và luật "phải hơn hẳn ứng
+ * viên nhì" tự lo phần còn lại.
+ *
+ * ⚠️ Chỉ bỏ ở phía câu hỏi. Nhãn mất một điểm ảo, không mất nghĩa nào: câu
+ * "kết nối X có bật SSL không" vẫn thắng bằng "bật", "SSL", "không".
+ *
+ * ⚠️ Danh sách này là LỚP TỪ ĐÓNG của tiếng Việt, không phải một bảng đồng
+ * nghĩa — nó không bao giờ dài ra theo dữ liệu của khách hàng.
+ */
+const HU_TU = new Set(['cua', 'co']);
+
+function traCuu(
+  duKien: DuKien[],
+  cauHoi: string,
+  /**
+   * Danh sách nhãn dùng làm NỀN cho phép phủ quyết — mặc định là chính
+   * `duKien`.
+   *
+   * ⚠️ Nhánh `dem` gọi hàm này với danh sách ĐÃ LỌC (chỉ dữ kiện có giá trị là
+   * số), và khi mục chỉ còn một nhãn số thì `chung` rỗng, phủ quyết tắt ngấm.
+   * Đúng ca SAI mà nó sinh ra để chặn: "có bao nhiêu kết nối đang có" trên màn
+   * một kết nối trả về "Số bộ dữ liệu lấy từ kết nối …: 2".
+   *
+   * Chữ nào là "chữ chung của mục này" không phụ thuộc vào việc lượt hỏi này
+   * đang lọc gì — nên nền phải là bản khai đầy đủ.
+   */
+  nenChung: DuKien[] = duKien,
+): TraLoi | null {
   const noiDung = (s: string): string[] =>
     chuanHoa(s)
       .split(' ')
       .filter((t) => t.length > 1 && !TU_HOI.has(t));
 
-  const tuHoi = new Set(noiDung(cauHoi));
+  /*
+   * ⚠️ "bao nhiêu" bỏ nguyên CỤM, không bỏ từng chữ.
+   *
+   * `TU_HOI` không chứa được `bao`: `chuanHoa('báo')` cũng ra `bao`, nên bỏ nó
+   * là xé đôi chữ "báo cáo" ở mọi nhãn. Nhưng cả CỤM "bao nhieu" thì chỉ có
+   * một nghĩa — nó là chữ để hỏi, không bao giờ là tên dữ liệu.
+   *
+   * LỖI ĐO ĐƯỢC: "giá gói Pro bao nhiêu" hoà điểm với nhãn "Hạn mức báo cáo
+   * của gói Pro", vì chữ "bao" của "bao nhiêu" khớp với "báo" của "báo cáo".
+   * Người dùng hỏi giá, khung đưa ra hạn mức.
+   */
+
+  const tuHoi = new Set(
+    noiDung(chuanHoa(cauHoi).split('bao nhieu').join(' ')).filter((t) => !HU_TU.has(t)),
+  );
   if (tuHoi.size === 0) return null;
 
   /*
@@ -850,6 +931,46 @@ function traCuu(duKien: DuKien[], cauHoi: string): TraLoi | null {
    * Nên số lần một chữ được tính = số lần xuất hiện của CÁCH VIẾT nhiều nhất.
    * "bộ" hai lần vẫn là hai; "Thư" + "thu" là một.
    */
+  /*
+   * ═══ PHỦ QUYẾT: trùng toàn chữ CHUNG thì không phải một câu trả lời ══════
+   *
+   * Nhãn của một mục đều mang tên mục ấy: "… kết nối MySQL bán hàng" có trong
+   * cả sáu nhãn. Nên hai chữ "kết nối" một mình đã đủ vượt ngưỡng 2, và câu
+   * hỏi nào nhắc "kết nối" cũng nhận về một dữ kiện nào đó, bất kể hỏi gì.
+   *
+   * HAI CA SAI đo được, cùng gốc này:
+   *
+   *   "có bao nhiêu kết nối đang có"             -> "Số bộ dữ liệu lấy từ…: 2"
+   *   "số tài khoản nhận tiền của … SePay là gì" -> "Nhà cung cấp của …: sepay"
+   *
+   * Ca thứ hai đáng sợ hơn: nó hỏi một thứ bản khai CỐ Ý không chứa, rồi nhận
+   * về một câu rất tự tin về chuyện khác.
+   *
+   * ⚠️ PHỦ QUYẾT, không phải TRỪ ĐIỂM. Đã thử trừ chữ chung ra khỏi điểm: nó
+   * kéo "Số dòng của Orders" xuống còn 1 điểm cho câu "Orders có bao nhiêu
+   * dòng" — dưới ngưỡng 2 — và mất 11 câu đang đúng. Ngưỡng và phép chấm gắn
+   * với nhau; chỉ cái CHỐT cuối là tách ra được.
+   *
+   * Chữ chung không mang tin phân biệt: nó chỉ nói "đúng mục này", mà việc ấy
+   * `nguonTheoTen` đã làm xong. Người thắng phải trùng ít nhất MỘT chữ ở phần
+   * còn lại của nhãn.
+   *
+   * ⚠️ Chỉ áp khi mục có TỪ HAI nhãn. Một nhãn duy nhất thì mọi chữ đều
+   * "chung", và phủ quyết hết là mục đó không bao giờ trả lời được.
+   */
+  /*
+   * ⚠️ Từ BA nhãn trở lên mới xét "chữ chung".
+   *
+   * Hai nhãn chỉ khác nhau một chữ ("Số workspace bạn vào được" / "Tên các
+   * workspace bạn vào được") thì gần như mọi chữ đều "chung", và phủ quyết sẽ
+   * bỏ luôn câu trả lời đúng. Với hai mục, "chung" chưa nói được điều gì.
+   */
+  const chung = new Set<string>(nenChung.length < 3 ? [] : noiDung(nenChung[0]?.nhan ?? ''));
+  for (const d of nenChung.slice(1)) {
+    const co = new Set(noiDung(d.nhan));
+    for (const t of [...chung]) if (!co.has(t)) chung.delete(t);
+  }
+
   const demLap = (nhan: string): number => {
     const theoGoc = new Map<string, Map<string, number>>();
     for (const w of nhan.toLowerCase().split(/\s+/)) {
@@ -871,6 +992,9 @@ function traCuu(duKien: DuKien[], cauHoi: string): TraLoi | null {
   const nhi = diem[1];
   if (nhat === undefined || nhat.diem < 2) return null;
   if (nhi !== undefined && nhi.diem === nhat.diem) return null;
+
+  const rieng = noiDung(nhat.d.nhan).filter((t) => tuHoi.has(t) && !chung.has(t));
+  if (chung.size > 0 && rieng.length === 0) return null;
 
   return traLoiTheoDuKien(nhat.d);
 }
@@ -1148,7 +1272,7 @@ export function traLoi(
 
   if (y === 'dem' && !laLa) {
     const soDuoc = nguon.duKien.filter((d) => soVi(d.gia) !== null);
-    const kq = soDuoc.length === 0 ? null : traCuu(soDuoc, cauHoi);
+    const kq = soDuoc.length === 0 ? null : traCuu(soDuoc, cauHoi, nguon.duKien);
     if (kq !== null) return kq;
   }
 
@@ -1635,6 +1759,7 @@ export function soSanhNguon(
       return {
         cau: `Không mục nào — cả ${soMuc} mục ${pham} đều có "${tt.nhan}".`,
         so: [soMuc],
+        rong: true,
       };
     }
     return {
@@ -1845,11 +1970,36 @@ export function goiYSoSanh(tatCa: Nguon[], tran = 2): string[] {
  */
 function nguonTheoTen(tatCa: Nguon[], cauHoi: string): Nguon | null {
   const q = chuanHoa(cauHoi);
+  /*
+   * ⚠️ Thử CẢ tên đã bỏ phần trong ngoặc ở cuối.
+   *
+   * Console đặt tên workspace là "Phân tích (Công ty ABC)" để hai workspace
+   * trùng tên ở hai tổ chức còn phân biệt được. Người dùng thì gõ "workspace
+   * Phân tích thuộc tổ chức nào" — không ai gõ lại cái ngoặc.
+   *
+   * LỖI ĐO ĐƯỢC: cả hai câu về workspace trong console đều trượt, trong khi
+   * đáp án nằm ngay trong nguồn mang đúng cái tên ấy. `boTenMuc` đã phải xử lý
+   * đúng cái ngoặc này cho phía NHÃN; thiếu nó ở phía TÊN NGUỒN là để nửa
+   * đường.
+   */
   return (
-    [...tatCa]
-      .sort((a, b) => b.ten.length - a.ten.length)
-      .find((n) => n.ten !== '' && q.includes(chuanHoa(n.ten))) ?? null
+    [...tatCa].sort((a, b) => b.ten.length - a.ten.length).find((n) => khopTen(n.ten, q)) ?? null
   );
+}
+
+/**
+ * Câu hỏi có gọi tên mục này không — MỘT phép khớp, dùng chung.
+ *
+ * ⚠️ `nguonTheoTen` và `soMucGoiTen` phải đọc câu hỏi theo CÙNG một kiểu. Bản
+ * trước có hai phép khớp khác nhau, và hậu quả là một mục được `nguonTheoTen`
+ * tìm thấy nhưng `soMucGoiTen` đếm thành 0 — chốt nhường-cho-tên không bao giờ
+ * nổ, và cả hai câu về workspace trong console đều trượt.
+ */
+function khopTen(ten: string, q: string): boolean {
+  return [ten, ten.replace(/\s*\(.*\)\s*$/, '')].some((ung) => {
+    const c = chuanHoa(ung);
+    return c !== '' && q.includes(c);
+  });
 }
 
 /**
@@ -1867,7 +2017,11 @@ function nguonTheoTen(tatCa: Nguon[], cauHoi: string): Nguon | null {
 function soMucGoiTen(tatCa: Nguon[], cauHoi: string): number {
   const q = chuanHoa(cauHoi);
   const ten = [
-    ...new Set(tatCa.map((n) => chuanHoa(n.ten)).filter((t) => t !== '' && q.includes(t))),
+    ...new Set(
+      tatCa
+        .filter((n) => khopTen(n.ten, q))
+        .map((n) => chuanHoa(n.ten.replace(/\s*\(.*\)\s*$/, ''))),
+    ),
   ];
   return ten.filter((t) => !ten.some((k) => k !== t && k.includes(t))).length;
 }
@@ -1944,15 +2098,18 @@ export function traLoiTrang(tatCa: Nguon[], chon: Nguon, cauHoi: string): TraLoi
    */
   if (goiTen !== null && soMucGoiTen(tatCa, cauHoi) === 1) return traLoi(goiTen, cauHoi);
 
+  // Xem `TraLoi.rong`: câu "không mục nào" xuống cuối hàng, không bị bỏ.
+  const soSanh = soSanhNguon(tatCa, cauHoi);
   return (
-    soSanhNguon(tatCa, cauHoi) ??
+    (soSanh?.rong === true ? null : soSanh) ??
     /*
      * `locNguon` nhận ra cột qua một GIÁ TRỊ nằm trong câu hỏi — cùng cơ chế,
      * và cùng rủi ro, với `soSanhNguon`. Chốt `goiTen` ở trên đã che cả hai:
      * tới được đây nghĩa là câu hỏi không gọi tên mục nào.
      */
     locNguon(tatCa, cauHoi) ??
-    traLoi(chon, cauHoi, biet)
+    traLoi(chon, cauHoi, biet) ??
+    soSanh
   );
 }
 

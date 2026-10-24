@@ -975,10 +975,22 @@ export function duKienBangGia(plans: PlanDto[]): Nguon[] {
       duKien: [
         ...dk(`Giá gói ${p.name}`, dinhDangTien(p.priceVnd)),
         ...dk(`Chu kỳ gói ${p.name}`, `${String(p.durationDays)} ngày`),
-        ...dk(`Gói ${p.name} cho mấy workspace`, dinhDangHanMuc(p.maxWorkspaces)),
-        ...dk(`Gói ${p.name} cho mấy báo cáo`, dinhDangHanMuc(p.maxReports)),
-        ...dk(`Gói ${p.name} cho mấy thành viên`, dinhDangHanMuc(p.maxMembers)),
-        ...dk(`Gói ${p.name} cho bao nhiêu dung lượng`, dinhDangHanMuc(p.maxStorageBytes, true)),
+        /*
+         * ⚠️ CỤM DANH TỪ, không phải câu hỏi — luật đã ghi ở `duKienNguonBaoCao`,
+         * và đây là chỗ vi phạm nó đắt nhất.
+         *
+         * LỖI ĐO ĐƯỢC: nhãn cũ là "Gói Pro cho bao nhiêu dung lượng", nên câu
+         * "giá gói Pro bao nhiêu" trùng với nó BỐN chữ (gói, pro, bao, nhiêu)
+         * trong khi nhãn đúng "Giá gói Pro" chỉ trùng ba. Người dùng hỏi giá,
+         * nhận về dung lượng — một con số có thật, của một câu hỏi khác.
+         *
+         * Chữ để hỏi nằm trong nhãn thì nó cạnh tranh bằng chính chữ để hỏi,
+         * chứ không bằng nghĩa. Và `TU_HOI` không gỡ được: "bao" cũng là "báo".
+         */
+        ...dk(`Hạn mức workspace của gói ${p.name}`, dinhDangHanMuc(p.maxWorkspaces)),
+        ...dk(`Hạn mức báo cáo của gói ${p.name}`, dinhDangHanMuc(p.maxReports)),
+        ...dk(`Hạn mức thành viên của gói ${p.name}`, dinhDangHanMuc(p.maxMembers)),
+        ...dk(`Hạn mức dung lượng của gói ${p.name}`, dinhDangHanMuc(p.maxStorageBytes, true)),
         ...dk(`Mô tả gói ${p.name}`, p.description),
       ],
     })),
