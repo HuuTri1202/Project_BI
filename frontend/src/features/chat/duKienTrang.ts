@@ -12,6 +12,7 @@ import {
   type DatasetDto,
   type DatasetPreviewDto,
   type ExplorerResultDto,
+  type ReportDataDto,
   type FolderDto,
   type HomeDataDto,
   type OrderDto,
@@ -292,6 +293,35 @@ export function duKienChiTietDataset(
         };
 
   return [{ ten: ds.name, duKien: d, ...(bangTho === undefined ? {} : { bangTho }) }];
+}
+
+/**
+ * Nguồn của TRÌNH DỰNG: ô đang chọn, rồi tới cấu trúc mô hình.
+ *
+ * ═══ Vì sao tách ra khỏi trang ═════════════════════════════════════════════
+ *
+ * `ReportBuilderPage` gọi mười hook và kéo theo cả kéo-thả, thu phóng, lịch
+ * sử — dựng nó trong jsdom để canh đúng một mảng là một cái giá không đáng.
+ * Mà chỗ dễ hỏng lại nằm gọn trong mảng ấy: bỏ `duKienO` ra thì khung im lặng
+ * mất khả năng đọc ô đang chọn, và không có gì đỏ.
+ *
+ * Nên phần thuần tuý ở đây, trang chỉ còn việc đưa vào. Hàm này test được mà
+ * không cần một DOM nào.
+ *
+ * ⚠️ Ô đang chọn đứng TRƯỚC. Backend chỉ lấy 60 nhãn đầu, và `duKienMoHinh`
+ * của một mô hình nhiều bảng đẩy ra hàng trăm nhãn — xếp sau là ô người dùng
+ * đang nhìn bị cắt sạch trước khi mô hình kịp thấy.
+ */
+export function nguonTrinhDung(
+  tenO: string | null,
+  bang: ReportDataDto | undefined,
+  duKienO: DuKien[],
+  moHinh: DataModelDetailDto | undefined,
+): Nguon[] {
+  return [
+    ...(bang === undefined || tenO === null ? [] : [{ ten: tenO, duKien: duKienO, bang }]),
+    ...(moHinh === undefined ? [] : duKienMoHinh(moHinh)),
+  ];
 }
 
 /**

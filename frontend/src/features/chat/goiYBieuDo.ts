@@ -1,5 +1,6 @@
 import {
   CHART_SHELF_LABELS,
+  CHART_SORT_LABELS,
   CHART_TYPE_HINTS,
   CHART_TYPE_LABELS,
   type ChartSort,
@@ -8,6 +9,7 @@ import {
   type ExplorerFieldsDto,
 } from '@bi/shared';
 
+import type { DuKien } from './nguCanh';
 import { chuanHoa } from './traLoi';
 import type { TraLoi } from './traLoi';
 
@@ -614,4 +616,56 @@ export function cauSua(thay: SuaBieuDo, tenChieuPhu: string | null): TraLoi {
     cau: `Đã ${ve.join(', ')} cho ô đang chọn. Không ưng thì Ctrl+Z.`,
     so,
   };
+}
+
+/**
+ * Ô biểu đồ đang chọn đang được đặt như thế nào.
+ *
+ * ═══ Lỗ hổng mà nó lấp: SỬA được mà ĐỌC không được ═════════════════════════
+ *
+ * `docSuaBieuDo` cho khung đổi số nhóm, đổi thứ tự, đổi chiều tách màu. Nhưng
+ * ô đang chọn khai `duKien: []`, nên hỏi ngược lại — "ô này đang lấy mấy
+ * nhóm", "đang tách màu theo gì", "đang là biểu đồ loại gì" — thì khung chịu.
+ * Lệch hẳn một bên: ghi được mà không đọc được.
+ *
+ * Nó cũng là thứ làm câu xác nhận của `cauSua` kiểm lại được. Khung nói "đã
+ * rút còn 5 nhóm" rồi người dùng hỏi lại "giờ mấy nhóm" — không có mấy dữ kiện
+ * này thì không có cách nào đối chiếu, và một câu xác nhận không kiểm lại được
+ * thì chỉ là một lời hứa.
+ *
+ * ⚠️ Gọi ô bằng ĐÚNG TÊN Ô TRÊN MÀN HÌNH (`CHART_SHELF_LABELS`), không gọi
+ * "chiều"/"thước đo". Người dùng nhìn thấy chữ "Trục ngang" và "Giá trị" ở
+ * trình dựng; khung trả lời bằng từ vựng khác là bắt họ dịch một lần nữa, và
+ * câu hỏi "trục ngang là trường nào" sẽ không khớp nhãn nào.
+ */
+export function duKienODangChon(o: {
+  /** Tên ô, đúng như tiêu đề đang hiện trên đầu ô. */
+  ten: string;
+  loai: ChartType;
+  chieu: string | null;
+  thuocDo: string | null;
+  chieuPhu: string | null;
+  soNhom: number;
+  sapXep: ChartSort;
+}): DuKien[] {
+  const o2 = CHART_SHELF_LABELS[o.loai];
+  const d: DuKien[] = [
+    { nhan: `Loại biểu đồ của ô ${o.ten}`, gia: CHART_TYPE_LABELS[o.loai] },
+    { nhan: `Số nhóm mỗi trang của ô ${o.ten}`, gia: String(o.soNhom) },
+    { nhan: `Thứ tự nhóm của ô ${o.ten}`, gia: CHART_SORT_LABELS[o.sapXep] },
+    {
+      /*
+       * Ô thứ ba gọi tên KHÁC NHAU theo loại biểu đồ: "Nhóm màu" ở cột và
+       * đường, "Trục Y" ở heatmap, "Cột nhóm thứ hai" ở bảng. Chép cứng một
+       * cái tên ở đây là nói sai tên ô cho hai loại biểu đồ.
+       */
+      nhan: `Trường ở ô ${o2.series} của ${o.ten}`,
+      // Nói thẳng "chưa chọn" chứ không bỏ trống dòng này: câu "ô này tách màu
+      // theo gì" phải có câu trả lời, và "chưa chọn" LÀ câu trả lời đúng.
+      gia: o.chieuPhu ?? 'chưa chọn',
+    },
+  ];
+  if (o.chieu !== null) d.push({ nhan: `Trường ở ô ${o2.dimension} của ${o.ten}`, gia: o.chieu });
+  if (o.thuocDo !== null) d.push({ nhan: `Trường ở ô ${o2.measure} của ${o.ten}`, gia: o.thuocDo });
+  return d;
 }

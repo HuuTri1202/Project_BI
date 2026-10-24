@@ -9,6 +9,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   duKienKhamPha,
+  nguonTrinhDung,
   duKienMotDonHang,
   duKienMotKetNoi,
   duKienMuaGoi,
@@ -250,5 +251,54 @@ describe('duKienKhamPha', () => {
 
     expect(d).toContainEqual({ nhan: 'Số dòng của kết quả Khám phá', gia: '2' });
     expect(d).toContainEqual({ nhan: 'Số cột của kết quả Khám phá', gia: '2' });
+  });
+});
+
+/**
+ * Nguồn của trình dựng — ô đang chọn phải MANG THEO dữ kiện của nó.
+ *
+ * ─── Lỗ hổng đo được ────────────────────────────────────────────────────────
+ *
+ * Ô đang chọn khai `duKien: []`, nên khung SỬA được số nhóm và chiều tách màu
+ * mà hỏi ngược "ô này đang lấy mấy nhóm" thì chịu. Ghi được mà không đọc được.
+ *
+ * Bộ này canh phần NỐI, thứ mà `goiYBieuDo.test.ts` không với tới: bộ kia kiểm
+ * `duKienODangChon` dựng đúng dữ kiện, nhưng một bản vá bỏ chúng ra khỏi mảng
+ * nguồn vẫn để nó xanh y nguyên.
+ */
+describe('nguonTrinhDung', () => {
+  const bang = {
+    rows: [{ label: 'Miền Bắc', value: 300 }],
+    dimensionLabel: 'Khu vực',
+    measureLabel: 'Doanh thu',
+    grouped: false,
+  };
+  const duKienO = [{ nhan: 'Số nhóm mỗi trang của ô X', gia: '20' }];
+
+  /*
+   * ⚠️ Thứ tự là một CHỐT, không phải thẩm mỹ. Backend chỉ lấy 60 nhãn đầu, mà
+   * `duKienMoHinh` của một mô hình nhiều bảng đẩy ra hàng trăm nhãn — xếp ô
+   * đang chọn xuống sau là nó bị cắt sạch trước khi mô hình kịp nhìn thấy.
+   */
+  it('ô đang chọn mang theo dữ kiện của nó, và đứng TRƯỚC cấu trúc mô hình', () => {
+    const moHinh = {
+      id: 1,
+      name: 'Bán hàng',
+      datasets: [],
+      measures: [],
+      relationships: [],
+      creatorName: null,
+    } as unknown as Parameters<typeof nguonTrinhDung>[3];
+    const ds = nguonTrinhDung('Ô X', bang, duKienO, moHinh);
+
+    expect(ds[0]?.ten).toBe('Ô X');
+    expect(ds[0]?.duKien).toEqual(duKienO);
+    expect(ds.length).toBeGreaterThan(1);
+    expect(ds[1]?.ten).toBe('Mô hình Bán hàng');
+  });
+
+  it('chưa chọn ô nào thì không có nguồn ô', () => {
+    expect(nguonTrinhDung(null, bang, duKienO, undefined)).toEqual([]);
+    expect(nguonTrinhDung('Ô X', undefined, duKienO, undefined)).toEqual([]);
   });
 });

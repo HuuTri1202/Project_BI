@@ -6,6 +6,7 @@ import {
   cauSua,
   deXuatBieuDo,
   docSuaBieuDo,
+  duKienODangChon,
   goiYBieuDo,
   goiYMoHo,
   muonVe,
@@ -508,5 +509,100 @@ describe('cauSua', () => {
    */
   it('tên chiều và con số nằm trong `so` để lớp viết lại không bẻ được', () => {
     expect(cauSua({ soNhom: 5, chieuPhuId: 2 }, 'Nhóm hàng').so).toEqual(['5', 'Nhóm hàng']);
+  });
+});
+
+/**
+ * Ô đang chọn khai nó đang được đặt thế nào.
+ *
+ * ─── Lỗ hổng đo được ────────────────────────────────────────────────────────
+ *
+ * Khung SỬA được số nhóm, thứ tự, chiều tách màu — mà hỏi ngược lại "ô này
+ * đang lấy mấy nhóm" thì chịu, vì ô đang chọn khai `duKien: []`. Ghi được mà
+ * không đọc được.
+ *
+ * Nó cũng là thứ làm câu xác nhận của `cauSua` kiểm lại được: khung nói "đã
+ * rút còn 5 nhóm", người dùng hỏi "giờ mấy nhóm" và đối chiếu.
+ */
+describe('duKienODangChon', () => {
+  const o = {
+    ten: 'Doanh thu theo Khu vực',
+    loai: 'bar' as const,
+    chieu: 'Khu vực',
+    thuocDo: 'Doanh thu',
+    chieuPhu: null,
+    soNhom: 20,
+    sapXep: 'value' as const,
+  };
+
+  it('khai loại biểu đồ, số nhóm và thứ tự bằng đúng chữ trên màn hình', () => {
+    const d = duKienODangChon(o);
+
+    expect(d).toContainEqual({
+      nhan: 'Loại biểu đồ của ô Doanh thu theo Khu vực',
+      gia: 'Biểu đồ cột',
+    });
+    expect(d).toContainEqual({ nhan: 'Số nhóm mỗi trang của ô Doanh thu theo Khu vực', gia: '20' });
+    expect(d).toContainEqual({
+      nhan: 'Thứ tự nhóm của ô Doanh thu theo Khu vực',
+      gia: 'Theo giá trị (lớn → nhỏ)',
+    });
+  });
+
+  /*
+   * ⚠️ "chưa tách màu" LÀ một câu trả lời, không phải một ô trống. Bỏ hẳn dòng
+   * này đi thì câu "ô này tách màu theo gì" rơi xuống "chưa hiểu", trong khi
+   * khung biết thừa câu trả lời.
+   */
+  it('chưa tách màu thì vẫn khai, và nói thẳng là chưa chọn', () => {
+    expect(duKienODangChon(o)).toContainEqual({
+      nhan: 'Trường ở ô Nhóm màu của Doanh thu theo Khu vực',
+      gia: 'chưa chọn',
+    });
+    expect(duKienODangChon({ ...o, chieuPhu: 'Nhóm hàng' })).toContainEqual({
+      nhan: 'Trường ở ô Nhóm màu của Doanh thu theo Khu vực',
+      gia: 'Nhóm hàng',
+    });
+  });
+
+  /*
+   * ⚠️ Gọi ô bằng ĐÚNG tên ô trên trình dựng ("Trục ngang", "Giá trị"), không
+   * gọi "chiều"/"thước đo". Người dùng nhìn thấy chữ nào thì hỏi bằng chữ ấy;
+   * khung dùng từ vựng khác là bắt họ dịch, và câu hỏi sẽ không khớp nhãn nào.
+   */
+  it('ô thứ ba đổi tên theo loại biểu đồ, không chép cứng một cái tên', () => {
+    const cot = duKienODangChon(o).map((x) => x.nhan);
+    const nhiet = duKienODangChon({ ...o, loai: 'heatmap' }).map((x) => x.nhan);
+    const bang = duKienODangChon({ ...o, loai: 'table' }).map((x) => x.nhan);
+
+    expect(cot).toContain('Trường ở ô Nhóm màu của Doanh thu theo Khu vực');
+    expect(nhiet).toContain('Trường ở ô Trục Y của Doanh thu theo Khu vực');
+    expect(bang).toContain('Trường ở ô Cột nhóm thứ hai của Doanh thu theo Khu vực');
+  });
+
+  it('hai ô kéo-thả chính gọi bằng đúng tên trên màn hình', () => {
+    const d = duKienODangChon(o);
+
+    expect(d).toContainEqual({
+      nhan: 'Trường ở ô Chiều dữ liệu của Doanh thu theo Khu vực',
+      gia: 'Khu vực',
+    });
+    expect(d).toContainEqual({
+      nhan: 'Trường ở ô Giá trị của Doanh thu theo Khu vực',
+      gia: 'Doanh thu',
+    });
+  });
+
+  /*
+   * Hai ô chính bỏ hẳn dòng khi còn trống, khác ô thứ ba luôn có mặt. Chủ ý:
+   * "chưa kéo gì vào Giá trị" là trạng thái DANG DỞ của một ô chưa vẽ được,
+   * còn "chưa chọn Nhóm màu" là một lựa chọn hợp lệ của một biểu đồ hoàn chỉnh.
+   */
+  it('hai ô chính còn trống thì KHÔNG khai một dòng rỗng', () => {
+    const nhan = duKienODangChon({ ...o, chieu: null, thuocDo: null }).map((x) => x.nhan);
+
+    expect(nhan).not.toContain('Trường ở ô Chiều dữ liệu của Doanh thu theo Khu vực');
+    expect(nhan).not.toContain('Trường ở ô Giá trị của Doanh thu theo Khu vực');
+    expect(nhan).toContain('Trường ở ô Nhóm màu của Doanh thu theo Khu vực');
   });
 });
