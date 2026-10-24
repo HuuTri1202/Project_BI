@@ -2,7 +2,8 @@ import { CHART_TYPE_LABELS, type ExplorerQueryDto } from '@bi/shared';
 import { useEffect, useRef, useState } from 'react';
 
 import { KHONG_XUAT } from '../../services/danhDauXuat';
-import { dienDatLai, hieuCauHoi, hoiTrenMoHinh } from './api';
+import { chonCot, dienDatLai, hieuCauHoi, hoiTrenMoHinh } from './api';
+import type { CotChon, HieuCauHoiKetQua } from './api';
 import {
   cauGoiY,
   cauSua,
@@ -19,10 +20,11 @@ import {
 } from './goiYBieuDo';
 import type { GoiYBieuDo, SuaBieuDo } from './goiYBieuDo';
 import { useNguCanh } from './nguCanh';
-import type { NguCanh, Nguon } from './nguCanh';
+import type { BangTho, NguCanh, Nguon } from './nguCanh';
 import { useNguCanhHeThong } from './nguCanhHeThong';
 import { useCoMoHinh } from './trangThai';
 import {
+  cotDoDuoc,
   goiYGan,
   goiYSoSanh,
   luaChonHeThong,
@@ -31,6 +33,7 @@ import {
   nhanDuyNhat,
   moHinhTheoTen,
   traLoiKhung,
+  traLoiBangThoEp,
 } from './traLoi';
 import type { TraLoi } from './traLoi';
 
@@ -493,6 +496,113 @@ export function HoiDapPanel(): React.ReactElement | null {
    * là ba chấm nhấp nháy mãi mãi — một trạng thái chờ không bao giờ kết thúc,
    * tệ hơn hẳn một câu "chưa hiểu" tử tế.
    */
+  /**
+   * Ba trạng thái, ba câu — và không câu nào hứa quá thứ đã làm.
+   *
+   * `goi-hong` sửa một lời nói sai: nhà cung cấp trả 500 hay hết giờ 8 giây mà
+   * khung vẫn khẳng định "tôi đã đọc hết" là nói chắc nịch về một việc chưa hề
+   * xảy ra. Nó cũng là trạng thái TỰ HẾT — nói ra để người dùng thử lại, thay
+   * vì tưởng bot dốt đi.
+   */
+  function cauTrangThai(trangThai: HieuCauHoiKetQua['trangThai']): string | undefined {
+    if (trangThai === 'da-doc')
+      return `Tôi đã đọc hết số liệu đang có trên ${nguCanh.trang} và không có mục nào trả lời được câu này.`;
+    if (trangThai === 'goi-hong')
+      return 'Tôi chưa gọi được mô hình ngôn ngữ (mạng, hoặc nhà cung cấp đang lỗi), nên lần này chỉ so được bằng từ khoá. Thử hỏi lại sau một lát.';
+    return undefined;
+  }
+
+  /**
+   * Hai đường cuối cùng, theo thứ tự: đặt một câu hỏi MỚI, rồi mới tới bế tắc.
+   *
+   * Tách ra vì giờ có BA chỗ rơi vào đây — lớp chọn nhãn, lớp chọn cột, và
+   * lượt gọi hỏng của lớp chọn cột. Ba bản sao của cùng một chuỗi quyết định
+   * là ba chỗ để lệch nhau.
+   */
+  function duongCuoi(q: string, idBot: number, trangThai: HieuCauHoiKetQua['trangThai']): void {
+    const moHinh = moHinhHoiDuoc(q);
+    if (moHinh !== null) {
+      nhoMoHinhHoi(q, idBot, moHinh);
+      return;
+    }
+    hetDuong(q, idBot, cauTrangThai(trangThai));
+  }
+
+  /**
+   * Bảng đang hiện: nhờ mô hình CHỌN HAI CỘT, rồi tính tại máy này.
+   *
+   * ═══ Vì sao không nhét mấy cột này vào danh sách của `hieuCauHoi` ════════
+   *
+   * Vì lớp ấy chọn MỘT mục, nên một cặp cột phải được liệt kê SẴN thành một
+   * nhãn. Bảng 18 cột chữ × 6 cột số là 108 nhãn, mà trần là 60 — đo được trên
+   * một bảng cỡ thật: 3/6 câu có đáp án bị cắt mất, và mô hình chọn đúng 3/3 ở
+   * mấy câu còn lại. Nút thắt là cái trần, không phải mô hình.
+   *
+   * `phepCuaBangTho` còn cắt sâu hơn nữa — hai cột chữ, hai cột số — vì nó
+   * dựng một danh sách cho NGƯỜI đọc. Dùng lại đúng danh sách ấy làm không
+   * gian lựa chọn của mô hình là lỗi đã gỡ hai lần ở chỗ khác.
+   *
+   * Đường này cho mô hình chọn riêng từng ô: không gian là `18 + 6`, một lượt
+   * gọi, và mọi phép tính vẫn chạy tại máy này trên đúng bảng đang hiện.
+   */
+  /** Trần cột gửi lên, khớp `chonCotBodySchema` và `TRAN_TRUONG` của lớp dưới. */
+  const TRAN_COT = 120;
+
+  function nhoChonCot(
+    q: string,
+    idBot: number,
+    bt: BangTho,
+    trangThai: HieuCauHoiKetQua['trangThai'],
+  ): void {
+    /*
+     * ⚠️ Đánh số từ MỘT, không từ không.
+     *
+     * Lớp dưới đọc id bằng `soNguyenDuong` và một id lạ thì bỏ CẢ FORM — nên
+     * cột `id: 0` làm mọi câu hỏi về cột đầu tiên trả về form rỗng, lặng lẽ.
+     * Đo được: "khu vực nào có doanh thu cao nhất" với `Sales` ở cột 0 trả về
+     * rỗng ba lượt liền, trong khi ba câu về cột khác đều đúng.
+     */
+    const doDuoc = cotDoDuoc(bt);
+    const cot: CotChon[] = bt.cot.flatMap((nhan, i) =>
+      nhan === ''
+        ? []
+        : [
+            {
+              id: i + 1,
+              nhan,
+              loai: doDuoc.includes(i) ? ('thuoc do' as const) : ('chieu' as const),
+            },
+          ],
+    );
+    if (cot.length === 0) {
+      duongCuoi(q, idBot, trangThai);
+      return;
+    }
+
+    void chonCot({ cauHoi: q, cot: cot.slice(0, TRAN_COT) })
+      .then(({ chieu, thuocDo }) => {
+        // Câu chữ và con số vẫn do `traLoi.ts` tính ra. Mô hình chỉ chỉ ra hai
+        // cột — cùng ranh giới với mọi lớp mô hình khác của khung.
+        const veChiSo = (id: number | null): number | null => (id === null ? null : id - 1);
+        const kq = traLoiBangThoEp(bt, q, { nhan: veChiSo(chieu), do: veChiSo(thuocDo) });
+        if (kq === null) {
+          duongCuoi(q, idBot, trangThai);
+          return;
+        }
+        setTinNhan((cu) =>
+          cu.map((t) =>
+            t.id === idBot
+              ? { id: t.id, ai: t.ai, luc: t.luc, cau: kq.cau, doMoHinh: 'mô hình chọn cột' }
+              : t,
+          ),
+        );
+        vietLai(q, idBot, kq);
+      })
+      .catch(() => {
+        duongCuoi(q, idBot, trangThai);
+      });
+  }
+
   function hetDuong(q: string, idBot: number, cau?: string): void {
     const chung = `Tôi chưa hiểu câu này. Tôi trả lời bằng số liệu đang có trên ${nguCanh.trang}${
       heThong.length > 0 ? ', cộng danh sách bộ dữ liệu và mô hình của tổ chức' : ''
@@ -661,28 +771,20 @@ export function HoiDapPanel(): React.ReactElement | null {
            * nó TRƯỚC khi kết luận là không có số liệu — câu "tôi đã đọc hết"
            * mà vẫn còn một đường chưa đi là một câu nói sai.
            */
-          const moHinh = moHinhHoiDuoc(q);
-          if (moHinh !== null) {
-            nhoMoHinhHoi(q, idBot, moHinh);
+          /*
+           * BẢNG đang hiện đi TRƯỚC đường đặt câu hỏi mới, và thứ tự đó là một
+           * quyết định về nghĩa chứ không về giá.
+           *
+           * Người dùng vừa chạy một truy vấn và đang nhìn kết quả của nó. Hỏi
+           * "cái nào cao nhất" là hỏi về BẢNG ẤY. Đi đường `nhoMoHinhHoi`
+           * trước là đặt một truy vấn KHÁC lên cả mô hình rồi trả về một con số
+           * của một tập dữ liệu khác hẳn — thật, và không trả lời câu được hỏi.
+           */
+          if (nguon.bangTho !== undefined) {
+            nhoChonCot(q, idBot, nguon.bangTho, trangThai);
             return;
           }
-          /*
-           * Ba trạng thái, ba câu — và không câu nào hứa quá thứ đã làm.
-           *
-           * `goi-hong` là câu mới và nó sửa một lời nói sai: nhà cung cấp trả
-           * 500 hay hết giờ 8 giây mà khung vẫn khẳng định "tôi đã đọc hết" là
-           * nói chắc nịch về một việc chưa hề xảy ra. Nó cũng là trạng thái
-           * TỰ HẾT — nói ra để người dùng thử lại, thay vì tưởng bot dốt đi.
-           */
-          hetDuong(
-            q,
-            idBot,
-            trangThai === 'da-doc'
-              ? `Tôi đã đọc hết số liệu đang có trên ${nguCanh.trang} và không có mục nào trả lời được câu này.`
-              : trangThai === 'goi-hong'
-                ? 'Tôi chưa gọi được mô hình ngôn ngữ (mạng, hoặc nhà cung cấp đang lỗi), nên lần này chỉ so được bằng từ khoá. Thử hỏi lại sau một lát.'
-                : undefined,
-          );
+          duongCuoi(q, idBot, trangThai);
           return;
         }
 

@@ -89,6 +89,7 @@ import {
 } from '../../services/ingest/loadService';
 import { coCauHinhLlm, dienDat } from '../../services/chat/dienDat';
 import { ghiTruot, hieuY } from '../../services/chat/hieuY';
+import { datCauHoi } from '../../services/chat/datCauHoi';
 import { hoiTrenMoHinh } from '../../services/chat/hoiTrenMoHinh';
 import { chTableName } from '../../services/ingest/buildDdl';
 import { cubeTypeOf } from '../../services/datamodel/classifyColumn';
@@ -127,6 +128,7 @@ import { buildPageResult, paginationSchema, resolveSortColumn } from '../../util
 import {
   dienDatBodySchema,
   chatCauHoiBodySchema,
+  chonCotBodySchema,
   hieuYBodySchema,
   addDatasetsBodySchema,
   commitDatasetsBodySchema,
@@ -3846,6 +3848,39 @@ v1Router.post(
      */
     ghiTruot(body.cauHoi, kq.chon === null ? null : (body.nhan[kq.chon] ?? null));
     res.json(kq);
+  }),
+);
+
+/**
+ * Bảng nào trên màn hình cũng hỏi được bằng chữ của người dùng — §chat.
+ *
+ * ═══ Vì sao KHÔNG dùng `/chat/hieu-y` cho việc này ════════════════════════
+ *
+ * Vì `hieuY` cho mô hình chọn MỘT mục, nên để nó chọn được một CẶP cột thì
+ * client phải liệt kê sẵn mọi cặp: một bảng 18 cột chữ × 6 cột số là 108 nhãn,
+ * mà trần của `hieuY` là 60. Đo được: trên một bảng cỡ thật, 3/6 câu có đáp án
+ * bị cắt mất trước khi mô hình kịp nhìn thấy — và mô hình chọn đúng 3/3 ở mấy
+ * câu còn lại. Nút thắt là cái trần, không phải mô hình.
+ *
+ * Lớp điền form thì cho chọn RIÊNG từng ô, nên không gian là `18 + 6` chứ
+ * không phải `18 × 6`. Cùng lý do đã ghi ở `capTheoId` bên frontend.
+ *
+ * ⚠️ KHÔNG đọc gì từ kho. Nó chỉ dịch một câu hỏi thành hai chỉ số cột; mọi
+ * phép tính vẫn chạy trên máy người dùng, trên đúng bảng họ đang nhìn.
+ */
+v1Router.post(
+  '/chat/chon-cot',
+  rateLimit({ bucket: 'chat-chon-cot', max: 40, windowSeconds: 600 }),
+  asyncHandler(async (req, res) => {
+    const body = chonCotBodySchema.parse(req.body);
+    const { truyVan, daHoi } = await datCauHoi({ cauHoi: body.cauHoi, truong: body.cot });
+    res.json({
+      // `kiemForm` đã bỏ CẢ FORM nếu có id lạ, nên tới đây id nào cũng là id
+      // client vừa gửi lên. Xem `datCauHoi`.
+      chieu: truyVan?.dimensionIds[0] ?? null,
+      thuocDo: truyVan?.measureIds[0] ?? null,
+      daHoi,
+    });
   }),
 );
 

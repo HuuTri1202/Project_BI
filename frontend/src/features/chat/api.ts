@@ -167,3 +167,40 @@ export async function hoiTrenMoHinh(
   );
   return data;
 }
+
+/** Một cột gửi cho mô hình chọn — `id` là CHỈ SỐ cột trong bảng đang hiện. */
+export interface CotChon {
+  id: number;
+  nhan: string;
+  loai: 'chieu' | 'thuoc do';
+}
+
+export interface ChonCotKetQua {
+  /** Chỉ số cột NHÃN, hoặc `null` khi mô hình không chọn. */
+  chieu: number | null;
+  /** Chỉ số cột ĐO, hoặc `null`. */
+  thuocDo: number | null;
+  /** Mô hình có THẬT SỰ được hỏi không — xem `HieuCauHoiKetQua.trangThai`. */
+  daHoi: boolean;
+}
+
+/**
+ * Hai cột của bảng đang hiện mà câu hỏi nói tới — lớp ĐIỀN FORM.
+ *
+ * `hieuCauHoi` không làm được việc này: nó chọn MỘT mục, nên để chọn một CẶP
+ * cột thì phải liệt kê sẵn mọi cặp — một bảng 18 cột chữ × 6 cột số là 108
+ * nhãn, mà trần của nó là 60. Đường này cho mô hình chọn riêng từng ô.
+ *
+ * Nhớ trong phiên NHƯ `hieuCauHoi`, và cùng một luật: chỉ nhớ khi mô hình thật
+ * sự đã đọc. Một lượt gọi hỏng mà nhớ lại thì trục trặc một phút thành trục
+ * trặc cả buổi.
+ */
+export async function chonCot(input: { cauHoi: string; cot: CotChon[] }): Promise<ChonCotKetQua> {
+  const khoa = `cc:${JSON.stringify(input)}`;
+  const da = doc<ChonCotKetQua>(khoa);
+  if (da !== undefined) return da;
+
+  const { data } = await apiClient.post<ChonCotKetQua>('/v1/chat/chon-cot', input);
+  if (data.daHoi) ghi(khoa, data);
+  return data;
+}

@@ -29,6 +29,7 @@ import { THUOC_TINH_KHONG_XUAT } from '../src/services/danhDauXuat';
  */
 
 vi.mock('../src/features/chat/api', () => ({
+  chonCot: vi.fn(),
   dienDatLai: vi.fn(),
   hieuCauHoi: vi.fn(),
   hoiTrenMoHinh: vi.fn(),
@@ -49,6 +50,7 @@ vi.mock('../src/features/chat/nguCanhHeThong', () => ({ useNguCanhHeThong: vi.fn
 // thường vì phần lớn ca ở đây không nói gì về nó.
 vi.mock('../src/features/chat/trangThai', () => ({ useCoMoHinh: vi.fn() }));
 
+const chonCot = vi.mocked(chatApi.chonCot);
 const dienDatLai = vi.mocked(chatApi.dienDatLai);
 const hieuCauHoi = vi.mocked(chatApi.hieuCauHoi);
 const useNguCanhHeThong = vi.mocked(heThongHook.useNguCanhHeThong);
@@ -70,6 +72,10 @@ beforeEach(() => {
   // cũng là trạng thái mà mọi ca về phép so từ khoá muốn kiểm.
   hieuCauHoi.mockReset();
   hieuCauHoi.mockResolvedValue({ chon: null, trangThai: 'chua-cau-hinh' });
+
+  // Mặc định: lớp chọn cột cũng chưa cấu hình — đúng trạng thái máy chưa khoá.
+  chonCot.mockReset();
+  chonCot.mockResolvedValue({ chieu: null, thuocDo: null, daHoi: false });
 
   // Mặc định: KHÔNG có nguồn xuyên hệ thống — đúng trạng thái của một viewer
   // (không có `dataset:read`) và của mọi ca chỉ nói về trang đang mở.
@@ -1673,5 +1679,90 @@ describe('Câu xin vẽ nhận cặp trường từ form mô hình điền', () 
 
     expect(await screen.findByText(/Doanh thu cao nhất là 500/)).toBeInTheDocument();
     expect(screen.queryByText('Doanh thu theo Khu vực')).not.toBeInTheDocument();
+  });
+});
+
+/*
+ * ═══ Bảng đang hiện: mô hình CHỌN HAI CỘT ══════════════════════════════════
+ *
+ * Tiêu đề cột tiếng Anh, câu hỏi tiếng Việt — phép so từ khoá không có một chữ
+ * nào để bám. Liệt kê sẵn mọi CẶP cột thì vượt trần 60 nhãn (18 × 6 = 108), nên
+ * lớp chọn-nhãn không với tới được. Lớp này chọn riêng từng ô.
+ */
+describe('Bảng thô: mô hình chọn hai cột rồi khung tự tính', () => {
+  const NGUON: Nguon[] = [
+    {
+      ten: 'Kết quả Khám phá',
+      duKien: [],
+      bangTho: {
+        cot: ['Region', 'City', 'Sales', 'Profit'],
+        dong: [
+          ['East', 'Boston', 100, 7],
+          ['East', 'New York', 50, 30],
+          ['West', 'Seattle', 90, 4],
+        ],
+        luuY: 'tính trên 3 dòng kết quả Khám phá đang hiện',
+      },
+    },
+  ];
+
+  const CAU = 'thành phố nào lời nhất';
+
+  it('chọn đúng hai cột thì ra câu trả lời, kèm nhãn "mô hình chọn cột"', async () => {
+    // id 2 = cột "City", id 4 = cột "Profit" — đánh số từ MỘT, xem `nhoChonCot`.
+    chonCot.mockResolvedValue({ chieu: 2, thuocDo: 4, daHoi: true });
+    dung(NGUON);
+    fireEvent.click(nutMo());
+
+    hoi(CAU);
+
+    // New York: Profit 30 — cao nhất, và KHÔNG phải Boston (Sales 100).
+    const bong = await screen.findByText(/New York/);
+    expect(bong).toHaveTextContent('30');
+    expect(await screen.findByText(/mô hình chọn cột/)).toBeInTheDocument();
+  });
+
+  /*
+   * ⚠️ Cột ĐẦU TIÊN phải với tới được, và nó chỉ với tới được nếu id đánh số
+   * từ MỘT: lớp dưới đọc id bằng `soNguyenDuong`, nên `id: 0` làm hỏng cả form
+   * một cách lặng lẽ. Đo được trên bảng thật ba lượt liền.
+   */
+  it('đánh số cột từ MỘT, nên cột đầu tiên vẫn chọn được', async () => {
+    chonCot.mockResolvedValue({ chieu: 1, thuocDo: 3, daHoi: true });
+    dung(NGUON);
+    fireEvent.click(nutMo());
+
+    hoi('khu vực nào bán nhiều nhất');
+
+    // id 1 = "Region", id 3 = "Sales". East = 100 + 50 = 150 > West = 90.
+    const bong = await screen.findByText(/East/);
+    expect(bong).toHaveTextContent('150');
+    expect(chonCot.mock.calls[0]?.[0].cot[0]).toMatchObject({ id: 1, nhan: 'Region' });
+  });
+
+  /*
+   * Không ép cột thì chính câu hỏi phải chỉ ra hai cột — và nó không chỉ ra
+   * được chữ nào. Ca này canh rằng câu trả lời ở trên ĐẾN TỪ lớp chọn cột, chứ
+   * không phải từ một phép đoán nào sẵn có.
+   */
+  it('mô hình không chọn được cột nào -> vẫn là bế tắc', async () => {
+    chonCot.mockResolvedValue({ chieu: null, thuocDo: null, daHoi: true });
+    dung(NGUON);
+    fireEvent.click(nutMo());
+
+    hoi(CAU);
+
+    expect(await screen.findByText(/Tôi chưa hiểu câu này/)).toBeInTheDocument();
+  });
+
+  /** Lượt gọi hỏng KHÔNG được làm mất bong bóng — nó rơi về đúng bế tắc cũ. */
+  it('lớp chọn cột gọi hỏng -> rơi về bế tắc, không treo ba chấm', async () => {
+    chonCot.mockRejectedValue(new Error('mạng'));
+    dung(NGUON);
+    fireEvent.click(nutMo());
+
+    hoi(CAU);
+
+    expect(await screen.findByText(/Tôi chưa hiểu câu này/)).toBeInTheDocument();
   });
 });

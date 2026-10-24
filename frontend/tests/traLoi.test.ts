@@ -13,6 +13,7 @@ import {
   moHinhTheoTen,
   nguonMoHo,
   traLoi,
+  traLoiBangThoEp,
   traLoiHeThong,
   traLoiTrang,
 } from '../src/features/chat/traLoi';
@@ -786,6 +787,74 @@ describe('Bảng dữ liệu thô: câu hỏi chọn cột', () => {
 
     expect(kq?.cau).toContain('150');
     expect(kq?.cau).not.toContain('170');
+  });
+
+  /*
+   * ═══ Hai cột do LỚP MÔ HÌNH ép ═════════════════════════════════════════
+   *
+   * Bảng tiêu đề tiếng Anh, câu hỏi tiếng Việt: phép so từ khoá không có một
+   * chữ nào để bám. Hai cột số nên luật "chỉ có một cột đo thì khỏi chọn" cũng
+   * không cứu được — đúng hình dạng mà lớp chọn cột sinh ra để lo.
+   */
+  const ANH = (): Nguon =>
+    nguon(
+      ['Region', 'City', 'Sales', 'Profit'],
+      [
+        ['East', 'Boston', 100, 7],
+        ['East', 'New York', 50, 30],
+        ['West', 'Seattle', 90, 4],
+      ],
+    );
+
+  it('không ép cột thì câu tiếng Việt KHÔNG có đáp án nào', () => {
+    const bt = ANH().bangTho;
+    expect(bt && traLoiBangThoEp(bt, 'thành phố nào lời nhất')).toBeNull();
+  });
+
+  it('ép đúng hai cột thì tính trên ĐÚNG hai cột đó', () => {
+    const bt = ANH().bangTho;
+    const kq = bt && traLoiBangThoEp(bt, 'thành phố nào lời nhất', { nhan: 1, do: 3 });
+
+    // New York lời 30 — cao nhất. Boston bán nhiều nhất (100) nhưng không hỏi.
+    expect(kq?.cau).toContain('New York');
+    expect(kq?.cau).not.toContain('Boston');
+  });
+
+  /*
+   * ⚠️ Chỉ số ép vẫn bị kiểm lại. Đặt một cột CHỮ vào ô ĐO thì `oThanhSo` trả
+   * `null` cho mọi dòng, câu trả lời biến mất im lặng, và nó trông như mô hình
+   * bó tay chứ không như một cột đặt nhầm ô.
+   */
+  it('ép một cột CHỮ vào ô đo thì BỎ phép ép, không dựng bừa', () => {
+    const bt = ANH().bangTho;
+    // Cột 1 là "City" — chữ, không đo được. Bỏ phép ép thì không còn cột đo
+    // nào, và câu hỏi quay về đúng chỗ nó đứng khi chưa ai chọn hộ: `null`.
+    expect(bt && traLoiBangThoEp(bt, 'thành phố nào lời nhất', { nhan: null, do: 1 })).toBeNull();
+    // Cột 9 không tồn tại — cùng luật, và cột nhãn thì rơi về phép đoán cũ.
+    expect(bt && traLoiBangThoEp(bt, 'thành phố nào lời nhất', { nhan: 9, do: 9 })).toBeNull();
+  });
+
+  /*
+   * ⚠️ Bỏ chỉ số sai phải RƠI VỀ phép so từ khoá, không phải rơi xuống `null`.
+   *
+   * Khác biệt chỉ lộ ra khi câu hỏi TỰ gọi tên được cột: nhận bừa chỉ số sai
+   * thì `oThanhSo` trả `null` cho mọi dòng và câu trả lời biến mất — người
+   * dùng mất một đáp án mà khung vốn có sẵn, chỉ vì mô hình chỉ trệch một ô.
+   */
+  it('chỉ số ép sai thì vẫn còn đường cũ: câu hỏi tự gọi tên cột', () => {
+    const bt = nguon(
+      ['Sản phẩm', 'Doanh thu', 'Lợi nhuận'],
+      [
+        ['Staples', 100, 7],
+        ['Boston', 50, 30],
+      ],
+    ).bangTho;
+
+    // Ép cột 0 ("Sản phẩm" — chữ) vào ô ĐO. Bỏ nó đi thì chính câu hỏi chỉ ra
+    // cột "Doanh thu", và Staples 100 là cao nhất.
+    const kq = bt && traLoiBangThoEp(bt, 'doanh thu cao nhất là bao nhiêu', { nhan: null, do: 0 });
+
+    expect(kq?.cau).toContain('100');
   });
 
   /** Cột toàn true/false không phải thước đo: cộng nó ra một con số không ai hỏi. */

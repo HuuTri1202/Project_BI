@@ -847,6 +847,27 @@ function traCuu(duKien: DuKien[], cauHoi: string): TraLoi | null {
 }
 
 /**
+ * Tính trên BẢNG THÔ — một đường duy nhất, dùng chung cho hai lớp.
+ *
+ * Lớp so từ khoá gọi nó không kèm `epCot`: chính câu hỏi chỉ ra hai cột. Lớp
+ * mô hình gọi nó KÈM `epCot` khi phép so từ khoá đã trượt — và đó là cả lý do
+ * nó được tách ra: hai lớp phải tính bằng cùng một phép, không phải hai đường
+ * song song rồi lệch nhau ở vế điều kiện.
+ */
+export function traLoiBangThoEp(
+  bt: BangTho,
+  cauHoi: string,
+  epCot?: { nhan: number | null; do: number | null },
+): TraLoi | null {
+  const kq = bangTuBangTho(bt, cauHoi, epCot);
+  if (kq === null) return null;
+  return tinhBang(kq.bang, cauHoi, docYDinh(cauHoi), 'label', {
+    chu: 'bảng này',
+    luuY: [kq.gop, bt.luuY].filter((x) => x !== null).join('; '),
+  });
+}
+
+/**
  * Trả lời một câu hỏi về MỘT nguồn. `null` = chưa hiểu.
  *
  * Thử tính toán trước rồi mới tra cứu: câu "tổng doanh thu bao nhiêu" trên một
@@ -886,7 +907,7 @@ function oThanhSo(v: string | number | boolean | null): number | null {
 }
 
 /** Chỉ số những cột ĐO ĐƯỢC: mọi ô có giá trị đều đọc ra số, và có ít nhất một ô. */
-function cotDoDuoc(bt: BangTho): number[] {
+export function cotDoDuoc(bt: BangTho): number[] {
   return bt.cot.flatMap((_, i) => {
     let co = 0;
     for (const d of bt.dong) {
@@ -956,15 +977,31 @@ function cotQuaGiaTri(bt: BangTho, chiSo: number[], q: string): number | null {
 export function bangTuBangTho(
   bt: BangTho,
   cauHoi: string,
+  /**
+   * Hai cột do LỚP MÔ HÌNH chọn — xem `traLoiBangThoEp`.
+   *
+   * ⚠️ Vẫn bị kiểm lại ở đây, không nhận thẳng. Chỉ số ép phải nằm đúng nhóm
+   * của nó: một cột chữ đặt vào ô ĐO thì `oThanhSo` trả `null` cho mọi dòng và
+   * câu trả lời biến mất — im lặng, và trông như mô hình bó tay chứ không như
+   * một cột đặt nhầm ô.
+   */
+  epCot?: { nhan: number | null; do: number | null },
 ): { bang: ReportDataDto; gop: string | null } | null {
   if (bt.dong.length === 0) return null;
   const q = ` ${chuanHoa(cauHoi)} `;
 
   const doDuoc = cotDoDuoc(bt);
   const conLai = bt.cot.flatMap((_, i) => (doDuoc.includes(i) ? [] : [i]));
+  const hopLe = (i: number | null | undefined, trong: number[]): number | null =>
+    i !== null && i !== undefined && trong.includes(i) ? i : null;
+
   // TÊN cột trước, rồi mới tới một GIÁ TRỊ của nó — xem `cotQuaGiaTri`.
-  const nhanGoiTen = cotGoiTen(bt, conLai, q) ?? cotQuaGiaTri(bt, conLai, q);
-  const iDo = cotGoiTen(bt, doDuoc, q) ?? (doDuoc.length === 1 ? (doDuoc[0] ?? null) : null);
+  const nhanGoiTen =
+    hopLe(epCot?.nhan, conLai) ?? cotGoiTen(bt, conLai, q) ?? cotQuaGiaTri(bt, conLai, q);
+  const iDo =
+    hopLe(epCot?.do, doDuoc) ??
+    cotGoiTen(bt, doDuoc, q) ??
+    (doDuoc.length === 1 ? (doDuoc[0] ?? null) : null);
 
   /*
    * Không nói ĐO gì, nhưng có gọi tên một cột — thì đếm DÒNG, đúng như `COUNT(*)`.
@@ -1058,14 +1095,8 @@ export function traLoi(
    * biệt chúng, và nó đọc được từ chính dữ liệu.
    */
   /** Tính trên bảng dữ liệu thô của nguồn này, nếu nó có. */
-  const tuBangTho = (): TraLoi | null => {
-    const bt = nguon.bangTho === undefined ? null : bangTuBangTho(nguon.bangTho, cauHoi);
-    if (bt === null || nguon.bangTho === undefined) return null;
-    return tinhBang(bt.bang, cauHoi, y, 'label', {
-      chu: 'bảng này',
-      luuY: [bt.gop, nguon.bangTho.luuY].filter((x) => x !== null).join('; '),
-    });
-  };
+  const tuBangTho = (): TraLoi | null =>
+    nguon.bangTho === undefined ? null : traLoiBangThoEp(nguon.bangTho, cauHoi);
 
   /*
    * BẢNG THÔ đứng ĐÚNG CHỖ của `nguon.bang` ở trên, và vì đúng lý do đó.
