@@ -147,6 +147,22 @@ const TU_THUA = new Set([
   'cai',
   'thi',
   'la',
+  /*
+   * ⚠️ Mấy chữ đệm cuối câu — thêm vào vì `conLai` dưới đây ĐẾM chữ còn lại.
+   *
+   * "tui muốn xem discount như thế nào": `the` và `nao` đã có trong danh sách,
+   * nhưng `nhu` thì chưa — và một chữ sót lại là đủ để `conLai` kết luận người
+   * dùng đang nói về một chiều nào đó, rồi chặn phép điền hộ.
+   *
+   * Danh sách này KHÔNG cần đóng, và đó là lý do nó được phép tồn tại: sót một
+   * chữ đệm thì câu hỏi rơi xuống lớp mô hình thay vì được trả lời ngay tại
+   * máy. Mất một nhịp, không mất câu trả lời — ngược hẳn với một danh sách mà
+   * thiếu một mục là trượt hẳn.
+   */
+  'nhu',
+  'duoc',
+  'voi',
+  'nhe',
 ]);
 
 export interface GoiYBieuDo {
@@ -252,7 +268,7 @@ export function goiYBieuDo(
   if (truong === undefined) return null;
   const q = chuanHoa(cauHoi);
 
-  const { veDo, veChieu } = hangVe(q);
+  const { veDo, veChieu } = veTruong(truong, q);
   const thuocDo = chamTruong(truong.measures, veDo);
   if (thuocDo === null) return null;
 
@@ -301,6 +317,27 @@ function doanChieu(
   }
   if (topTruong(truong.dimensions, veChieu).length > 0 || !muonVe(q)) return null;
 
+  /*
+   * ⚠️ CHỐT: luật (2) chỉ đúng khi câu THẬT SỰ không nói gì về chiều.
+   *
+   * Lỗi đo được: "tui muốn xem khu vực có discount như thế nào" trên mô hình
+   * Global-Superstore ra "Discount theo Order Date". Thước đo đúng, chiều sai
+   * hẳn — và sai vì một lý do khó chịu: người dùng ĐÃ nói ra chiều họ muốn
+   * ("khu vực"), chỉ là trường tên "Region" nên phép so từ khoá không bắt
+   * được một chữ nào. Luật (2) đọc "không khớp chiều nào" thành "không nói gì
+   * về chiều", rồi điền hộ một chiều thời gian vì `diemCap` cộng điểm cho nó.
+   *
+   * Hai cách đọc đó khác nhau ở đúng chỗ quan trọng nhất. "Không nói gì" thì
+   * điền hộ là giúp; "có nói mà ta không hiểu" thì điền hộ là BỎ NGOÀI TAI
+   * đúng phần người dùng vừa gõ ra — và vì kết quả hiện lên kèm tên đọc được,
+   * họ sẽ tưởng khung đã hiểu rồi hiểu sai.
+   *
+   * `conLai` phân biệt hai cách đọc ấy: còn chữ nào không giải thích được bằng
+   * chính thước đo vừa khớp thì nhường, để câu rơi xuống lớp mô hình — lớp DUY
+   * NHẤT có cửa hiểu "khu vực" là "Region". Xem `capChoMoHinh`.
+   */
+  if (conLai(q, thuocDo).size > 0) return null;
+
   const xep = truong.dimensions
     .map((c) => ({ c, diem: diemCap(c, thuocDo) }))
     .sort((a, b) => b.diem - a.diem);
@@ -328,7 +365,7 @@ export function goiYMoHo(truong: ExplorerFieldsDto | undefined, cauHoi: string):
   if (truong === undefined || goiYBieuDo(truong, cauHoi) !== null) return [];
 
   const q = chuanHoa(cauHoi);
-  const { veDo, veChieu } = hangVe(q);
+  const { veDo, veChieu } = veTruong(truong, q);
   const thuocDo = topTruong(truong.measures, veDo);
   let chieu = topTruong(truong.dimensions, veChieu);
 
@@ -359,6 +396,43 @@ function hangVe(q: string): { veDo: Set<string>; veChieu: Set<string> } {
     veDo: tuNoiDung(cat[0] ?? q),
     veChieu: tuNoiDung(cat.length > 1 ? (cat[cat.length - 1] ?? '') : q),
   };
+}
+
+/**
+ * Hai vế, kèm một bản NỚI cho vế nào phép tách không khớp được ai.
+ *
+ * ═══ Vì sao thứ tự trong câu KHÔNG được phép quyết định tất cả ════════════
+ *
+ * `hangVe` đọc "X theo Y" là "thước đo X, chiều Y" — tín hiệu mạnh nhất có
+ * trong tiếng Việt, và đúng gần như mọi lần. Nhưng người ta cũng nói ngược:
+ *
+ *     "khu vực theo doanh thu"     (chiều trước, thước đo sau)
+ *
+ * Bản trước trượt hẳn câu đó: vế trước chấm trên danh sách THƯỚC ĐO và không
+ * ai khớp, nên `goiYBieuDo` trả `null` ngay, dù cả hai trường đều có tên đầy
+ * đủ ngay trong câu.
+ *
+ * Nới thế này an toàn vì hai danh sách RỜI NHAU: một thước đo không nằm trong
+ * `dimensions` và ngược lại, nên vế nới ra không thể kéo một trường sang nhầm
+ * ô. Và nó chỉ chạy khi phép tách theo thứ tự đã khớp đúng không ai — khớp
+ * được rồi thì giữ nguyên, kể cả khi khớp hoà (hoà là việc của `goiYMoHo`).
+ */
+function veTruong(
+  truong: ExplorerFieldsDto,
+  q: string,
+): { veDo: Set<string>; veChieu: Set<string> } {
+  const { veDo, veChieu } = hangVe(q);
+  const ca = tuNoiDung(q);
+  return {
+    veDo: topTruong(truong.measures, veDo).length > 0 ? veDo : ca,
+    veChieu: topTruong(truong.dimensions, veChieu).length > 0 ? veChieu : ca,
+  };
+}
+
+/** Chữ trong câu KHÔNG giải thích được bằng thước đo vừa khớp. */
+function conLai(q: string, thuocDo: ExplorerFieldDto): Set<string> {
+  const cua = new Set(chuanHoa(thuocDo.label).split(' '));
+  return new Set([...tuNoiDung(q)].filter((t) => !cua.has(t)));
 }
 
 /**
@@ -440,6 +514,46 @@ export function deXuatBieuDo(
     .sort((a, b) => b.diem - a.diem)
     .slice(0, tran)
     .map(({ chieu, thuocDo }) => ({ chieu, thuocDo, loai: loaiHop(chieu, '') }));
+}
+
+/**
+ * Danh sách cặp gửi cho MÔ HÌNH chọn — xoay quanh thước đo câu hỏi đã gọi tên.
+ *
+ * ═══ Vì sao `deXuatBieuDo` một mình KHÔNG đủ cho chỗ này ══════════════════
+ *
+ * Nó xếp mọi cặp theo `diemCap` rồi cắt ở `tran`. `sort` ổn định, nên sau khi
+ * mấy cặp chiều-thời-gian đứng đầu, phần còn lại giữ nguyên thứ tự `flatMap`:
+ * TẤT CẢ cặp của thước đo thứ nhất, rồi mới tới thước đo thứ hai. Trên
+ * Global-Superstore — năm thước đo, gần hai chục chiều — hai mươi suất đầu bị
+ * một mình "Quantity" ăn gần hết, và "Discount theo Region" không bao giờ lọt
+ * vào danh sách để mà được chọn.
+ *
+ * Mà đó đúng là danh sách mô hình ngôn ngữ nhìn vào. Thiếu một cặp ở đây
+ * không phải mô hình chọn sai — nó là mô hình KHÔNG CÓ CÁCH NÀO chọn đúng.
+ *
+ * Nên khi câu hỏi đã gọi tên được một thước đo (phần dễ: "discount" trùng
+ * nguyên chữ), mọi chiều của ĐÚNG thước đo ấy được xếp lên đầu. Phần khó —
+ * "khu vực" là chiều nào — để mô hình làm, và giờ nó có đủ lựa chọn để làm.
+ *
+ * Không khớp thước đo nào thì rơi về danh sách chung: không có gì để xoay
+ * quanh, và một danh sách rộng vẫn hơn không có danh sách.
+ */
+export function capChoMoHinh(
+  truong: ExplorerFieldsDto | undefined,
+  cauHoi: string,
+  tran = 20,
+): GoiYBieuDo[] {
+  if (truong === undefined) return [];
+  const q = chuanHoa(cauHoi);
+
+  const thuocDo = chamTruong(truong.measures, veTruong(truong, q).veDo);
+  if (thuocDo === null) return deXuatBieuDo(truong, tran, 99);
+
+  const rieng = truong.dimensions.map((chieu) => ({ chieu, thuocDo, loai: loaiHop(chieu, q) }));
+  // Thước đo khác vẫn được góp mặt ở phần đuôi: khớp được một thước đo không
+  // có nghĩa là chắc chắn người dùng muốn đúng cái đó.
+  const them = deXuatBieuDo(truong, tran, 99).filter((g) => g.thuocDo.id !== thuocDo.id);
+  return [...rieng, ...them].slice(0, tran);
 }
 
 /**

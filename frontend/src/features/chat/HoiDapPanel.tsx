@@ -6,6 +6,7 @@ import { dienDatLai, hieuCauHoi, hoiTrenMoHinh } from './api';
 import {
   cauGoiY,
   cauSua,
+  capChoMoHinh,
   deXuatBieuDo,
   docSuaBieuDo,
   goiYBieuDo,
@@ -625,10 +626,10 @@ export function HoiDapPanel(): React.ReactElement | null {
      * nguyên đường mạnh hơn hẳn ở phía sau: `nhoMoHinhHoi` đặt một truy vấn
      * MỚI trên chính mô hình. Câu nhờ VẼ thì không có đường nào khác.
      *
-     * `moiThuocDo` nới hẳn: ở đây không ai phải đọc hết danh sách, và thiếu một
-     * cặp nghĩa là mô hình không có cách nào chọn đúng nó.
+     * Và danh sách xoay quanh THƯỚC ĐO mà câu hỏi đã gọi tên được, chứ không
+     * phải hai mươi cặp đầu bảng: xem `capChoMoHinh`.
      */
-    const capVe = deXuatBieuDo(nguCanh.truong, 20, 99);
+    const capVe = capChoMoHinh(nguCanh.truong, q);
     const luaChon = [
       ...capVe.map((g) => ({ nhan: `Vẽ biểu đồ: ${tenDeXuat(g)}`, chay: () => cauGoiY(g) })),
       ...luaChonTrang(nguCanh.nguon, nguon, q),

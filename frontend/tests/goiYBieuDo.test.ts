@@ -2,6 +2,7 @@ import type { ExplorerFieldDto, ExplorerFieldsDto } from '@bi/shared';
 import { describe, expect, it } from 'vitest';
 
 import {
+  capChoMoHinh,
   cauGoiY,
   cauSua,
   deXuatBieuDo,
@@ -604,5 +605,40 @@ describe('duKienODangChon', () => {
     expect(nhan).not.toContain('Trường ở ô Chiều dữ liệu của Doanh thu theo Khu vực');
     expect(nhan).not.toContain('Trường ở ô Giá trị của Doanh thu theo Khu vực');
     expect(nhan).toContain('Trường ở ô Nhóm màu của Doanh thu theo Khu vực');
+  });
+});
+
+/*
+ * ═══ Danh sách gửi cho MÔ HÌNH chọn ════════════════════════════════════════
+ *
+ * Lỗi đo được trên Global-Superstore: "tui muốn xem khu vực có discount như
+ * thế nào". Phần dễ khung làm được — "discount" trùng nguyên chữ tên thước đo.
+ * Phần khó — "khu vực" là chiều nào — phải để mô hình làm, mà mô hình chỉ chọn
+ * được trong danh sách nó NHÌN THẤY. `deXuatBieuDo` cắt ở 20 cặp theo thứ tự
+ * `flatMap`, nên hai mươi suất ấy bị thước đo đầu bảng ăn gần hết.
+ */
+describe('Danh sách cặp gửi cho mô hình xoay quanh thước đo đã gọi tên', () => {
+  it('mọi chiều của ĐÚNG thước đo câu hỏi nói tới đều có mặt', () => {
+    const cap = capChoMoHinh(MO_HINH, 'tui muốn xem khu vực có số đơn như thế nào');
+
+    const cua = cap.filter((g) => g.thuocDo.label === 'Số đơn').map((g) => g.chieu.label);
+    expect(cua).toEqual(MO_HINH.dimensions.map((d) => d.label));
+  });
+
+  /*
+   * Khớp được một thước đo không có nghĩa là chắc chắn người dùng muốn đúng
+   * cái đó — phần đuôi vẫn phải chừa chỗ cho mấy thước đo khác.
+   */
+  it('thước đo khác vẫn còn chỗ ở phần đuôi', () => {
+    const cap = capChoMoHinh(MO_HINH, 'tui muốn xem khu vực có số đơn như thế nào');
+
+    expect(cap.some((g) => g.thuocDo.label !== 'Số đơn')).toBe(true);
+  });
+
+  it('không gọi tên được thước đo nào thì rơi về danh sách chung', () => {
+    const cap = capChoMoHinh(MO_HINH, 'vẽ cái gì đó đi');
+
+    expect(cap.length).toBeGreaterThan(0);
+    expect(new Set(cap.map((g) => g.thuocDo.label)).size).toBeGreaterThan(1);
   });
 });
