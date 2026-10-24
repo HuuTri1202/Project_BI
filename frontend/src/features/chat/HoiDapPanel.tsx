@@ -171,6 +171,15 @@ interface TinNhan {
   hieuLa?: string;
 }
 
+/**
+ * RUỘT một tin — mọi thứ trừ mã, vai và giờ.
+ *
+ * Ba thứ bị trừ ra là ba thứ KHÔNG nhánh nào được phép tự đặt: mã phải chẵn/lẻ
+ * đúng cặp, vai thì cố định, giờ phải là giờ lúc tin sinh ra. `day` và `thayBot`
+ * đặt cả ba, nên mọi chỗ gọi chỉ còn lo phần nội dung.
+ */
+type RuotTin = Omit<TinNhan, 'id' | 'ai' | 'luc'>;
+
 function gioBayGio(): string {
   return new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
 }
@@ -291,6 +300,47 @@ export function HoiDapPanel(): React.ReactElement | null {
   const nguon: Nguon = nguCanh.nguon[chon] ?? nguCanh.nguon[0]!;
 
   /**
+   * Đẩy một LƯỢT vào cuối đoạn chat: câu người dùng, rồi bong bóng của bot.
+   *
+   * ═══ Vì sao nó đáng một hàm riêng ══════════════════════════════════════════
+   *
+   * Bốn nhánh của `hoi` từng lặp lại đúng cùng một nghi thức bốn phần — cộng
+   * hai vào `demId`, lấy giờ, nối hai tin, xoá ô nhập. Bốn bản sao của một nghi
+   * thức là bốn chỗ để quên một phần, và phần dễ quên nhất là `setCauHoi('')`:
+   * quên nó thì câu vừa gửi nằm lại trong ô nhập và người dùng gửi lần nữa.
+   *
+   * Cộng HAI vì một lượt là hai tin: mã lẻ cho người, mã chẵn cho bot. Trả về
+   * mã của BOT — mọi lớp mô hình đều vá lại đúng bong bóng đó, qua `thayBot`.
+   */
+  function day(q: string, bot: RuotTin): number {
+    demId.current += 2;
+    const id = demId.current;
+    const luc = gioBayGio();
+    setTinNhan((cu) => [
+      ...cu,
+      { id: id - 1, ai: 'nguoi', cau: q, luc },
+      { id, ai: 'bot', luc, ...bot },
+    ]);
+    setCauHoi('');
+    return id;
+  }
+
+  /**
+   * Thay RUỘT một bong bóng đã hiện, giữ lại mã–vai–giờ của nó.
+   *
+   * ⚠️ THAY, không TRỘN — và đó là cả lý do nó tồn tại thay vì một phép trộn
+   * chung. `dangSoan` với `dangLam` phải RƠI đi: chúng là ba chấm nhấp nháy và
+   * cái nhãn "đang đọc…", nên trộn chúng vào một câu trả lời đã về là để ba
+   * chấm nhấp nháy mãi mãi bên dưới một con số đã có. Chỗ nào cần trộn thật
+   * thì nói ra tại chỗ, không đi qua đây — xem `vietLai`.
+   */
+  function thayBot(id: number, tin: RuotTin): void {
+    setTinNhan((cu) =>
+      cu.map((t) => (t.id === id ? { id: t.id, ai: t.ai, luc: t.luc, ...tin } : t)),
+    );
+  }
+
+  /**
    * @param raw câu để hỏi; mặc định là thứ đang gõ trong ô nhập.
    * @param ro  chỉ số nguồn người dùng VỪA chỉ đích danh, `null` = chưa chỉ.
    */
@@ -324,29 +374,16 @@ export function HoiDapPanel(): React.ReactElement | null {
      */
     const sua = docSuaBieuDo(nguCanh.truong, q);
     if (sua !== null) {
-      demId.current += 2;
-      const idSua = demId.current;
-      const lucSua = gioBayGio();
-      const nguoi = { id: idSua - 1, ai: 'nguoi' as const, cau: q, luc: lucSua };
-
       /*
        * Không có ô nào đang chọn thì NÓI RA. Rơi xuống "chưa hiểu" ở đây là
        * tệ nhất: người dùng đọc ra "khung không hiểu câu này", rồi gõ lại y
        * hệt, trong khi thứ thiếu là một cú bấm vào ô biểu đồ.
        */
       if (nguCanh.suaBieuDo === undefined) {
-        setTinNhan((cu) => [
-          ...cu,
-          nguoi,
-          {
-            id: idSua,
-            ai: 'bot',
-            luc: lucSua,
-            chuaHieu: true,
-            cau: 'Chưa có ô biểu đồ nào đang chọn. Bấm vào ô bạn muốn sửa rồi hỏi lại câu này.',
-          },
-        ]);
-        setCauHoi('');
+        day(q, {
+          chuaHieu: true,
+          cau: 'Chưa có ô biểu đồ nào đang chọn. Bấm vào ô bạn muốn sửa rồi hỏi lại câu này.',
+        });
         return;
       }
 
@@ -360,25 +397,16 @@ export function HoiDapPanel(): React.ReactElement | null {
        */
       if (sua === 'mo-ho') {
         const ten = tachMoHo(nguCanh.truong, q).map((d) => `"${d.label}"`);
-        setTinNhan((cu) => [
-          ...cu,
-          nguoi,
-          {
-            id: idSua,
-            ai: 'bot',
-            luc: lucSua,
-            chuaHieu: true,
-            cau: `Tách theo ${ten.join(' hay ')}? Gõ lại kèm đủ tên giúp tôi.`,
-          },
-        ]);
-        setCauHoi('');
+        day(q, {
+          chuaHieu: true,
+          cau: `Tách theo ${ten.join(' hay ')}? Gõ lại kèm đủ tên giúp tôi.`,
+        });
         return;
       }
 
       nguCanh.suaBieuDo(sua);
       const kqSua = cauSua(sua, tenChieuPhuMoi(nguCanh, sua));
-      setTinNhan((cu) => [...cu, nguoi, { id: idSua, ai: 'bot', luc: lucSua, cau: kqSua.cau }]);
-      setCauHoi('');
+      const idSua = day(q, { cau: kqSua.cau });
       setCauTruoc(q);
       vietLai(q, idSua, kqSua);
       return;
@@ -390,15 +418,7 @@ export function HoiDapPanel(): React.ReactElement | null {
     const noiVe = gy !== null || moHoVe.length > 0 ? dungCauVe(gy, moHoVe) : null;
 
     if (noiVe !== null && muonVe(q)) {
-      demId.current += 2;
-      const idGy = demId.current;
-      const lucGy = gioBayGio();
-      setTinNhan((cu) => [
-        ...cu,
-        { id: idGy - 1, ai: 'nguoi', cau: q, luc: lucGy },
-        { id: idGy, ai: 'bot', luc: lucGy, ...noiVe.tin },
-      ]);
-      setCauHoi('');
+      const idGy = day(q, noiVe.tin);
       setCauTruoc(q);
       if (noiVe.kq !== null) vietLai(q, idGy, noiVe.kq);
       return;
@@ -413,24 +433,14 @@ export function HoiDapPanel(): React.ReactElement | null {
     const moHo = ro !== null || daChon ? null : nguonMoHo(nguCanh.nguon, q);
     if (moHo !== null) {
       const nhan = nhanDuyNhat(nguCanh.nguon);
-      demId.current += 2;
-      const luc = gioBayGio();
-      setTinNhan((cu) => [
-        ...cu,
-        { id: demId.current - 1, ai: 'nguoi', cau: q, luc },
-        {
-          id: demId.current,
-          ai: 'bot',
-          luc,
-          chuaHieu: true,
-          cau: `Câu này trả lời được từ ${String(moHo.length)} mục đang hiện trên trang, và mỗi mục cho một con số khác nhau. Bạn muốn hỏi mục nào?`,
-          cauGoc: q,
-          // Quá sáu thì một dãy nút dài hơn cả khung trò chuyện; dãy chip trên
-          // đầu vẫn với tới được mọi mục còn lại.
-          chonNguon: moHo.slice(0, 6).map((i) => ({ i, nhan: nhan[i] ?? '' })),
-        },
-      ]);
-      setCauHoi('');
+      day(q, {
+        chuaHieu: true,
+        cau: `Câu này trả lời được từ ${String(moHo.length)} mục đang hiện trên trang, và mỗi mục cho một con số khác nhau. Bạn muốn hỏi mục nào?`,
+        cauGoc: q,
+        // Quá sáu thì một dãy nút dài hơn cả khung trò chuyện; dãy chip trên
+        // đầu vẫn với tới được mọi mục còn lại.
+        chonNguon: moHo.slice(0, 6).map((i) => ({ i, nhan: nhan[i] ?? '' })),
+      });
       return;
     }
 
@@ -439,9 +449,6 @@ export function HoiDapPanel(): React.ReactElement | null {
      * Bộ đánh giá gọi đúng hàm này, nên thứ nó đo là thứ người dùng gặp.
      */
     const kq = traLoiKhung(nguCanh.nguon, nguonHoi, heThong, q, cauTruoc);
-    demId.current += 2;
-    const idBot = demId.current;
-    const luc = gioBayGio();
 
     /*
      * Trả lời được ngay thì hiện NGAY. Nó đã tính xong trên máy này; bắt người
@@ -451,21 +458,12 @@ export function HoiDapPanel(): React.ReactElement | null {
      * Không trả lời được thì hiện BA CHẤM, không hiện "tôi chưa hiểu": mấy lớp
      * mô hình còn chưa chạy xong, nên chưa biết là hiểu hay không.
      */
-    setTinNhan((cu) => [
-      ...cu,
-      { id: idBot - 1, ai: 'nguoi', cau: q, luc },
+    const idBot = day(
+      q,
       kq === null
-        ? {
-            id: idBot,
-            ai: 'bot',
-            luc,
-            cau: '',
-            dangSoan: true,
-            dangLam: `Đang đọc số liệu trên ${nguCanh.trang}…`,
-          }
-        : { id: idBot, ai: 'bot', luc, cau: kq.cau },
-    ]);
-    setCauHoi('');
+        ? { cau: '', dangSoan: true, dangLam: `Đang đọc số liệu trên ${nguCanh.trang}…` }
+        : { cau: kq.cau },
+    );
     // Nhớ câu vừa hỏi cho lượt sau — xem `traLoiKhung`.
     setCauTruoc(q);
 
@@ -479,9 +477,7 @@ export function HoiDapPanel(): React.ReactElement | null {
        * hình kịp được gọi.
        */
       if (noiVe !== null) {
-        setTinNhan((cu) =>
-          cu.map((t) => (t.id === idBot ? { id: t.id, ai: t.ai, luc: t.luc, ...noiVe.tin } : t)),
-        );
+        thayBot(idBot, noiVe.tin);
         if (noiVe.kq !== null) vietLai(q, idBot, noiVe.kq);
         return;
       }
@@ -654,13 +650,7 @@ export function HoiDapPanel(): React.ReactElement | null {
           duongCuoi(q, idBot, trangThai);
           return;
         }
-        setTinNhan((cu) =>
-          cu.map((t) =>
-            t.id === idBot
-              ? { id: t.id, ai: t.ai, luc: t.luc, cau: kq.cau, doMoHinh: 'mô hình chọn cột' }
-              : t,
-          ),
-        );
+        thayBot(idBot, { cau: kq.cau, doMoHinh: 'mô hình chọn cột' });
         vietLai(q, idBot, kq);
       })
       .catch(() => {
@@ -728,20 +718,11 @@ export function HoiDapPanel(): React.ReactElement | null {
           'Cần một con số khác — tổng hay trung bình của một cột chẳng hạn — thì tạo thước đo ' +
           'ở tab Thước đo của mô hình trước, rồi hỏi lại.';
 
-    setTinNhan((cu) =>
-      cu.map((t) =>
-        t.id === idBot
-          ? {
-              id: t.id,
-              ai: t.ai,
-              luc: t.luc,
-              cau: `${cau ?? chung}${keTen}`,
-              chuaHieu: true,
-              ...(de.length > 0 ? { deXuat: de } : { goiY }),
-            }
-          : t,
-      ),
-    );
+    thayBot(idBot, {
+      cau: `${cau ?? chung}${keTen}`,
+      chuaHieu: true,
+      ...(de.length > 0 ? { deXuat: de } : { goiY }),
+    });
   }
 
   /**
@@ -864,20 +845,11 @@ export function HoiDapPanel(): React.ReactElement | null {
 
         // Mô hình chỉ CHỌN được một mục. Câu chữ và con số vẫn do `traLoi.ts`
         // tính ra tại máy này — kể cả `luuY`, điều kiện của con số.
-        setTinNhan((cu) =>
-          cu.map((t) =>
-            t.id === idBot
-              ? {
-                  id: t.id,
-                  ai: t.ai,
-                  cau: kq.cau,
-                  luc: t.luc,
-                  doMoHinh: 'mô hình chọn mục',
-                  ...(cap === undefined ? {} : { deXuat: [cap] }),
-                }
-              : t,
-          ),
-        );
+        thayBot(idBot, {
+          cau: kq.cau,
+          doMoHinh: 'mô hình chọn mục',
+          ...(cap === undefined ? {} : { deXuat: [cap] }),
+        });
         // Rồi mới viết lại cho ra câu, y như đường kia.
         vietLai(q, idBot, kq);
       })
@@ -974,13 +946,7 @@ export function HoiDapPanel(): React.ReactElement | null {
           : null;
         if (capVe !== null) {
           const noi = dungCauVe(capVe, []);
-          setTinNhan((cu) =>
-            cu.map((t) =>
-              t.id === idBot
-                ? { id: t.id, ai: t.ai, luc: t.luc, ...noi.tin, doMoHinh: 'mô hình chọn trường' }
-                : t,
-            ),
-          );
+          thayBot(idBot, { ...noi.tin, doMoHinh: 'mô hình chọn trường' });
           if (noi.kq !== null) vietLai(q, idBot, noi.kq);
           return;
         }
@@ -1019,38 +985,27 @@ export function HoiDapPanel(): React.ReactElement | null {
          * gì". Nhét nó vào cuối thì người ta đọc con số rồi tin luôn, và cái
          * dòng giải thích thành ra để cho vui.
          */
-        setTinNhan((cu) =>
-          cu.map((t) =>
-            t.id === idBot
-              ? {
-                  id: t.id,
-                  ai: t.ai,
-                  luc: t.luc,
-                  cau,
-                  hieuLa: hieuLa ?? undefined,
-                  doMoHinh: 'mô hình dựng truy vấn',
-                  /*
-                   * Gợi ý câu hỏi TIẾP, ngay dưới một câu trả lời THÀNH CÔNG.
-                   *
-                   * Trước bản này khung chỉ gợi ý khi nó bế tắc — mà lúc trả
-                   * lời được mới là lúc người ta muốn đi tiếp. Mấy câu này do
-                   * backend sinh từ chính cái form vừa chạy, nên chúng không
-                   * bao giờ mời lại thứ vừa hỏi và không bao giờ mời một thứ
-                   * mô hình dữ liệu này không làm được.
-                   */
-                  /*
-                   * `goiY ?? []` — kiểu khai là một GIẢ ĐỊNH về mạng, không
-                   * phải một bảo đảm. Frontend và backend triển khai độc lập,
-                   * nên một bản frontend mới nói chuyện với một bản backend cũ
-                   * là chuyện bình thường, và khi đó trường này vắng mặt. Đọc
-                   * `.length` trên `undefined` làm nổ cả `setTinNhan`, tức mất
-                   * luôn câu trả lời đã tính xong vì một thứ chỉ để trang trí.
-                   */
-                  ...((goiY ?? []).length > 0 ? { goiY } : {}),
-                }
-              : t,
-          ),
-        );
+        thayBot(idBot, {
+          cau,
+          hieuLa: hieuLa ?? undefined,
+          doMoHinh: 'mô hình dựng truy vấn',
+          /*
+           * Gợi ý câu hỏi TIẾP, ngay dưới một câu trả lời THÀNH CÔNG.
+           *
+           * Trước bản này khung chỉ gợi ý khi nó bế tắc — mà lúc trả lời được
+           * mới là lúc người ta muốn đi tiếp. Mấy câu này do backend sinh từ
+           * chính cái form vừa chạy, nên chúng không bao giờ mời lại thứ vừa
+           * hỏi và không bao giờ mời một thứ mô hình dữ liệu này không làm được.
+           *
+           * `goiY ?? []` — kiểu khai là một GIẢ ĐỊNH về mạng, không phải một
+           * bảo đảm. Frontend và backend triển khai độc lập, nên một bản
+           * frontend mới nói chuyện với một bản backend cũ là chuyện bình
+           * thường, và khi đó trường này vắng mặt. Đọc `.length` trên
+           * `undefined` làm nổ cả `setTinNhan`, tức mất luôn câu trả lời đã
+           * tính xong vì một thứ chỉ để trang trí.
+           */
+          ...((goiY ?? []).length > 0 ? { goiY } : {}),
+        });
 
         // Viết lại cho mượt, vẫn bị đối chiếu số như hai đường kia.
         vietLai(q, idBot, { cau, so });

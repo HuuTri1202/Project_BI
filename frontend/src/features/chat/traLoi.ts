@@ -1817,7 +1817,7 @@ export function soSanhNguon(
  * chạy", và khi đó khung liệt kê báo cáo theo người tạo cho một câu hỏi về
  * trạng thái — một danh sách có thật, trả lời một câu hỏi khác.
  */
-export function locNguon(
+function locNguon(
   tatCa: Nguon[],
   cauHoi: string,
   pham = 'đang hiện trên trang này',

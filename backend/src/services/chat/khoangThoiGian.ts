@@ -59,8 +59,6 @@ export const CUM_CO_DINH = [
   '90-ngay-qua',
 ] as const;
 
-export type CumCoDinh = (typeof CUM_CO_DINH)[number];
-
 export interface KhoangNgay {
   /** Mốc đầu, ĐÓNG — `>= tu`. */
   tu: string;
