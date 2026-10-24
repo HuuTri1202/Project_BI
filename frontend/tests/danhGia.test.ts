@@ -18,8 +18,12 @@ import {
   duKienThuMuc,
   tongTheoThuMuc,
   tomTatThuMuc,
+  duKienDanhSachBaoCao,
   duKienKetNoi,
   duKienMoHinh,
+  duKienThanhToan,
+  duKienThanhVien,
+  duKienToChuc,
   duKienKhoDuLieu,
   duKienTrangChu,
   tomTatBoDuLieu,
@@ -520,6 +524,110 @@ const TRANG = {
   },
 } satisfies Record<string, NguCanhThu>;
 
+/* ═══ Năm trang CHƯA TỪNG được đo ═══════════════════════════════════════════
+ *
+ * Bộ này phủ 7 trang; khung thì có builder cho 30. Mười lăm trang còn lại chưa
+ * có một ca nào, nên "trang nào cũng trả lời chính xác" ở đó là một lời khẳng
+ * định chứ không phải một con số. Năm trang dưới đây là năm trang người dùng
+ * mở nhiều nhất trong số ấy.
+ */
+
+const BAO_CAO = [
+  {
+    id: 1,
+    name: 'Doanh thu 2026',
+    source: 'datamodel',
+    sourceName: 'Bán hàng',
+    chartType: 'bar',
+    canvas: null,
+    folderName: null,
+    creatorName: 'Mai',
+    updatedAt: '2026-03-02T03:00:00.000Z',
+  },
+  {
+    id: 2,
+    name: 'Tồn kho',
+    source: 'dataset',
+    sourceName: 'Kho Q1',
+    chartType: 'line',
+    canvas: { pages: [{ id: 'p1', name: 'Trang 1', visuals: [{ id: 'v1' }, { id: 'v2' }] }] },
+    folderName: 'Vận hành',
+    creatorName: 'Hùng',
+    updatedAt: '2026-03-05T03:00:00.000Z',
+  },
+] as unknown as Parameters<typeof duKienDanhSachBaoCao>[0];
+
+const THANH_VIEN = [
+  {
+    id: 1,
+    fullName: 'Trần Thu Hà',
+    email: 'ha@congty.vn',
+    role: 'admin',
+    jobTitle: 'Trưởng phòng dữ liệu',
+    joinedAt: '2025-11-01T03:00:00.000Z',
+    lastLoginAt: '2026-03-10T03:00:00.000Z',
+    removedAt: null,
+    memberActive: true,
+    userActive: true,
+  },
+  {
+    id: 2,
+    fullName: 'Lê Minh',
+    email: 'minh@congty.vn',
+    role: 'viewer',
+    jobTitle: null,
+    joinedAt: '2026-01-15T03:00:00.000Z',
+    lastLoginAt: null,
+    removedAt: null,
+    memberActive: false,
+    userActive: true,
+  },
+] as unknown as Parameters<typeof duKienThanhVien>[0];
+
+const THANH_TOAN = {
+  plan: { id: 2, name: 'Pro', priceVnd: 2_000_000, durationDays: 30 },
+  subscription: { status: 'active', periodEnd: '2026-04-01T03:00:00.000Z' },
+  usage: {
+    workspaces: { used: 3, limit: 10 },
+    reports: { used: 12, limit: 50 },
+    members: { used: 4, limit: null },
+    storageBytes: { used: 1_048_576, limit: 10_737_418_240 },
+  },
+} as unknown as Parameters<typeof duKienThanhToan>[0];
+
+const TRANG_THEM = {
+  dsBaoCao: {
+    ten: 'Báo cáo (danh sách)',
+    nguon: duKienDanhSachBaoCao(BAO_CAO, 7),
+    chon: 0,
+    heThong: HE_THONG,
+  },
+  thanhVien: {
+    ten: 'Thành viên',
+    nguon: duKienThanhVien(THANH_VIEN, 2),
+    chon: 0,
+    heThong: HE_THONG,
+  },
+  ketNoi: {
+    ten: 'Kết nối',
+    nguon: duKienKetNoi(KET_NOI),
+    chon: 0,
+    heThong: HE_THONG,
+  },
+  thanhToan: {
+    ten: 'Thanh toán',
+    nguon: duKienThanhToan(THANH_TOAN),
+    chon: 0,
+    heThong: HE_THONG,
+  },
+  toChuc: {
+    ten: 'Tổ chức',
+    nguon: duKienToChuc({ name: 'Công ty ABC', slug: 'cong-ty-abc' }),
+    chon: 0,
+    heThong: HE_THONG,
+  },
+} satisfies Record<string, NguCanhThu>;
+
 /** ĐÚNG đường mà khung đi — cùng một hàm, xem `traLoiKhung`. */
 function traLoiThat(
   t: NguCanhThu,
@@ -538,8 +646,10 @@ function traLoiThat(
 /** `'chua-hieu'` = ca này ĐÁNG RA phải từ chối trả lời. */
 type MongDoi = string[] | 'chua-hieu';
 
+const MOI_TRANG = { ...TRANG, ...TRANG_THEM };
+
 interface Ca {
-  trang: keyof typeof TRANG;
+  trang: keyof typeof MOI_TRANG;
   hoi: string;
   can: MongDoi;
   /** Chuỗi KHÔNG được xuất hiện — bắt câu đúng số mà sai trường. */
@@ -1134,6 +1244,76 @@ const CA: Ca[] = [
     can: 'chua-hieu',
     vi: 'Cần một truy vấn MỚI. Đây là trần của thiết kế hiện tại — bước (4)',
   },
+  // ─── Báo cáo (danh sách) ──────────────────────────────────────────────────
+  { trang: 'dsBaoCao', hoi: 'có bao nhiêu báo cáo', can: ['7'] },
+  { trang: 'dsBaoCao', hoi: 'báo cáo Doanh thu 2026 dựng trên gì', can: ['Bán hàng'] },
+  { trang: 'dsBaoCao', hoi: 'ai tạo báo cáo Doanh thu 2026', can: ['Mai'] },
+  { trang: 'dsBaoCao', hoi: 'báo cáo Tồn kho có mấy biểu đồ', can: ['2'] },
+  { trang: 'dsBaoCao', hoi: 'thư mục của báo cáo Tồn kho', can: ['Vận hành'] },
+  {
+    trang: 'dsBaoCao',
+    hoi: 'loại biểu đồ của báo cáo Tồn kho',
+    can: ['đường'],
+    vi: 'đọc từ CHART_TYPE_LABELS, đúng chữ in trên thẻ báo cáo',
+  },
+
+  // ─── Thành viên ───────────────────────────────────────────────────────────
+  { trang: 'thanhVien', hoi: 'tổ chức có bao nhiêu thành viên', can: ['2'] },
+  { trang: 'thanhVien', hoi: 'vai trò của Trần Thu Hà là gì', can: ['quản trị viên'] },
+  { trang: 'thanhVien', hoi: 'email của Trần Thu Hà', can: ['ha@congty.vn'] },
+  { trang: 'thanhVien', hoi: 'có mấy quản trị viên', can: ['1'] },
+  {
+    trang: 'thanhVien',
+    hoi: 'Lê Minh còn hoạt động không',
+    can: ['tạm dừng'],
+    vi: 'memberActive=false — thứ nhìn bảng mới thấy',
+  },
+  {
+    trang: 'thanhVien',
+    hoi: 'Lê Minh đăng nhập lần cuối lúc nào',
+    can: ['chưa đăng nhập lần nào'],
+  },
+
+  // ─── Kết nối ──────────────────────────────────────────────────────────────
+  { trang: 'ketNoi', hoi: 'có bao nhiêu kết nối', can: ['2'] },
+  { trang: 'ketNoi', hoi: 'kết nối MySQL bán hàng thuộc loại gì', can: ['mysql'] },
+  { trang: 'ketNoi', hoi: 'database của kết nối MySQL bán hàng', can: ['sales'] },
+  { trang: 'ketNoi', hoi: 'kết nối MySQL bán hàng có bật SSL không', can: ['không'] },
+  {
+    trang: 'ketNoi',
+    hoi: 'kết nối MySQL bán hàng kiểm tra lần cuối lúc nào',
+    can: ['chưa kiểm tra lần nào'],
+  },
+  /*
+   * ⚠️ CA CANH BẢO MẬT, không phải ca đo chất lượng.
+   *
+   * Tên đăng nhập và mật khẩu vào CSDL của khách là THÔNG TIN ĐĂNG NHẬP. Khung
+   * không khai chúng, và một câu trả lời ở đây còn đi tiếp lên mô hình ngôn ngữ
+   * qua lớp diễn đạt. Ca này đỏ nghĩa là có người vừa khai thêm một dữ kiện
+   * không được phép khai.
+   */
+  {
+    trang: 'ketNoi',
+    hoi: 'tài khoản đăng nhập của kết nối MySQL bán hàng là gì',
+    can: 'chua-hieu',
+    vi: 'thông tin đăng nhập CỐ Ý không được khai — xem `duKienKetNoi`',
+  },
+
+  // ─── Thanh toán ───────────────────────────────────────────────────────────
+  { trang: 'thanhToan', hoi: 'tổ chức đang dùng gói nào', can: ['Pro'] },
+  { trang: 'thanhToan', hoi: 'giá gói đang dùng', can: ['2.000.000'] },
+  { trang: 'thanhToan', hoi: 'đã dùng bao nhiêu báo cáo', can: ['12', '50'] },
+  { trang: 'thanhToan', hoi: 'gói hiện tại hết hạn lúc nào', can: ['2026'] },
+  {
+    trang: 'thanhToan',
+    hoi: 'đã dùng bao nhiêu thành viên',
+    can: ['4'],
+    vi: 'hạn mức null — phải nói "không giới hạn", không in ra chữ null',
+  },
+
+  // ─── Tổ chức ──────────────────────────────────────────────────────────────
+  { trang: 'toChuc', hoi: 'tên tổ chức là gì', can: ['Công ty ABC'] },
+  { trang: 'toChuc', hoi: 'slug của tổ chức', can: ['cong-ty-abc'] },
 ];
 
 // ─── Chạy và đếm ─────────────────────────────────────────────────────────────
@@ -1141,7 +1321,7 @@ const CA: Ca[] = [
 type KetCuc = 'dung' | 'chuaHieu' | 'sai';
 
 function xu(ca: Ca): { ketCuc: KetCuc; cau: string | null } {
-  const cau = traLoiThat(TRANG[ca.trang], ca.hoi, ca.truoc ?? null, ca.chip);
+  const cau = traLoiThat(MOI_TRANG[ca.trang], ca.hoi, ca.truoc ?? null, ca.chip);
 
   if (cau === null) return { ketCuc: ca.can === 'chua-hieu' ? 'dung' : 'chuaHieu', cau };
   // Trả lời một câu đáng ra phải từ chối là SAI, không phải "chưa hiểu".
@@ -1164,7 +1344,7 @@ describe('Bộ đánh giá khung hỏi đáp', () => {
       .filter((r) => r.ketCuc !== 'dung')
       .map(
         (r) =>
-          `  [${r.ketCuc === 'sai' ? 'SAI ' : 'CHƯA'}] ${TRANG[r.ca.trang].ten} · "${r.ca.hoi}"\n` +
+          `  [${r.ketCuc === 'sai' ? 'SAI ' : 'CHƯA'}] ${MOI_TRANG[r.ca.trang].ten} · "${r.ca.hoi}"\n` +
           `         mong đợi: ${r.ca.can === 'chua-hieu' ? 'từ chối trả lời' : r.ca.can.join(' + ')}\n` +
           `         nhận về : ${r.cau ?? '(chưa hiểu)'}` +
           (r.ca.vi === undefined ? '' : `\n         ghi chú  : ${r.ca.vi}`),
@@ -1194,7 +1374,7 @@ describe('Bộ đánh giá khung hỏi đáp', () => {
    * nghĩa là thay đổi đó đang đánh đổi câu này lấy câu kia mà không nói ra.
    */
   it('số câu ĐÚNG không được tụt', () => {
-    expect(dem('dung')).toBeGreaterThanOrEqual(130);
+    expect(dem('dung')).toBeGreaterThanOrEqual(155);
   });
 
   /*

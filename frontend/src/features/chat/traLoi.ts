@@ -832,10 +832,39 @@ function traCuu(duKien: DuKien[], cauHoi: string): TraLoi | null {
    * nhiều lần hơn thì nó nói về chữ ấy nhiều hơn. Giữ nguyên, và ghi lại để lần
    * sau không ai "sửa" nó thêm một lần nữa.
    */
-  const diem = duKien.map((d) => ({
-    d,
-    diem: noiDung(d.nhan).filter((t) => tuHoi.has(t)).length,
-  }));
+  /*
+   * ⚠️ Đếm lặp theo chữ GỐC, không theo chữ đã bỏ dấu.
+   *
+   * Khối trên giữ phép đếm lặp vì "nhãn nói chữ ấy nhiều lần hơn thì nó nói về
+   * chữ ấy nhiều hơn" — đúng với "Số BỘ dữ liệu trong toàn BỘ tổ chức", nơi
+   * cùng MỘT chữ xuất hiện hai lần.
+   *
+   * Nhưng "Thư mục của báo cáo Doanh thu 2026" có "Thư" và "thu" — HAI chữ
+   * khác nhau, chỉ trùng nhau SAU khi bỏ dấu. Đếm chúng là hai lần là đọc một
+   * sự trùng ngẫu nhiên của phép bỏ dấu thành một bằng chứng về ngữ nghĩa.
+   *
+   * LỖI ĐO ĐƯỢC: "ai tạo báo cáo Doanh thu 2026" hoà điểm 6-6 giữa "Người tạo
+   * báo cáo …" và "Thư mục của báo cáo …", rồi luật "phải hơn hẳn ứng viên
+   * nhì" bỏ cả hai — một câu hỏi đơn giản nhất có thể, mất đáp án.
+   *
+   * Nên số lần một chữ được tính = số lần xuất hiện của CÁCH VIẾT nhiều nhất.
+   * "bộ" hai lần vẫn là hai; "Thư" + "thu" là một.
+   */
+  const demLap = (nhan: string): number => {
+    const theoGoc = new Map<string, Map<string, number>>();
+    for (const w of nhan.toLowerCase().split(/\s+/)) {
+      const t = chuanHoa(w);
+      if (t.length <= 1 || TU_HOI.has(t) || !tuHoi.has(t)) continue;
+      const cach = theoGoc.get(t) ?? new Map<string, number>();
+      cach.set(w, (cach.get(w) ?? 0) + 1);
+      theoGoc.set(t, cach);
+    }
+    let tong = 0;
+    for (const cach of theoGoc.values()) tong += Math.max(...cach.values());
+    return tong;
+  };
+
+  const diem = duKien.map((d) => ({ d, diem: demLap(d.nhan) }));
   diem.sort((a, b) => b.diem - a.diem);
 
   const nhat = diem[0];
@@ -1824,6 +1853,26 @@ function nguonTheoTen(tatCa: Nguon[], cauHoi: string): Nguon | null {
 }
 
 /**
+ * Câu hỏi gọi tên MẤY mục — một, hay nhiều.
+ *
+ * Phân biệt hai câu nghe giống nhau mà hỏi hai thứ khác hẳn:
+ *
+ *   "kết nối MySQL bán hàng kiểm tra lần cuối lúc nào"     -> MỘT mục
+ *   "bảng nào nhiều lỗi nhất, Đơn hàng hay Khách hàng"     -> HAI mục, so sánh
+ *
+ * ⚠️ Tên ngắn nằm TRONG một tên dài hơn không tính là mục thứ hai. "Kho" có
+ * mặt trong mọi câu hỏi về "Kho tổng", và đếm nó là biến một câu hỏi về một mô
+ * hình thành một câu so sánh giữa hai mô hình.
+ */
+function soMucGoiTen(tatCa: Nguon[], cauHoi: string): number {
+  const q = chuanHoa(cauHoi);
+  const ten = [
+    ...new Set(tatCa.map((n) => chuanHoa(n.ten)).filter((t) => t !== '' && q.includes(t))),
+  ];
+  return ten.filter((t) => !ten.some((k) => k !== t && k.includes(t))).length;
+}
+
+/**
  * Cửa vào DUY NHẤT của khung hỏi đáp. Ba nguồn câu trả lời, theo đúng thứ tự này.
  *
  * ═══ 1. Câu hỏi về CẢ DANH SÁCH đi trước ═══════════════════════════════════
@@ -1850,19 +1899,57 @@ export function traLoiTrang(tatCa: Nguon[], chon: Nguon, cauHoi: string): TraLoi
   const goiTen = nguonTheoTen(tatCa, cauHoi);
   // Dựng MỘT lần cho cả danh sách — xem `tuDaBiet` và `nhacThuLa`.
   const biet = tuDaBiet(tatCa);
+
+  /*
+   * ═══ Gọi tên một mục ra là ĐÓNG cửa mọi lớp so-cả-danh-sách ══════════════
+   *
+   * HAI ca SAI đo được trên trang Kết nối, cùng một gốc:
+   *
+   *   "kết nối MySQL bán hàng kiểm tra lần cuối lúc nào"
+   *   "tài khoản đăng nhập của kết nối MySQL bán hàng là gì"
+   *
+   * Cả hai nhận về `1 mục có "Kết nối thuộc loại gì" là mysql: MySQL bán hàng`
+   * — một câu trả lời ĐÚNG cho câu hỏi "kết nối nào là mysql", mà không ai hỏi.
+   * Chữ "mysql" vừa là GIÁ TRỊ của một dữ kiện, vừa nằm trong TÊN của mục; nên
+   * `soSanhNguon` nhận ra nó và chặn mất ngay ở cửa đầu tiên.
+   *
+   * Thứ tự cũ đã ghi đúng luật "nhường cho tên" nhưng chỉ áp cho `locNguon`.
+   * `soSanhNguon` đứng trước cả nó, nên luật ấy không tới nơi.
+   *
+   * Và nhường thôi chưa đủ: ca thứ hai cho thấy mục được gọi tên có thể KHÔNG
+   * có đáp án (ở đây là cố ý — thông tin đăng nhập không được khai). Rơi tiếp
+   * xuống mấy lớp dưới thì nó lại trả về danh sách. Người dùng gõ tên một mục
+   * ra là đã nói rõ họ hỏi mục nào; không có đáp án thì câu đúng là "chưa
+   * hiểu", không phải một câu đúng về một câu hỏi khác.
+   *
+   * ⚠️ Chỉ khi câu gọi tên ĐÚNG MỘT mục. Gọi tên hai mục là một câu SO SÁNH —
+   * "bảng nào nhiều lỗi nhất, Đơn hàng hay Khách hàng" — và trả lời nó bằng
+   * dữ kiện của mục đầu tiên là đúng cái lỗi `soSanhNguon` sinh ra để chặn.
+   * Câu về cả danh sách không gọi tên ai ("mô hình nào chưa nối quan hệ") thì
+   * `goiTen` là `null`, và hai lớp dưới vẫn chạy nguyên.
+   */
+  /*
+   * ⚠️ KHÔNG truyền `biet` xuống nhánh này — cố ý, và nó sửa một ca trượt.
+   *
+   * `nhacThuLa` coi mọi chữ TỪ BỐN KÝ TỰ mà khung chưa từng thấy là tên một
+   * thực thể không tồn tại, rồi bỏ hẳn phép so nhãn. Luật ấy đúng cho câu
+   * KHÔNG gọi tên ai ("số báo cáo của sale"), nhưng ở đây câu hỏi vừa gọi
+   * đúng tên một mục có thật trên trang — nên mấy chữ còn lại là chữ bổ nghĩa,
+   * không phải một cái tên.
+   *
+   * LỖI ĐO ĐƯỢC: "Lê Minh đăng nhập lần cuối lúc nào" bị từ chối vì đúng chữ
+   * "cuối" chưa từng xuất hiện trong nhãn nào của trang. Vá bằng cách nhét
+   * "cuoi" vào `TU_BO_QUA` là nuôi đúng cái danh sách mà khối chú thích ở đó
+   * đã cảnh báo; chốt này gỡ cả lớp ca ấy một lần.
+   */
+  if (goiTen !== null && soMucGoiTen(tatCa, cauHoi) === 1) return traLoi(goiTen, cauHoi);
+
   return (
     soSanhNguon(tatCa, cauHoi) ??
-    (goiTen === null ? null : traLoi(goiTen, cauHoi, biet)) ??
     /*
-     * `locNguon` đứng SAU mục được gọi tên, khác `soSanhNguon`.
-     *
-     * Vì nó nhận ra cột qua một giá trị nằm trong câu hỏi, mà một câu hỏi về
-     * MỘT mục cũng chứa giá trị đó: "Bán hàng đã nối đủ quan hệ chưa" chứa
-     * nguyên văn giá trị "đã nối đủ". Để nó lên trước thì câu hỏi về một mô
-     * hình cụ thể bị trả lời bằng danh sách mọi mô hình đã nối đủ.
-     *
-     * Người dùng gõ tên mục ra là đã nói rõ họ hỏi mục nào — cùng luật nhường
-     * -cho-tên đã dùng ở nhánh `dem` của `tinhBang` và ở `traLoiHeThong`.
+     * `locNguon` nhận ra cột qua một GIÁ TRỊ nằm trong câu hỏi — cùng cơ chế,
+     * và cùng rủi ro, với `soSanhNguon`. Chốt `goiTen` ở trên đã che cả hai:
+     * tới được đây nghĩa là câu hỏi không gọi tên mục nào.
      */
     locNguon(tatCa, cauHoi) ??
     traLoi(chon, cauHoi, biet)
