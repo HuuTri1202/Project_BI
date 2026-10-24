@@ -1123,3 +1123,117 @@ describe('Trang xem báo cáo khai được số liệu lấy từ đâu', () =>
     expect(nguonMoHo(ds, 'nguồn số liệu của báo cáo Doanh thu 2026')).toBeNull();
   });
 });
+
+/*
+ * ═══ Hỏi về một GIÁ TRỊ CHUỖI, không phải một nhãn trục ════════════════════
+ *
+ * Trên biểu đồ cột chồng "Số lượng theo Khu vực" tách màu theo "Nhóm hàng",
+ * câu "Gia dụng bao nhiêu" không khớp nhãn trục nào — nên trước bản này nó rơi
+ * thẳng xuống "chưa hiểu", trong khi "Gia dụng" đang là một mảng màu mà người
+ * dùng đang chỉ vào.
+ *
+ * Hai chốt được canh riêng:
+ *
+ *   1. Phải cộng qua MỌI nhãn trục, không trả về một Ô. Một ô Gia dụng là 100;
+ *      câu hỏi về cả mảng màu thì phải là 302. Trả về 100 là đúng số, sai thứ
+ *      được hỏi — và 100 cũng là một con số có thật trên biểu đồ.
+ *   2. Nhãn trục xét TRƯỚC tên chuỗi. Đó là hành vi đã có từ trước, và đổi thứ
+ *      tự là lặng lẽ đổi câu trả lời của những câu đang đúng.
+ */
+describe('Giá trị của một CHUỖI trên biểu đồ hai chiều', () => {
+  const haiChieu = (): Nguon => ({
+    ten: 'Số lượng theo Khu vực',
+    duKien: [],
+    bang: {
+      rows: [
+        { label: 'Miền Bắc', series: 'Gia dụng', value: 100 },
+        { label: 'Miền Bắc', series: 'Điện tử', value: 80 },
+        { label: 'Miền Nam', series: 'Gia dụng', value: 102 },
+        { label: 'Miền Nam', series: 'Điện tử', value: 95 },
+        { label: 'Miền Trung', series: 'Gia dụng', value: 100 },
+        // Chuỗi chỉ có MỘT dòng — để canh vế "cộng qua N" không bật vô cớ.
+        { label: 'Miền Bắc', series: 'Sách', value: 7 },
+      ],
+      dimensionLabel: 'Khu vực',
+      measureLabel: 'Số lượng',
+      seriesLabel: 'Nhóm hàng',
+      grouped: false,
+    },
+  });
+
+  it('cộng qua MỌI nhãn trục, không trả về một ô', () => {
+    const kq = traLoi(haiChieu(), 'Gia dụng bao nhiêu');
+
+    expect(kq?.cau).toContain('302');
+    expect(kq?.cau).toContain('cộng qua 3 Khu vực');
+    // 100 là một ô Gia dụng có thật — đúng cái con số không được trả về.
+    expect(kq?.so).toEqual(['302']);
+  });
+
+  it('cộng qua đúng số nhãn mà chuỗi đó có mặt, không phải tổng số nhãn', () => {
+    const kq = traLoi(haiChieu(), 'Điện tử bao nhiêu');
+
+    expect(kq?.cau).toContain('175');
+    expect(kq?.cau).toContain('cộng qua 2 Khu vực');
+  });
+
+  /*
+   * Một chuỗi chỉ xuất hiện ở một nhãn thì "cộng qua 1 Khu vực" là một vế
+   * không mang thông tin nào — nó chỉ làm câu trả lời dài ra và nghe như vừa
+   * có một phép tính xảy ra.
+   */
+  it('chuỗi chỉ có MỘT dòng thì KHÔNG nói "cộng qua"', () => {
+    const kq = traLoi(haiChieu(), 'Sách bao nhiêu');
+
+    expect(kq?.cau).toContain('7');
+    expect(kq?.cau).not.toContain('cộng qua');
+  });
+
+  it('nhãn trục xét TRƯỚC tên chuỗi', () => {
+    const kq = traLoi(haiChieu(), 'Miền Nam bao nhiêu');
+
+    // 197 = tổng của Miền Nam, không phải tổng của một nhóm hàng nào.
+    expect(kq?.cau).toContain('Miền Nam');
+    expect(kq?.cau).toContain('197');
+  });
+
+  it('không gọi tên nhãn lẫn chuỗi nào thì vẫn CHƯA HIỂU', () => {
+    expect(traLoi(haiChieu(), 'thời tiết bao nhiêu')).toBeNull();
+  });
+});
+
+/*
+ * ⚠️ Tên chuỗi DÀI NHẤT thắng — cùng luật, cùng lý do với `timDong`.
+ *
+ * "Gia dụng" và "Gia dụng cao cấp" cùng nằm trong câu hỏi về cái thứ hai. Lấy
+ * cái ngắn là trả lời về một mảng màu KHÁC, bằng một con số có thật trên đúng
+ * biểu đồ đó — nên không có một dấu hiệu nào cho thấy đã nhầm.
+ */
+describe('Tên chuỗi lồng nhau', () => {
+  const long: Nguon = {
+    ten: 'Số lượng theo Khu vực',
+    duKien: [],
+    bang: {
+      rows: [
+        { label: 'Miền Bắc', series: 'Gia dụng', value: 100 },
+        { label: 'Miền Nam', series: 'Gia dụng', value: 100 },
+        { label: 'Miền Bắc', series: 'Gia dụng cao cấp', value: 11 },
+      ],
+      dimensionLabel: 'Khu vực',
+      measureLabel: 'Số lượng',
+      seriesLabel: 'Nhóm hàng',
+      grouped: false,
+    },
+  };
+
+  it('hỏi tên dài thì KHÔNG trả lời bằng nhóm tên ngắn', () => {
+    const kq = traLoi(long, 'Gia dụng cao cấp bao nhiêu');
+
+    expect(kq?.cau).toContain('11');
+    expect(kq?.so).toEqual(['11']);
+  });
+
+  it('hỏi tên ngắn vẫn ra đúng nhóm tên ngắn', () => {
+    expect(traLoi(long, 'Gia dụng bao nhiêu')?.so).toEqual(['200']);
+  });
+});

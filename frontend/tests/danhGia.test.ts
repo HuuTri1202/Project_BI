@@ -769,8 +769,17 @@ const CA: Ca[] = [
     truoc: 'miền nào có số lượng cao nhất',
     can: ['Gia dụng', '302'],
     khong: ['Miền Trung'],
-    vi: 'KHOẢNG TRỐNG đã ghi — hỏi tổng của một giá trị CHUỖI, không có ý định nào khớp',
+    vi: 'Hỏi tổng của một giá trị CHUỖI — cộng qua cả ba Khu vực',
   },
+
+  {
+    trang: 'bieuDoKhuVuc',
+    hoi: 'Điện tử là bao nhiêu',
+    can: ['Điện tử', '290'],
+    khong: ['115'],
+    vi: 'MỘT Ô của cột chồng là 115; câu hỏi về cả mảng màu thì phải là 290',
+  },
+  { trang: 'bieuDoKhuVuc', hoi: 'Thời trang bao nhiêu', can: ['Thời trang', '263'] },
 
   // ─── Quan hệ giữa các bảng: tab Quan hệ vẽ rõ, khung từng chỉ biết đếm ───
   {
@@ -1185,7 +1194,7 @@ describe('Bộ đánh giá khung hỏi đáp', () => {
    * nghĩa là thay đổi đó đang đánh đổi câu này lấy câu kia mà không nói ra.
    */
   it('số câu ĐÚNG không được tụt', () => {
-    expect(dem('dung')).toBeGreaterThanOrEqual(127);
+    expect(dem('dung')).toBeGreaterThanOrEqual(130);
   });
 
   /*

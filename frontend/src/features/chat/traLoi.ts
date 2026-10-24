@@ -635,7 +635,37 @@ function tinhBang(
       // Không có ý định nào khớp: thử xem câu hỏi có nhắc tên một nhóm không —
       // "Miền Bắc bao nhiêu" không chứa từ khoá nào cả.
       const dong = timDong(rows, cauHoi);
-      if (dong === null) return null;
+      if (dong === null) {
+        /*
+         * ⚠️ Nhãn trục trượt rồi thì thử tên CHUỖI — nhánh đối xứng với khối
+         * ngay bên dưới, và nó lấp một lỗ đo được: trên biểu đồ cột chồng
+         * "Số lượng theo Khu vực" tách màu theo "Nhóm hàng", câu "Gia dụng bao
+         * nhiêu" không khớp nhãn trục nào nên rơi thẳng xuống "chưa hiểu" —
+         * trong khi "Gia dụng" đang là một mảng màu người dùng đang chỉ vào.
+         *
+         * Nhãn trục xét TRƯỚC, có chủ ý: đó là hành vi đã có, và một câu gọi
+         * tên cả hai bên thì cái trên trục X là cái người ta nhìn thấy trước.
+         */
+        const chuoi = timChuoi(rows, cauHoi);
+        if (chuoi === null) return null;
+
+        const cungChuoi = rows.filter((r) => (r.series ?? '') === chuoi);
+        const tongChuoi = cungChuoi.reduce((t, r) => t + r.value, 0);
+        const giaChuoi = doc(tongChuoi);
+        return {
+          cau: ghep(
+            `${measureLabel} của ${chuoi} là ${giaChuoi}` +
+              // Chỉ nói "cộng qua N …" khi phép cộng THẬT SỰ nhập nhiều dòng.
+              // Một chuỗi chỉ có một dòng mà vẫn nói "cộng qua 1 Khu vực" là
+              // thêm một vế không mang thông tin nào.
+              (cungChuoi.length > 1
+                ? `, cộng qua ${String(cungChuoi.length)} ${dimensionLabel}.`
+                : '.'),
+            cat,
+          ),
+          so: [giaChuoi],
+        };
+      }
 
       /*
        * ⚠️ Biểu đồ HAI chiều thì một nhãn trục có nhiều dòng, mỗi chuỗi một
@@ -740,6 +770,21 @@ function timDong(
    */
   const theoDoDai = [...rows].sort((a, b) => tenDong(b).length - tenDong(a).length);
   return theoDoDai.find((r) => r.label !== '' && q.includes(chuanHoa(r.label))) ?? null;
+}
+
+/**
+ * Tên CHUỖI mà câu hỏi gọi tên — `null` = không gọi tên chuỗi nào.
+ *
+ * Cùng luật "dài nhất thắng" với `timDong`, và cùng lý do: hai tên chuỗi mà
+ * tên này nằm lọt trong tên kia thì lấy cái ngắn là trả lời về một nhóm khác,
+ * bằng một con số có thật — nên không có gì báo là đã nhầm.
+ */
+function timChuoi(rows: ReportDataDto['rows'], cauHoi: string): string | null {
+  const q = chuanHoa(cauHoi);
+  const ten = [...new Set(rows.map((r) => r.series ?? '').filter((x) => x !== ''))].sort(
+    (a, b) => b.length - a.length,
+  );
+  return ten.find((x) => q.includes(chuanHoa(x))) ?? null;
 }
 
 function timHaiDong(
