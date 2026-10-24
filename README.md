@@ -3210,6 +3210,30 @@ mời một thứ mô hình này không làm được (_"theo tháng"_ trên mô
 cột ngày, _"trung bình"_ trên thước đo không nhận trung bình — bấm vào là nhận
 "chưa hiểu", và một nút dẫn tới bế tắc tệ hơn không có nút). Xem `goiYTiep.ts`.
 
+**Quãng chờ nói ra nó đang làm gì.** Một câu hỏi số liệu trên trang mô hình đi
+qua **hai lượt gọi mô hình nối đuôi nhau**: lớp chọn-nhãn đọc thứ trang đang
+giữ, trượt, rồi lớp điền-form dựng một truy vấn mới và quét kho. Nhãn dưới ba
+chấm đổi theo giai đoạn — _"Đang đọc số liệu trên Mô hình dữ liệu…"_ rồi
+_"Đang dựng một truy vấn mới…"_ — vì bốn giây mà không biết gì đang xảy ra thì
+dài hơn hẳn bốn giây.
+
+⚠️ Lượt thứ hai **cố ý không bỏ**, và đó là một kết luận có đo. `duKienMoHinh`
+khai toàn metadata (số bảng, kiểu cột, người tạo) chứ không một con số nào của
+kho, nên trên trang mô hình một câu hỏi tổng hợp **chắc chắn** trượt lớp
+chọn-nhãn. Ba đường rút ngắn đều đắt hơn thứ chúng tiết kiệm:
+
+- **Bỏ lớp chọn-nhãn khi câu hỏi gọi tên một thước đo.** _"Mô hình này có thước
+  đo Doanh thu không"_ cũng gọi tên thước đo, và nó sẽ nhận về một **con số**
+  cho một câu hỏi metadata — tức SAI, đúng thứ cả khung dựng lên để chặn.
+- **Chạy song song hai lớp.** Mỗi câu metadata trên trang dựng đốt thêm một
+  lượt quét ClickHouse và một suất trong hạn mức 20 lượt/10 phút.
+- **Song song chỉ phần gọi mô hình.** Đúng về lý, nhưng phải tách endpoint làm
+  hai và thêm một mặt tiếp xúc mới.
+
+Phép đo cũng nói vì sao chuyện này hẹp: trong 191 ca, trang Mô hình dữ liệu có
+**3 ca**, còn 61 ca nằm ở các trang báo cáo — nơi ô biểu đồ mang theo `bang`,
+nên lớp chọn-nhãn trả lời được cả câu tổng hợp ở đó.
+
 **F5 không xoá cuộc trò chuyện.** Đoạn chat và form của lượt trước nằm trong
 `sessionStorage` — đúng vòng đời của chữ "phiên" mà khung vẫn dùng, nên nó
 không sống qua lần đóng trình duyệt. Giữ cả form là có lý do: thiếu nó thì sau

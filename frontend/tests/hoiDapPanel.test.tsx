@@ -2021,3 +2021,72 @@ describe('Lý do bế tắc và gợi ý hỏi tiếp', () => {
     expect(screen.getByLabelText('Câu hỏi')).toHaveValue('Doanh thu theo tháng');
   });
 });
+
+/**
+ * Quãng CHỜ phải nói ra nó đang làm gì.
+ *
+ * Một câu hỏi số liệu trên trang mô hình đi qua HAI lượt gọi mô hình nối đuôi
+ * nhau — lớp chọn-nhãn đọc thứ trang đang giữ, trượt, rồi lớp điền-form dựng
+ * một truy vấn mới và quét kho. Bốn năm giây ba chấm nhấp nháy mà không biết
+ * gì đang xảy ra, và không biết thì bốn giây dài hơn hẳn bốn giây.
+ *
+ * Lượt thứ hai không bỏ được (xem khối chú thích ở `dangLam`), nên thứ được
+ * xoá là sự IM LẶNG. Và nhãn ấy chỉ có ích khi nó ĐỔI theo giai đoạn: một
+ * nhãn đứng im suốt cả quãng chờ không nói thêm gì so với ba chấm.
+ */
+describe('Quãng chờ nói ra nó đang làm gì', () => {
+  const NGUON = [{ ten: 'Đơn hàng', duKien: [{ nhan: 'Số dòng của Đơn hàng', gia: '12.431' }] }];
+
+  it('giai đoạn 1 nói đang đọc số liệu của TRANG, và gọi tên trang', async () => {
+    // Lớp chọn-nhãn treo, nên khung đứng ở giai đoạn một.
+    hieuCauHoi.mockReset();
+    hieuCauHoi.mockReturnValue(new Promise(() => undefined));
+
+    dung(NGUON, 7);
+    fireEvent.click(nutMo());
+    hoi('doanh thu miền bắc tháng 3');
+
+    await screen.findByLabelText('Đang soạn câu trả lời');
+    expect(screen.getByText(/Đang đọc số liệu trên Kho dữ liệu/)).toBeInTheDocument();
+  });
+
+  it('trượt lớp chọn-nhãn -> nhãn ĐỔI sang đang dựng truy vấn', async () => {
+    // Mô hình đã đọc hết nhãn của trang và không mục nào trả lời được.
+    hieuCauHoi.mockReset();
+    hieuCauHoi.mockResolvedValue({ chon: null, trangThai: 'da-doc' });
+    // Đường mô hình treo, nên khung đứng ở giai đoạn hai.
+    hoiTrenMoHinh.mockReset();
+    hoiTrenMoHinh.mockReturnValue(new Promise(() => undefined));
+
+    dung(NGUON, 7);
+    fireEvent.click(nutMo());
+    hoi('doanh thu miền bắc tháng 3');
+
+    await screen.findByText(/Đang dựng một truy vấn mới trên mô hình dữ liệu/);
+    // Và nhãn cũ phải đi — hai nhãn cùng lúc là nói hai việc đang chạy.
+    expect(screen.queryByText(/Đang đọc số liệu trên Kho dữ liệu/)).toBeNull();
+  });
+
+  it('câu trả lời về thì nhãn chờ biến mất cùng ba chấm', async () => {
+    hieuCauHoi.mockReset();
+    hieuCauHoi.mockResolvedValue({ chon: null, trangThai: 'da-doc' });
+    hoiTrenMoHinh.mockReset();
+    hoiTrenMoHinh.mockResolvedValue({
+      cau: 'Miền Bắc: Doanh thu 1.200.',
+      so: ['1.200'],
+      hieuLa: 'Doanh thu theo Khu vực',
+      daHoi: true,
+      lyDo: null,
+      goiY: [],
+      truyVan: { dimensionIds: [11], measureIds: [21] } as never,
+    });
+
+    dung(NGUON, 7);
+    fireEvent.click(nutMo());
+    hoi('doanh thu miền bắc tháng 3');
+
+    await screen.findByText('Miền Bắc: Doanh thu 1.200.');
+    expect(screen.queryByText(/Đang dựng một truy vấn mới/)).toBeNull();
+    expect(screen.queryByLabelText('Đang soạn câu trả lời')).toBeNull();
+  });
+});

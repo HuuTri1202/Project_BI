@@ -119,6 +119,31 @@ interface TinNhan {
    */
   dangSoan?: true;
   /**
+   * LỚP NÀO đang chạy, nói bằng lời — chỉ có nghĩa cùng `dangSoan`.
+   *
+   * ═══ Vì sao một chuỗi, không phải chỉ ba chấm ═════════════════════════════
+   *
+   * Một câu hỏi số liệu trên trang mô hình đi qua HAI lượt gọi mô hình nối
+   * đuôi nhau: lớp chọn-nhãn đọc thứ trang đang giữ, trượt, rồi lớp điền-form
+   * dựng một truy vấn mới và quét kho. Mỗi lượt một hai giây, nên người dùng
+   * nhìn ba chấm nhấp nháy bốn năm giây mà không biết gì đang xảy ra — và
+   * không biết thì bốn giây dài hơn hẳn bốn giây.
+   *
+   * ⚠️ Lượt gọi thứ hai KHÔNG bỏ được, dù nó tốn. Đã đo và đã thử ba đường:
+   *
+   *   - Bỏ lớp chọn-nhãn khi câu hỏi gọi tên một thước đo: "mô hình này có
+   *     thước đo Doanh thu không" cũng gọi tên thước đo, và nó sẽ nhận về một
+   *     CON SỐ cho một câu hỏi metadata. Đó là SAI, đúng thứ cả khung chặn.
+   *   - Chạy song song hai lớp: mỗi câu metadata trên trang dựng đốt thêm một
+   *     lượt quét ClickHouse và một suất trong hạn mức 20 lượt/10 phút.
+   *   - Song song chỉ phần gọi mô hình: đúng về lý, nhưng phải tách endpoint
+   *     làm hai và thêm một mặt tiếp xúc mới.
+   *
+   * Nên thứ được xoá là sự IM LẶNG, không phải lượt gọi. Và nó nói luôn phạm
+   * vi đang được đọc — cùng việc mà `hieuLa` và `doMoHinh` làm ở chỗ khác.
+   */
+  dangLam?: string;
+  /**
    * Lớp mô hình nào đã tham gia câu này — `undefined` = thuần ngoại tuyến.
    *
    * ═══ Vì sao nói ra ở TỪNG CÂU, không chỉ ở tiêu đề ════════════════════════
@@ -430,7 +455,14 @@ export function HoiDapPanel(): React.ReactElement | null {
       ...cu,
       { id: idBot - 1, ai: 'nguoi', cau: q, luc },
       kq === null
-        ? { id: idBot, ai: 'bot', luc, cau: '', dangSoan: true }
+        ? {
+            id: idBot,
+            ai: 'bot',
+            luc,
+            cau: '',
+            dangSoan: true,
+            dangLam: `Đang đọc số liệu trên ${nguCanh.trang}…`,
+          }
         : { id: idBot, ai: 'bot', luc, cau: kq.cau },
     ]);
     setCauHoi('');
@@ -899,6 +931,20 @@ export function HoiDapPanel(): React.ReactElement | null {
         ? { cauHoi: boiCanh.cauHoi, truyVan: boiCanh.truyVan }
         : undefined;
 
+    /*
+     * Đổi nhãn TRƯỚC khi gọi, không phải sau.
+     *
+     * Đặt sau thì nhãn chỉ hiện khi lời gọi đã về — tức đúng lúc nó hết cần
+     * thiết, và quãng im lặng dài nhất vẫn im.
+     */
+    setTinNhan((cu) =>
+      cu.map((t) =>
+        t.id === idBot && t.dangSoan === true
+          ? { ...t, dangLam: 'Đang dựng một truy vấn mới trên mô hình dữ liệu…' }
+          : t,
+      ),
+    );
+
     void hoiTrenMoHinh(moHinhId, q, truoc)
       .then(({ cau, so, hieuLa, truyVan, lyDo, goiY }) => {
         /*
@@ -1281,7 +1327,16 @@ function BongBong({
               Tôi hiểu: {tin.hieuLa}
             </span>
           )}
-          {tin.dangSoan === true ? <BaCham /> : tin.cau}
+          {tin.dangSoan === true ? (
+            <>
+              <BaCham />
+              {tin.dangLam !== undefined && (
+                <span className="mt-1 block text-[11px] text-slate-400">{tin.dangLam}</span>
+              )}
+            </>
+          ) : (
+            tin.cau
+          )}
           {tin.doMoHinh !== undefined && (
             <span className="mt-1.5 block text-[11px] text-slate-400">↳ {tin.doMoHinh}</span>
           )}
