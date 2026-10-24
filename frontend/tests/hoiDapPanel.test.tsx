@@ -1611,3 +1611,67 @@ describe('Bế tắc ở trình dựng kể tên thước đo đang có', () => 
     expect(bong).not.toHaveTextContent('tab Thước đo');
   });
 });
+
+/*
+ * ═══ Câu xin VẼ đi qua lớp ĐIỀN FORM ═══════════════════════════════════════
+ *
+ * Lời than của người dùng: "khi thị trường thì ko hiểu nhưng ghi market thì
+ * hiểu được". Lớp chọn-nhãn phải tìm một CẶP có sẵn trong danh sách bị cắt ở
+ * 60; lớp điền-form chọn riêng từng ô nên nó về được một id dù người dùng gọi
+ * trường bằng chữ của họ. Xem `capTheoId`.
+ */
+describe('Câu xin vẽ nhận cặp trường từ form mô hình điền', () => {
+  const f = (x: Partial<ExplorerFieldDto>): ExplorerFieldDto =>
+    ({ id: 1, label: 'X', datasetName: 'Orders', cubeType: 'string', ...x }) as ExplorerFieldDto;
+
+  const TRUONG: ExplorerFieldsDto = {
+    dimensions: [f({ id: 1, label: 'Khu vực' })],
+    measures: [f({ id: 10, label: 'Doanh thu', cubeType: 'number' })],
+  };
+
+  const NGUON: Nguon[] = [
+    { ten: 'Mô hình Bán hàng', duKien: [{ nhan: 'Số bảng trong mô hình Bán hàng', gia: '3' }] },
+  ];
+
+  /** Câu không lớp ngoại tuyến nào chạm tới được: không chữ nào trùng tên trường. */
+  const CAU = 'tui muốn vẽ biểu đồ xem thị trường ra sao';
+
+  it('dựng đề xuất từ `truyVan`, kèm nút Vẽ — không dừng ở "chưa hiểu"', async () => {
+    hoiTrenMoHinh.mockResolvedValue({
+      cau: 'Doanh thu cao nhất là 500.',
+      so: [],
+      hieuLa: null,
+      daHoi: true,
+      truyVan: { dimensionIds: [1], measureIds: [10] },
+    });
+    dung(NGUON, 7, TRUONG, vi.fn());
+    fireEvent.click(nutMo());
+
+    hoi(CAU);
+
+    expect(await screen.findByText('Doanh thu theo Khu vực')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Vẽ' })).toBeInTheDocument();
+    expect(screen.queryByText(/Tôi chưa hiểu câu này/)).not.toBeInTheDocument();
+  });
+
+  /*
+   * Form trỏ vào một trường không còn trong danh sách trên máy này — ai đó vừa
+   * xoá một cột. Thà về đường cũ còn hơn dựng bừa một cặp.
+   */
+  it('id lạ thì KHÔNG dựng đề xuất nào', async () => {
+    hoiTrenMoHinh.mockResolvedValue({
+      cau: 'Doanh thu cao nhất là 500.',
+      so: [],
+      hieuLa: null,
+      daHoi: true,
+      truyVan: { dimensionIds: [999], measureIds: [10] },
+    });
+    dung(NGUON, 7, TRUONG, vi.fn());
+    fireEvent.click(nutMo());
+
+    hoi(CAU);
+
+    expect(await screen.findByText(/Doanh thu cao nhất là 500/)).toBeInTheDocument();
+    expect(screen.queryByText('Doanh thu theo Khu vực')).not.toBeInTheDocument();
+  });
+});

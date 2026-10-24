@@ -566,6 +566,85 @@ export function tenDeXuat(g: GoiYBieuDo): string {
   return `${g.thuocDo.label} theo ${g.chieu.label}`;
 }
 
+/**
+ * Tên của MỘT DÃY đề xuất — kèm tên bảng ở đúng chỗ hai tên trùng nhau.
+ *
+ * ═══ Lỗi đo được ══════════════════════════════════════════════════════════
+ *
+ * Trên Global-Superstore, "tui muốn xem profit theo market" ra câu hỏi ngược
+ * "khớp với 2 cặp trường khác nhau, bạn muốn cái nào?" — kèm HAI cái nút đọc
+ * y hệt nhau: "Profit theo Market" và "Profit theo Market". Mô hình có hai
+ * bảng cùng mang cột `Market`, nên `tenDeXuat` trả về cùng một chuỗi.
+ *
+ * Một câu hỏi ngược mà hai lựa chọn không phân biệt được thì tệ hơn hẳn việc
+ * không hỏi: nó bắt người dùng chọn, rồi không cho họ cơ sở nào để chọn.
+ *
+ * Kèm tên bảng CHỈ ở chỗ trùng, không kèm đại trà — `backend/hoiTrenMoHinh`
+ * cũng đính tên bảng vào nhãn chiều vì đúng lý do này, nhưng ở đó danh sách
+ * chỉ mô hình đọc. Danh sách này người dùng đọc, nên mỗi chữ thừa là một chữ
+ * phải lướt qua.
+ */
+export function tenPhanBiet(ds: GoiYBieuDo[]): string[] {
+  const demTheo = (xs: string[]): Map<string, number> => {
+    const m = new Map<string, number>();
+    for (const x of xs) m.set(x, (m.get(x) ?? 0) + 1);
+    return m;
+  };
+
+  const tran = ds.map(tenDeXuat);
+  const dem = demTheo(tran);
+
+  // Bảng của CHIỀU gỡ được gần như mọi ca: hai bảng cùng có cột `Market`.
+  const themChieu = ds.map((g, i) =>
+    (dem.get(tran[i] ?? '') ?? 0) < 2
+      ? (tran[i] ?? '')
+      : `${tran[i] ?? ''} (bảng ${g.chieu.datasetName})`,
+  );
+  const dem2 = demTheo(themChieu);
+
+  // Còn trùng nữa thì chính THƯỚC ĐO mới là chỗ khác nhau.
+  return ds.map((g, i) => {
+    const t = themChieu[i] ?? '';
+    return (dem2.get(t) ?? 0) < 2 ? t : `${t.slice(0, -1)} · thước đo ở ${g.thuocDo.datasetName})`;
+  });
+}
+
+/**
+ * Cặp trường mà lớp ĐIỀN FORM vừa chọn, dựng lại thành một đề xuất biểu đồ.
+ *
+ * ═══ Vì sao đường này mới là đường hiểu được tiếng Việt tự do ═════════════
+ *
+ * `hieuY` cho mô hình chọn MỘT mục trong danh sách cặp sẵn có, nên không gian
+ * lựa chọn là tích `chiều × thước đo` — nó phình theo cấp số nhân và bị cắt ở
+ * trần 60 nhãn. `datCauHoi` thì cho mô hình điền `{dimensionIds, measureIds}`,
+ * tức CHỌN RIÊNG từng ô, nên không gian chỉ là `chiều + thước đo` và trần của
+ * nó là 120 TRƯỜNG chứ không phải 120 cặp.
+ *
+ * Khác biệt đó quyết định đúng thứ người dùng vừa than: "thị trường" hiểu
+ * được, "market" cũng hiểu được, và hiểu được trên mô hình bao nhiêu cột cũng
+ * thế — vì mô hình không phải tìm một cặp có sẵn, nó ghép hai lựa chọn độc lập.
+ *
+ * Lớp đó đã chạy sẵn cho câu hỏi SỐ LIỆU. Chỗ này chỉ đọc lại cái form nó vừa
+ * điền và dựng thành đề xuất, thay vì vứt đi rồi nói "chưa hiểu".
+ *
+ * ⚠️ Id lạ thì trả `null`. Form đã qua `explorerQueryBodySchema` ở backend,
+ * nhưng danh sách trường trên máy này có thể cũ hơn — ai đó vừa xoá một cột.
+ */
+export function capTheoId(
+  truong: ExplorerFieldsDto | undefined,
+  chieuId: number | undefined,
+  thuocDoId: number | undefined,
+  cauHoi: string,
+): GoiYBieuDo | null {
+  if (truong === undefined || chieuId === undefined || thuocDoId === undefined) return null;
+
+  const chieu = truong.dimensions.find((d) => d.id === chieuId);
+  const thuocDo = truong.measures.find((m) => m.id === thuocDoId);
+  if (chieu === undefined || thuocDo === undefined) return null;
+
+  return { chieu, thuocDo, loai: loaiHop(chieu, chuanHoa(cauHoi)) };
+}
+
 /* ═══ SỬA biểu đồ đã vẽ ══════════════════════════════════════════════════════
  *
  * Mọi thứ ở trên DỰNG một biểu đồ mới. Nhưng câu hỏi hay gặp nhất sau khi biểu

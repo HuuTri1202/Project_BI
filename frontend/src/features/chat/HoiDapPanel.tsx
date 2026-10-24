@@ -7,6 +7,7 @@ import {
   cauGoiY,
   cauSua,
   capChoMoHinh,
+  capTheoId,
   deXuatBieuDo,
   docSuaBieuDo,
   goiYBieuDo,
@@ -14,6 +15,7 @@ import {
   muonVe,
   tachMoHo,
   tenDeXuat,
+  tenPhanBiet,
 } from './goiYBieuDo';
 import type { GoiYBieuDo, SuaBieuDo } from './goiYBieuDo';
 import { useNguCanh } from './nguCanh';
@@ -764,6 +766,44 @@ export function HoiDapPanel(): React.ReactElement | null {
 
     void hoiTrenMoHinh(moHinhId, q, truoc)
       .then(({ cau, so, hieuLa, truyVan }) => {
+        /*
+         * ═══ Câu xin một BIỂU ĐỒ thì thứ cần trả về là CẶP TRƯỜNG ════════
+         *
+         * Đây là chỗ sửa đúng lời than "tui muốn xem profit của thị trường thì
+         * không hiểu, ghi market thì hiểu".
+         *
+         * Lớp `hieuY` đứng trước chọn MỘT mục trong danh sách cặp sẵn có — một
+         * không gian tích `chiều × thước đo` bị cắt ở 60 nhãn, nên trên một mô
+         * hình cỡ thật cặp đúng thường không có mặt để mà chọn. Lớp này thì
+         * ĐIỀN FORM: mô hình chọn riêng `dimensionIds` và `measureIds`, nên
+         * không gian chỉ là `chiều + thước đo`, trần 120 TRƯỜNG. "Thị trường"
+         * và "market" cùng về được một id ở đây, và về được trên mô hình bao
+         * nhiêu cột cũng thế.
+         *
+         * Nó đã chạy sẵn cho câu hỏi số liệu. Trước bản này, câu xin vẽ đi qua
+         * đúng lớp ấy, nhận về một form ĐÚNG, rồi vứt form đi để in ra một con
+         * số — hoặc "chưa hiểu" khi truy vấn không ra dòng nào.
+         *
+         * Đặt TRƯỚC chốt `cau === null`: cặp trường vẫn dùng được kể cả khi
+         * truy vấn chạy ra bảng rỗng. Một biểu đồ rỗng vẫn là biểu đồ người
+         * dùng xin, và họ đổi bộ lọc là có số.
+         */
+        const capVe = muonVe(q)
+          ? capTheoId(nguCanh.truong, truyVan?.dimensionIds[0], truyVan?.measureIds[0], q)
+          : null;
+        if (capVe !== null) {
+          const noi = dungCauVe(capVe, []);
+          setTinNhan((cu) =>
+            cu.map((t) =>
+              t.id === idBot
+                ? { id: t.id, ai: t.ai, luc: t.luc, ...noi.tin, doMoHinh: 'mô hình chọn trường' }
+                : t,
+            ),
+          );
+          if (noi.kq !== null) vietLai(q, idBot, noi.kq);
+          return;
+        }
+
         if (cau === null) {
           hetDuong(q, idBot);
           return;
@@ -1219,15 +1259,18 @@ function NutDeXuat({
   onGoiY: (g: GoiYBieuDo) => void;
   onVe: ((g: GoiYBieuDo) => void) | undefined;
 }): React.ReactElement {
+  // Tên kèm tên bảng ở ĐÚNG chỗ hai dòng trùng nhau — xem `tenPhanBiet`.
+  const ten = tenPhanBiet(mau);
+
   return (
     <span className="flex flex-col gap-1">
-      {mau.map((g) => (
+      {mau.map((g, i) => (
         <span
           key={`${String(g.thuocDo.id)}:${String(g.chieu.id)}`}
           className="flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2 py-1"
         >
-          <span className="min-w-0 flex-1 truncate text-xs text-slate-600" title={tenDeXuat(g)}>
-            {tenDeXuat(g)}
+          <span className="min-w-0 flex-1 truncate text-xs text-slate-600" title={ten[i]}>
+            {ten[i]}
           </span>
           <button
             type="button"

@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   capChoMoHinh,
+  capTheoId,
   cauGoiY,
   cauSua,
   deXuatBieuDo,
@@ -13,6 +14,7 @@ import {
   muonVe,
   tachMoHo,
   tenDeXuat,
+  tenPhanBiet,
 } from '../src/features/chat/goiYBieuDo';
 
 /**
@@ -640,5 +642,74 @@ describe('Danh sách cặp gửi cho mô hình xoay quanh thước đo đã gọ
 
     expect(cap.length).toBeGreaterThan(0);
     expect(new Set(cap.map((g) => g.thuocDo.label)).size).toBeGreaterThan(1);
+  });
+});
+
+/*
+ * ═══ Hai lựa chọn phải PHÂN BIỆT ĐƯỢC ══════════════════════════════════════
+ *
+ * Lỗi đo được: "tui muốn xem profit theo market" ra câu hỏi ngược kèm hai cái
+ * nút đọc y hệt nhau — mô hình có hai bảng cùng mang cột `Market`. Bắt người
+ * dùng chọn mà không cho họ cơ sở nào để chọn thì tệ hơn là không hỏi.
+ */
+describe('Tên đề xuất phân biệt được khi hai cặp trùng tên', () => {
+  it('trùng tên thì kèm tên bảng, không trùng thì để nguyên', () => {
+    const g = (chieuBang: string, id: number) => ({
+      chieu: truong({ id, label: 'Market', datasetName: chieuBang }),
+      thuocDo: truong({ id: 99, label: 'Profit', datasetName: 'Orders', cubeType: 'number' }),
+      loai: 'bar' as const,
+    });
+    const khac = {
+      chieu: truong({ id: 7, label: 'Khu vực', datasetName: 'Orders' }),
+      thuocDo: truong({ id: 99, label: 'Profit', datasetName: 'Orders', cubeType: 'number' }),
+      loai: 'bar' as const,
+    };
+
+    expect(tenPhanBiet([g('Orders', 1), g('People', 2), khac])).toEqual([
+      'Profit theo Market (bảng Orders)',
+      'Profit theo Market (bảng People)',
+      'Profit theo Khu vực',
+    ]);
+  });
+
+  /*
+   * Hai bảng của CHIỀU giống nhau nốt thì chỗ khác nhau nằm ở thước đo —
+   * nếu không, hai dòng lại đọc y hệt, chỉ là dài hơn.
+   */
+  it('chiều cùng bảng thì phân biệt bằng bảng của thước đo', () => {
+    const g = (doBang: string, id: number) => ({
+      chieu: truong({ id: 1, label: 'Market', datasetName: 'Orders' }),
+      thuocDo: truong({ id, label: 'Profit', datasetName: doBang, cubeType: 'number' }),
+      loai: 'bar' as const,
+    });
+
+    expect(tenPhanBiet([g('Orders', 50), g('Returns', 51)])).toEqual([
+      'Profit theo Market (bảng Orders · thước đo ở Orders)',
+      'Profit theo Market (bảng Orders · thước đo ở Returns)',
+    ]);
+  });
+});
+
+/*
+ * ═══ Cặp trường do lớp ĐIỀN FORM chọn ══════════════════════════════════════
+ *
+ * Đường duy nhất hiểu được "thị trường" là "Market": mô hình chọn riêng từng ô
+ * nên không gian là `chiều + thước đo`, không phải tích của hai cái.
+ */
+describe('Dựng đề xuất từ form mô hình vừa điền', () => {
+  it('id có thật -> đúng cặp trường, loại biểu đồ đọc từ chính chiều', () => {
+    const g = capTheoId(MO_HINH, 3, 10, 'tui muốn xem doanh thu của thị trường');
+
+    expect(g?.chieu.label).toBe('Ngày đặt');
+    expect(g?.thuocDo.label).toBe('Doanh thu');
+    // Chiều thời gian -> biểu đồ đường, đúng luật `loaiHop` đang dùng.
+    expect(g?.loai).toBe('line');
+  });
+
+  it('id lạ -> null, không dựng bừa một cặp nào', () => {
+    expect(capTheoId(MO_HINH, 999, 10, 'x')).toBeNull();
+    expect(capTheoId(MO_HINH, 1, 999, 'x')).toBeNull();
+    expect(capTheoId(undefined, 1, 10, 'x')).toBeNull();
+    expect(capTheoId(MO_HINH, undefined, 10, 'x')).toBeNull();
   });
 });
