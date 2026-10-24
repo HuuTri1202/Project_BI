@@ -1,7 +1,8 @@
-import { CHART_TYPE_LABELS, type ExplorerQueryDto } from '@bi/shared';
+import { CHART_TYPE_LABELS, ERROR_CODES, type ExplorerQueryDto } from '@bi/shared';
 import { useEffect, useRef, useState } from 'react';
 
 import { KHONG_XUAT } from '../../services/danhDauXuat';
+import { getApiError } from '../../services/apiClient';
 import { chonCot, dienDatLai, hieuCauHoi, hoiTrenMoHinh } from './api';
 import type { CotChon, HieuCauHoiKetQua } from './api';
 import {
@@ -20,6 +21,7 @@ import {
 } from './goiYBieuDo';
 import type { GoiYBieuDo, SuaBieuDo } from './goiYBieuDo';
 import { useNguCanh } from './nguCanh';
+import { docPhien, ghiPhien } from './nhoHoiThoai';
 import type { BangTho, NguCanh, Nguon } from './nguCanh';
 import { useNguCanhHeThong } from './nguCanhHeThong';
 import { useCoMoHinh } from './trangThai';
@@ -153,8 +155,21 @@ export function HoiDapPanel(): React.ReactElement | null {
   const [mo, setMo] = useState(false);
   const [chon, setChon] = useState(0);
   const [cauHoi, setCauHoi] = useState('');
-  const [tinNhan, setTinNhan] = useState<TinNhan[]>([]);
-  const demId = useRef(0);
+  /*
+   * Khôi phục cuộc trò chuyện của phiên — xem `nhoHoiThoai.ts`.
+   *
+   * Hàm khởi tạo LƯỜI (`useState(() => ...)`), không phải một giá trị tính
+   * sẵn: đọc `sessionStorage` ở mỗi lần render là một lượt đọc đồng bộ cho
+   * một kết quả chỉ dùng đúng một lần.
+   *
+   * Khung vẫn mở ra ở trạng thái ĐÓNG. Tự bật lên sau mỗi lần F5 chỉ vì phiên
+   * trước có người hỏi gì đó là một cái khung tự tiện.
+   */
+  const daLuu = useRef(docPhien());
+  const [tinNhan, setTinNhan] = useState<TinNhan[]>(
+    () => (daLuu.current?.tinNhan as TinNhan[] | undefined) ?? [],
+  );
+  const demId = useRef(daLuu.current?.demId ?? 0);
   const dayCuon = useRef<HTMLDivElement>(null);
 
   /**
@@ -193,7 +208,25 @@ export function HoiDapPanel(): React.ReactElement | null {
     moHinhId: number;
     cauHoi: string;
     truyVan: ExplorerQueryDto;
-  } | null>(null);
+  } | null>(
+    () =>
+      (daLuu.current?.boiCanh as {
+        moHinhId: number;
+        cauHoi: string;
+        truyVan: ExplorerQueryDto;
+      } | null) ?? null,
+  );
+
+  /*
+   * Ghi lại phiên mỗi khi đoạn chat đổi.
+   *
+   * Ghi CẢ `boiCanh`: thiếu nó thì sau F5 câu "còn tháng 4 thì sao" mất chỗ
+   * bám và thành một câu hỏi cụt, dù đoạn chat ngay trên vẫn hiện đủ. Một
+   * lịch sử đọc được mà hỏi tiếp không được là nửa vời theo kiểu khó đoán nhất.
+   */
+  useEffect(() => {
+    ghiPhien({ tinNhan, demId: demId.current, boiCanh });
+  }, [tinNhan, boiCanh]);
 
   /*
    * Dữ kiện xuyên hệ thống — chỉ kéo về khi khung ĐANG MỞ.
@@ -946,13 +979,34 @@ export function HoiDapPanel(): React.ReactElement | null {
         // Viết lại cho mượt, vẫn bị đối chiếu số như hai đường kia.
         vietLai(q, idBot, { cau, so });
       })
-      .catch(() => {
+      .catch((err: unknown) => {
         /*
-         * Ca có thật chứ không phải phòng xa: `viewer` không có `datamodel:read`
-         * nên lời gọi này trả 403 với họ. Kết thúc ba chấm bằng câu "chưa
-         * hiểu" kèm gợi ý — y như khi không có mô hình nào.
+         * ═══ 403 KHÔNG phải "chưa hiểu" ════════════════════════════════════
+         *
+         * Ca có thật chứ không phải phòng xa: `viewer` cố ý không có
+         * `datamodel:read` (migration 26), nên với họ đường này LUÔN trả 403 —
+         * mọi câu hỏi số liệu mới, mãi mãi, không có ngoại lệ.
+         *
+         * Trả về "Tôi chưa hiểu câu này" là nói sai. Khung hiểu thừa; nó
+         * không được phép chạy truy vấn. Người dùng đọc "chưa hiểu" thì họ gõ
+         * lại bằng cách khác, rồi lại cách khác — một vòng lặp không có lối
+         * ra, vì thứ chặn không nằm ở câu chữ. Nói thẳng ra là biến một bế tắc
+         * vô hình thành một việc làm được: đi hỏi quản trị tổ chức.
+         *
+         * Mấy mã lỗi khác (mất mạng, hết lượt, chưa cấu hình) thì "chưa hiểu"
+         * vẫn đúng: chúng tạm thời, và câu trả lời bằng dữ liệu trên màn hình
+         * vẫn là thứ tốt nhất khung làm được lúc đó.
          */
-        hetDuong(q, idBot);
+        hetDuong(
+          q,
+          idBot,
+          getApiError(err).error === ERROR_CODES.FORBIDDEN
+            ? 'Câu này cần chạy một truy vấn mới trên kho dữ liệu, mà vai trò của bạn ' +
+                'không được phép đọc mô hình dữ liệu. Tôi vẫn trả lời được mọi câu về số ' +
+                'liệu đang hiện trên màn hình. Cần hỏi số mới thì nhờ quản trị tổ chức đổi ' +
+                'vai trò giúp.'
+            : undefined,
+        );
       });
   }
 

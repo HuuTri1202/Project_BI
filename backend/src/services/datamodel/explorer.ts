@@ -3,6 +3,8 @@ import {
   MEASURE_AGGS_BY_CUBE_TYPE,
   MEASURE_AGG_LABELS,
   MEASURE_OP_LABELS,
+  TIME_GRANULARITIES,
+  TIME_GRANULARITY_LABELS,
   distinctFieldLabels,
   moTaThuocDo,
   type DataModelMeasureDto,
@@ -347,6 +349,39 @@ export function buildQuery(
   });
 
   /*
+   * Chiều THỜI GIAN cũng là một CỘT KẾT QUẢ, không chỉ một mệnh đề gộp.
+   *
+   * Cube trả giá trị đã gom dưới khoá có HẬU TỐ mức gom (`c_orders.d7.month`),
+   * khác hẳn khoá của chính chiều đó (`c_orders.d7`). Mà `keys` là thứ duy
+   * nhất quyết định cột nào đi vào `rows` — nên không có khối này thì một truy
+   * vấn gom theo tháng trả về đúng số dòng, mỗi dòng đúng con số, và KHÔNG
+   * dòng nào nói nó là tháng mấy. Một bảng số không nhãn tệ hơn không có bảng.
+   *
+   * Đặt ngay sau `dimensions` để cột thời gian đứng cùng chỗ với mấy chiều
+   * khác, và quan trọng hơn: phải xong TRƯỚC `distinctFieldLabels` bên dưới,
+   * nếu không `columns` và `bangCua` lệch nhau một ô.
+   *
+   * ⚠️ Chưa chạy được với Cube thật (container đang tắt). Khoá có hậu tố mức
+   * gom là hợp đồng của Cube REST API; đây là chỗ duy nhất trong bản này cần
+   * một lượt chạy thật để chốt.
+   */
+  const tg = input.timeDimension;
+  let tgMember: string | null = null;
+
+  if (tg !== undefined) {
+    const found = index.columns.get(tg.dimensionId);
+    if (found === undefined) throw unknownField();
+    tgMember = `${found.cubeName}.${dimensionNameFor(tg.dimensionId)}`;
+    columns.push({
+      id: tg.dimensionId,
+      label: `${found.label} (${TIME_GRANULARITY_LABELS[tg.granularity]})`,
+      kind: 'dimension',
+    });
+    bangCua.push(found.datasetName);
+    keys.push(`${tgMember}.${tg.granularity}`);
+  }
+
+  /*
    * Phép gộp người dùng chọn TẠI CHỖ, cho riêng truy vấn này.
    *
    * Chỉ đọc, không ghi: mô hình vẫn giữ nguyên phép đã khai. Đây là điểm khác
@@ -410,15 +445,10 @@ export function buildQuery(
 
   const query: CubeQuery = { measures, dimensions };
 
-  if (input.timeDimension !== undefined) {
-    const found = index.columns.get(input.timeDimension.dimensionId);
-    if (found === undefined) throw unknownField();
-    query.timeDimensions = [
-      {
-        dimension: `${found.cubeName}.${dimensionNameFor(input.timeDimension.dimensionId)}`,
-        granularity: input.timeDimension.granularity,
-      },
-    ];
+  // `tgMember` đã dựng ở trên, cùng lúc với cột kết quả của nó — hai nơi tự
+  // dựng lại cùng một chuỗi là cách chắc chắn để chúng lệch nhau về sau.
+  if (tg !== undefined && tgMember !== null) {
+    query.timeDimensions = [{ dimension: tgMember, granularity: tg.granularity }];
   }
 
   // Nhiều bộ giới hạn được Cube nối bằng AND — đúng ý: "nhóm nằm trong top-N
@@ -496,6 +526,36 @@ export function buildQuery(
   return { query, columns, keys, limit };
 }
 
+/** Hậu tố mức gom ở cuối một khoá — dựng từ `TIME_GRANULARITIES`, không gõ tay. */
+const HAU_TO_MUC_GOM = new RegExp(`\\.(${TIME_GRANULARITIES.join('|')})$`);
+
+/**
+ * Đọc một ô theo khoá, chịu được CẢ HAI cách Cube đặt tên chiều thời gian.
+ *
+ * ═══ Vì sao không chọn một cách rồi tin nó ════════════════════════════════
+ *
+ * `buildQuery` xin chiều thời gian dưới khoá có hậu tố mức gom
+ * (`c_orders.d13.month`) — đó là hợp đồng REST của Cube. Nhưng nhánh này chưa
+ * từng chạy với Cube thật ở repo này, và cái giá của việc đoán sai là ÂM THẦM:
+ * `row[key]` ra `undefined`, `toCell` biến nó thành `null`, rồi bảng hiện một
+ * cột "(trống)" cho mọi dòng. Không lỗi, không cảnh báo — chỉ là một cột mất
+ * nhãn, đúng kiểu hỏng mà cả khối chú thích trên kia nói là tệ nhất.
+ *
+ * Đọc được cả hai thì không còn gì để đoán: hai khoá chỉ vào cùng một cột của
+ * cùng một truy vấn, nên không có trường hợp nào chúng mang hai giá trị khác
+ * nhau. Rẻ hơn hẳn việc dựng cả một môi trường Cube chỉ để chốt một chuỗi.
+ */
+function oTheoKhoa(row: Record<string, unknown>, key: string): unknown {
+  if (key in row) return row[key];
+  /*
+   * Cắt hậu tố KHÔNG đụng tới khoá nào khác: mọi khoá còn lại do
+   * `dimensionNameFor`/`measureNameFor` dựng ra và luôn kết thúc bằng `d<số>`
+   * hoặc `m<số>`, nên biểu thức trên không khớp chúng. Một chiều thiếu dữ liệu
+   * vẫn ra `undefined` ở đây, rồi thành ô `(trống)` — đúng như trước.
+   */
+  return row[key.replace(HAU_TO_MUC_GOM, '')];
+}
+
 export async function runExplorerQuery(
   tenantId: number,
   userId: number,
@@ -512,7 +572,7 @@ export async function runExplorerQuery(
     query,
   );
 
-  const rows = result.data.map((row) => keys.map((key) => toCell(row[key])));
+  const rows = result.data.map((row) => keys.map((key) => toCell(oTheoKhoa(row, key))));
 
   return {
     columns,

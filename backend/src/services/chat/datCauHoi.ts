@@ -1,4 +1,12 @@
-import { FILTER_OPERATORS, type ExplorerQueryDto, type FilterOperator } from '@bi/shared';
+import {
+  FILTER_OPERATORS,
+  MEASURE_AGGS,
+  TIME_GRANULARITIES,
+  type ExplorerQueryDto,
+  type FilterOperator,
+  type MeasureAgg,
+  type TimeGranularity,
+} from '@bi/shared';
 
 import { coCauHinhLlm, goiMoHinh } from './dienDat';
 
@@ -48,6 +56,24 @@ export interface TruongChon {
   id: number;
   nhan: string;
   loai: 'chieu' | 'thuoc do';
+  /**
+   * Chiều này gom theo thời gian được không — chỉ có nghĩa với `loai: 'chieu'`.
+   *
+   * Cần thiết vì `timeDimension` gom một cột theo tháng/quý/năm, và Cube ném
+   * lỗi khi cột đó là chuỗi. Không có trường này thì mô hình gom "Tên sản phẩm"
+   * theo tháng được, và người dùng nhận một lỗi 500 thay vì "chưa hiểu".
+   */
+  thoiGian?: boolean;
+  /**
+   * MỌI phép gộp thước đo này nhận — chỉ có nghĩa với `loai: 'thuoc do'`.
+   *
+   * Gồm cả phép ĐANG KHAI lẫn các phép đổi được (`availableAggs`), vì đó đúng
+   * là tập mà `buildQuery` chấp nhận. Nó ném `HttpError 400` cho một phép ngoài
+   * tập — cố ý, để không ai lặng lẽ nhận số tính bằng phép khác. Nhưng ở đường
+   * hỏi đáp thì một 400 là câu trả lời tệ hơn "chưa hiểu", nên `kiemForm` chặn
+   * trước, và nó chỉ chặn được khi biết tập này.
+   */
+  phepGop?: readonly MeasureAgg[];
 }
 
 export interface DatCauHoiInput {
@@ -91,13 +117,25 @@ export interface DatCauHoiKetQua {
 export const TRAN_TRUONG = 120;
 
 /**
+ * Trần `limit` mà một câu hỏi trò chuyện được phép đặt.
+ *
+ * Thấp hơn hẳn trần 5000 của `explorerQueryBodySchema`, và vì một lý do khác
+ * hẳn: ở đây `limit` chỉ sinh ra từ chữ "top N" trong một câu nói, mà "top
+ * 501" thì không phải là một câu nói. `docKetQua` cũng chỉ đọc ra 15 dòng.
+ */
+const TRAN_LIMIT = 500;
+
+/**
  * Bỏ dấu + hạ chữ thường, để so câu hỏi với giá trị lọc.
  *
  * ⚠️ `đ`/`Đ` phải thay TAY — chúng là ký tự Latin riêng (U+0111/U+0110) nên
  * `NFD` không tách được gì. Cùng cái bẫy đã ghi ở `services/dataset/storageKey.ts`
  * và ở `features/chat/traLoi.ts` bên frontend.
+ *
+ * Xuất ra để `hoiTrenMoHinh` đọc hướng sắp bằng ĐÚNG phép chuẩn hoá này — hai
+ * bản chuẩn hoá hơi khác nhau trong cùng một đường là một lớp lỗi vô hình.
  */
-function chuanHoa(raw: string): string {
+export function chuanHoa(raw: string): string {
   return raw
     .normalize('NFD')
     .replace(/[̀-ͯ]/g, '')
@@ -247,6 +285,87 @@ export function kiemForm(tho: unknown, input: DatCauHoiInput): ExplorerQueryDto 
     if (ra.length > 0) truyVan.filters = ra;
   }
 
+  /*
+   * ─── `limit` — "top 5" là một phép của TRUY VẤN ──────────────────────────
+   *
+   * Không có nó thì truy vấn lấy 500 dòng rồi `docKetQua` in ra 15. Với một
+   * câu hỏi xuôi chiều thì vô hại; với "5 sản phẩm BÁN CHẬM nhất" thì không,
+   * vì lát cắt và hướng sắp quyết định cùng nhau xem TẬP nào được lấy về.
+   */
+  const tran = o.limit;
+  if (tran !== undefined && tran !== null) {
+    const n = soNguyenDuong(tran);
+    if (n === null || n > TRAN_LIMIT) return null;
+    truyVan.limit = n;
+  }
+
+  /*
+   * ─── `measureAggs` — đánh rơi là trả lời bằng một PHÉP TÍNH khác ─────────
+   *
+   * Đây là ô nguy hiểm nhất trong ba ô thêm ở đây. "Doanh thu TRUNG BÌNH mỗi
+   * đơn" mà rơi mất phép gộp thì câu trả lời là TỔNG doanh thu — một con số
+   * thật, định dạng đẹp, mang đúng cái nhãn "Doanh thu", trả lời một câu hỏi
+   * khác. `buildQuery` có gắn tên phép vào nhãn cột khi phép bị đổi, nên khi ô
+   * này được tôn trọng thì màn hình nói ra; khi nó bị rơi thì không có gì nói.
+   *
+   * Lọc theo `phepGop` chứ không chỉ theo `MEASURE_AGGS`: một phép hợp lệ về
+   * từ vựng nhưng cột không nhận sẽ làm `buildQuery` ném 400.
+   */
+  const gop = o.measureAggs;
+  if (gop !== undefined && gop !== null) {
+    if (!Array.isArray(gop)) return null;
+    const nhan = new Map(
+      input.truong.filter((t) => t.loai === 'thuoc do').map((t) => [t.id, t.phepGop ?? []]),
+    );
+    const ra: { id: number; agg: MeasureAgg }[] = [];
+
+    for (const x of gop) {
+      if (typeof x !== 'object' || x === null) return null;
+      const g = x as Record<string, unknown>;
+
+      const id = soNguyenDuong(g.id);
+      if (id === null || !doHopLe.has(id)) return null;
+
+      const phep = g.agg;
+      if (typeof phep !== 'string' || !(MEASURE_AGGS as readonly string[]).includes(phep)) {
+        return null;
+      }
+      if (!(nhan.get(id) ?? []).includes(phep as MeasureAgg)) return null;
+
+      ra.push({ id, agg: phep as MeasureAgg });
+    }
+
+    if (ra.length > 20) return null;
+    if (ra.length > 0) truyVan.measureAggs = ra;
+  }
+
+  /*
+   * ─── `timeDimension` — "doanh thu THEO THÁNG" ────────────────────────────
+   *
+   * Không có ô này thì mọi câu hỏi theo thời gian đều nằm ngoài không gian trả
+   * lời, trừ khi mô hình tình cờ có sẵn một cột "Tháng" riêng.
+   *
+   * ⚠️ `thoiGian` là chốt bắt buộc, không phải trang trí: Cube ném lỗi khi gom
+   * một cột chuỗi theo tháng, và một lỗi hạ tầng là câu trả lời tệ hơn hẳn
+   * "chưa hiểu".
+   */
+  const tg = o.timeDimension;
+  if (tg !== undefined && tg !== null) {
+    if (typeof tg !== 'object') return null;
+    const t = tg as Record<string, unknown>;
+
+    const id = soNguyenDuong(t.dimensionId);
+    if (id === null || !chieuHopLe.has(id)) return null;
+    if (input.truong.find((x) => x.id === id && x.loai === 'chieu')?.thoiGian !== true) return null;
+
+    const muc = t.granularity;
+    if (typeof muc !== 'string' || !(TIME_GRANULARITIES as readonly string[]).includes(muc)) {
+      return null;
+    }
+
+    truyVan.timeDimension = { dimensionId: id, granularity: muc as TimeGranularity };
+  }
+
   return truyVan;
 }
 
@@ -276,6 +395,13 @@ const NHAC = [
   '"filters":[{"dimensionId":id,"operator":"equals","values":["giá trị"]}]}',
   'Toán tử hợp lệ: equals, notEquals, contains, notContains, gt, gte, lt, lte, set, notSet.',
   'set và notSet không có values; các toán tử khác phải có ít nhất một values.',
+  'Ba ô KHÔNG bắt buộc, chỉ điền khi câu hỏi thật sự nói tới:',
+  '"limit":N khi người dùng xin "top N" hoặc "N cái ... nhất".',
+  '"timeDimension":{"dimensionId":id,"granularity":"day|week|month|quarter|year"} khi họ hỏi',
+  'theo ngày/tuần/tháng/quý/năm — id PHẢI là một chiều được ghi "gom theo thời gian được".',
+  '"measureAggs":[{"id":id,"agg":"avg"}] khi họ đổi phép tính của thước đo (trung bình, nhỏ',
+  'nhất, lớn nhất, đếm) — agg PHẢI nằm trong danh sách "phép gộp" của chính thước đo đó.',
+  'TUYỆT ĐỐI không điền hướng sắp xếp: hệ thống tự đọc "cao nhất"/"thấp nhất" từ câu hỏi.',
   'CHỈ dùng id có trong danh sách. Tuyệt đối không bịa id.',
   'values PHẢI là chữ lấy nguyên từ câu hỏi của người dùng — không dịch, không viết tắt,',
   'không đổi cách viết. Không chắc giá trị viết thế nào trong dữ liệu thì bỏ filter đó đi.',
@@ -295,8 +421,26 @@ export async function datCauHoi(input: DatCauHoiInput): Promise<DatCauHoiKetQua>
   const truong = input.truong.slice(0, TRAN_TRUONG);
   if (!coCauHinhLlm() || truong.length === 0) return { truyVan: null, daHoi: false };
 
+  /*
+   * Mỗi dòng nói thêm ĐÚNG thứ cần để điền hai ô mới, và chỉ khi có thứ đó.
+   *
+   * Không ghi "gom theo thời gian được" thì mô hình không có cách nào biết
+   * chiều nào là ngày tháng — tên cột tiếng Anh viết tắt thì nó đoán, và
+   * `kiemForm` sẽ bỏ cả form, tức câu hỏi theo tháng không bao giờ chạy.
+   */
   const danhSach = truong
-    .map((t) => `${String(t.id)} = ${t.nhan} (${t.loai === 'chieu' ? 'chiều' : 'thước đo'})`)
+    .map((t) => {
+      const loai = t.loai === 'chieu' ? 'chiều' : 'thước đo';
+      const them =
+        t.loai === 'chieu'
+          ? t.thoiGian === true
+            ? ', gom theo thời gian được'
+            : ''
+          : (t.phepGop ?? []).length > 1
+            ? `, phép gộp: ${(t.phepGop ?? []).join('/')}`
+            : '';
+      return `${String(t.id)} = ${t.nhan} (${loai}${them})`;
+    })
     .join('\n');
 
   const { noiDung, daGoi } = await goiMoHinh(

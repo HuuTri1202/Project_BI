@@ -594,3 +594,183 @@ describe('Bộ nhớ hội thoại nới corpus của luật canh gác, KHÔNG b
     expect(cuaNguoiDung.join(' ')).toContain('doanh thu theo khu vực');
   });
 });
+
+/**
+ * BA Ô FORM mà `kiemForm` trước đây đánh rơi im lặng — và vì sao chúng khác nhau.
+ *
+ * `ExplorerQueryDto` có sáu ô; lớp điền form chỉ kiểm ba (`dimensionIds`,
+ * `measureIds`, `filters`) nên ba ô còn lại rơi mất mà không ai thấy. Hậu quả
+ * KHÔNG giống nhau giữa chúng, và đó là lý do cả ba đều có ca riêng ở đây:
+ *
+ *   `limit`         — rơi thì lấy 500 dòng thay vì 5. Thừa, không sai.
+ *   `timeDimension` — rơi thì câu hỏi theo tháng nằm ngoài không gian trả lời.
+ *   `measureAggs`   — rơi thì TRẢ LỜI BẰNG MỘT PHÉP TÍNH KHÁC. Cái này nguy
+ *                     hiểm: tổng doanh thu mang nhãn "Doanh thu" trông y hệt
+ *                     doanh thu trung bình mang nhãn "Doanh thu".
+ */
+describe('Ba ô form còn lại', () => {
+  /** Thước đo 21 nhận `sum`/`avg`; chiều 13 là cột thời gian. */
+  const DAY_DU: DatCauHoiInput['truong'] = [
+    { id: 21, nhan: 'Doanh thu', loai: 'thuoc do', phepGop: ['sum', 'avg'] },
+    { id: 11, nhan: 'Khu vực (bảng Orders)', loai: 'chieu' },
+    { id: 13, nhan: 'Ngày đặt (bảng Orders)', loai: 'chieu', thoiGian: true },
+  ];
+
+  const doc = (tho: unknown, cauHoi = 'doanh thu'): ExplorerQueryDto | null =>
+    kiemForm(tho, { cauHoi, truong: DAY_DU });
+
+  it('`limit` của "top 5" đi được vào truy vấn', () => {
+    expect(doc({ dimensionIds: [11], measureIds: [21], limit: 5 })?.limit).toBe(5);
+  });
+
+  it('`limit` quá trần thì bỏ CẢ FORM, không âm thầm kẹp lại', () => {
+    // Kẹp lại là đổi câu hỏi: "top 900" thành "top 500" mà không nói gì.
+    expect(doc({ dimensionIds: [11], measureIds: [21], limit: 900 })).toBeNull();
+    expect(doc({ dimensionIds: [11], measureIds: [21], limit: 0 })).toBeNull();
+  });
+
+  it('gom theo tháng đi được vào truy vấn', () => {
+    const q = doc({
+      dimensionIds: [],
+      measureIds: [21],
+      timeDimension: { dimensionId: 13, granularity: 'month' },
+    });
+    expect(q?.timeDimension).toEqual({ dimensionId: 13, granularity: 'month' });
+  });
+
+  /*
+   * ⚠️ Chốt này chặn một lỗi HẠ TẦNG, không phải một lỗi hiểu nhầm.
+   *
+   * Cube ném lỗi khi gom một cột chuỗi theo tháng. Để mô hình chọn "Khu vực"
+   * làm chiều thời gian thì người dùng nhận một mã lỗi 500 — tệ hơn hẳn "chưa
+   * hiểu", vì nó trông như hệ thống hỏng chứ không như câu hỏi chưa được hiểu.
+   */
+  it('gom theo tháng trên cột KHÔNG phải thời gian thì bỏ cả form', () => {
+    expect(
+      doc({
+        dimensionIds: [],
+        measureIds: [21],
+        timeDimension: { dimensionId: 11, granularity: 'month' },
+      }),
+    ).toBeNull();
+  });
+
+  it('mức gom lạ thì bỏ cả form', () => {
+    expect(
+      doc({
+        dimensionIds: [],
+        measureIds: [21],
+        timeDimension: { dimensionId: 13, granularity: 'decade' },
+      }),
+    ).toBeNull();
+  });
+
+  it('đổi phép gộp sang trung bình đi được vào truy vấn', () => {
+    const q = doc({
+      dimensionIds: [11],
+      measureIds: [21],
+      measureAggs: [{ id: 21, agg: 'avg' }],
+    });
+    expect(q?.measureAggs).toEqual([{ id: 21, agg: 'avg' }]);
+  });
+
+  /*
+   * ⚠️ Phép mà CỘT ĐÓ không nhận phải chết ở đây, không phải ở `buildQuery`.
+   *
+   * `buildQuery` ném `HttpError 400` cho trường hợp này — cố ý, để Explorer
+   * không lặng lẽ lùi về phép mặc định. Nhưng trên đường hỏi đáp thì một 400
+   * hiện ra thành sự cố, trong khi điều đã xảy ra chỉ là mô hình đoán sai một ô.
+   */
+  it('phép gộp mà thước đo không nhận thì bỏ cả form, không để `buildQuery` ném 400', () => {
+    expect(
+      doc({
+        dimensionIds: [11],
+        measureIds: [21],
+        measureAggs: [{ id: 21, agg: 'countDistinct' }],
+      }),
+    ).toBeNull();
+  });
+
+  it('phép gộp gán cho một CHIỀU thì bỏ cả form', () => {
+    expect(
+      doc({ dimensionIds: [11], measureIds: [21], measureAggs: [{ id: 11, agg: 'avg' }] }),
+    ).toBeNull();
+  });
+
+  /*
+   * Danh sách trường gửi cho mô hình phải NÓI RA hai thứ này.
+   *
+   * Không ghi "gom theo thời gian được" thì mô hình đoán cột nào là ngày tháng
+   * từ cái tên — và `kiemForm` bỏ cả form mỗi lần nó đoán trượt, tức câu hỏi
+   * theo tháng gần như không bao giờ chạy được. Luật kiểm và lời nhắc phải nói
+   * cùng một thứ; chúng là hai nửa của một cơ chế.
+   */
+  it('lời nhắc nói rõ chiều nào gom theo thời gian được và thước đo nhận phép nào', async () => {
+    const { datCauHoi } = await napVoiEnv(DU_CAU_HINH);
+    const goi = vi.fn().mockResolvedValue(traVe('{}'));
+    globalThis.fetch = goi;
+
+    await datCauHoi({ cauHoi: 'doanh thu theo tháng', truong: DAY_DU });
+
+    const than = JSON.parse(String((goi.mock.calls[0]?.[1] as { body: string }).body)) as {
+      messages: { content: string }[];
+    };
+    const tat = than.messages.map((m) => m.content).join('\n');
+
+    expect(tat).toContain('13 = Ngày đặt (bảng Orders) (chiều, gom theo thời gian được)');
+    expect(tat).toContain('21 = Doanh thu (thước đo, phép gộp: sum/avg)');
+    // Chiều thường KHÔNG được mang dấu đó, nếu không dấu ấy chẳng phân biệt gì.
+    expect(tat).toContain('11 = Khu vực (bảng Orders) (chiều)');
+  });
+});
+
+/**
+ * `hieuLa` phải nói ra THỨ TỰ và LÁT CẮT, không chỉ trường và bộ lọc.
+ *
+ * Cả tác dụng của `hieuLa` nằm ở chỗ người đọc đối chiếu được "máy hiểu gì"
+ * với "tôi hỏi gì". Hướng sắp là thứ quyết định dòng nào đứng đầu — tức là
+ * quyết định cái mà người ta đọc như câu trả lời — nên nó im lặng thì dòng
+ * giải thích bỏ sót đúng phần dễ sai nhất.
+ */
+describe('Dòng "Tôi hiểu" nói ra thứ tự', () => {
+  const NHAN = new Map([
+    [11, 'Khu vực'],
+    [21, 'Doanh thu'],
+  ]);
+
+  const bang = (soDong: number): ExplorerResultDto => ({
+    columns: [
+      { id: 11, label: 'Khu vực', kind: 'dimension' },
+      { id: 21, label: 'Doanh thu', kind: 'measure' },
+    ],
+    rows: Array.from({ length: soDong }, (_, i) => [`Vùng ${String(i)}`, 100 - i]),
+    truncated: false,
+  });
+
+  const q: ExplorerQueryDto = { dimensionIds: [11], measureIds: [21] };
+
+  it('nói "từ thấp lên" khi câu hỏi lật hướng', () => {
+    expect(docKetQua(bang(3), q, NHAN, 'asc').hieuLa).toContain('xếp từ thấp lên');
+  });
+
+  /*
+   * ⚠️ Phải nói CẢ KHI hướng là mặc định.
+   *
+   * Chỉ nói lúc bị lật thì người đọc không phân biệt được "máy hiểu là cao
+   * nhất" với "máy không nghĩ tới chuyện thứ tự" — mà đó đúng là phân biệt mà
+   * dòng này tồn tại để cho họ.
+   */
+  it('nói "từ cao xuống" cả khi đó là hướng mặc định', () => {
+    expect(docKetQua(bang(3), q, NHAN, 'desc').hieuLa).toContain('xếp từ cao xuống');
+  });
+
+  it('một dòng duy nhất thì KHÔNG nói gì về thứ tự', () => {
+    // Chữ thừa trong `hieuLa` làm loãng đúng dòng mà người đọc phải soi.
+    expect(docKetQua(bang(1), q, NHAN, 'desc').hieuLa).not.toContain('xếp');
+  });
+
+  it('`limit` mô hình tự đặt phải hiện ra', () => {
+    const coTran: ExplorerQueryDto = { ...q, limit: 5 };
+    expect(docKetQua(bang(3), coTran, NHAN, 'desc').hieuLa).toContain('lấy 5 dòng đầu');
+  });
+});

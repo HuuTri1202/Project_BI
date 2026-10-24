@@ -9,6 +9,7 @@ import * as heThongHook from '../src/features/chat/nguCanhHeThong';
 import * as trangThaiHook from '../src/features/chat/trangThai';
 import { NguCanhProvider } from '../src/features/chat/NguCanhProvider';
 import { useKhaiNguCanh, type NguCanh, type Nguon } from '../src/features/chat/nguCanh';
+import { xoaPhien } from '../src/features/chat/nhoHoiThoai';
 import { THUOC_TINH_KHONG_XUAT } from '../src/services/danhDauXuat';
 
 /**
@@ -58,6 +59,14 @@ const hoiTrenMoHinh = vi.mocked(chatApi.hoiTrenMoHinh);
 const useCoMoHinh = vi.mocked(trangThaiHook.useCoMoHinh);
 
 beforeEach(() => {
+  /*
+   * Phiên chat sống trong `sessionStorage` nên nó CHẢY từ ca này sang ca khác
+   * — một ca sẽ mở ra và thấy đoạn trò chuyện của ca trước. Xoá ở đây, không
+   * phải trong từng describe: quên một chỗ là một ca đỏ vì lý do chẳng liên
+   * quan gì tới thứ nó kiểm.
+   */
+  xoaPhien();
+
   /*
    * Mặc định: CHƯA cấu hình mô hình, nên lời gọi hỏng và câu mẫu ở lại.
    *
@@ -1764,5 +1773,146 @@ describe('Bảng thô: mô hình chọn hai cột rồi khung tự tính', () =>
     hoi(CAU);
 
     expect(await screen.findByText(/Tôi chưa hiểu câu này/)).toBeInTheDocument();
+  });
+});
+
+/**
+ * `viewer` gặp một bế tắc KHÁC HẲN "chưa hiểu" — và phải được nói ra như thế.
+ *
+ * Migration 26 cố ý lấy `datamodel:read` khỏi `viewer`, nên với họ đường đặt
+ * câu hỏi mới LUÔN trả 403: mọi câu hỏi số liệu mới, mãi mãi, không ngoại lệ.
+ * Trả về "Tôi chưa hiểu câu này" là nói sai — khung hiểu thừa, nó chỉ không
+ * được phép chạy truy vấn — và nó đẩy người dùng vào vòng gõ lại bằng cách
+ * khác, mà cách nào cũng trượt vì thứ chặn không nằm ở câu chữ.
+ */
+describe('403 không phải "chưa hiểu"', () => {
+  /** Một lỗi axios thật, vì `getApiError` soi `isAxiosError`. */
+  function loi403(): Error {
+    return Object.assign(new Error('Request failed with status code 403'), {
+      isAxiosError: true,
+      response: {
+        status: 403,
+        data: { error: 'Forbidden', message: 'Vai trò của bạn không được phép xem mô hình.' },
+      },
+    });
+  }
+
+  const NGUON = [{ ten: 'Đơn hàng', duKien: [{ nhan: 'Số dòng của Đơn hàng', gia: '12.431' }] }];
+
+  it('403 -> nói thẳng là thiếu quyền, và chỉ ra việc cần làm', async () => {
+    hoiTrenMoHinh.mockReset();
+    hoiTrenMoHinh.mockRejectedValue(loi403());
+
+    dung(NGUON, 7);
+    fireEvent.click(nutMo());
+    hoi('doanh thu miền bắc tháng 3 là bao nhiêu');
+
+    const cau = await screen.findByText(/không được phép đọc mô hình dữ liệu/);
+
+    // Phải nêu việc làm được, không chỉ nêu rào chắn.
+    expect(cau).toHaveTextContent('quản trị tổ chức');
+    // Và KHÔNG được nói dối là chưa hiểu.
+    expect(screen.queryByText(/Tôi chưa hiểu câu này/)).toBeNull();
+  });
+
+  /*
+   * Mấy kiểu hỏng khác thì "chưa hiểu" VẪN đúng: chúng tạm thời, và câu trả
+   * lời bằng dữ liệu đang hiện vẫn là thứ tốt nhất khung làm được lúc đó. Gộp
+   * chúng vào câu nói về quyền là dạy người dùng đi xin một thứ họ đã có.
+   */
+  it('mất mạng -> vẫn là "chưa hiểu", không phải chuyện quyền', async () => {
+    hoiTrenMoHinh.mockReset();
+    hoiTrenMoHinh.mockRejectedValue(new Error('Network Error'));
+
+    dung(NGUON, 7);
+    fireEvent.click(nutMo());
+    hoi('doanh thu miền bắc tháng 3 là bao nhiêu');
+
+    await screen.findByText(/Tôi chưa hiểu câu này/);
+    expect(screen.queryByText(/không được phép đọc mô hình dữ liệu/)).toBeNull();
+  });
+});
+
+/**
+ * F5 KHÔNG được xoá cuộc trò chuyện — xem `nhoHoiThoai.ts`.
+ *
+ * Tải lại trang là thao tác thường nhất ở đây: hỏi một con số, đi sửa dữ liệu,
+ * F5 để xem số mới — và mất cả đoạn đối chiếu vừa dựng.
+ *
+ * Tháo rồi dựng lại cây component là đúng thứ F5 làm với state React, nên đó
+ * là cách kiểm trung thực nhất mà không cần một trình duyệt thật.
+ */
+describe('Cuộc trò chuyện sống qua một lần tải lại', () => {
+  const NGUON = [
+    { ten: 'Đơn hàng Q4', duKien: [{ nhan: 'Số dòng của Đơn hàng Q4', gia: '12.431' }] },
+  ];
+
+  it('hỏi, tải lại, câu hỏi và câu trả lời vẫn còn', () => {
+    const { unmount } = render(
+      <MemoryRouter>
+        <NguCanhProvider>
+          <TrangGiaLap nguon={NGUON} />
+        </NguCanhProvider>
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(nutMo());
+    hoi('đơn hàng q4 bao nhiêu dòng');
+    expect(screen.getByText(/12\.431/)).toBeInTheDocument();
+
+    unmount();
+
+    render(
+      <MemoryRouter>
+        <NguCanhProvider>
+          <TrangGiaLap nguon={NGUON} />
+        </NguCanhProvider>
+      </MemoryRouter>,
+    );
+
+    // Khung mở ra ở trạng thái ĐÓNG — tự bật lên sau mỗi F5 là một cái khung
+    // tự tiện. Nhưng mở ra thì đoạn cũ phải còn nguyên.
+    fireEvent.click(nutMo());
+    expect(screen.getByText('đơn hàng q4 bao nhiêu dòng')).toBeInTheDocument();
+    expect(screen.getByText(/12\.431/)).toBeInTheDocument();
+  });
+
+  /*
+   * ⚠️ Một bong bóng BA CHẤM được ghi lại sẽ nhấp nháy mãi mãi: lời gọi sinh
+   * ra nó đã chết cùng trang cũ, nên không còn gì tới để thay nó. Người dùng
+   * ngồi chờ một câu trả lời không bao giờ đến.
+   */
+  it('tin đang soạn dở KHÔNG được khôi phục thành ba chấm vĩnh viễn', async () => {
+    // Một lời gọi không bao giờ về — đúng trạng thái lúc người dùng bấm F5.
+    hoiTrenMoHinh.mockReset();
+    hoiTrenMoHinh.mockReturnValue(new Promise(() => undefined));
+
+    const { unmount } = render(
+      <MemoryRouter>
+        <NguCanhProvider>
+          <TrangGiaLap nguon={NGUON} moHinhId={7} />
+        </NguCanhProvider>
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(nutMo());
+    hoi('doanh thu miền bắc tháng 3');
+    await screen.findByLabelText('Đang soạn câu trả lời');
+
+    unmount();
+
+    render(
+      <MemoryRouter>
+        <NguCanhProvider>
+          <TrangGiaLap nguon={NGUON} moHinhId={7} />
+        </NguCanhProvider>
+      </MemoryRouter>,
+    );
+    fireEvent.click(nutMo());
+
+    expect(screen.queryByLabelText('Đang soạn câu trả lời')).toBeNull();
+    // Câu hỏi thì vẫn giữ: họ đã hỏi thật, và một câu hỏi không có trả lời là
+    // mô tả đúng chuyện vừa xảy ra.
+    expect(screen.getByText('doanh thu miền bắc tháng 3')).toBeInTheDocument();
   });
 });

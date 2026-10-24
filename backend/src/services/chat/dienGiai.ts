@@ -86,6 +86,17 @@ export function moTaTruyVan(truyVan: ExplorerQueryDto, nhanCua: Map<number, stri
     );
   }
 
+  /*
+   * `limit` PHẢI được nói ra. Nó quyết định tập dữ liệu nào được lấy về, nên
+   * một "top 5" mà mô hình tự nghĩ ra từ câu hỏi là thứ người đọc cần thấy —
+   * y hệt lý do mấy bộ lọc ở trên có mặt trong câu này.
+   *
+   * Phép gộp thì KHÔNG cần dòng riêng: `buildQuery` đã gắn tên phép vào nhãn
+   * cột khi phép bị đổi ("Doanh thu (Trung bình)"), và `nhanCua` lấy nhãn từ
+   * chính kết quả, nên nó đã nằm sẵn trong `ten(...)` ở trên.
+   */
+  if (truyVan.limit !== undefined) phan.push(`lấy ${String(truyVan.limit)} dòng đầu`);
+
   return phan.join(', ');
 }
 
@@ -117,9 +128,28 @@ export function docKetQua(
   kq: ExplorerResultDto,
   truyVan: ExplorerQueryDto,
   nhanCua: Map<number, string>,
+  /**
+   * Hướng đã sắp — xem `huongSap`. Vắng mặt = không nói gì về thứ tự.
+   *
+   * ⚠️ Phải nói ra CẢ KHI hướng là mặc định. Chỉ nói lúc nó bị lật thì người
+   * đọc không phân biệt được "máy hiểu là cao nhất" với "máy không nghĩ tới
+   * chuyện đó" — mà cả tác dụng của `hieuLa` nằm ở chỗ phân biệt ấy.
+   */
+  huong?: 'asc' | 'desc',
 ): TraLoiTruyVan {
-  const hieuLa = moTaTruyVan(truyVan, nhanCua);
   const cat = kq.truncated ? ` — truy vấn đã chạm trần số dòng nên đây chưa phải toàn bộ` : '';
+
+  /*
+   * Thứ tự chỉ đáng nói khi có NHIỀU dòng để mà xếp.
+   *
+   * Một con số duy nhất thì "xếp từ cao xuống" là chữ thừa, và chữ thừa trong
+   * `hieuLa` làm loãng đúng cái dòng mà người đọc phải soi.
+   */
+  const noiThuTu =
+    huong !== undefined && kq.columns.some((c) => c.kind === 'dimension') && kq.rows.length > 1;
+  const hieuLa =
+    moTaTruyVan(truyVan, nhanCua) +
+    (noiThuTu ? `, xếp ${huong === 'asc' ? 'từ thấp lên' : 'từ cao xuống'}` : '');
 
   if (kq.rows.length === 0) {
     return { cau: `Không có dòng nào thoả điều kiện này.`, so: [], hieuLa };
