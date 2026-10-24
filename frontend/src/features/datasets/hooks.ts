@@ -168,56 +168,6 @@ function useInvalidateReports(): () => Promise<void> {
   };
 }
 
-export function useCreateReport(): UseMutationResult<
-  ReportDto,
-  unknown,
-  Parameters<typeof api.createReport>[0]
-> {
-  const invalidate = useInvalidateReports();
-  return useMutation({
-    mutationFn: api.createReport,
-    onSuccess: invalidate,
-  });
-}
-
-/** Tạo báo cáo trên mô hình — §10.8. Cùng cơ chế dọn cache với nhánh bộ dữ liệu. */
-export function useCreateModelReport(): UseMutationResult<
-  ReportDto,
-  unknown,
-  Parameters<typeof api.createModelReport>[0]
-> {
-  const invalidate = useInvalidateReports();
-  return useMutation({
-    mutationFn: api.createModelReport,
-    onSuccess: invalidate,
-  });
-}
-
-/**
- * Sửa báo cáo trên mô hình — §10.9.
- *
- * Dọn thêm `reportData` của chính báo cáo đó, khác hai hook trên. Lý do: tạo
- * mới thì chưa ai từng đọc số liệu của nó, còn sửa thì cache đang giữ số liệu
- * tính bằng CẤU HÌNH CŨ. Không dọn thì bấm Lưu xong quay về trang Report sẽ
- * thấy đúng biểu đồ vừa bỏ đi, và F5 mới ra biểu đồ mới — người dùng kết luận
- * là nút Lưu không ăn.
- */
-export function useUpdateModelReport(): UseMutationResult<
-  ReportDto,
-  unknown,
-  { id: number; input: Parameters<typeof api.updateModelReport>[1] }
-> {
-  const invalidate = useInvalidateReports();
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: ({ id, input }) => api.updateModelReport(id, input),
-    onSuccess: async (report) => {
-      await queryClient.invalidateQueries({ queryKey: datasetKeys.reportData(report.id) });
-      await invalidate();
-    },
-  });
-}
-
 export function useCreateCanvasReport(): UseMutationResult<
   ReportDto,
   unknown,

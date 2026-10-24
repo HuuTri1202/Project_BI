@@ -75,26 +75,6 @@ export const ACTIONS = ['read', 'modify', 'invite', 'delete'] as const;
 
 export type Action = (typeof ACTIONS)[number];
 
-/** Nhãn tiếng Việt cho màn hiển thị ma trận quyền. */
-export const RESOURCE_LABELS: Record<Resource, string> = {
-  dataset: 'Bộ dữ liệu',
-  datamodel: 'Mô hình dữ liệu',
-  report: 'Báo cáo',
-  chart: 'Biểu đồ',
-  workspace: 'Workspace',
-  member: 'Thành viên',
-  tenant: 'Tổ chức',
-  connection: 'Kết nối CSDL',
-  billing: 'Gói dịch vụ & thanh toán',
-};
-
-export const ACTION_LABELS: Record<Action, string> = {
-  read: 'Xem',
-  modify: 'Sửa',
-  invite: 'Mời',
-  delete: 'Xoá',
-};
-
 /**
  * Quyền hiệu lực của người gọi, do backend tính bằng Casbin rồi trả về.
  *

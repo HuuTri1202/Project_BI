@@ -5,7 +5,6 @@ import {
   type DataModelDetailDto,
   type DataModelDto,
   type DataModelMeasureDto,
-  type DataModelRelationshipDto,
   type ExplorerFieldsDto,
   type ExplorerQueryDto,
   type ExplorerResultDto,
@@ -115,14 +114,6 @@ export function useMeasures(id: number | null): UseQueryResult<DataModelMeasureD
   return useQuery({
     queryKey: dataModelKeys.measures(id ?? 0),
     queryFn: () => api.fetchMeasures(id as number),
-    enabled: id !== null,
-  });
-}
-
-export function useRelationships(id: number | null): UseQueryResult<DataModelRelationshipDto[]> {
-  return useQuery({
-    queryKey: dataModelKeys.relationships(id ?? 0),
-    queryFn: () => api.fetchRelationships(id as number),
     enabled: id !== null,
   });
 }

@@ -141,44 +141,6 @@ export interface AdminWorkspaceDto {
   createdAt: string;
 }
 
-/** Một điểm trên biểu đồ §3.2. `date` là ngày UTC dạng 'YYYY-MM-DD'. */
-export interface DailyCountPoint {
-  date: string;
-  count: number;
-}
-
-/** Một lát trong biểu đồ phân bổ vai trò. */
-export interface RoleBreakdownSlice {
-  role: TenantRole;
-  /** Nhãn tiếng Việt, backend tính sẵn để biểu đồ không phải tra bảng. */
-  label: string;
-  count: number;
-}
-
-export interface AdminOverviewDto {
-  totalMembers: number;
-  admins: number;
-  lockedMembers: number;
-  workspaces: number;
-  /**
-   * Phân bổ vai trò của những thành viên còn trong tổ chức.
-   *
-   * Luôn đủ ba phần tử kể cả khi count = 0, để biểu đồ có trục ổn định và không
-   * nhảy chỗ khi một vai trò từ 0 thành 1.
-   */
-  roleBreakdown: RoleBreakdownSlice[];
-  /**
-   * Thành viên mới theo ngày, đã lấp đủ những ngày không có ai vào.
-   *
-   * Đây là chuỗi thời gian DUY NHẤT schema hiện tại đỡ được: không có bảng sự
-   * kiện, không có audit log, `last_login_at` bị ghi đè chứ không phải lịch sử.
-   * Với tổ chức mới vài tuần, biểu đồ sẽ gần như phẳng và có một cột dựng đứng ở
-   * ngày đầu — đó là sự thật của dữ liệu, không phải lỗi hiển thị.
-   */
-  newMembersDaily: DailyCountPoint[];
-  rangeDays: number;
-}
-
 /**
  * Mã lỗi riêng của khu quản trị, nối tiếp `ERROR_CODES` trong dto.ts.
  *
@@ -206,5 +168,3 @@ export const ADMIN_ERROR_CODES = {
   /** Đã thử hết hậu tố mà vẫn trùng slug. */
   WORKSPACE_SLUG_EXHAUSTED: 'WorkspaceSlugExhausted',
 } as const;
-
-export type AdminErrorCode = (typeof ADMIN_ERROR_CODES)[keyof typeof ADMIN_ERROR_CODES];

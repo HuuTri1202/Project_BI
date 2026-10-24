@@ -419,14 +419,6 @@ export const CHART_SORT_LABELS: Record<ChartSort, string> = {
 export const AGGREGATES = ['sum', 'avg', 'count', 'min', 'max'] as const;
 export type Aggregate = (typeof AGGREGATES)[number];
 
-export const AGGREGATE_LABELS: Record<Aggregate, string> = {
-  sum: 'Tổng',
-  avg: 'Trung bình',
-  count: 'Đếm',
-  min: 'Nhỏ nhất',
-  max: 'Lớn nhất',
-};
-
 /**
  * Cấu hình biểu đồ.
  *
@@ -895,13 +887,6 @@ export interface CreateModelReportInput {
   folderId?: number | null;
 }
 
-/** Dựng hoặc sửa biểu đồ — trang Report, không phải wizard. */
-export interface UpdateReportInput {
-  name: string;
-  chartType: ChartType;
-  config: ReportConfigDto;
-}
-
 /**
  * Sửa một báo cáo ĐÃ dựng trên mô hình — §10.9.
  *
@@ -991,5 +976,3 @@ export const REPORT_ERROR_CODES = {
    */
   DATASET_NOT_LOADED: 'DatasetNotLoaded',
 } as const;
-
-export type ReportErrorCode = (typeof REPORT_ERROR_CODES)[keyof typeof REPORT_ERROR_CODES];

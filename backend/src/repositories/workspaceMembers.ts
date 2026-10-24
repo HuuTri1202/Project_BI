@@ -43,57 +43,6 @@ export async function listWorkspaceIds(
   return rows.map((r) => Number(r.workspace_id));
 }
 
-interface MemberIdRow extends RowDataPacket {
-  workspace_id: number;
-  user_id: number;
-}
-
-/**
- * Bảng gán của NHIỀU người trong một lượt — cho danh sách Thành viên.
- *
- * Hỏi một lần cho cả trang thay vì một lần mỗi dòng: một trang 50 thành viên
- * mà hỏi từng người là 50 vòng tới database cho một cái bảng. Cùng lập luận với
- * việc nạp chỉ mục mô hình một lần cho cả khung ở §10.14.
- */
-export async function mapWorkspaceIds(
-  db: Db,
-  tenantId: number,
-  userIds: readonly number[],
-): Promise<Map<number, number[]>> {
-  const map = new Map<number, number[]>();
-  if (userIds.length === 0) return map;
-
-  const [rows] = await db.query<MemberIdRow[]>(
-    `SELECT workspace_id, user_id FROM workspace_members
-      WHERE tenant_id = ? AND user_id IN (${userIds.map(() => '?').join(', ')})
-      ORDER BY workspace_id`,
-    [tenantId, ...userIds],
-  );
-
-  for (const row of rows) {
-    const userId = Number(row.user_id);
-    const list = map.get(userId) ?? [];
-    list.push(Number(row.workspace_id));
-    map.set(userId, list);
-  }
-  return map;
-}
-
-/** Người này có vào được workspace này không — KHÔNG kể luật admin. */
-export async function isMember(
-  db: Db,
-  tenantId: number,
-  userId: number,
-  workspaceId: number,
-): Promise<boolean> {
-  const [rows] = await db.query<RowDataPacket[]>(
-    `SELECT 1 FROM workspace_members
-      WHERE tenant_id = ? AND user_id = ? AND workspace_id = ? LIMIT 1`,
-    [tenantId, userId, workspaceId],
-  );
-  return rows.length > 0;
-}
-
 /**
  * Đặt LẠI toàn bộ danh sách workspace của một người.
  *

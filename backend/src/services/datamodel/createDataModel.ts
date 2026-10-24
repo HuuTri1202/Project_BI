@@ -7,7 +7,7 @@ import * as datamodelsRepo from '../../repositories/datamodels';
 import * as datasetsRepo from '../../repositories/datasets';
 import { HttpError, notFound } from '../../utils/httpError';
 import { warehouseSchema } from '../ingest/loadService';
-import { defaultAggOf, defaultRoleOf, isSystemColumn } from './classifyColumn';
+import { defaultAggOf, defaultRoleOf } from './classifyColumn';
 import { ROW_COUNT_MEASURE_NAME, uniqueName } from './measures';
 import type { WorkspaceScope } from '../../repositories/workspaceScope';
 
@@ -294,14 +294,4 @@ export async function addDatasets(
 
     await datamodelsRepo.touch(conn, tenantId, dataModelId);
   });
-}
-
-/**
- * Cột nào hiện ra cho người dùng chọn.
- *
- * Cột hệ thống bị loại ở đây thay vì ở từng màn hình — ba nơi cần câu trả lời
- * này và ba nơi tự lọc là ba cơ hội để lệch nhau.
- */
-export function isPickable(columnName: string): boolean {
-  return !isSystemColumn(columnName);
 }

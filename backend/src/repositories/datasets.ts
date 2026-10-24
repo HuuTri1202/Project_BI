@@ -727,26 +727,6 @@ export async function findStorageKey(
   return { key: String(row['s3_key']), ext: row['file_ext'] as FileExt };
 }
 
-/**
- * Ai tạo ra bộ dữ liệu này.
- *
- * KHÔNG nằm trong `DatasetDto`: không màn hình nào hiện nó, và một trường chỉ
- * để phục vụ một tác vụ nền thì không đáng đi ra tận API. `null` khi người tạo
- * đã bị xoá khỏi hệ thống — `created_by` là `ON DELETE SET NULL`.
- */
-export async function findCreatorId(
-  db: Db,
-  tenantId: number,
-  id: number,
-): Promise<number | null> {
-  const [rows] = await db.query<RowDataPacket[]>(
-    'SELECT created_by FROM datasets WHERE tenant_id = ? AND id = ? LIMIT 1',
-    [tenantId, id],
-  );
-  const value = rows[0]?.['created_by'];
-  return value === null || value === undefined ? null : Number(value);
-}
-
 export async function markReady(
   db: Db,
   datasetId: number,
@@ -853,48 +833,6 @@ export async function readRows(
   return rows.map((row) => {
     const data = row['data'];
     return (typeof data === 'string' ? JSON.parse(data) : data) as Record<string, unknown>;
-  });
-}
-
-/**
- * Đọc dòng theo LÔ để nạp vào kho phân tích (§9.5).
- *
- * ─── Vì sao quét theo khoá chứ không `OFFSET` ───────────────────────────────
- *
- * `(dataset_id, row_index)` là khoá chính GHÉP, và với InnoDB khoá chính cũng
- * chính là khoá gom cụm — dữ liệu nằm SẴN theo thứ tự đó trên đĩa. Nên mỗi lô là
- * một lần định vị B-tree rồi đọc tuần tự.
- *
- * `OFFSET` thì quét lại từ đầu ở mỗi lô: nạp 50.000 dòng theo lô 5.000 sẽ đọc
- * tổng cộng khoảng 275.000 dòng thay vì 50.000. Cùng lý do đã ghi ở
- * `Driver.readAllRows`, chỉ khác là ở đây ta CÓ khoá để quét nên không cần tới
- * stream.
- *
- * Không giữ transaction, và không cần: `dataset_rows` là bất biến sau khi
- * `commit.ts` ghi xong. Giữ một transaction suốt cả lần nạp là chiếm một trong
- * mười connection của pool trong nhiều phút.
- *
- * Trả kèm `rowIndex` vì §9.8 cần nói được "dòng nào" — và với nguồn `file` thì
- * con số đó khớp đúng số dòng người dùng thấy trong Excel (trừ hàng tiêu đề).
- */
-export async function readRowsAfter(
-  db: Db,
-  datasetId: number,
-  afterRowIndex: number,
-  limit: number,
-): Promise<{ rowIndex: number; data: Record<string, unknown> }[]> {
-  const [rows] = await db.query<RowDataPacket[]>(
-    `SELECT row_index, data FROM dataset_rows
-      WHERE dataset_id = ? AND row_index > ?
-      ORDER BY row_index ASC LIMIT ?`,
-    [datasetId, afterRowIndex, limit],
-  );
-  return rows.map((row) => {
-    const data = row['data'];
-    return {
-      rowIndex: Number(row['row_index']),
-      data: (typeof data === 'string' ? JSON.parse(data) : data) as Record<string, unknown>,
-    };
   });
 }
 

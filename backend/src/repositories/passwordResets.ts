@@ -91,17 +91,3 @@ export async function danhDauDaDung(id: number): Promise<boolean> {
   );
   return res.affectedRows === 1;
 }
-
-/**
- * Dọn vé đã hết hạn từ lâu.
- *
- * Giữ lại 30 ngày sau khi hết hạn để còn trả lời được câu "liên kết này đã dùng
- * rồi" cho người bấm lại một email cũ, rồi mới xoá hẳn.
- */
-export async function donVeCu(): Promise<number> {
-  const [res] = await mysqlPool.query<ResultSetHeader>(
-    `DELETE FROM password_reset_tokens
-      WHERE expires_at < NOW(3) - INTERVAL 30 DAY`,
-  );
-  return res.affectedRows;
-}

@@ -169,12 +169,3 @@ export function useConfirmOrder(): UseMutationResult<api.ConfirmResult, Error, a
     },
   });
 }
-
-export function useOverrideSubscription(): UseMutationResult<
-  { subscriptionId: number },
-  Error,
-  api.OverrideInput
-> {
-  const invalidate = useInvalidate();
-  return useMutation({ mutationFn: api.overrideSubscription, onSuccess: invalidate });
-}

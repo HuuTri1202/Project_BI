@@ -190,13 +190,6 @@ export async function deleteMeasure(id: number, measureId: number): Promise<void
 
 // ─── Quan hệ ─────────────────────────────────────────────────────────────────
 
-export async function fetchRelationships(id: number): Promise<DataModelRelationshipDto[]> {
-  const { data } = await apiClient.get<DataModelRelationshipDto[]>(
-    `/v1/datamodels/${id}/relationships`,
-  );
-  return data;
-}
-
 /** Trả kèm CẢNH BÁO khoá trùng — giao diện phải hiện nó, xem `relationships.ts`. */
 export interface CreateRelationshipResult {
   relationship: DataModelRelationshipDto;

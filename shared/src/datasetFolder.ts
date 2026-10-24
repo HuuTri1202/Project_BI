@@ -8,8 +8,3 @@ import type { FolderDto } from './folder';
  * sao vẫn có một tên kiểu riêng.
  */
 export type DatasetFolderDto = FolderDto;
-
-/** Chuyển một bộ dữ liệu sang thư mục khác. `null` = đưa về Chung. */
-export interface MoveDatasetInput {
-  folderId: number | null;
-}

@@ -518,8 +518,6 @@ export const LOAD_ERROR_CODES = {
   DATASET_NOT_LOADABLE: 'DatasetNotLoadable',
 } as const;
 
-export type LoadErrorCode = (typeof LOAD_ERROR_CODES)[keyof typeof LOAD_ERROR_CODES];
-
 export interface CreateUploadResultDto {
   datasetId: number;
   /** Presigned URL. Trình duyệt PUT thẳng vào đây, không qua backend. */
@@ -603,8 +601,6 @@ export const DATASET_ERROR_CODES = {
    */
   WRONG_DATASET_SOURCE: 'WrongDatasetSource',
 } as const;
-
-export type DatasetErrorCode = (typeof DATASET_ERROR_CODES)[keyof typeof DATASET_ERROR_CODES];
 
 export const CONNECTION_ERROR_CODES = {
   /** Kết nối còn dataset nên không xoá được. */

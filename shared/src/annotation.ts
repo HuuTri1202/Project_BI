@@ -81,25 +81,20 @@ export const ANNOTATION_LAYERS = ['front', 'back'] as const;
 export type AnnotationLayer = (typeof ANNOTATION_LAYERS)[number];
 
 export const ANNOTATION_FONT_SIZES = [12, 14, 16, 20, 24, 32] as const;
-export type AnnotationFontSize = (typeof ANNOTATION_FONT_SIZES)[number];
 
 export const TEXT_ALIGNS = ['left', 'center', 'right'] as const;
 export const TEXT_VALIGNS = ['top', 'middle', 'bottom'] as const;
 
 export const LINE_DIRECTIONS = ['horizontal', 'vertical', 'diagonal-down', 'diagonal-up'] as const;
-export type LineDirection = (typeof LINE_DIRECTIONS)[number];
 
 export const LINE_STYLES = ['solid', 'dashed', 'dotted'] as const;
-export type LineStyle = (typeof LINE_STYLES)[number];
 
 /** Mũi tên ở đầu nào. "Đầu" là điểm bắt đầu theo `LINE_DIRECTIONS`: trái, trên. */
 export const LINE_ARROWS = ['none', 'start', 'end', 'both'] as const;
-export type LineArrow = (typeof LINE_ARROWS)[number];
 
 export const STROKE_WIDTHS = [1, 2, 3, 4, 6] as const;
 
 export const SHAPE_TYPES = ['rect', 'rounded', 'ellipse'] as const;
-export type ShapeType = (typeof SHAPE_TYPES)[number];
 
 /**
  * Mã màu `#RRGGBB` — và CHỈ thế.

@@ -50,11 +50,3 @@ export function rememberWorkspace(tenantId: number, workspaceId: number): void {
     // lại sẽ về workspace mặc định.
   }
 }
-
-export function forgetWorkspace(tenantId: number): void {
-  try {
-    window.localStorage.removeItem(keyFor(tenantId));
-  } catch {
-    // Không có gì để làm.
-  }
-}

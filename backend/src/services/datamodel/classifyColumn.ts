@@ -97,7 +97,10 @@ export function cubeTypeOf(chType: string): CubeType {
  * ở trên.
  */
 export function defaultRoleOf(columnName: string, chType: string): ColumnRole {
-  if (columnName === ROW_INDEX_COLUMN) return 'hidden';
+  // Qua `isSystemColumn` chứ không so chuỗi tay: hàm đó nói ra Ý ĐỊNH ("cột hệ
+  // thống"), còn `=== ROW_INDEX_COLUMN` chỉ nói cách kiểm. Và nó là chỗ duy
+  // nhất phải sửa khi hệ thêm một cột nội bộ thứ hai.
+  if (isSystemColumn(columnName)) return 'hidden';
   if (cubeTypeOf(chType) !== 'number') return 'dimension';
 
   // `UInt8` -> chiều, không phải thước đo.
