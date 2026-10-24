@@ -384,7 +384,25 @@ export function duKienKhamPha(kq: ExplorerResultDto | null): Nguon[] {
  * vừa thêm vào `DataModelDatasetDto`. Trước đó DTO chỉ có `datasetName` —
  * tên người dùng đặt, không dính gì tới tệp.
  */
-export function duKienMoHinh(m: DataModelDetailDto): Nguon[] {
+export function duKienMoHinh(
+  m: DataModelDetailDto,
+  /**
+   * Bảng người dùng ĐANG MỞ ở tab Schemas — `DataModelDatasetDto.id`.
+   *
+   * ═══ Vì sao thứ tự ở đây quyết định câu trả lời ══════════════════════════
+   *
+   * Hai chuyện cùng treo vào phần tử đầu mảng. Một, chip mặc định của khung là
+   * nguồn số 0 — nên "cột này kiểu gì" được chấm trên bảng nào là do thứ tự
+   * này quyết. Hai, `duKienPhang` xếp nguồn ĐANG CHỌN lên đầu rồi backend cắt
+   * ở 60 nhãn: một mô hình 8 bảng × 25 cột sinh ra hơn 230 dữ kiện, nên từ
+   * bảng thứ ba trở đi KHÔNG một nhãn nào tới được lớp mô hình.
+   *
+   * Người dùng vừa bấm mở một bảng là đã nói rõ họ đang nhìn bảng nào. Không
+   * đọc lấy điều đó thì khung trả lời về một bảng khác — bằng một con số có
+   * thật, và không có gì trên màn hình nói đó là bảng nào.
+   */
+  bangTruoc?: number | null,
+): Nguon[] {
   const tenBang = (i: number): string => {
     const ds = m.datasets[i];
     return ds === undefined ? '' : (ds.displayName ?? ds.datasetName);
@@ -488,7 +506,13 @@ export function duKienMoHinh(m: DataModelDetailDto): Nguon[] {
     return { ten, duKien: d };
   });
 
-  return [{ ten: `Mô hình ${m.name}`, duKien: chung }, ...bang];
+  const tomTat: Nguon = { ten: `Mô hình ${m.name}`, duKien: chung };
+  const i = bangTruoc == null ? -1 : m.datasets.findIndex((ds) => ds.id === bangTruoc);
+  const mo = i < 0 ? undefined : bang[i];
+
+  // Bảng đang mở đứng TRƯỚC cả bản tóm tắt. Id lạ (bảng vừa bị xoá ở tab khác)
+  // thì rơi về thứ tự cũ, không ném.
+  return mo === undefined ? [tomTat, ...bang] : [mo, tomTat, ...bang.filter((_, j) => j !== i)];
 }
 
 /* ═══ Phần 2: các trang còn lại của khu người dùng ═══════════════════════════

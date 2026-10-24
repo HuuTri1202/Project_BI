@@ -313,6 +313,67 @@ describe('nguonTrinhDung', () => {
  * `Số quan hệ của mô hình X`, nên "Orders nối Customers qua cột nào" rơi xuống
  * "chưa hiểu" trong lúc câu trả lời đang nằm trước mắt người hỏi.
  */
+/*
+ * ═══ Thứ tự nguồn quyết định câu trả lời ═══════════════════════════════════
+ *
+ * Hai thứ treo vào phần tử đầu mảng: chip mặc định của khung, và — qua
+ * `duKienPhang` — 60 nhãn nào tới được lớp mô hình. Bảng người dùng đang mở
+ * phải đứng đầu, nếu không thì "cột này kiểu gì" được chấm trên một bảng khác.
+ */
+describe('duKienMoHinh — bảng đang mở xếp trước', () => {
+  const bang = (id: number, ten: string) => ({
+    id,
+    datasetId: id * 10,
+    datasetName: ten,
+    displayName: null,
+    chTable: `ch_${ten}`,
+    source: 'file',
+    originalFilename: `${ten}.csv`,
+    sourceSchema: null,
+    sourceTable: null,
+    connectionName: null,
+    columns: [],
+  });
+
+  const moHinh = {
+    id: 1,
+    name: 'Bán hàng',
+    datasets: [bang(1, 'Orders'), bang(2, 'Customers')],
+    measures: [],
+    relationships: [],
+    creatorName: null,
+  } as unknown as Parameters<typeof duKienMoHinh>[0];
+
+  it('không nói bảng nào thì bản tóm tắt đứng đầu, như cũ', () => {
+    expect(duKienMoHinh(moHinh).map((n) => n.ten)).toEqual([
+      'Mô hình Bán hàng',
+      'Orders',
+      'Customers',
+    ]);
+  });
+
+  it('bảng đang mở lên đầu, và KHÔNG xuất hiện hai lần', () => {
+    expect(duKienMoHinh(moHinh, 2).map((n) => n.ten)).toEqual([
+      'Customers',
+      'Mô hình Bán hàng',
+      'Orders',
+    ]);
+  });
+
+  /*
+   * Id của một bảng vừa bị gỡ khỏi mô hình ở tab khác. Rơi về thứ tự cũ còn
+   * hơn ném — người dùng chỉ đang hỏi một câu, không làm gì sai.
+   */
+  it('id lạ thì rơi về thứ tự cũ, không ném', () => {
+    expect(duKienMoHinh(moHinh, 999).map((n) => n.ten)).toEqual([
+      'Mô hình Bán hàng',
+      'Orders',
+      'Customers',
+    ]);
+    expect(duKienMoHinh(moHinh, null).map((n) => n.ten)[0]).toBe('Mô hình Bán hàng');
+  });
+});
+
 describe('duKienMoHinh — quan hệ', () => {
   const noi = (
     traiBang: string,

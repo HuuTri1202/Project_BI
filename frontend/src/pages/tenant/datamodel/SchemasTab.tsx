@@ -69,7 +69,7 @@ interface Draft {
 }
 
 export default function SchemasTab(): React.ReactElement {
-  const { moHinh: model } = useOutletContext<NgoaiCanhMoHinh>();
+  const { moHinh: model, ghiBangMo } = useOutletContext<NgoaiCanhMoHinh>();
   const permissions = usePermissions();
   const canEdit = permissions.can('datamodel', 'modify');
 
@@ -122,6 +122,24 @@ export default function SchemasTab(): React.ReactElement {
 
   /** Bảng đang mở — TÍNH RA, để nó tự biến mất khi bảng bị gỡ khỏi mô hình. */
   const opened = datasets.find((d) => d.id === openedId) ?? null;
+
+  /*
+   * Báo lên trang cha bảng nào đang mở — khung hỏi đáp xếp nó lên đầu.
+   *
+   * ⚠️ Dọn khi rời tab, đúng như `ExplorerTab` dọn bảng kết quả. Không dọn thì
+   * sang tab Quan hệ, khung vẫn coi một bảng là "thứ đang nhìn" và trả lời câu
+   * "cái này" bằng dữ kiện của một bảng không còn trên màn hình.
+   *
+   * Báo `opened?.id`, không báo `openedId`: id của một bảng vừa bị xoá ở tab
+   * khác vẫn nằm trong state cho tới lần render sau, và khi đó cha đi tìm một
+   * bảng không còn trong mô hình.
+   */
+  useEffect(() => {
+    ghiBangMo(opened?.id ?? null);
+    return () => {
+      ghiBangMo(null);
+    };
+  }, [ghiBangMo, opened]);
 
   /** Phép gộp ĐANG LƯU của từng cột — mốc để biết bản nháp có đổi gì không. */
   const savedAgg = useMemo(() => {

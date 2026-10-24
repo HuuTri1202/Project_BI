@@ -80,6 +80,8 @@ export interface NgoaiCanhMoHinh {
   moHinh: DataModelDetailDto;
   /** Báo bảng kết quả vừa chạy, hoặc `null` khi xoá/rời tab. */
   ghiKetQua: (kq: ExplorerResultDto | null) => void;
+  /** Báo bảng đang MỞ XEM ở tab Schemas, hoặc `null` khi đóng/rời tab. */
+  ghiBangMo: (id: number | null) => void;
 }
 
 export default function DataModelPage(): React.ReactElement {
@@ -136,13 +138,25 @@ export default function DataModelPage(): React.ReactElement {
     setKetQuaKhamPha(kq);
   }, []);
 
+  /**
+   * Bảng đang mở xem ở tab Schemas — cùng khuôn báo-ngược với `ghiKetQua`, và
+   * cùng lý do: một nơi khai duy nhất, tab chỉ nói nó đang cho xem gì.
+   *
+   * Thứ nó đổi là THỨ TỰ nguồn, mà thứ tự quyết định hai chuyện: chip mặc định
+   * của khung, và 60 nhãn nào tới được lớp mô hình. Xem `duKienMoHinh`.
+   */
+  const [bangMo, setBangMo] = useState<number | null>(null);
+  const ghiBangMo = useCallback((idBang: number | null): void => {
+    setBangMo(idBang);
+  }, []);
+
   const nguCanh = useMemo(
     () => ({
       trang: data === undefined ? 'mô hình dữ liệu' : `mô hình ${data.name}`,
       nguon: [
         // Bảng vừa chạy đứng TRƯỚC: đó là thứ người ta vừa nhìn.
         ...duKienKhamPha(ketQuaKhamPha),
-        ...(data === undefined ? [] : duKienMoHinh(data)),
+        ...(data === undefined ? [] : duKienMoHinh(data, bangMo)),
       ],
       /*
        * Khai `moHinhId` mở ra nhóm câu hỏi MỚI: khung được phép tự dựng một
@@ -152,7 +166,7 @@ export default function DataModelPage(): React.ReactElement {
        */
       ...(activeId === null ? {} : { moHinhId: activeId }),
     }),
-    [data, activeId, ketQuaKhamPha],
+    [data, activeId, ketQuaKhamPha, bangMo],
   );
   useKhaiNguCanh(nguCanh);
 
@@ -291,7 +305,7 @@ export default function DataModelPage(): React.ReactElement {
 
         {isError && <ErrorState message={getApiError(error).message} />}
         {isPending && !isError && activeId !== null && <TableSkeleton rows={6} />}
-        {data !== undefined && <Outlet context={{ moHinh: data, ghiKetQua }} />}
+        {data !== undefined && <Outlet context={{ moHinh: data, ghiKetQua, ghiBangMo }} />}
       </PageBody>
 
       <CreateDataModelModal open={creating} onClose={() => setCreating(false)} />
