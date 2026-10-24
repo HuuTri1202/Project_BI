@@ -1,7 +1,14 @@
-import type { ConnectionDto, FolderDto, OrderDetailDto, PlanDto } from '@bi/shared';
+import type {
+  ConnectionDto,
+  ExplorerResultDto,
+  FolderDto,
+  OrderDetailDto,
+  PlanDto,
+} from '@bi/shared';
 import { describe, expect, it } from 'vitest';
 
 import {
+  duKienKhamPha,
   duKienMotDonHang,
   duKienMotKetNoi,
   duKienMuaGoi,
@@ -192,5 +199,56 @@ describe('phạm vi của con số tổng', () => {
     expect(d?.nhan).toBe('Số thành viên của tổ chức');
     expect(d?.gia).toBe('3');
     expect(d?.luuY).toContain('ĐANG LỌC');
+  });
+});
+
+/**
+ * Kết quả tab Khám phá — bảng số người dùng vừa bấm Chạy.
+ *
+ * ⚠️ Cả hai ca dưới đều canh chỗ mà một con số CÓ THẬT đọc ra thành kết luận
+ * sai, chứ không canh chỗ tính nhầm:
+ *
+ *   - `truncated` mà không nói ra: "tổng doanh thu" tính trên phần bị cắt rồi
+ *     đọc thành tổng của cả mô hình, sai cả nghìn lần bằng một con số thật.
+ *   - Tên cột lấy `label` trơn: thước đo gieo sẵn trùng tên với cột nó gộp,
+ *     nên "Total amount" vừa là tiền MỘT đơn vừa là tổng tiền cả nhóm.
+ */
+describe('duKienKhamPha', () => {
+  const kq = (part: Partial<ExplorerResultDto> = {}): ExplorerResultDto => ({
+    columns: [
+      { id: 1, label: 'Khu vực', kind: 'dimension' },
+      { id: 2, label: 'Total amount', kind: 'measure', mota: 'Tổng của Total amount' },
+    ],
+    rows: [
+      ['Miền Bắc', 300],
+      ['Miền Nam', 500],
+    ],
+    truncated: false,
+    ...part,
+  });
+
+  it('chưa chạy gì, hoặc chạy ra 0 dòng, thì không có nguồn nào', () => {
+    expect(duKienKhamPha(null)).toEqual([]);
+    expect(duKienKhamPha(kq({ rows: [] }))).toEqual([]);
+  });
+
+  it('tên cột lấy từ `mota` khi có', () => {
+    expect(duKienKhamPha(kq())[0]?.bangTho?.cot).toEqual(['Khu vực', 'Tổng của Total amount']);
+  });
+
+  it('kết quả bị cắt thì `luuY` phải NÓI RA là đã cắt', () => {
+    const cat = duKienKhamPha(kq({ truncated: true }))[0]?.bangTho?.luuY ?? '';
+    const du = duKienKhamPha(kq())[0]?.bangTho?.luuY ?? '';
+
+    expect(cat).toContain('CẮT');
+    expect(cat).toContain('chưa lấy hết');
+    expect(du).not.toContain('CẮT');
+  });
+
+  it('khai cả số dòng và số cột để hỏi tra cứu được', () => {
+    const d = duKienKhamPha(kq())[0]?.duKien ?? [];
+
+    expect(d).toContainEqual({ nhan: 'Số dòng của kết quả Khám phá', gia: '2' });
+    expect(d).toContainEqual({ nhan: 'Số cột của kết quả Khám phá', gia: '2' });
   });
 });

@@ -11,6 +11,7 @@ import {
   type DatasetDetailDto,
   type DatasetDto,
   type DatasetPreviewDto,
+  type ExplorerResultDto,
   type FolderDto,
   type HomeDataDto,
   type OrderDto,
@@ -291,6 +292,57 @@ export function duKienChiTietDataset(
         };
 
   return [{ ten: ds.name, duKien: d, ...(bangTho === undefined ? {} : { bangTho }) }];
+}
+
+/**
+ * Kết quả tab KHÁM PHÁ — bảng số người dùng vừa bấm Chạy và đang nhìn vào.
+ *
+ * ═══ Lỗ hổng mà nó lấp ═════════════════════════════════════════════════════
+ *
+ * Trang mô hình khai rất kỹ CẤU TRÚC — bảng nào, cột nào, kiểu gì, mấy quan hệ
+ * — nhưng không khai một con số nào của KẾT QUẢ. Nên người dùng kéo chiều, kéo
+ * thước đo, bấm Chạy, nhìn một bảng đầy số, rồi hỏi "cao nhất là gì" và nhận
+ * về "chưa hiểu". Thứ họ đang nhìn thẳng vào lại là thứ khung mù nhất.
+ *
+ * ═══ Vì sao là `bangTho` chứ không phải `bang` ═════════════════════════════
+ *
+ * `bang` (`ReportDataDto`) đã có người chọn sẵn MỘT chiều và MỘT thước đo. Kết
+ * quả Khám phá thì không: nó có thể ba chiều bốn thước đo, và không cột nào
+ * được đề cử. Câu hỏi mới là thứ chọn ra hai cột đó — đúng việc `bangTuBangTho`
+ * sinh ra để làm.
+ *
+ * ⚠️ `luuY` không phải tuỳ chọn. `ExplorerResultDto.truncated` nói kết quả đã
+ * chạm trần dòng, và một câu "tổng doanh thu" tính trên phần bị cắt mà đọc
+ * thành tổng của cả mô hình thì sai bằng một con số có thật. Cùng cái bẫy đã
+ * ghi ở `DatasetPreviewDto`.
+ */
+export function duKienKhamPha(kq: ExplorerResultDto | null): Nguon[] {
+  if (kq === null || kq.rows.length === 0) return [];
+
+  const soDong = kq.rows.length.toLocaleString('vi-VN');
+  return [
+    {
+      ten: 'Kết quả Khám phá',
+      duKien: [
+        { nhan: 'Số dòng của kết quả Khám phá', gia: soDong },
+        { nhan: 'Số cột của kết quả Khám phá', gia: String(kq.columns.length) },
+      ],
+      bangTho: {
+        /*
+         * Dùng `mota` khi có ("Tổng của Total amount"), không dùng `label` trơn.
+         * Doc của `ExplorerResultDto.columns` đã ghi vì sao: thước đo gieo sẵn
+         * TRÙNG TÊN với cột nó gộp, nên "Total amount" vừa có nghĩa là tiền của
+         * MỘT đơn vừa có nghĩa là tổng tiền cả nhóm. Khung lặp lại cái tên trơn
+         * là lặp lại đúng chỗ nhập nhằng mà bảng trên màn hình đã gỡ ra.
+         */
+        cot: kq.columns.map((c) => c.mota ?? c.label),
+        dong: kq.rows,
+        luuY: kq.truncated
+          ? `tính trên ${soDong} dòng ĐÃ BỊ CẮT của kết quả Khám phá — truy vấn chạm trần, còn dữ liệu chưa lấy hết`
+          : `tính trên ${soDong} dòng kết quả Khám phá đang hiện`,
+      },
+    },
+  ];
 }
 
 /**

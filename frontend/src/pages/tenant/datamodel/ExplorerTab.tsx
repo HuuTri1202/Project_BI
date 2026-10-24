@@ -2,7 +2,6 @@ import {
   MEASURE_AGG_HINTS,
   MEASURE_AGG_LABELS,
   moTaThuocDo,
-  type DataModelDetailDto,
   type ExplorerFieldDto,
   type ExplorerQueryDto,
   type ExplorerSqlDto,
@@ -11,6 +10,8 @@ import {
 } from '@bi/shared';
 import { useEffect, useState } from 'react';
 import { useOutletContext } from 'react-router-dom';
+
+import type { NgoaiCanhMoHinh } from '../DataModelPage';
 
 import { Badge } from '../../../components/ui/Badge';
 import { Button } from '../../../components/ui/Button';
@@ -542,7 +543,7 @@ function AggBar({
 }
 
 export default function ExplorerTab(): React.ReactElement {
-  const model = useOutletContext<DataModelDetailDto>();
+  const { moHinh: model, ghiKetQua } = useOutletContext<NgoaiCanhMoHinh>();
 
   const status = useExplorerStatus(model.id);
   const fields = useExplorerFields(model.id);
@@ -561,6 +562,24 @@ export default function ExplorerTab(): React.ReactElement {
   const [queryError, setQueryError] = useState<string | null>(null);
   const [showSql, setShowSql] = useState(false);
   const sql = useQuerySql(model.id);
+
+  /*
+   * Báo bảng vừa chạy lên trang cha, để khung hỏi đáp trả lời được về NÓ.
+   *
+   * Khai ở đây thì vô ích: `useKhaiNguCanh` là phép gán đè, mà effect React
+   * chạy từ con lên cha — trang cha luôn ghi sau và xoá mất. Xem khối chú thích
+   * ở `DataModelPage`, chỗ `ketQuaKhamPha`.
+   *
+   * Hàm dọn trả `null` khi rời tab: để lại bảng cũ nghĩa là khung trả lời bằng
+   * một kết quả không còn trên màn hình nữa — đúng loại sai mà cả tính năng
+   * này dựng lên để chặn.
+   */
+  useEffect(() => {
+    ghiKetQua(run.data ?? null);
+    return () => {
+      ghiKetQua(null);
+    };
+  }, [ghiKetQua, run.data]);
 
   /**
    * Tích hoặc bỏ tích một trường.

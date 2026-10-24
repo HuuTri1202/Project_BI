@@ -5,12 +5,13 @@ import {
   MEASURE_AGGS_BY_CUBE_TYPE,
   type ColumnRole,
   type DataModelDatasetDto,
-  type DataModelDetailDto,
   type MeasureAgg,
   type PrimaryKeyWarningDto,
 } from '@bi/shared';
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useOutletContext } from 'react-router-dom';
+
+import type { NgoaiCanhMoHinh } from '../DataModelPage';
 
 import { usePermissions } from '../../../auth/usePermissions';
 import { Badge } from '../../../components/ui/Badge';
@@ -68,7 +69,7 @@ interface Draft {
 }
 
 export default function SchemasTab(): React.ReactElement {
-  const model = useOutletContext<DataModelDetailDto>();
+  const { moHinh: model } = useOutletContext<NgoaiCanhMoHinh>();
   const permissions = usePermissions();
   const canEdit = permissions.can('datamodel', 'modify');
 

@@ -2,13 +2,14 @@ import {
   RELATIONSHIP_KIND_LABELS,
   RELATIONSHIP_KINDS,
   type DataModelDatasetDto,
-  type DataModelDetailDto,
   type DataModelRelationshipDto,
   type RelationshipKind,
   type RelationshipWarningDto,
 } from '@bi/shared';
 import { useState } from 'react';
 import { useOutletContext } from 'react-router-dom';
+
+import type { NgoaiCanhMoHinh } from '../DataModelPage';
 
 import { usePermissions } from '../../../auth/usePermissions';
 import { Button } from '../../../components/ui/Button';
@@ -83,7 +84,7 @@ interface FormState {
 }
 
 export default function RelationshipTab(): React.ReactElement {
-  const model = useOutletContext<DataModelDetailDto>();
+  const { moHinh: model } = useOutletContext<NgoaiCanhMoHinh>();
   const permissions = usePermissions();
   const canEdit = permissions.can('datamodel', 'modify');
 
