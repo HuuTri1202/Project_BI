@@ -3192,6 +3192,24 @@ chuyện** — lượt hỏi tiếp giữ lại bộ lọc của lượt trướ
 câu trước. Nới corpus, **không** bỏ luật: một giá trị không có trong câu nào vẫn
 bỏ cả form. Đổi chip nguồn, hay đổi sang mô hình khác, thì quên lượt trước.
 
+**Bế tắc nói rõ CỬA NÀO ĐÓNG.** `kiemForm` bỏ form ở hơn ba mươi chỗ, và trước
+đây người dùng thấy đúng một câu _"Tôi chưa hiểu câu này"_ cho cả ba mươi. Ba
+trong số đó ứng với một việc làm được, nên chúng được nói ra: giá trị lọc không
+rõ dữ liệu ghi thế nào, thước đo không nhận phép tính đó, mô hình thiếu cột
+ngày. Mấy lý do còn lại vẫn im — nói "mô hình trả về id 99 không có trong danh
+sách" thì không ai làm gì được, và nó phơi ruột một lớp người dùng không cần
+biết có tồn tại. Câu chữ do **code** viết từ một enum đóng (`LY_DO_NOI`); mô
+hình không góp một ký tự nào.
+
+**Trả lời xong thì gợi ý hỏi tiếp.** Trước đây khung chỉ gợi ý khi nó bế tắc —
+mà lúc trả lời được mới là lúc người ta muốn đi tiếp. Bốn câu kế tiếp tự nhiên
+nhất đều là **sửa một ô của form vừa chạy**: đổi hướng, cắt top, gom theo
+tháng, đổi phép tính. Nên code sinh ra được chính xác, không cần hỏi mô hình —
+và vì nó sinh từ form ĐÃ chạy, nó không bao giờ mời lại thứ vừa hỏi, cũng không
+mời một thứ mô hình này không làm được (_"theo tháng"_ trên mô hình không có
+cột ngày, _"trung bình"_ trên thước đo không nhận trung bình — bấm vào là nhận
+"chưa hiểu", và một nút dẫn tới bế tắc tệ hơn không có nút). Xem `goiYTiep.ts`.
+
 **F5 không xoá cuộc trò chuyện.** Đoạn chat và form của lượt trước nằm trong
 `sessionStorage` — đúng vòng đời của chữ "phiên" mà khung vẫn dùng, nên nó
 không sống qua lần đóng trình duyệt. Giữ cả form là có lý do: thiếu nó thì sau
@@ -3306,6 +3324,7 @@ riêng câu trả lời — không gửi bảng số liệu, không gửi số t
 | `frontend/src/features/chat/goiYBieuDo.ts`     | Câu xin VẼ → một cặp chiều × thước đo            |
 | `frontend/src/features/chat/nhoHoiThoai.ts`    | Giữ đoạn chat + form qua một lần F5              |
 | `frontend/tests/danhGia.test.ts`               | Bộ ĐO lớp ngoại tuyến: 191 câu, 25 trang         |
+| `backend/src/services/chat/goiYTiep.ts`        | Câu hỏi TIẾP, sinh từ form vừa chạy              |
 | `backend/tests/danhGiaTruyVan.test.ts`         | Bộ ĐO đường mô hình dựng truy vấn                |
 | `backend/tests/khoangThoiGian.test.ts`         | Mốc ngày: vắt qua biên năm, tuần bắt đầu thứ Hai |
 

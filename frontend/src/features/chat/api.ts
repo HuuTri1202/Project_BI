@@ -145,6 +145,16 @@ export interface HoiTrenMoHinhKetQua {
   so: string[];
   hieuLa: string | null;
   daHoi: boolean;
+  /**
+   * Vì sao không dựng được truy vấn, bằng câu đọc được — hoặc `null`.
+   *
+   * Chỉ có ở mấy lý do NGƯỜI DÙNG LÀM ĐƯỢC GÌ ĐÓ (giá trị lọc lạ, thước đo
+   * không nhận phép gộp, mô hình thiếu cột ngày). Câu chữ do backend viết từ
+   * một enum đóng — xem `services/chat/datCauHoi.ts`, `LY_DO_NOI`.
+   */
+  lyDo: string | null;
+  /** Câu hỏi TIẾP sinh từ form vừa chạy — xem `services/chat/goiYTiep.ts`. */
+  goiY: string[];
   /** Form đã chạy — gửi lại ở lượt sau để hỏi tiếp. */
   truyVan: ExplorerQueryDto | null;
 }

@@ -1,8 +1,9 @@
 import type { ExplorerQueryDto, MeasureAgg } from '@bi/shared';
 
 import { explorerFields, runExplorerQuery } from '../datamodel/explorer';
-import { chuanHoa, datCauHoi, type TruongChon } from './datCauHoi';
+import { chuanHoa, datCauHoi, LY_DO_NOI, type TruongChon } from './datCauHoi';
 import { docKetQua } from './dienGiai';
+import { goiYTiep } from './goiYTiep';
 
 /** Chữ "nhất" đứng riêng thành một từ — "cao nhất", "ít doanh thu nhất". */
 const CO_NHAT = /(^| )nhat( |$)/;
@@ -103,6 +104,16 @@ export interface HoiTrenMoHinhKetQua {
   /** Mô hình có THẬT SỰ được hỏi không — xem `HieuYKetQua.daHoi`. */
   daHoi: boolean;
   /**
+   * Vì sao không dựng được truy vấn — câu đọc được, hoặc `null`.
+   *
+   * CHỈ có ở mấy lý do người dùng làm được gì đó; xem `LyDoBoForm`. Mọi kiểu
+   * hỏng khác vẫn im, vì nói ra cũng không ai làm gì được và nó phơi ruột một
+   * lớp mà người dùng không cần biết có tồn tại.
+   */
+  lyDo: string | null;
+  /** Câu hỏi TIẾP, sinh từ form vừa chạy bằng CODE — xem `goiYTiep`. */
+  goiY: string[];
+  /**
    * Form đã chạy, trả về để lượt hỏi TIẾP dùng lại — bộ nhớ hội thoại.
    *
    * Trả về cho client không mất gì: ai gọi được đường này đã có
@@ -154,8 +165,18 @@ export async function hoiTrenMoHinh(
     })),
   ];
 
-  const { truyVan, daHoi } = await datCauHoi({ cauHoi, truong, boiCanh });
-  if (truyVan === null) return { cau: null, so: [], hieuLa: null, daHoi, truyVan: null };
+  const { truyVan, daHoi, lyDo } = await datCauHoi({ cauHoi, truong, boiCanh });
+  if (truyVan === null) {
+    return {
+      cau: null,
+      so: [],
+      hieuLa: null,
+      daHoi,
+      truyVan: null,
+      lyDo: lyDo === null ? null : LY_DO_NOI[lyDo],
+      goiY: [],
+    };
+  }
 
   /*
    * Hướng sắp đi theo CÂU HỎI, không theo mặc định của `buildQuery`.
@@ -175,5 +196,12 @@ export async function hoiTrenMoHinh(
   const nhanCua = new Map<number, string>(truong.map((t) => [t.id, t.nhan]));
   for (const c of kq.columns) nhanCua.set(c.id, c.label);
 
-  return { ...docKetQua(kq, truyVan, nhanCua, huong), daHoi, truyVan };
+  return {
+    ...docKetQua(kq, truyVan, nhanCua, huong),
+    daHoi,
+    truyVan,
+    lyDo: null,
+    // Gợi ý sinh từ form ĐÃ CHẠY, nên nó không bao giờ mời lại thứ vừa hỏi.
+    goiY: goiYTiep(truyVan, truong, huong),
+  };
 }

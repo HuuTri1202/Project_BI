@@ -113,6 +113,8 @@ export interface DatCauHoiKetQua {
   truyVan: ExplorerQueryDto | null;
   /** Mô hình có THẬT SỰ được hỏi không — xem `HieuYKetQua.daHoi`. */
   daHoi: boolean;
+  /** Vì sao bỏ form, nếu đó là một lý do nói ra được — xem `LyDoBoForm`. */
+  lyDo: LyDoBoForm | null;
 }
 
 /**
@@ -252,7 +254,81 @@ function daTinCay(input: DatCauHoiInput, values: readonly string[]): boolean {
   return values.every((v) => cu.has(v));
 }
 
-export function kiemForm(tho: unknown, input: DatCauHoiInput): ExplorerQueryDto | null {
+/**
+ * Vì sao form bị bỏ — chỉ những lý do NGƯỜI DÙNG LÀM ĐƯỢC GÌ ĐÓ.
+ *
+ * ═══ Vì sao không phải cả 31 lý do ════════════════════════════════════════
+ *
+ * `kiemForm` có hơn ba mươi chỗ `return null`, và người dùng thấy đúng một câu
+ * "Tôi chưa hiểu câu này" cho cả ba mươi. Phần lớn số đó là "mô hình trả về
+ * rác" — nói ra cũng không ai làm gì được, và nó còn phơi ruột của một lớp mà
+ * người dùng không cần biết có tồn tại.
+ *
+ * Ba lý do dưới đây thì khác: mỗi cái ứng với một việc làm được. Nói ra là
+ * biến một đường cụt vô hình thành một bước tiếp theo; im lặng là đẩy người ta
+ * vào vòng gõ lại bằng cách khác, mà cách nào cũng trượt vì thứ chặn không nằm
+ * ở câu chữ.
+ *
+ * ⚠️ Enum ĐÓNG, và câu chữ do CODE viết (xem `LY_DO_NOI`). Mô hình không góp
+ * một ký tự nào vào câu hiện lên màn hình — cùng luật với mọi lớp khác ở đây.
+ */
+export type LyDoBoForm =
+  /** Giá trị lọc không phải lời người dùng, và cũng không phải của lượt trước. */
+  | 'gia-tri-la'
+  /** Thước đo không nhận phép gộp mà câu hỏi đòi. */
+  | 'phep-gop-la'
+  /** Câu hỏi có mốc thời gian, mô hình dữ liệu không có cột ngày nào dùng được. */
+  | 'thieu-cot-ngay';
+
+/** Câu nói cho người dùng — một chỗ duy nhất, để không ai viết lại mỗi nơi một kiểu. */
+export const LY_DO_NOI: Record<LyDoBoForm, string> = {
+  'gia-tri-la':
+    'Tôi không chắc giá trị bạn nói được ghi thế nào trong dữ liệu, nên tôi không ' +
+    'dám lọc theo nó — lọc sai thì truy vấn trả về rỗng và tôi sẽ nói "không có ' +
+    'dòng nào" một cách rất chắc chắn. Thử gõ đúng chữ như nó hiện trong bảng.',
+  'phep-gop-la':
+    'Thước đo này không nhận phép tính đó. Mở tab Thước đo của mô hình để xem nó ' +
+    'nhận phép nào, hoặc tạo một thước đo mới với phép bạn cần.',
+  'thieu-cot-ngay':
+    'Câu hỏi có mốc thời gian, nhưng mô hình này chưa có cột ngày nào dùng được. ' +
+    'Mở tab Schemas và đặt kiểu ngày cho cột thời gian của bảng, rồi hỏi lại.',
+};
+
+/**
+ * `kiemForm` kèm lý do — xem `LyDoBoForm`.
+ *
+ * Tồn tại như một hàm riêng để `kiemForm` giữ nguyên chữ ký: nó được gọi ở hơn
+ * ba mươi chỗ trong test, và đổi chữ ký của nó chỉ để lấy một chuỗi là sửa ba
+ * mươi chỗ cho một thứ hai mươi bảy chỗ không dùng.
+ */
+export function kiemFormCoLyDo(
+  tho: unknown,
+  input: DatCauHoiInput,
+): { truyVan: ExplorerQueryDto | null; lyDo: LyDoBoForm | null } {
+  let lyDo: LyDoBoForm | null = null;
+  /*
+   * `ghi` LUÔN trả `null`, và mọi chỗ gọi nó đều `return ghi(...)`. Nên không
+   * có đường nào vừa ghi được lý do vừa dựng xong truy vấn — "form sống" và
+   * "có lý do" loại trừ nhau theo cấu trúc, không cần một chốt kiểm lại.
+   *
+   * Bản đầu có chốt `truyVan === null ? lyDo : null`. Vòng đột biến cho thấy
+   * nó SỐNG: xoá chốt đi không bài nào đỏ, vì không ca nào tới được nhánh đó.
+   * Một chốt không thể sai là một chốt không nên tồn tại — nó mời người đọc
+   * sau đi tìm tình huống nó đang chặn.
+   */
+  const truyVan = kiemForm(tho, input, (l) => {
+    lyDo = l;
+    return null;
+  });
+  return { truyVan, lyDo };
+}
+
+export function kiemForm(
+  tho: unknown,
+  input: DatCauHoiInput,
+  /** Ghi lại lý do bỏ form. Mặc định không ghi gì — xem `kiemFormCoLyDo`. */
+  ghi: (ly: LyDoBoForm) => null = () => null,
+): ExplorerQueryDto | null {
   if (typeof tho !== 'object' || tho === null) return null;
   const o = tho as Record<string, unknown>;
 
@@ -313,7 +389,9 @@ export function kiemForm(tho: unknown, input: DatCauHoiInput): ExplorerQueryDto 
 
       // ⚠️ Luật canh gác: giá trị phải là lời của chính người dùng — hoặc là
       //    thứ CHÍNH HỆ NÀY đã dựng ra ở lượt trước. Xem `daTinCay`.
-      if (!giuNguyenLoi(loiNguoiDung(input), values) && !daTinCay(input, values)) return null;
+      if (!giuNguyenLoi(loiNguoiDung(input), values) && !daTinCay(input, values)) {
+        return ghi('gia-tri-la');
+      }
 
       ra.push({ dimensionId: id, operator, values });
     }
@@ -342,7 +420,9 @@ export function kiemForm(tho: unknown, input: DatCauHoiInput): ExplorerQueryDto 
 
     const id = soNguyenDuong(k.dimensionId);
     if (id === null || !chieuHopLe.has(id)) return null;
-    if (input.truong.find((x) => x.id === id && x.loai === 'chieu')?.thoiGian !== true) return null;
+    if (input.truong.find((x) => x.id === id && x.loai === 'chieu')?.thoiGian !== true) {
+      return ghi('thieu-cot-ngay');
+    }
 
     if (typeof k.cum !== 'string') return null;
     const khoang = giaiCum(k.cum, input.moc ?? new Date());
@@ -400,7 +480,7 @@ export function kiemForm(tho: unknown, input: DatCauHoiInput): ExplorerQueryDto 
       if (typeof phep !== 'string' || !(MEASURE_AGGS as readonly string[]).includes(phep)) {
         return null;
       }
-      if (!(nhan.get(id) ?? []).includes(phep as MeasureAgg)) return null;
+      if (!(nhan.get(id) ?? []).includes(phep as MeasureAgg)) return ghi('phep-gop-la');
 
       ra.push({ id, agg: phep as MeasureAgg });
     }
@@ -426,7 +506,9 @@ export function kiemForm(tho: unknown, input: DatCauHoiInput): ExplorerQueryDto 
 
     const id = soNguyenDuong(t.dimensionId);
     if (id === null || !chieuHopLe.has(id)) return null;
-    if (input.truong.find((x) => x.id === id && x.loai === 'chieu')?.thoiGian !== true) return null;
+    if (input.truong.find((x) => x.id === id && x.loai === 'chieu')?.thoiGian !== true) {
+      return ghi('thieu-cot-ngay');
+    }
 
     const muc = t.granularity;
     if (typeof muc !== 'string' || !(TIME_GRANULARITIES as readonly string[]).includes(muc)) {
@@ -494,7 +576,7 @@ const NHAC = [
  */
 export async function datCauHoi(input: DatCauHoiInput): Promise<DatCauHoiKetQua> {
   const truong = input.truong.slice(0, TRAN_TRUONG);
-  if (!coCauHinhLlm() || truong.length === 0) return { truyVan: null, daHoi: false };
+  if (!coCauHinhLlm() || truong.length === 0) return { truyVan: null, daHoi: false, lyDo: null };
 
   /*
    * Mỗi dòng nói thêm ĐÚNG thứ cần để điền hai ô mới, và chỉ khi có thứ đó.
@@ -552,6 +634,6 @@ ${danhSach}`,
     2000,
   );
 
-  if (noiDung === null) return { truyVan: null, daHoi: daGoi };
-  return { truyVan: kiemForm(docJson(noiDung), { ...input, truong }), daHoi: daGoi };
+  if (noiDung === null) return { truyVan: null, daHoi: daGoi, lyDo: null };
+  return { ...kiemFormCoLyDo(docJson(noiDung), { ...input, truong }), daHoi: daGoi };
 }

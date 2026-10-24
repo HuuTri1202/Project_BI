@@ -900,7 +900,7 @@ export function HoiDapPanel(): React.ReactElement | null {
         : undefined;
 
     void hoiTrenMoHinh(moHinhId, q, truoc)
-      .then(({ cau, so, hieuLa, truyVan }) => {
+      .then(({ cau, so, hieuLa, truyVan, lyDo, goiY }) => {
         /*
          * ═══ Câu xin một BIỂU ĐỒ thì thứ cần trả về là CẶP TRƯỜNG ════════
          *
@@ -939,8 +939,20 @@ export function HoiDapPanel(): React.ReactElement | null {
           return;
         }
 
+        /*
+         * Bế tắc CÓ LÝ DO thì nói lý do, không nói "chưa hiểu".
+         *
+         * `kiemForm` bỏ form ở hơn ba mươi chỗ và người dùng thấy đúng một câu
+         * cho cả ba mươi. Backend nay trả về câu chữ cho ba lý do mà người ta
+         * LÀM ĐƯỢC GÌ ĐÓ — giá trị lọc không rõ ghi thế nào, thước đo không
+         * nhận phép gộp, mô hình thiếu cột ngày. Nói ra là biến một đường cụt
+         * vô hình thành một bước tiếp theo.
+         *
+         * Vẫn đi qua `hetDuong` để giữ nguyên gợi ý và dấu "chưa hiểu": khung
+         * đúng là chưa trả lời được, nó chỉ nói thêm được vì sao.
+         */
         if (cau === null) {
-          hetDuong(q, idBot);
+          hetDuong(q, idBot, lyDo ?? undefined);
           return;
         }
 
@@ -971,6 +983,24 @@ export function HoiDapPanel(): React.ReactElement | null {
                   cau,
                   hieuLa: hieuLa ?? undefined,
                   doMoHinh: 'mô hình dựng truy vấn',
+                  /*
+                   * Gợi ý câu hỏi TIẾP, ngay dưới một câu trả lời THÀNH CÔNG.
+                   *
+                   * Trước bản này khung chỉ gợi ý khi nó bế tắc — mà lúc trả
+                   * lời được mới là lúc người ta muốn đi tiếp. Mấy câu này do
+                   * backend sinh từ chính cái form vừa chạy, nên chúng không
+                   * bao giờ mời lại thứ vừa hỏi và không bao giờ mời một thứ
+                   * mô hình dữ liệu này không làm được.
+                   */
+                  /*
+                   * `goiY ?? []` — kiểu khai là một GIẢ ĐỊNH về mạng, không
+                   * phải một bảo đảm. Frontend và backend triển khai độc lập,
+                   * nên một bản frontend mới nói chuyện với một bản backend cũ
+                   * là chuyện bình thường, và khi đó trường này vắng mặt. Đọc
+                   * `.length` trên `undefined` làm nổ cả `setTinNhan`, tức mất
+                   * luôn câu trả lời đã tính xong vì một thứ chỉ để trang trí.
+                   */
+                  ...((goiY ?? []).length > 0 ? { goiY } : {}),
                 }
               : t,
           ),
@@ -1257,7 +1287,15 @@ function BongBong({
           )}
           {tin.goiY !== undefined && tin.goiY.length > 0 && (
             <span className="mt-2 block">
-              <span className="mb-1.5 block text-xs text-amber-700">Có phải bạn muốn hỏi:</span>
+              {/*
+                Hai tiêu đề, vì hai tình huống khác hẳn nhau. Sau một câu CHƯA
+                HIỂU thì mấy câu này là một lời sửa — "có phải bạn muốn hỏi".
+                Sau một câu trả lời ĐÚNG thì không có gì để sửa, và dùng lại
+                câu kia là nói với người dùng rằng họ vừa hỏi sai.
+              */}
+              <span className="mb-1.5 block text-xs text-amber-700">
+                {tin.chuaHieu === true ? 'Có phải bạn muốn hỏi:' : 'Hỏi tiếp:'}
+              </span>
               <NutGoiY mau={tin.goiY} onChon={onChon} />
             </span>
           )}

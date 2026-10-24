@@ -1916,3 +1916,108 @@ describe('Cuộc trò chuyện sống qua một lần tải lại', () => {
     expect(screen.getByText('doanh thu miền bắc tháng 3')).toBeInTheDocument();
   });
 });
+
+/**
+ * Bế tắc CÓ LÝ DO, và gợi ý SAU một câu trả lời đúng.
+ *
+ * Hai thứ này chỉ có giá trị khi người dùng thật sự THẤY, nên chúng được canh
+ * ở tầng DOM chứ không chỉ ở hàm sinh ra chúng:
+ *
+ *   1. Backend trả `lyDo` mà panel vẫn in "Tôi chưa hiểu câu này" thì cả cơ
+ *      chế thành vô ích — và nó vô ích một cách im lặng.
+ *   2. Gợi ý phải hiện dưới một câu trả lời ĐÚNG, với tiêu đề khác câu dùng
+ *      cho lúc bế tắc: "có phải bạn muốn hỏi" sau một câu trả lời đúng là nói
+ *      với người dùng rằng họ vừa hỏi sai.
+ */
+describe('Lý do bế tắc và gợi ý hỏi tiếp', () => {
+  const NGUON = [{ ten: 'Đơn hàng', duKien: [{ nhan: 'Số dòng của Đơn hàng', gia: '12.431' }] }];
+
+  const KQ = {
+    cau: null as string | null,
+    so: [] as string[],
+    hieuLa: null as string | null,
+    daHoi: true,
+    lyDo: null as string | null,
+    goiY: [] as string[],
+    truyVan: null as never,
+  };
+
+  it('backend trả lý do -> panel in lý do, KHÔNG in "chưa hiểu"', async () => {
+    hoiTrenMoHinh.mockReset();
+    hoiTrenMoHinh.mockResolvedValue({
+      ...KQ,
+      lyDo: 'Thước đo này không nhận phép tính đó. Mở tab Thước đo của mô hình.',
+    });
+
+    dung(NGUON, 7);
+    fireEvent.click(nutMo());
+    hoi('doanh thu trung bình theo khu vực');
+
+    await screen.findByText(/Mở tab Thước đo của mô hình/);
+    expect(screen.queryByText(/Tôi chưa hiểu câu này/)).toBeNull();
+  });
+
+  /*
+   * Không có lý do thì câu chung vẫn phải còn.
+   *
+   * Phần lớn kiểu hỏng là "mô hình trả về rác" — nói ra cũng không ai làm gì
+   * được. Bỏ mất câu chung ở nhánh đó là để lại một bong bóng trống.
+   */
+  it('không có lý do -> vẫn là câu "chưa hiểu" như trước', async () => {
+    hoiTrenMoHinh.mockReset();
+    hoiTrenMoHinh.mockResolvedValue({ ...KQ });
+
+    dung(NGUON, 7);
+    fireEvent.click(nutMo());
+    hoi('câu gì đó rất lạ');
+
+    await screen.findByText(/Tôi chưa hiểu câu này/);
+  });
+
+  it('câu trả lời ĐÚNG -> hiện gợi ý hỏi tiếp, với tiêu đề "Hỏi tiếp"', async () => {
+    hoiTrenMoHinh.mockReset();
+    hoiTrenMoHinh.mockResolvedValue({
+      ...KQ,
+      cau: 'Miền Bắc: Doanh thu 1.200.',
+      so: ['1.200'],
+      hieuLa: 'Doanh thu theo Khu vực, xếp từ cao xuống',
+      goiY: ['Khu vực nào Doanh thu thấp nhất', 'Doanh thu theo tháng'],
+      truyVan: { dimensionIds: [11], measureIds: [21] } as never,
+    });
+
+    dung(NGUON, 7);
+    fireEvent.click(nutMo());
+    hoi('doanh thu theo khu vực');
+
+    await screen.findByText('Miền Bắc: Doanh thu 1.200.');
+
+    expect(screen.getByText('Hỏi tiếp:')).toBeInTheDocument();
+    // "Có phải bạn muốn hỏi" là câu của lúc BẾ TẮC — dùng lại ở đây là nói
+    // với người dùng rằng họ vừa hỏi sai.
+    expect(screen.queryByText('Có phải bạn muốn hỏi:')).toBeNull();
+    expect(
+      screen.getByRole('button', { name: 'Khu vực nào Doanh thu thấp nhất' }),
+    ).toBeInTheDocument();
+  });
+
+  /** Bấm một gợi ý thì nó ĐIỀN vào ô nhập — câu này người ta có thể muốn sửa. */
+  it('bấm gợi ý thì điền vào ô câu hỏi', async () => {
+    hoiTrenMoHinh.mockReset();
+    hoiTrenMoHinh.mockResolvedValue({
+      ...KQ,
+      cau: 'Miền Bắc: Doanh thu 1.200.',
+      so: ['1.200'],
+      goiY: ['Doanh thu theo tháng'],
+      truyVan: { dimensionIds: [11], measureIds: [21] } as never,
+    });
+
+    dung(NGUON, 7);
+    fireEvent.click(nutMo());
+    hoi('doanh thu theo khu vực');
+    await screen.findByText('Miền Bắc: Doanh thu 1.200.');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Doanh thu theo tháng' }));
+
+    expect(screen.getByLabelText('Câu hỏi')).toHaveValue('Doanh thu theo tháng');
+  });
+});

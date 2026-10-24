@@ -6,7 +6,7 @@ import type {
 } from '@bi/shared';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { kiemForm } from '../src/services/chat/datCauHoi';
+import { kiemForm, kiemFormCoLyDo } from '../src/services/chat/datCauHoi';
 import { buildQuery, type ModelIndex } from '../src/services/datamodel/explorer';
 
 /**
@@ -427,5 +427,69 @@ describe('Hướng sắp đi tới tận dòng giải thích', () => {
     const { hieuLa } = await hoiTrenMoHinh(1, 1, 1, 'sản phẩm nào bán chạy nhất');
 
     expect(hieuLa).toContain('xếp từ cao xuống');
+  });
+});
+
+/**
+ * Lý do bế tắc và gợi ý hỏi tiếp phải đi được TỚI NGOÀI.
+ *
+ * `kiemFormCoLyDo` và `goiYTiep` đã có bộ canh riêng, nhưng cả hai chỉ có ích
+ * khi `hoiTrenMoHinh` thật sự mang chúng ra. Đây là hai dây nối, và dây nối
+ * tháo ra thì không bài nào ở hai bộ kia đỏ.
+ */
+describe('Lý do và gợi ý ra tới hợp đồng của endpoint', () => {
+  it('form bị bỏ vì một lý do nói ra được -> `lyDo` là CÂU, không phải mã', async () => {
+    // Phép gộp mà thước đo không nhận — `Doanh thu` chỉ có sum/avg.
+    gia.datCauHoi.mockImplementation((input: Parameters<typeof kiemForm>[1]) =>
+      Promise.resolve({
+        ...kiemFormCoLyDo(
+          {
+            dimensionIds: [11],
+            measureIds: [21],
+            measureAggs: [{ id: 21, agg: 'countDistinct' }],
+          },
+          input,
+        ),
+        daHoi: true,
+      }),
+    );
+
+    const { cau, lyDo } = await hoiTrenMoHinh(1, 1, 1, 'đếm riêng doanh thu theo sản phẩm');
+
+    expect(cau).toBeNull();
+    // Câu đọc được, không phải `'phep-gop-la'` — panel in thẳng ra màn hình.
+    expect(lyDo).toContain('tab Thước đo');
+  });
+
+  it('mô hình trả về rác -> `lyDo` là null, khung im như trước', async () => {
+    gia.datCauHoi.mockImplementation((input: Parameters<typeof kiemForm>[1]) =>
+      Promise.resolve({
+        ...kiemFormCoLyDo({ dimensionIds: [11], measureIds: [99] }, input),
+        daHoi: true,
+      }),
+    );
+
+    const { cau, lyDo } = await hoiTrenMoHinh(1, 1, 1, 'sản phẩm nào lãi nhất');
+
+    expect(cau).toBeNull();
+    expect(lyDo).toBeNull();
+  });
+
+  it('câu trả lời được -> mang theo gợi ý hỏi tiếp, không mang lý do', async () => {
+    gia.datCauHoi.mockResolvedValue({
+      truyVan: { dimensionIds: [11], measureIds: [21] },
+      daHoi: true,
+      lyDo: null,
+    });
+
+    const { cau, lyDo, goiY } = await hoiTrenMoHinh(1, 1, 1, 'sản phẩm nào bán chạy nhất');
+
+    expect(cau).not.toBeNull();
+    expect(lyDo).toBeNull();
+    // Bảng đang giảm, nên câu tiếp phải mời xem phía thấp.
+    expect(goiY[0]).toContain('thấp nhất');
+    // Và nhãn gọn: `TRUONG` khai chiều là "Sản phẩm", `hoiTrenMoHinh` thêm
+    // "(bảng Products)" để mô hình phân biệt — câu gợi ý thì không được mang nó.
+    expect(goiY.join(' ')).not.toContain('bảng Products');
   });
 });

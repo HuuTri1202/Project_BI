@@ -1,7 +1,13 @@
 import type { ExplorerQueryDto, ExplorerResultDto } from '@bi/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { giuNguyenLoi, kiemForm, type DatCauHoiInput } from '../src/services/chat/datCauHoi';
+import {
+  giuNguyenLoi,
+  kiemForm,
+  kiemFormCoLyDo,
+  LY_DO_NOI,
+  type DatCauHoiInput,
+} from '../src/services/chat/datCauHoi';
 import { docKetQua, moTaTruyVan } from '../src/services/chat/dienGiai';
 
 /**
@@ -386,9 +392,12 @@ describe('Mọi trục trặc đều ra truyVan: null', () => {
     const goi = vi.fn();
     globalThis.fetch = goi;
 
+    // `lyDo: null` — chưa cấu hình KHÔNG phải thứ người dùng làm được gì, nên
+    // nó không nằm trong ba lý do nói ra được. Xem `LyDoBoForm`.
     expect(await datCauHoi(vao('doanh thu theo khu vực'))).toEqual({
       truyVan: null,
       daHoi: false,
+      lyDo: null,
     });
     expect(goi).not.toHaveBeenCalled();
   });
@@ -419,7 +428,7 @@ describe('Mọi trục trặc đều ra truyVan: null', () => {
     const { datCauHoi } = await napVoiEnv(DU_CAU_HINH);
     globalThis.fetch = vi.fn().mockRejectedValue(new Error('DNS chết'));
 
-    expect(await datCauHoi(vao('gì đó'))).toEqual({ truyVan: null, daHoi: false });
+    expect(await datCauHoi(vao('gì đó'))).toEqual({ truyVan: null, daHoi: false, lyDo: null });
   });
 
   /*
@@ -1025,5 +1034,105 @@ describe('Dòng "Tôi hiểu" nói ra khoảng ngày', () => {
     };
 
     expect(docKetQua(MOT_DONG, q, NHAN).hieuLa).toContain('lọc Ngày đặt từ … trở lên 2026-10-01');
+  });
+});
+
+/**
+ * LÝ DO bỏ form — ba cửa mà người dùng làm được gì đó.
+ *
+ * `kiemForm` có hơn ba mươi chỗ `return null`, và người dùng thấy đúng một câu
+ * "Tôi chưa hiểu câu này" cho cả ba mươi. Phần lớn số đó là "mô hình trả về
+ * rác" — nói ra cũng không ai làm gì được. Ba lý do dưới đây thì mỗi cái ứng
+ * với một việc làm được, nên im lặng ở đó là đẩy người dùng vào vòng gõ lại
+ * bằng cách khác mà cách nào cũng trượt.
+ */
+describe('Lý do bỏ form', () => {
+  const DAY_DU: DatCauHoiInput['truong'] = [
+    { id: 21, nhan: 'Doanh thu', loai: 'thuoc do', phepGop: ['sum', 'avg'] },
+    { id: 11, nhan: 'Khu vực (bảng Orders)', loai: 'chieu' },
+    { id: 13, nhan: 'Ngày đặt (bảng Orders)', loai: 'chieu', thoiGian: true },
+  ];
+
+  const vao = (cauHoi: string): DatCauHoiInput => ({ cauHoi, truong: DAY_DU });
+
+  it('giá trị lọc không phải lời người dùng -> nói là không chắc dữ liệu ghi thế nào', () => {
+    const { truyVan, lyDo } = kiemFormCoLyDo(
+      {
+        dimensionIds: [11],
+        measureIds: [21],
+        filters: [{ dimensionId: 11, operator: 'equals', values: ['Monitor'] }],
+      },
+      vao('doanh thu của màn hình'),
+    );
+
+    expect(truyVan).toBeNull();
+    expect(lyDo).toBe('gia-tri-la');
+    // Câu hiện ra phải nói VIỆC CẦN LÀM, không chỉ nêu rào chắn.
+    expect(LY_DO_NOI[lyDo as 'gia-tri-la']).toContain('như nó hiện trong bảng');
+  });
+
+  it('phép gộp thước đo không nhận -> chỉ sang tab Thước đo', () => {
+    const { lyDo } = kiemFormCoLyDo(
+      { dimensionIds: [11], measureIds: [21], measureAggs: [{ id: 21, agg: 'countDistinct' }] },
+      vao('đếm riêng doanh thu'),
+    );
+
+    expect(lyDo).toBe('phep-gop-la');
+    expect(LY_DO_NOI['phep-gop-la']).toContain('tab Thước đo');
+  });
+
+  it('gom thời gian trên cột không phải ngày -> chỉ sang tab Schemas', () => {
+    const { lyDo } = kiemFormCoLyDo(
+      {
+        dimensionIds: [],
+        measureIds: [21],
+        timeDimension: { dimensionId: 11, granularity: 'month' },
+      },
+      vao('doanh thu theo tháng'),
+    );
+
+    expect(lyDo).toBe('thieu-cot-ngay');
+    expect(LY_DO_NOI['thieu-cot-ngay']).toContain('tab Schemas');
+  });
+
+  it('mốc thời gian trên cột không phải ngày -> cùng lý do đó', () => {
+    const { lyDo } = kiemFormCoLyDo(
+      { dimensionIds: [], measureIds: [21], khoangThoiGian: { dimensionId: 11, cum: 'thang-nay' } },
+      vao('doanh thu tháng này'),
+    );
+
+    expect(lyDo).toBe('thieu-cot-ngay');
+  });
+
+  /*
+   * ⚠️ Mọi kiểu hỏng KHÁC phải im.
+   *
+   * Nói "mô hình trả về id 99 không có trong danh sách" là phơi ruột một lớp
+   * mà người dùng không cần biết có tồn tại, và nó không gợi được việc gì.
+   */
+  it('mô hình trả về rác -> KHÔNG có lý do nào, im như trước', () => {
+    expect(kiemFormCoLyDo({ dimensionIds: [11], measureIds: [99] }, vao('x')).lyDo).toBeNull();
+    expect(kiemFormCoLyDo({}, vao('x')).lyDo).toBeNull();
+    expect(kiemFormCoLyDo('không phải object', vao('x')).lyDo).toBeNull();
+  });
+
+  /*
+   * Form SỐNG thì không có lý do nào, kể cả khi dọc đường có nhánh từng được
+   * chạm tới. Một câu trả lời đúng mà kèm lời giải thích về một thất bại là
+   * thứ không ai đọc nổi.
+   */
+  it('form sống -> lý do là null', () => {
+    const { truyVan, lyDo } = kiemFormCoLyDo(
+      { dimensionIds: [11], measureIds: [21] },
+      vao('doanh thu theo khu vực'),
+    );
+
+    expect(truyVan).not.toBeNull();
+    expect(lyDo).toBeNull();
+  });
+
+  /** `kiemForm` giữ nguyên chữ ký — hơn ba mươi chỗ gọi nó không phải đổi gì. */
+  it('kiemForm vẫn gọi được với hai tham số như cũ', () => {
+    expect(kiemForm({ dimensionIds: [11], measureIds: [21] }, vao('doanh thu'))).not.toBeNull();
   });
 });
