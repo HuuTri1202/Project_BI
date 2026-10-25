@@ -2,44 +2,14 @@ import type { ExplorerQueryDto } from '@bi/shared';
 
 import type { TruongChon } from './datCauHoi';
 
-/**
- * Câu hỏi TIẾP, sinh từ cái form vừa chạy — §chat.
- *
- * ═══ Vấn đề ════════════════════════════════════════════════════════════════
- *
- * Khung chỉ gợi ý khi nó BẾ TẮC (`goiYGan`, `deXuatBieuDo`). Lúc trả lời được
- * thì nó im — mà đó mới là lúc người ta muốn đi tiếp. Người dùng vừa thấy
- * "Doanh thu theo Khu vực" ra số, và câu kế tiếp trong đầu họ gần như luôn là
- * một trong bốn thứ: đổi hướng, cắt top, gom theo thời gian, đổi phép tính.
- *
- * Cả bốn đều là **sửa một ô của form vừa chạy**, nên code sinh ra được chính
- * xác, không cần hỏi mô hình. Và câu sinh ra là câu người dùng CÓ THỂ SỬA
- * trước khi gửi, nên nó đi vào `goiY` (bấm để điền) chứ không phải `chonNguon`
- * (bấm là hỏi luôn).
- *
- * ═══ Vì sao ở BACKEND, không ở panel ══════════════════════════════════════
- *
- * Vì chỉ chỗ này có đủ ba thứ cùng lúc: cái form đã chạy, nhãn thật của từng
- * trường (đã qua `distinctFieldLabels`, nên nó đúng cái tên bảng số liệu đang
- * dùng), và danh sách phép gộp mà mỗi thước đo nhận. Panel có `nguCanh.truong`
- * nhưng không có hai thứ sau, nên nó sẽ gợi ý "trung bình" cho một thước đo
- * không nhận trung bình — một gợi ý bấm vào là "chưa hiểu".
- *
- * ⚠️ KHÔNG gợi ý thứ form đã có. Hỏi lại đúng câu vừa hỏi là một gợi ý tệ hơn
- * không gợi ý: nó làm người dùng tưởng mình đọc sai kết quả.
- */
-
-/** Trần số gợi ý. Dài hơn thì nó thành một cái thực đơn chứ không phải gợi ý. */
 const TRAN = 3;
 
 export function goiYTiep(
   truyVan: ExplorerQueryDto,
   truong: readonly TruongChon[],
-  /** Hướng đã sắp — xem `huongSap`. Quyết định nên mời đổi sang hướng nào. */
   huong: 'asc' | 'desc',
 ): string[] {
   const nhan = new Map(truong.map((t) => [t.id, t.nhan]));
-  /** Nhãn gọn: bỏ "(bảng X)" cho câu đọc tự nhiên. Xem `hoiTrenMoHinh`. */
   const gon = (id: number): string => (nhan.get(id) ?? '').replace(/\s*\(bảng .*\)\s*$/, '');
 
   const chieu = truyVan.dimensionIds[0];

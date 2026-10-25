@@ -30,24 +30,6 @@ import {
 import { dinhDangDungLuong, dinhDangHanMuc, dinhDangNgay, dinhDangTien } from '../billing/format';
 import type { DuKien, Nguon } from './nguCanh';
 
-/**
- * Chuyển DTO của từng trang thành dữ kiện hỏi được.
- *
- * ═══ Vì sao gộp ba hàm vào một file ════════════════════════════════════════
- *
- * Chúng là ba phép ánh xạ THUẦN từ DTO sang `Nguon[]` — không state, không
- * hook, không gọi gì. Để cùng chỗ thì chúng test được bằng một file test không
- * cần DOM, và người sửa thấy ngay ba trang đang hứa những gì để mà giữ cho
- * chúng nói cùng một kiểu. Thêm trang mới = thêm một hàm ở đây.
- *
- * ═══ Luật chung: con số nào có ĐIỀU KIỆN thì mang `luuY` ═══════════════════
- *
- * Mỗi lần một hàm ở đây in ra một con số mà con số đó chưa phải toàn bộ sự
- * thật, nó PHẢI nói ra điều kiện. Màn hình còn có chỗ hiện cảnh báo bên cạnh;
- * một câu trả lời thì chỉ có chính nó.
- */
-
-/** Trạng thái nạp kho, đọc thành câu người dùng hiểu. */
 function docTrangThaiNap(ds: DatasetDto): string {
   switch (ds.loadStatus) {
     case 'loaded':
@@ -63,7 +45,6 @@ function docTrangThaiNap(ds: DatasetDto): string {
   }
 }
 
-/** Một câu nói bộ dữ liệu này từ đâu ra. */
 function docNguon(ds: DatasetDto): string {
   if (ds.source === 'file') {
     const ten = ds.originalFilename ?? 'một tệp đã tải lên';
@@ -73,7 +54,6 @@ function docNguon(ds: DatasetDto): string {
   return ds.connectionName === null ? bang : `bảng ${bang} qua kết nối "${ds.connectionName}"`;
 }
 
-/** Dữ kiện chung cho cả trang danh sách và trang chi tiết của một bộ dữ liệu. */
 function duKienChung(ds: DatasetDto): DuKien[] {
   const d: DuKien[] = [
     {
@@ -117,7 +97,6 @@ function duKienChung(ds: DatasetDto): DuKien[] {
  * `pham`.
  */
 
-/** Tên dễ đọc của một đuôi tệp. Người dùng gõ "excel", không gõ "xlsx". */
 const TEN_DUOI = new Map<string, string>([
   ['xlsx', 'Excel'],
   ['xlsm', 'Excel'],
@@ -133,48 +112,21 @@ function loaiTep(ten: string): string {
   return TEN_DUOI.get(duoi) ?? duoi.toUpperCase();
 }
 
-/**
- * Vế điều kiện cho mọi con số ĐẾM TRÊN DANH SÁCH ĐANG CÓ TRONG TAY.
- *
- * ⚠️ Mọi danh sách đều phân trang. Trang Kho dữ liệu thật hiện 20 trên 24 bộ,
- * nên "số tệp Excel" đếm ở đây là số tệp của 20 bộ ĐÃ TẢI, không phải của cả
- * kho. Không nói ra thì nó đọc thành "toàn bộ", và đó là một con số có thật trả
- * lời cho một câu hỏi khác — cùng lý do `luuYCat` và `truncated` tồn tại.
- */
 function luuYChuaDu(hien: number, tong: number): string | undefined {
   return tong > hien
     ? `đếm trên ${hien.toLocaleString('vi-VN')} mục đang hiện, không phải toàn bộ ${tong.toLocaleString('vi-VN')}`
     : undefined;
 }
 
-/**
- * Vế điều kiện khi danh sách ĐANG BỊ LỌC — xem `dangLoc` bên `useListQueryState`.
- *
- * ⚠️ Khác `luuYChuaDu`, và hai cái này không thay nhau được. `luuYChuaDu` nói về
- * phần ĐÃ TẢI của một tập hợp đã xác định ("20 trên 24"); cái này nói rằng chính
- * tập hợp ấy đã bị thu hẹp, nên `tong` không còn là toàn bộ. Gõ "an" vào ô tìm
- * thành viên rồi hỏi "tổ chức có bao nhiêu thành viên" là nhận một con số có
- * thật trả lời cho một câu hỏi khác — và `luuYChuaDu` im lặng ở đó, vì `tong`
- * khớp đúng số dòng đang hiện.
- */
 function luuYLoc(loc: boolean): string | undefined {
   return loc ? 'đếm trên phần ĐANG LỌC, không phải toàn bộ' : undefined;
 }
 
-/** Dán hai vế điều kiện lại — bỏ vế nào không có. */
 function gopLuuY(...phan: (string | undefined)[]): string | undefined {
   const co = phan.filter((x): x is string => x !== undefined && x !== '');
   return co.length === 0 ? undefined : co.join('; ');
 }
 
-/**
- * Bản tóm tắt của một danh sách bộ dữ liệu.
- *
- * Đếm TỆP chứ không đếm BỘ, và đó là phần quan trọng nhất ở đây: một tệp Excel
- * bốn sheet sinh ra BỐN bộ dữ liệu trỏ vào cùng một tệp. Đếm dòng trong bảng rồi
- * gọi đó là "số file excel" là một con số có thật trả lời cho một câu hỏi khác —
- * nên số bộ đi theo trong `luuY`, không đi vào chỗ của con số chính.
- */
 export function tomTatBoDuLieu(ds: DatasetDto[], tong: number, pham: string): DuKien[] {
   const theoLoai = new Map<string, { tep: Set<string>; bo: number }>();
   for (const d of ds) {
@@ -210,14 +162,6 @@ export function tomTatBoDuLieu(ds: DatasetDto[], tong: number, pham: string): Du
   ];
 }
 
-/**
- * Trang Kho dữ liệu — bản tóm tắt trước, rồi mỗi bộ dữ liệu là một nguồn.
- *
- * ⚠️ Nguồn TÓM TẮT phải đứng ĐẦU — cùng quy ước mọi danh sách khác đang dùng,
- * và `traLoiHeThong` đọc nó theo đúng vị trí đó. Trước đây danh sách này là danh
- * sách DUY NHẤT không có bản tóm tắt, nên câu "có bao nhiêu bộ dữ liệu" hỏi ngay
- * trên trang Kho dữ liệu lại không có chỗ nào trả lời được.
- */
 export function duKienKhoDuLieu(ds: DatasetDto[], tong = ds.length): Nguon[] {
   return [
     { ten: 'Danh sách bộ dữ liệu', duKien: tomTatBoDuLieu(ds, tong, 'trong workspace này') },
@@ -225,13 +169,6 @@ export function duKienKhoDuLieu(ds: DatasetDto[], tong = ds.length): Nguon[] {
   ];
 }
 
-/**
- * Trang chi tiết một bộ dữ liệu — có thêm KIỂU của từng cột.
- *
- * Đây là thứ trang danh sách không có: ở đó chỉ có `columnCount`. Nên câu "cột
- * X kiểu gì" chỉ trả lời được ở trang này, và ở trang danh sách khung sẽ nói
- * "chưa hiểu" thay vì đoán — xem luật hai-dữ-kiện-bằng-điểm trong `traLoi`.
- */
 export function duKienChiTietDataset(
   ds: DatasetDetailDto,
   xemTruoc?: DatasetPreviewDto,
@@ -296,23 +233,6 @@ export function duKienChiTietDataset(
   return [{ ten: ds.name, duKien: d, ...(bangTho === undefined ? {} : { bangTho }) }];
 }
 
-/**
- * Nguồn của TRÌNH DỰNG: ô đang chọn, rồi tới cấu trúc mô hình.
- *
- * ═══ Vì sao tách ra khỏi trang ═════════════════════════════════════════════
- *
- * `ReportBuilderPage` gọi mười hook và kéo theo cả kéo-thả, thu phóng, lịch
- * sử — dựng nó trong jsdom để canh đúng một mảng là một cái giá không đáng.
- * Mà chỗ dễ hỏng lại nằm gọn trong mảng ấy: bỏ `duKienO` ra thì khung im lặng
- * mất khả năng đọc ô đang chọn, và không có gì đỏ.
- *
- * Nên phần thuần tuý ở đây, trang chỉ còn việc đưa vào. Hàm này test được mà
- * không cần một DOM nào.
- *
- * ⚠️ Ô đang chọn đứng TRƯỚC. Backend chỉ lấy 60 nhãn đầu, và `duKienMoHinh`
- * của một mô hình nhiều bảng đẩy ra hàng trăm nhãn — xếp sau là ô người dùng
- * đang nhìn bị cắt sạch trước khi mô hình kịp thấy.
- */
 export function nguonTrinhDung(
   tenO: string | null,
   bang: ReportDataDto | undefined,
@@ -325,28 +245,6 @@ export function nguonTrinhDung(
   ];
 }
 
-/**
- * Kết quả tab KHÁM PHÁ — bảng số người dùng vừa bấm Chạy và đang nhìn vào.
- *
- * ═══ Lỗ hổng mà nó lấp ═════════════════════════════════════════════════════
- *
- * Trang mô hình khai rất kỹ CẤU TRÚC — bảng nào, cột nào, kiểu gì, mấy quan hệ
- * — nhưng không khai một con số nào của KẾT QUẢ. Nên người dùng kéo chiều, kéo
- * thước đo, bấm Chạy, nhìn một bảng đầy số, rồi hỏi "cao nhất là gì" và nhận
- * về "chưa hiểu". Thứ họ đang nhìn thẳng vào lại là thứ khung mù nhất.
- *
- * ═══ Vì sao là `bangTho` chứ không phải `bang` ═════════════════════════════
- *
- * `bang` (`ReportDataDto`) đã có người chọn sẵn MỘT chiều và MỘT thước đo. Kết
- * quả Khám phá thì không: nó có thể ba chiều bốn thước đo, và không cột nào
- * được đề cử. Câu hỏi mới là thứ chọn ra hai cột đó — đúng việc `bangTuBangTho`
- * sinh ra để làm.
- *
- * ⚠️ `luuY` không phải tuỳ chọn. `ExplorerResultDto.truncated` nói kết quả đã
- * chạm trần dòng, và một câu "tổng doanh thu" tính trên phần bị cắt mà đọc
- * thành tổng của cả mô hình thì sai bằng một con số có thật. Cùng cái bẫy đã
- * ghi ở `DatasetPreviewDto`.
- */
 export function duKienKhamPha(kq: ExplorerResultDto | null): Nguon[] {
   if (kq === null || kq.rows.length === 0) return [];
 
@@ -376,33 +274,7 @@ export function duKienKhamPha(kq: ExplorerResultDto | null): Nguon[] {
   ];
 }
 
-/**
- * Trang Mô hình dữ liệu — mỗi BẢNG trong mô hình là một nguồn, cộng một nguồn
- * cho chính mô hình.
- *
- * Câu "mô hình này dựng từ tệp nào" trả lời được nhờ `source`/`originalFilename`
- * vừa thêm vào `DataModelDatasetDto`. Trước đó DTO chỉ có `datasetName` —
- * tên người dùng đặt, không dính gì tới tệp.
- */
-export function duKienMoHinh(
-  m: DataModelDetailDto,
-  /**
-   * Bảng người dùng ĐANG MỞ ở tab Schemas — `DataModelDatasetDto.id`.
-   *
-   * ═══ Vì sao thứ tự ở đây quyết định câu trả lời ══════════════════════════
-   *
-   * Hai chuyện cùng treo vào phần tử đầu mảng. Một, chip mặc định của khung là
-   * nguồn số 0 — nên "cột này kiểu gì" được chấm trên bảng nào là do thứ tự
-   * này quyết. Hai, `duKienPhang` xếp nguồn ĐANG CHỌN lên đầu rồi backend cắt
-   * ở 60 nhãn: một mô hình 8 bảng × 25 cột sinh ra hơn 230 dữ kiện, nên từ
-   * bảng thứ ba trở đi KHÔNG một nhãn nào tới được lớp mô hình.
-   *
-   * Người dùng vừa bấm mở một bảng là đã nói rõ họ đang nhìn bảng nào. Không
-   * đọc lấy điều đó thì khung trả lời về một bảng khác — bằng một con số có
-   * thật, và không có gì trên màn hình nói đó là bảng nào.
-   */
-  bangTruoc?: number | null,
-): Nguon[] {
+export function duKienMoHinh(m: DataModelDetailDto, bangTruoc?: number | null): Nguon[] {
   const tenBang = (i: number): string => {
     const ds = m.datasets[i];
     return ds === undefined ? '' : (ds.displayName ?? ds.datasetName);
@@ -526,14 +398,12 @@ export function duKienMoHinh(
  * — rồi trả lời bằng một ô trống. Thà không có nó.
  */
 
-/** Một dữ kiện, hoặc KHÔNG dữ kiện nào nếu giá trị trống. Dùng với `flatMap`. */
 function dk(nhan: string, gia: string | number | null | undefined, luuY?: string): DuKien[] {
   if (gia === null || gia === undefined || gia === '') return [];
   const doc = typeof gia === 'number' ? gia.toLocaleString('vi-VN') : gia;
   return [{ nhan, gia: doc, ...(luuY === undefined ? {} : { luuY }) }];
 }
 
-/** Trang chủ — workspace đang mở và hai con số của nó. */
 export function duKienTrangChu(home: HomeDataDto): Nguon[] {
   const w = home.workspace.name;
   return [
@@ -563,7 +433,6 @@ export function duKienTrangChu(home: HomeDataDto): Nguon[] {
   ];
 }
 
-/** Danh sách báo cáo. */
 export function duKienDanhSachBaoCao(reports: ReportDto[], tong: number): Nguon[] {
   const mot = (r: ReportDto): DuKien[] => [
     /*
@@ -608,19 +477,10 @@ export function duKienDanhSachBaoCao(reports: ReportDto[], tong: number): Nguon[
   ];
 }
 
-/**
- * Mô hình này chưa nối đủ quan hệ chưa?
- *
- * CÙNG cận dưới mà cột "Quan hệ" trên màn hình đang dùng để treo thẻ "chưa nối
- * đủ": N bảng cần ÍT NHẤT N−1 quan hệ. Một hàm chứ không phải hai phép so chép
- * tay, vì màn hình và câu trả lời lệch nhau một cận là người dùng thấy thẻ cảnh
- * báo rồi nghe khung nói không có gì.
- */
 function chuaNoiDu(m: DataModelDto): boolean {
   return m.relationshipCount < m.datasetCount - 1;
 }
 
-/** Bản tóm tắt của một danh sách mô hình — xem khối ở `tomTatBoDuLieu`. */
 export function tomTatMoHinh(
   models: DataModelDto[],
   tong: number,
@@ -648,61 +508,6 @@ export function tomTatMoHinh(
   ];
 }
 
-/**
- * THƯ MỤC — dùng chung cho cả Kho dữ liệu lẫn Báo cáo (§7.9 và §10.25).
- *
- * Một hàm cho hai tab, đúng như `FolderDto` là một DTO cho hai tab. Cột thư mục
- * nằm ngay bên trái bảng ở cả hai trang, mà trước đó không trang nào khai nó —
- * nhìn thấy mà hỏi không được.
- *
- * ═══ Mỗi thư mục một NGUỒN, không phải một dữ kiện phẳng ═══════════════
- *
- * Bản đầu khai phẳng — "Số mục trong thư mục Chung" nằm chung nguồn với "Số thư
- * mục đang có" — và hai nhãn đó luôn hoà điểm, vì cả hai cùng chứa "thư" và
- * "mục" còn chữ phân biệt chúng là TÊN thư mục. Hoà thì khung bỏ cả hai.
- *
- * Thành nguồn thì `nguonTheoTen` lo chuyện đó: gõ "thư mục Chung" ra là đã nói rõ
- * hỏi thư mục nào, không cần phép chấm điểm đoán hộ. Và `soSanhNguon` được "thư
- * mục nào nhiều mục nhất" miễn phí — cùng lợi ích mà mọi danh sách khác đang có.
- *
- * ⚠️ Nhãn dùng chữ "mục", KHÔNG dùng tên loại ("bộ dữ liệu" hay "báo cáo") —
- * cùng lý do `itemCount` của chính DTO tránh tên loại, và còn vì "Số bộ dữ liệu
- * trong thư mục Chung" sẽ hoà điểm với "Số bộ dữ liệu trong workspace này".
- */
-/**
- * Báo cáo này lấy số từ ĐÂU — dữ kiện gắn vào mọi nguồn của trang xem báo cáo.
- *
- * ═══ Lỗi đo được ═══════════════════════════════════════════════════════════
- *
- * Người dùng thật, lượt đầu tiên sau khi bật sổ ghi câu trượt, hỏi "lấy từ đâu
- * ra đó" trên trang xem báo cáo. Khung trả lời "tôi chưa hiểu" — và nó chưa
- * hiểu thật, vì trang đó khai `duKien: []`: nguồn duy nhất nó có là BẢNG SỐ của
- * từng ô. Cả hai lớp đều bó tay cùng một lý do, không phải hai lý do khác nhau:
- * phép so từ khoá không có nhãn nào để so, và mô hình không có mục nào để chọn.
- *
- * Mà câu đó CÓ đáp án, nằm sẵn trong tay trang: `ReportDto` mang đủ `source`,
- * `sourceName` và `datasetSource`. Không thiếu dữ liệu — chỉ thiếu một bản khai.
- *
- * ═══ Vì sao trả `DuKien[]` chứ không phải `Nguon[]` như mọi hàm khác ═══════
- *
- * Hai dữ kiện này nói về CẢ BÁO CÁO, không về riêng ô nào. Dựng chúng thành
- * một nguồn riêng là thêm một con chip nữa vào hàng chọn ô, cho một thứ không
- * phải một ô — người dùng sẽ phải chọn "báo cáo X" để hỏi về chính cái báo cáo
- * họ đang mở.
- *
- * Nên chúng được gắn vào MỌI nguồn của trang. Lặp lại không tốn gì:
- * `duKienPhang` và `luaChonTrang` đều gạt trùng theo `nhan`, nên trần 60 nhãn
- * gửi lên mô hình chỉ tốn đúng hai chỗ dù khung có mười hai ô.
- *
- * Và câu trả lời GIỐNG HỆT nhau ở mọi nguồn, nên `nguonMoHo` không hỏi ngược
- * "bạn muốn hỏi biểu đồ nào" — nó chỉ hỏi khi hai nguồn cho hai câu KHÁC nhau.
- * Đó là lý do cái chốt ấy đếm câu trả lời chứ không đếm số nguồn khớp.
- *
- * ⚠️ Nhãn là CỤM DANH TỪ, không phải câu hỏi. Đặt nhãn thành "...lấy từ đâu"
- * thì nó khớp đúng một câu tui vừa nhìn thấy, và trượt mọi cách nói khác —
- * đúng cái bẫy "danh sách từ viết tay" đã gỡ khỏi đường vẽ. Việc hiểu "lấy từ
- * đâu ra đó" là việc của lớp mô hình, và nó làm được ngay khi có nhãn để chọn.
- */
 export function duKienNguonBaoCao(r: ReportDto): DuKien[] {
   return [
     ...dk(
@@ -749,29 +554,10 @@ export function duKienThuMuc(thuMuc: FolderDto[]): Nguon[] {
   }));
 }
 
-/**
- * Tổng số mục THẬT của workspace, dựng từ chính cột thư mục đang hiện.
- *
- * ═══ Vì sao `total` của danh sách KHÔNG dùng được ═══════════════════════════
- *
- * Hai trang danh sách có cột thư mục đều MẶC ĐỊNH lọc theo Chung
- * (`DEFAULTS.folder`), nên `total` mà API trả về chỉ là số mục CHƯA xếp thư
- * mục. Khai con số ấy dưới nhãn "… trong workspace này" là một con số có thật
- * trả lời cho một câu hỏi khác — và nó sai ngay khi người dùng vừa mở trang,
- * không cần ai bấm gì.
- *
- * ⚠️ "Chung" đi riêng vì nó KHÔNG phải một thư mục: backend cố ý không trả nó
- * trong `items` (xem route `/report-folders`), nên cộng thẳng `items` là thiếu
- * đúng phần lớn nhất.
- *
- * Không thêm một request nào: `GET /dataset-folders` đã về cùng lúc với danh
- * sách, và cột bên trái đang hiện đúng mấy con số này.
- */
 export function tongTheoThuMuc(chungCount: number, thuMuc: FolderDto[]): number {
   return thuMuc.reduce((t, m) => t + m.itemCount, chungCount);
 }
 
-/** Hai con số về CẢ cột thư mục — nối vào bản tóm tắt của danh sách. */
 export function tomTatThuMuc(thuMuc: FolderDto[]): DuKien[] {
   if (thuMuc.length === 0) return [];
   return [
@@ -780,7 +566,6 @@ export function tomTatThuMuc(thuMuc: FolderDto[]): DuKien[] {
   ];
 }
 
-/** Danh sách mô hình dữ liệu. */
 export function duKienDanhSachMoHinh(models: DataModelDto[], tong: number, loc = false): Nguon[] {
   return [
     {
@@ -821,7 +606,6 @@ export function duKienDanhSachMoHinh(models: DataModelDto[], tong: number, loc =
   ];
 }
 
-/** Danh sách kết nối cơ sở dữ liệu. */
 export function duKienKetNoi(conns: ConnectionDto[]): Nguon[] {
   return [
     {
@@ -857,7 +641,6 @@ export function duKienKetNoi(conns: ConnectionDto[]): Nguon[] {
   ];
 }
 
-/** Danh sách thành viên tổ chức. */
 export function duKienThanhVien(members: AdminUserDto[], tong: number, loc = false): Nguon[] {
   const vaiTro = (r: AdminUserDto['role']): string =>
     r === 'admin' ? 'quản trị viên' : r === 'creator' ? 'người tạo' : 'người xem';
@@ -898,12 +681,6 @@ export function duKienThanhVien(members: AdminUserDto[], tong: number, loc = fal
   ];
 }
 
-/**
- * Danh sách workspace.
- *
- * Con số này là phạm vi CỦA NGƯỜI ĐANG ĐĂNG NHẬP, không phải của cả tổ chức —
- * từ migration 40 hai thứ đó khác nhau, nên nhãn phải nói rõ.
- */
 export function duKienWorkspace(ws: { id: number; name: string }[]): Nguon[] {
   return [
     {
@@ -916,7 +693,6 @@ export function duKienWorkspace(ws: { id: number; name: string }[]): Nguon[] {
   ];
 }
 
-/** Thông tin tổ chức. */
 export function duKienToChuc(t: { name: string; slug: string }): Nguon[] {
   return [
     {
@@ -926,7 +702,6 @@ export function duKienToChuc(t: { name: string; slug: string }): Nguon[] {
   ];
 }
 
-/** Trang Thanh toán — gói đang dùng, hạn mức và mức đã dùng. */
 export function duKienThanhToan(s: BillingSummaryDto): Nguon[] {
   const muc = (ten: string, u: { used: number; limit: number | null }, byte = false): DuKien[] =>
     dk(
@@ -960,7 +735,6 @@ export function duKienThanhToan(s: BillingSummaryDto): Nguon[] {
   ];
 }
 
-/** Bảng giá. */
 export function duKienBangGia(plans: PlanDto[]): Nguon[] {
   return [
     {
@@ -997,7 +771,6 @@ export function duKienBangGia(plans: PlanDto[]): Nguon[] {
   ];
 }
 
-/** Danh sách đơn hàng. */
 export function duKienDonHang(orders: OrderDto[], tong: number, loc = false): Nguon[] {
   return [
     {
@@ -1036,12 +809,10 @@ export function duKienDonHang(orders: OrderDto[], tong: number, loc = false): Ng
  * nhau ngay lần đầu có người thêm một trường.
  */
 
-/** Trang sửa một kết nối. `null` khi đang TẠO MỚI — chưa có gì để hỏi. */
 export function duKienMotKetNoi(conn: ConnectionDto | null): Nguon[] {
   return conn === null ? [] : duKienKetNoi([conn]).slice(1);
 }
 
-/** Màn mua gói: gói đang mua, kèm chu kỳ người dùng vừa chọn trên bảng giá. */
 export function duKienMuaGoi(plan: PlanDto | undefined, cycle: BillingCycle): Nguon[] {
   if (plan === undefined) return [];
   const [goi] = duKienBangGia([plan]).slice(1);
@@ -1060,15 +831,6 @@ export function duKienMuaGoi(plan: PlanDto | undefined, cycle: BillingCycle): Ng
   ];
 }
 
-/**
- * Trang một đơn hàng — màn chờ tiền về.
- *
- * ⚠️ Mượn `duKienDonHang`, và đó là CHỖ CHẶN: `OrderDetailDto` còn mang
- * `bankAccountNo`, `bankBin`, `bankAccountName` và `qrPayload` (chuỗi EMVCo có
- * sẵn số tài khoản bên trong). `duKienDonHang` chỉ đọc các trường của `OrderDto`
- * nên bốn thứ đó không có đường nào đi vào câu trả lời — xem cùng lý do đã ghi ở
- * `duKienPhuongThucThanhToan`.
- */
 export function duKienMotDonHang(order: OrderDto | undefined): Nguon[] {
   return order === undefined ? [] : duKienDonHang([order], 1).slice(1);
 }
@@ -1083,7 +845,6 @@ export function duKienMotDonHang(order: OrderDto | undefined): Nguon[] {
  * người không vào được console lại hỏi ra số liệu của console.
  */
 
-/** Trang tổng quan hệ thống. */
 export function duKienTongQuanHeThong(o: PlatformOverviewDto): Nguon[] {
   return [
     {
@@ -1100,7 +861,6 @@ export function duKienTongQuanHeThong(o: PlatformOverviewDto): Nguon[] {
   ];
 }
 
-/** Danh sách tổ chức trong console. */
 export function duKienDanhSachToChuc(ts: PlatformTenantDto[], tong: number, loc = false): Nguon[] {
   return [
     {
@@ -1127,7 +887,6 @@ export function duKienDanhSachToChuc(ts: PlatformTenantDto[], tong: number, loc 
   ];
 }
 
-/** Danh sách người dùng trong console. */
 export function duKienDanhSachNguoiDung(us: PlatformUserDto[], tong: number, loc = false): Nguon[] {
   return [
     {
@@ -1159,7 +918,6 @@ export function duKienDanhSachNguoiDung(us: PlatformUserDto[], tong: number, loc
   ];
 }
 
-/** Danh sách workspace trong console — xuyên mọi tổ chức. */
 export function duKienWorkspaceHeThong(
   ws: PlatformWorkspaceDto[],
   tong: number,
@@ -1186,7 +944,6 @@ export function duKienWorkspaceHeThong(
   ];
 }
 
-/** Phương thức thanh toán trong console. */
 export function duKienPhuongThucThanhToan(ms: PaymentMethodDto[]): Nguon[] {
   return [
     {
@@ -1226,12 +983,6 @@ export function duKienPhuongThucThanhToan(ms: PaymentMethodDto[]): Nguon[] {
   ];
 }
 
-/**
- * Hồ sơ của chính người đang đăng nhập.
- *
- * ⚠️ Chỉ những gì CHÍNH HỌ thấy trên màn hình hồ sơ. Không có gì về người khác,
- * và không có gì về mật khẩu.
- */
 export function duKienHoSo(u: {
   fullName: string;
   email: string;

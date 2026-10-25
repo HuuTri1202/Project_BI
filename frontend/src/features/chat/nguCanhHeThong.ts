@@ -17,50 +17,6 @@ import {
 } from './duKienTrang';
 import type { Nguon } from './nguCanh';
 
-/**
- * Dữ kiện XUYÊN HỆ THỐNG — thứ khung trả lời được mà trang đang mở không giữ.
- *
- * ═══ Vì sao gọi mấy endpoint ĐÃ CÓ, không dựng một endpoint "hỏi gì cũng trả" ═
- *
- * Vì lớp quyền. `GET /datasets` và `GET /datamodels` đã đi qua
- * `authorize('dataset', 'read')` và `authorize('datamodel', 'read')`, mà
- * `viewer` CỐ Ý không có hai quyền đó (migration 26 xoá khỏi `casbin_rule`).
- * Nên với một viewer, mấy lời gọi này trả 403, `data` là `undefined`, và khung
- * không có nguồn nào của hệ thống — không cần thêm một dòng kiểm quyền nào ở
- * đây, và không có đường nào để quên nó.
- *
- * Một endpoint tổng hợp riêng cho khung hỏi đáp thì ngược lại: nó phải tự dựng
- * lại toàn bộ lớp quyền đó, và mỗi quyền mới thêm vào hệ thống là một chỗ nữa
- * phải nhớ sửa.
- *
- * ═══ Vì sao bỏ trống `workspaceId` ════════════════════════════════════════
- *
- * Người dùng hỏi "xuyên hệ thống", không hỏi "trong workspace đang mở" — và cả
- * hai schema đều hiểu `workspaceId` vắng mặt là CẢ TỔ CHỨC (xem
- * `listDatasetsQuerySchema`). Khung cũng nằm ngoài `WorkspaceProvider`: nó được
- * dựng ở `ProtectedRoute` để phủ cả trang báo cáo, nên nó không có workspace
- * nào trong tay mà đọc. Lấy id từ `localStorage` là nuôi một bản sao thứ hai
- * của trạng thái đó, và một bản sao sẽ cũ — câu trả lời khi ấy nói về workspace
- * người dùng vừa rời.
- *
- * ═══ Chỉ gọi khi khung ĐANG MỞ ════════════════════════════════════════════
- *
- * Khung có mặt trên mọi trang đã đăng nhập. Không có cờ này thì mỗi lần tải bất
- * cứ trang nào cũng là hai request mà phần lớn không ai hỏi tới. Cùng khuôn với
- * `useDataModels(query, { enabled })` và `useDataModelsElsewhere`.
- *
- * Khoá cache dùng CHÍNH hàm khoá của hai tính năng kia, nên `useInvalidateDatasets`
- * và `useInvalidateDataModel` dọn luôn cho chỗ này — không thêm một khoá nữa
- * phải nhớ xoá sau mỗi lần ghi.
- */
-
-/**
- * Trần số mục kéo về.
- *
- * ⚠️ Vượt trần thì câu trả lời so sánh KHÔNG còn là "cao nhất toàn tổ chức".
- * Nó không im: `soSanhNguon` luôn nói ra nó so trên bao nhiêu mục, nên con số
- * đó lệch khỏi tổng là dấu hiệu đọc được ngay trong câu trả lời.
- */
 const TRAN = 200;
 
 const HOI_DATASET = {
@@ -81,7 +37,6 @@ const HOI_MO_HINH = {
   order: 'desc' as const,
 };
 
-/** Phạm vi dán vào nhãn — xem khối `tomTatBoDuLieu` bên `duKienTrang.ts`. */
 const PHAM = 'trong toàn bộ tổ chức';
 
 export function useNguCanhHeThong(dangMo: boolean): Nguon[] {

@@ -5,34 +5,6 @@ import {
   type MeasureFormat,
 } from '@bi/shared';
 
-/**
- * Đọc kết quả một truy vấn thành câu tiếng Việt — bằng CODE, không bằng mô hình.
- *
- * ═══ Vì sao chỗ này tồn tại ════════════════════════════════════════════════
- *
- * `datCauHoi` để mô hình điền form, và form đó chạy ra một bảng số. Nếu mô hình
- * cũng được đọc bảng số đó thành câu thì toàn bộ lời hứa "không bịa con số" mất
- * sạch ở bước cuối — nó chỉ cần làm tròn một lần là xong.
- *
- * Nên bảng số đi qua đây. Mọi con số trong câu là `docSo` của một ô trong
- * `rows`, và `so[]` mang chúng ra để lớp `dienDat` (nếu có) bị đối chiếu lại.
- *
- * ═══ `hieuLa`: nói lại CÁCH NÓ HIỂU, không chỉ nói kết quả ═════════════════
- *
- * Đây là phần quan trọng nhất của file này.
- *
- * Ở `hieuY`, thứ tệ nhất mô hình làm được là chọn nhầm nhãn — và câu trả lời
- * hiện ra kèm nguyên văn cái nhãn đó, nên người đọc thấy ngay là nó đang nói
- * chuyện khác. Lớp điền form KHÔNG có sẵn tính chất ấy: một truy vấn sai trường
- * vẫn ra một con số đẹp, và không gì trên màn hình nói nó được tính thế nào.
- *
- * `hieuLa` trả lại tính chất đó, bằng chữ: "Doanh thu theo Khu vực, lọc Khu vực
- * bằng Miền Bắc". Người đọc đối chiếu được câu đó với câu họ vừa hỏi. Không có
- * nó thì lớp này là chỗ duy nhất trong cả khung hỏi đáp mà một câu trả lời sai
- * không có dấu hiệu nào.
- */
-
-/** Đọc một con số theo đúng cách `formatValue` bên frontend đọc. */
 function docSo(value: number, format: MeasureFormat | undefined): string {
   if (format === 'percent') {
     return `${(value * 100).toLocaleString('vi-VN', { maximumFractionDigits: 2 })} %`;
@@ -40,7 +12,6 @@ function docSo(value: number, format: MeasureFormat | undefined): string {
   return value.toLocaleString('vi-VN');
 }
 
-/** Một ô bất kỳ thành chữ. `null` là ô TRỐNG, và phải nói ra chứ không bỏ qua. */
 function docO(value: string | number | null, format: MeasureFormat | undefined): string {
   if (value === null) return '(trống)';
   if (typeof value === 'number') return docSo(value, format);
@@ -50,18 +21,11 @@ function docO(value: string | number | null, format: MeasureFormat | undefined):
   return value.trim() !== '' && !Number.isNaN(n) && format !== undefined ? docSo(n, format) : value;
 }
 
-/** "A, B và C" — không phải "A và B và C". */
 function noi(ten: string[]): string {
   const cuoi = ten[ten.length - 1] ?? '';
   return ten.length < 2 ? cuoi : `${ten.slice(0, -1).join(', ')} và ${cuoi}`;
 }
 
-/**
- * Câu nói lại cách truy vấn đã được hiểu — đọc được mà không cần nhìn bảng số.
- *
- * Dùng NHÃN của trường, không dùng id: id không nói gì với người đọc, và cả
- * mục đích của câu này là để họ đối chiếu với câu họ vừa hỏi.
- */
 export function moTaTruyVan(truyVan: ExplorerQueryDto, nhanCua: Map<number, string>): string {
   const ten = (id: number): string => nhanCua.get(id) ?? `trường #${String(id)}`;
 
@@ -129,41 +93,18 @@ export function moTaTruyVan(truyVan: ExplorerQueryDto, nhanCua: Map<number, stri
   return phan.join(', ');
 }
 
-/** Trần số dòng đọc ra thành chữ. Dài hơn thế thì câu trả lời thành một bảng đổ. */
 const TRAN_DONG = 15;
 
 export interface TraLoiTruyVan {
   cau: string;
-  /** Những con số ĐÃ định dạng mà câu trả lời đứng trên — xem `giuNguyenSo`. */
   so: string[];
-  /** Cách truy vấn đã được hiểu, bằng chữ. Luôn hiện cùng câu trả lời. */
   hieuLa: string;
 }
 
-/**
- * Bảng kết quả thành câu.
- *
- * Ba hình dạng, vì ba hình dạng này đọc ra ba câu khác nhau:
- *
- *   - Không chiều nào: một con số duy nhất. "Tổng Doanh thu: 2.180.000."
- *   - Có chiều, một dòng: nói thẳng dòng đó.
- *   - Có chiều, nhiều dòng: liệt kê, có trần.
- *
- * `truncated` PHẢI được nói ra. Nó nghĩa là truy vấn đã chạm trần số dòng, nên
- * "cao nhất" trong danh sách này có thể không phải cao nhất thật — cùng lý do
- * `luuYCat` tồn tại ở nhánh biểu đồ bên frontend.
- */
 export function docKetQua(
   kq: ExplorerResultDto,
   truyVan: ExplorerQueryDto,
   nhanCua: Map<number, string>,
-  /**
-   * Hướng đã sắp — xem `huongSap`. Vắng mặt = không nói gì về thứ tự.
-   *
-   * ⚠️ Phải nói ra CẢ KHI hướng là mặc định. Chỉ nói lúc nó bị lật thì người
-   * đọc không phân biệt được "máy hiểu là cao nhất" với "máy không nghĩ tới
-   * chuyện đó" — mà cả tác dụng của `hieuLa` nằm ở chỗ phân biệt ấy.
-   */
   huong?: 'asc' | 'desc',
 ): TraLoiTruyVan {
   const cat = kq.truncated ? ` — truy vấn đã chạm trần số dòng nên đây chưa phải toàn bộ` : '';
@@ -189,7 +130,6 @@ export function docKetQua(
   const chiSoDo = kq.columns.flatMap((c, i) => (c.kind === 'measure' ? [i] : []));
   const chiSoChieu = kq.columns.flatMap((c, i) => (c.kind === 'dimension' ? [i] : []));
 
-  /** Một dòng thành "Miền Bắc: Doanh thu 1.200.000". */
   const docDong = (dong: (string | number | null)[]): { chu: string; so: string[] } => {
     const tenDong = chiSoChieu.map((i) => docO(dong[i] ?? null, undefined)).join(' · ');
     const soDong = chiSoDo.map((i) => docO(dong[i] ?? null, dinhDang[i]));
