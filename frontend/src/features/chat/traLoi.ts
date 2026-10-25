@@ -567,9 +567,27 @@ function tinhBang(
 
 export type ToanTu = '=' | '>' | '<' | '>=' | '<=';
 
+/*
+ * Ngưỡng đọc từ câu GỐC, không đọc từ bản đã chuẩn hoá.
+ *
+ * `chuanHoa` biến mọi dấu câu thành khoảng trắng, nên "50.000" thành "50 000"
+ * và `docSo` lấy về 50 — nhỏ hơn một nghìn lần, im lặng, và kết quả lọc vẫn là
+ * một danh sách trông hợp lý. Dấu chấm phần nghìn là cách viết số chuẩn của
+ * tiếng Việt, nên nó phải được đọc như một con số chứ không phải hai.
+ *
+ * `(?!\d)` sau nhóm nghìn là bắt buộc: thiếu nó thì "top 5 năm 2024" khớp
+ * thành "5 202".
+ */
+function docNguong(raw: string): number | null {
+  const m = /\d{1,3}(?:[.\s]\d{3})+(?!\d)|\d+/.exec(raw);
+  if (m === null) return null;
+  const n = Number(m[0].replace(/[.\s]/g, ''));
+  return Number.isFinite(n) ? n : null;
+}
+
 export function docDieuKien(cauHoi: string): { toanTu: ToanTu; nguong: number } | null {
   const q = chuanHoa(cauHoi);
-  const nguong = docSo(q);
+  const nguong = docNguong(cauHoi);
   if (nguong === null) return null;
 
   /*
@@ -587,6 +605,17 @@ export function docDieuKien(cauHoi: string): { toanTu: ToanTu; nguong: number } 
     [/(nho hon hoac bang|khong lon hon|tro xuong|toi da la|nhieu nhat la)/, '<='],
     [/(lon hon|cao hon|nhieu hon|vuot qua|tren \d)/, '>'],
     [/(nho hon|thap hon|it hon|duoi \d)/, '<'],
+    /*
+     * "hơn" TRẦN, và nó phải đứng CUỐI bảng.
+     *
+     * "có hơn 50.000 dòng" là cách nói thường gặp nhất của một câu lọc, mà
+     * không khớp dòng nào ở trên nên nó rơi về `=` — tức lọc đúng 50.000,
+     * gần như luôn ra rỗng, và khung nói "không có gì" bằng giọng chắc chắn.
+     *
+     * Đứng cuối vì "ít hơn" và "nhỏ hơn" cũng chứa "hơn": hai dòng trên phải
+     * được hỏi trước, nếu không mọi câu lọc NHỎ HƠN đều lật thành LỚN HƠN.
+     */
+    [/hon \d/, '>'],
   ];
   for (const [re, op] of bang) {
     if (re.test(q)) return { toanTu: op, nguong };
@@ -828,6 +857,31 @@ export function cotDoDuoc(bt: BangTho): number[] {
   });
 }
 
+/*
+ * Câu hỏi có nhắc tới một GIÁ TRỊ nào đang nằm trên bảng không.
+ *
+ * Dùng đúng một chỗ: quyết định xem một câu nhắc thứ lạ có được nhánh bảng
+ * thô trả lời hay không. "Staples" không nằm trong dữ kiện đã khai nên
+ * `nhacThuLa` gọi nó là lạ, nhưng nó là một Ô TRÊN BẢNG — chặn câu đó là mất
+ * đúng nhóm câu hỏi mà bảng sinh ra để trả lời. Còn "Invoices" thì không có ở
+ * đâu cả, và câu hỏi về nó phải bị từ chối chứ không nhận về số dòng của bảng.
+ *
+ * Cận BA ký tự: ngắn hơn thì một ô như "EU" hay "US" khớp vào giữa một chữ
+ * khác và mở lại đúng cửa vừa đóng.
+ */
+function bangNhacToi(bt: BangTho | undefined, cauHoi: string): boolean {
+  if (bt === undefined) return false;
+  const q = ` ${chuanHoa(cauHoi)} `;
+  for (const dong of bt.dong) {
+    for (const o of dong) {
+      if (typeof o !== 'string') continue;
+      const v = chuanHoa(o);
+      if (v.length >= 3 && q.includes(` ${v} `)) return true;
+    }
+  }
+  return false;
+}
+
 function cotGoiTen(bt: BangTho, chiSo: number[], q: string): number | null {
   // Cùng luật đã ghi ở `timDong`: "Sales" và "Sales Amount" cùng nằm trong câu
   // hỏi về cái thứ hai; lấy cái ngắn là đo nhầm cột bằng một con số có thật.
@@ -981,7 +1035,21 @@ export function traLoi(nguon: Nguon, cauHoi: string, biet?: Set<string>): TraLoi
     if (kq !== null) return kq;
   }
 
-  const tuBang = tuBangTho();
+  /*
+   * Thực thể LẠ chặn luôn nhánh bảng thô — tiền đề cũ đã hết đúng.
+   *
+   * Chốt `nhacThuLa` trước đây cố ý chỉ chặn nhánh tra cứu, với lý do ghi rõ:
+   * "`bangTho` đã đòi một bằng chứng cụ thể (một cột so được, một giá trị
+   * khớp)". Tiền đề đó đúng chừng nào bảng thô còn là bảng SỐ LIỆU, nơi tên
+   * cột là tên trường của khách hàng.
+   *
+   * Nó hết đúng từ lúc trang Kho dữ liệu khai chính danh sách của nó thành
+   * bảng: cột ở đó tên là "Tên", "Cột", "Dòng" — những chữ có mặt trong gần
+   * như mọi câu hỏi. Đo được: "bộ dữ liệu Invoices có bao nhiêu dòng" (không
+   * có bộ nào tên Invoices) khớp cột "Dòng" rồi trả về "Có 4 Tên trên bảng
+   * này" — một con số thật cho một thứ không tồn tại.
+   */
+  const tuBang = laLa && !bangNhacToi(nguon.bangTho, cauHoi) ? null : tuBangTho();
   if (tuBang !== null) return tuBang;
 
   return laLa ? null : traCuu(nguon.duKien, cauHoi);

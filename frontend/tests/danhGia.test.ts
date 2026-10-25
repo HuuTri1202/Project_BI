@@ -239,6 +239,23 @@ const MO_HINH: DataModelDto[] = [
 // Nhiều bảng nhất: Global-Superstore 5 · dùng nhiều nhất: Global-Superstore 7
 // Chưa nối đủ: Bán hàng (0 quan hệ cho 3 bảng)
 
+/**
+ * Mốc nạp của từng bộ — và ba quyết định nằm trong mấy con số này.
+ *
+ * `Products` (id 3) là MỚI NHẤT, cố ý không phải bộ đứng đầu danh sách và cũng
+ * không phải bộ nhiều dòng nhất. Cho cả bốn cùng một ngày, hay cho bộ đầu tiên
+ * ngày mới nhất, thì ca "bộ nào cập nhật gần đây nhất" vẫn xanh trong khi code
+ * chỉ cần `ds[0]` — tức bài test xanh mà không canh gì cả.
+ *
+ * `Returns` (id 4) là cũ nhất, để câu hỏi ngược có đáp án khác hẳn.
+ */
+const NGAY_NAP: Record<number, string> = {
+  1: '2026-02-10T08:00:00.000Z',
+  2: '2026-02-11T08:00:00.000Z',
+  3: '2026-03-05T08:00:00.000Z',
+  4: '2026-01-20T08:00:00.000Z',
+};
+
 const BO_DU_LIEU: DatasetDto[] = [
   {
     id: 1,
@@ -306,6 +323,8 @@ const BO_DU_LIEU: DatasetDto[] = [
       sourceSchema: null,
       sourceTable: null,
       connectionName: null,
+      syncedAt: null,
+      loadedAt: NGAY_NAP[d.id] ?? null,
     }) as unknown as DatasetDto,
 );
 // Orders 51.290 dòng / 24 cột · Returns 1.173 dòng (ĐÃ CẮT) / 3 cột
@@ -1165,6 +1184,37 @@ const CA: Ca[] = [
   // ─── Trang Kho dữ liệu ────────────────────────────────────────────────────
   { trang: 'khoDuLieu', hoi: 'Orders có bao nhiêu dòng', can: ['51.290'] },
   { trang: 'khoDuLieu', hoi: 'Orders có mấy cột', can: ['24'] },
+
+  /*
+   * ─── NGÀY CẬP NHẬT: ba ca dựng từ đúng hai ảnh chụp máy thật ────────────
+   *
+   * Ca đầu là một kết cục SAI đã đo được: khung trả lời "Số mô hình dữ liệu
+   * dùng Global-Superstore · Orders là 1" cho câu hỏi về thời gian. Nguyên
+   * nhân nằm ở cấu trúc chứ không ở câu chữ — `duKienChung` khai bảy dữ kiện
+   * và KHÔNG cái nào nói về thời gian, nên lớp chọn-nhãn buộc phải chọn một
+   * trong bảy nhãn sai.
+   *
+   * `can: ['Products']` chứ không phải một ngày: tên bộ là thứ không phụ
+   * thuộc múi giờ của máy chạy test, còn chuỗi ngày thì có.
+   */
+  {
+    trang: 'khoDuLieu',
+    hoi: 'bộ dữ liệu nào cập nhật gần đây nhất',
+    can: ['Products'],
+    vi: 'Products nạp 05/03, mới hơn Orders 10/02 — và nó KHÔNG đứng đầu danh sách',
+  },
+  { trang: 'khoDuLieu', hoi: 'Orders cập nhật lần cuối khi nào', can: ['2026'] },
+  /*
+   * Ca thứ ba là ảnh số hai: lọc theo NGƯỠNG trên danh sách. Trước bản này
+   * trang chỉ khai nhãn→giá trị nên `docEieuKien` không có bảng nào để lọc,
+   * và khung trả "chưa hiểu" trong khi con số đang nằm trên màn hình.
+   */
+  {
+    trang: 'khoDuLieu',
+    hoi: 'bộ dữ liệu nào có hơn 50.000 dòng',
+    can: ['Orders'],
+    vi: 'chỉ Orders (51.290) vượt ngưỡng; People 2.501 · Products 10.292 · Returns 1.173',
+  },
   /*
    * ─── THƯ MỤC: cột bên trái bảng, trước đó không trang nào khai ──────────
    */
@@ -1661,7 +1711,7 @@ describe('Bộ đánh giá khung hỏi đáp', () => {
    * nghĩa là thay đổi đó đang đánh đổi câu này lấy câu kia mà không nói ra.
    */
   it('số câu ĐÚNG không được tụt', () => {
-    expect(dem('dung')).toBeGreaterThanOrEqual(190);
+    expect(dem('dung')).toBeGreaterThanOrEqual(193);
   });
 
   /*

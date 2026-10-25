@@ -28,7 +28,7 @@ import {
 } from '@bi/shared';
 
 import { dinhDangDungLuong, dinhDangHanMuc, dinhDangNgay, dinhDangTien } from '../billing/format';
-import type { DuKien, Nguon } from './nguCanh';
+import type { BangTho, DuKien, Nguon } from './nguCanh';
 
 function docTrangThaiNap(ds: DatasetDto): string {
   switch (ds.loadStatus) {
@@ -54,6 +54,40 @@ function docNguon(ds: DatasetDto): string {
   return ds.connectionName === null ? bang : `bảng ${bang} qua kết nối "${ds.connectionName}"`;
 }
 
+/*
+ * Mốc cập nhật gần nhất của một bộ dữ liệu, dạng ISO — hoặc `null`.
+ *
+ * `loadedAt` đứng TRƯỚC `syncedAt`: nạp vào kho phân tích là việc xảy ra sau
+ * đồng bộ, nên nó mới là lần cuối con số trên màn hình đổi. Bộ từ tệp không có
+ * `syncedAt`, bộ chưa nạp không có `loadedAt`, nên phải lấy cái nào đang có.
+ *
+ * Trả về nguyên chuỗi ISO chứ không định dạng sẵn: ISO 8601 so sánh bằng chuỗi
+ * ra đúng thứ tự thời gian, nên chỗ nào cần XẾP HẠNG thì dùng thẳng được.
+ */
+function mocCapNhat(ds: DatasetDto): string | null {
+  /*
+   * `?? null` ở cuối KHÔNG thừa dù kiểu khai là `string | null`.
+   *
+   * Kiểu khai là một GIẢ ĐỊNH về mạng, không phải bảo đảm: frontend và backend
+   * triển khai độc lập, nên một bản frontend mới nói chuyện với bản backend cũ
+   * là chuyện bình thường và khi đó trường này VẮNG MẶT. Thiếu dòng này thì
+   * `undefined !== null` lọt qua chốt bên dưới và khung in ra "Invalid Date" —
+   * một dữ kiện hỏng, đứng cạnh sáu dữ kiện đúng.
+   */
+  return ds.loadedAt ?? ds.syncedAt ?? null;
+}
+
+/*
+ * In ngày theo ĐÚNG cách `DatasetsPage` đang in nó.
+ *
+ * Khung nói "25/10/2026" còn bảng ngay cạnh nói "2026-10-25" là bắt người đọc
+ * tự dịch giữa hai bản của cùng một mốc — cùng lý do `formatValue` được dùng
+ * lại thay vì viết phép chia thứ hai.
+ */
+function docNgay(iso: string): string {
+  return new Date(iso).toLocaleDateString('vi-VN');
+}
+
 function duKienChung(ds: DatasetDto): DuKien[] {
   const d: DuKien[] = [
     {
@@ -72,6 +106,32 @@ function duKienChung(ds: DatasetDto): DuKien[] {
     { nhan: `Trạng thái của ${ds.name}`, gia: docTrangThaiNap(ds) },
     { nhan: `Số mô hình dữ liệu dùng ${ds.name}`, gia: String(ds.datamodelCount) },
   ];
+
+  /*
+   * NGÀY CẬP NHẬT — thiếu nó là một câu SAI, không phải một câu thiếu.
+   *
+   * Trước bản này khung khai bảy dữ kiện cho mỗi bộ và KHÔNG cái nào nói về
+   * thời gian. Hỏi "bộ nào cập nhật gần đây nhất" thì phép so từ khoá trượt,
+   * rơi xuống lớp chọn-nhãn, và mô hình buộc phải chọn một trong bảy nhãn
+   * đang có. Đo được trên máy thật: nó chọn "Số mô hình dữ liệu dùng …" và
+   * trả về "là 1" — một con số THẬT cho một câu hỏi KHÁC.
+   *
+   * Đó đúng là kết cục SAI mà cả khung dựng lên để chặn, và chặn nó không
+   * phải bằng cách dạy mô hình từ chối — mà bằng cách để câu hỏi có một đáp
+   * án thật để khớp vào.
+   */
+  const moc = mocCapNhat(ds);
+  if (moc !== null) {
+    d.push({
+      nhan: `Cập nhật lần cuối của ${ds.name}`,
+      gia: docNgay(moc),
+      // Nói rõ mốc này là mốc GÌ khi nó không phải lần nạp: "cập nhật" của một
+      // bộ chưa nạp nghĩa là đồng bộ cấu trúc, số liệu thì chưa vào kho.
+      ...(ds.loadedAt === null
+        ? { luuY: 'đây là lần đồng bộ từ CSDL nguồn; bộ này chưa nạp vào kho phân tích' }
+        : {}),
+    });
+  }
 
   if (ds.source === 'file') {
     d.push({ nhan: `Dung lượng tệp của ${ds.name}`, gia: dinhDangDungLuong(ds.fileSizeBytes) });
@@ -140,9 +200,31 @@ export function tomTatBoDuLieu(ds: DatasetDto[], tong: number, pham: string): Du
 
   const chuaDu = luuYChuaDu(ds.length, tong);
 
+  /*
+   * "Cái nào mới nhất" — CODE tính, không ai xếp hạng hộ.
+   *
+   * Xếp hạng theo cột ngày là thứ `tinhBang` KHÔNG làm được: `cotDoDuoc` chỉ
+   * nhận cột mà mọi ô đều đọc ra số, nên một cột ngày luôn bị loại. Dạy nó
+   * hiểu ngày thì mở luôn cửa cho "tổng của cột ngày" — một con số có thật,
+   * hoàn toàn vô nghĩa, tức đúng loại SAI đang phải chặn.
+   *
+   * Nên phép so nằm ở đây, trên chuỗi ISO (so chuỗi ra đúng thứ tự thời gian),
+   * và kết quả thành MỘT dữ kiện đọc sẵn. Mô hình chỉ còn việc chọn nhãn.
+   */
+  const moiNhat = ds.reduce<DatasetDto | null>((tot, d) => {
+    const a = mocCapNhat(d);
+    if (a === null) return tot;
+    const b = tot === null ? null : mocCapNhat(tot);
+    return b === null || a > b ? d : tot;
+  }, null);
+  const mocMoiNhat = moiNhat === null ? null : mocCapNhat(moiNhat);
+
   return [
     ...dk(`Số bộ dữ liệu ${pham}`, tong),
     ...dk('Tên các bộ dữ liệu đang hiện', ds.map((d) => d.name).join('; ')),
+    ...(moiNhat === null || mocMoiNhat === null
+      ? []
+      : dk('Bộ dữ liệu cập nhật gần đây nhất', `${moiNhat.name} (${docNgay(mocMoiNhat)})`, chuaDu)),
     /*
      * ⚠️ Nhãn cố ý KHÔNG chứa cụm "bộ dữ liệu". Cụm đó đã là của nhãn đầu
      * tiên; dùng lại là hai nhãn hoà điểm trong `traCuu` cho câu "có bao nhiêu bộ
@@ -162,9 +244,69 @@ export function tomTatBoDuLieu(ds: DatasetDto[], tong: number, pham: string): Du
   ];
 }
 
+/*
+ * CHÍNH BẢNG đang hiện trên màn hình, dưới dạng bảng thô.
+ *
+ * ─── Lỗ mà nó bịt ──────────────────────────────────────────────────────────
+ *
+ * Trước bản này trang chỉ khai dữ kiện dạng nhãn→giá trị, nên mọi câu LỌC
+ * THEO NGƯỠNG đều bế tắc: "bộ nào có hơn 50.000 dòng" không có bảng nào để
+ * lọc, dù con số đang nằm ngay trên màn hình. `docDieuKien` (các phép `>`,
+ * `<`, `>=`) chỉ chạy bên trong `tinhBang`, mà `tinhBang` cần một bảng.
+ *
+ * Khai bảng này là nối trang vào đúng bộ máy ĐÃ CÓ và đã có test — không
+ * viết thêm phép tính nào.
+ *
+ * ⚠️ Ô số phải là SỐ THÔ, không phải chuỗi đã định dạng. `oThanhSo` đọc bằng
+ * `Number()`, nên "51.290" kiểu vi-VN sẽ ra 51,29 — sai hơn ba nghìn lần, và
+ * sai im lặng.
+ */
+function bangKhoDuLieu(ds: DatasetDto[], tong: number): BangTho | undefined {
+  if (ds.length === 0) return undefined;
+  return {
+    /*
+     * Tên cột lấy ĐÚNG tiêu đề đang in trên bảng: Tên · Nguồn · Cột · Dòng.
+     *
+     * Không phải cho đẹp. `cotGoiTen` khớp tên cột như một TỪ NGUYÊN trong câu
+     * hỏi, nên đặt là "Số dòng" thì câu "bộ nào có hơn 50.000 dòng" trượt —
+     * trong câu chỉ có " dong ", không có " so dong ". Người dùng gõ lại đúng
+     * chữ họ đọc được trên màn hình, nên cột phải mang chính chữ đó.
+     */
+    cot: ['Tên', 'Thư mục', 'Nguồn', 'Cột', 'Dòng', 'Số mô hình dùng', 'Cập nhật lần cuối'],
+    dong: ds.map((d) => {
+      const moc = mocCapNhat(d);
+      return [
+        d.name,
+        d.folderName ?? 'Chung',
+        docNguon(d),
+        d.columnCount,
+        d.rowCount,
+        d.datamodelCount,
+        moc === null ? null : docNgay(moc),
+      ];
+    }),
+    /*
+     * `luuY` BẮT BUỘC nói ra phạm vi, và đây là chỗ nó quan trọng nhất của cả
+     * tệp: trang phân trang 20 mục một lần và mặc định lọc theo một thư mục.
+     * "Bộ nào nhiều dòng nhất" tính trên 20 trong 24 là một con số có thật
+     * cho một câu hỏi về cả kho — đúng loại sai mà `truncated` của §7 đã phải
+     * chặn một lần rồi.
+     */
+    luuY:
+      tong > ds.length
+        ? `chỉ gồm ${ds.length.toLocaleString('vi-VN')} bộ đang hiện trên trang này, không phải toàn bộ ${tong.toLocaleString('vi-VN')} bộ của workspace`
+        : `gồm cả ${ds.length.toLocaleString('vi-VN')} bộ trong phạm vi đang xem`,
+  };
+}
+
 export function duKienKhoDuLieu(ds: DatasetDto[], tong = ds.length): Nguon[] {
+  const bangTho = bangKhoDuLieu(ds, tong);
   return [
-    { ten: 'Danh sách bộ dữ liệu', duKien: tomTatBoDuLieu(ds, tong, 'trong workspace này') },
+    {
+      ten: 'Danh sách bộ dữ liệu',
+      duKien: tomTatBoDuLieu(ds, tong, 'trong workspace này'),
+      ...(bangTho === undefined ? {} : { bangTho }),
+    },
     ...ds.map((d) => ({ ten: d.name, duKien: duKienChung(d) })),
   ];
 }
