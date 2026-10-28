@@ -1767,6 +1767,28 @@ const CA: Ca[] = [
     hoi: 'Công ty ABC chiếm bao nhiêu % người dùng',
     can: ['93', '%'],
   },
+  /*
+   * ⚠️ CA CANH trên trang KẾT NỐI, nơi TÊN mục trùng GIÁ TRỊ của một dữ kiện.
+   *
+   * "mysql" vừa là giá trị của dữ kiện "Kết nối thuộc loại gì", vừa nằm trong
+   * tên mục "MySQL bán hàng". Trước bản này cả bốn cách gõ đều nhận về
+   * `1 mục có "Kết nối thuộc loại gì" là mysql: MySQL bán hàng` — một câu
+   * trả lời ĐÚNG cho câu "kết nối nào là mysql", mà không ai hỏi. `khong`
+   * canh đúng câu ấy.
+   */
+  {
+    trang: 'ketNoi',
+    hoi: 'MySQL bán hàng chiếm bao nhiêu % bộ dữ liệu',
+    can: ['100', '%'],
+    khong: ['là mysql'],
+  },
+  {
+    trang: 'ketNoi',
+    hoi: 'MySQL bán hàng so với Postgres kho về số bộ dữ liệu',
+    can: ['MySQL bán hàng', 'Postgres kho', '2'],
+    khong: ['là postgres'],
+    vi: 'Câu SO SÁNH gọi tên HAI mục — chốt "nhường cho tên" chưa bao giờ che nó',
+  },
 
   // ─── Câu dài: phần mở đầu lịch sự KHÔNG được đổi câu trả lời ──────────────
   /*
@@ -1843,7 +1865,7 @@ describe('Bộ đánh giá khung hỏi đáp', () => {
    * nghĩa là thay đổi đó đang đánh đổi câu này lấy câu kia mà không nói ra.
    */
   it('số câu ĐÚNG không được tụt', () => {
-    expect(dem('dung')).toBeGreaterThanOrEqual(217);
+    expect(dem('dung')).toBeGreaterThanOrEqual(219);
   });
 
   /*

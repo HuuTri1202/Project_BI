@@ -1530,6 +1530,33 @@ function locNguon(
   const { cot, muc } = gomThuocTinh(tatCa);
   if (muc.length < 2) return null;
 
+  /*
+   * ⚠️ MỘT PHÉP LỌC KHÔNG BAO GIỜ TRẢ LỜI ĐƯỢC CÂU HỊI TỈ LỆ.
+   *
+   * Hàm này trả về "N mục có X là v" — một câu `loc`. `ti_trong` và `so_sanh`
+   * hỏi một CON SỐ tính trên cả danh sách, nên không dạng nào của câu trả lời
+   * ở đây là đáp án của chúng. Trước bản này hàm không có cổng ý định nào:
+   * hễ một giá trị của cột nằm trong câu hỏi là nó trả lời.
+   *
+   * BỐN ca SAI ĐO ĐƯỢC, cùng một gốc, trên trang Kết nối — nơi TÊN mục chứa
+   * đúng GIÁ TRỊ của một dữ kiện:
+   *
+   *   "MySQL bán hàng chiếm bao nhiêu % bộ dữ liệu"
+   *      → 1 mục có "Kết nối thuộc loại gì" là mysql: MySQL bán hàng
+   *   "MySQL bán hàng so với Postgres kho về số bộ dữ liệu"
+   *      → 1 mục có "Kết nối thuộc loại gì" là postgres: Postgres kho
+   *
+   * Cả hai ĐÚNG cho câu "kết nối nào là mysql", mà không ai hỏi. Chủ ý câu thứ
+   * hai: nó gọi tên HAI mục, nên chốt "nhường cho tên" ở `traLoiTrang` không che
+   * — cố ý, vì một câu gọi tên hai mục là câu SO SÁNH.
+   *
+   * ⚠️ ĐẶT Ở ĐÂY, không đặt ở nơi gọi. `nguonMoHo` cũng gọi hàm này để đo độ
+   * nhập nhằng, và một lợt khớp không được phép trả lời thì cũng không được
+   * phép tính là một nghĩa thứ hai. Một cổng, hai nơi gọi.
+   */
+  const y = docYDinh(cauHoi);
+  if (y === 'ti_trong' || y === 'so_sanh') return null;
+
   const q = ` ${chuanHoa(cauHoi)} `;
 
   /*
