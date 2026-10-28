@@ -2020,6 +2020,37 @@ const CA: Ca[] = [
     khong: ['Returns'],
   },
   { trang: 'khoDuLieu', hoi: 'có bao nhiêu bộ từ file Global-Superstore', can: ['2'] },
+  /*
+   * ═══ BỎ DẤU TẠO RA TỪ GIẢ ═════════════════════════════════
+   *
+   * Bốn ca dưới đây là ảnh chụp từ buổi thử, cộng một ca tự tìm ra khi đi
+   * săn đồng bọn. Tất cả cùng một gốc: hai chữ khác hẳn nhau cho ra cùng một
+   * chuỗi sau khi bỏ dấu.
+   *
+   *   chứa / chưa → chua     đó / đồ → do     máy / mấy → may
+   *
+   * Ca "máy chủ" chưa ai thấy: nó được đọc thành ý định ĐẾM vì chữ "máy".
+   */
+  {
+    trang: 'ketNoi',
+    hoi: 'máy chủ của kết nối MySQL bán hàng là gì',
+    can: ['db.local'],
+    vi: '"máy" bỏ dấu thành "may" — trùng từ khoá đếm "mấy"',
+  },
+  {
+    trang: 'khoDuLieu',
+    hoi: 'Bảng Orders có bao nhiêu dòng, bao nhiêu cột và trạng thái nạp dữ liệu vào kho phân tích là bao nhiêu?',
+    can: ['51.290', '24', 'đã nạp'],
+    khong: ['Số mô hình'],
+    vi: 'Ba vế. Vế "cột" điểm thấp nhất nên từng bị cắt — phải cắt theo thứ tự HỎI, không theo điểm',
+  },
+  {
+    trang: 'khoDuLieu',
+    hoi: 'trong thư mục Chung, bảng nào có số lượng cột ít nhất',
+    can: 'chua-hieu',
+    vi: 'TỪNG LÀ SAI: gộp theo THƯ MỤC rồi so "thấp nhất" trên đúng MỘT thư mục. Lọc theo phạm vi là tính năng chưa có',
+  },
+  { trang: 'khoDuLieu', hoi: 'bảng nào có số lượng cột ít nhất', can: ['Returns', '3'] },
 ];
 
 // ─── Chạy và đếm ─────────────────────────────────────────────────────────────
@@ -2080,7 +2111,7 @@ describe('Bộ đánh giá khung hỏi đáp', () => {
    * nghĩa là thay đổi đó đang đánh đổi câu này lấy câu kia mà không nói ra.
    */
   it('số câu ĐÚNG không được tụt', () => {
-    expect(dem('dung')).toBeGreaterThanOrEqual(253);
+    expect(dem('dung')).toBeGreaterThanOrEqual(257);
   });
 
   /*

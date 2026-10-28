@@ -171,6 +171,9 @@ const TU_KHOA: { y: YDinh; tu: string[] }[] = [
       'may nhom',
       'bao nhieu muc',
       'co bao nhieu',
+      // "chứa bao nhiêu biểu đồ" — cách đếm tự nhiên mà bảng này bỏ sót. Nó cần
+      // đúng chữ "chứa" chứ không phải "chưa" — xem `CANH_DAU`.
+      'chua bao nhieu',
       /*
        * `may` TRẦN, khác hẳn `bao nhieu` trần ở trên — và khác vì tiếng Việt.
        *
@@ -196,6 +199,62 @@ const TU_KHOA: { y: YDinh; tu: string[] }[] = [
    */
   { y: 'chua_co', tu: ['chua ', 'khong co', 'bang 0'] },
 ];
+
+/**
+ * Chuẩn hoá NHẸ — về chữ thường, dấu câu thành khoảng trắng, GIỮ dấu tiếng Việt.
+ *
+ * Cùng khuôn với `tachTu` của `@bi/shared/soSanh`, và cùng lý do tồn tại.
+ */
+export function chuanHoaCoDau(raw: string): string {
+  return raw
+    .normalize('NFC')
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}%]+/gu, ' ')
+    .trim();
+}
+
+/** Câu này có dấu tiếng Việt không — `đ` không tách khi NFD nên phải hỏi riêng. */
+function coDauTiengViet(s: string): boolean {
+  return /[̀-ͯ]/.test(s.normalize('NFD')) || /đ/.test(s.toLowerCase());
+}
+
+/*
+ * ═══ CHỮ MÀ PHÉP BỎ DẤU GỘP HAI NGHĨA KHÁC HẴN NHAU ═════════════════
+ *
+ * Bảng `TU_KHOA` so trên chữ ĐÃ BỎ DẤU, và đó là chủ ý: người dùng gõ thiếu
+ * dấu thì vẫn phải hiểu. Nhưng với hai chữ dưới đây thì bỏ dấu không phải là
+ * "dễ dãi hơn" — nó đổi HẴN ý định của câu:
+ *
+ *   "báo cáo này CHỨA bao nhiêu biểu đồ"  → đọc thành ý định CHƯA CÓ
+ *   "MÁY CHỦ của kết nối là gì"            → đọc thành ý định ĐẾM (mấy)
+ *
+ * Cả hai ĐO ĐƯỢC. Ca đầu là ảnh chụp từ buổi thử; ca sau chưa ai thấy, nó
+ * rơi ra khi đi tìm đồng bọn của ca đầu.
+ *
+ * Luật: nếu người dùng CÓ gõ dấu thì tôn trọng dấu họ gõ. Câu không dấu thì
+ * không có gì để canh, và nó giữ nguyên nếp cũ.
+ */
+const CANH_DAU = new Map<string, string>([
+  ['chua ', 'chưa'],
+  ['chua bao nhieu', 'chứa'],
+  ['may', 'mấy'],
+  ['co may', 'mấy'],
+  ['may nhom', 'mấy'],
+]);
+
+/**
+ * Cụm từ khoá này có được dùng cho câu hỏi này không.
+ *
+ * Khoá theo TỪNG CỤM, không theo từng chữ: cùng chữ "chua" mà `chua_co` cần
+ * "chưa" còn `dem` cần "chứa". Một bảng khoá theo chữ sẽ chỉ đúng được một trong
+ * hai, và cái còn lại trượt im lặng.
+ */
+function hopDau(cauHoi: string, tu: string): boolean {
+  const can = CANH_DAU.get(tu);
+  if (can === undefined) return true;
+  const tho = ` ${chuanHoaCoDau(cauHoi)} `;
+  return !coDauTiengViet(tho) || tho.includes(` ${can} `);
+}
 
 const CO_NHAT = /(^| )nhat( |$)/;
 
@@ -231,7 +290,7 @@ export function docYDinh(cauHoi: string): YDinh | null {
 
   if (chieuSoSanh(cauHoi) === 'thap') return 'thap_nhat';
   for (const { y, tu } of TU_KHOA) {
-    if (tu.some((t) => q.includes(t))) return y;
+    if (tu.some((t) => q.includes(t) && hopDau(cauHoi, t))) return y;
   }
   if (CO_NHAT.test(q)) return 'cao_nhat';
 
@@ -400,7 +459,7 @@ function tinhBang(
   switch (yThat) {
     case 'cao_nhat':
     case 'thap_nhat': {
-      const lon = y === 'cao_nhat';
+      const lon = yThat === 'cao_nhat';
 
       const chieu = chieuEp === undefined ? chieuHoi(bang, cauHoi) : chieuEp;
       if (chieu !== null) {
@@ -867,10 +926,85 @@ function traCuu(
    * Người dùng hỏi giá, khung đưa ra hạn mức.
    */
 
-  const tuHoi = new Set(
-    noiDung(chuanHoa(cauHoi).split('bao nhieu').join(' ')).filter((t) => !HU_TU.has(t)),
-  );
+  /*
+   * ═══ GIỮ LẠI DẤU NGƯỜI DÙNG ĐÃ GÕ ════════════════════════════
+   *
+   * Phép chấm điểm nhãn so trên chữ ĐÃ BỎ DẤU, và đó là chủ ý: gõ "doanh thu"
+   * thiếu dấu thì vẫn phải tìm ra nhãn "Doanh thu". Nhưng khi người dùng CÓ gõ
+   * dấu thì bỏ dấu là TỰ TẠO RA từ giả, và mỗi từ giả là một nhãn sai thắng:
+   *
+   *   "mô hình ĐÓ gồm bao nhiêu bảng"  → khớp nhãn "Loại biểu ĐỒ của báo cáo"
+   *
+   * Cả hai đều ra `do`. ĐO ĐƯỢC trên máy thật: câu hỏi số BẢNG của một mô hình
+   * nhận về LOẠI BIỂU ĐỒ của báo cáo — chỉ vì chữ "đó".
+   *
+   * Luật: một chữ người dùng gõ CÓ DẤU chỉ khớp đúng chữ ấy trên nhãn. Chữ gõ
+   * KHÔNG dấu thì khớp rộng như cũ. Cùng luật mà `soSanh.ts` đã dựng cho phép
+   * đọc chiều, nay đưa sang phép chấm nhãn — nơi nó còn ăn nhiều ca hơn.
+   *
+   * `''` nghĩa là KHÔNG RÀNG BUỘC: hoặc người dùng gõ không dấu, hoặc chữ đó
+   * đã qua bảng đồng nghĩa ("highest" → "cao nhat") nên không còn dấu để canh.
+   */
+  const tuTho = chuanHoaCoDau(cauHoi).split(' ');
+  const hoiDau = new Map<string, Set<string>>();
+  for (const [i, w] of tuTho.entries()) {
+    // "bao nhiêu" bỏ nguyên CỤM — lý do ở khối trên.
+    const sau = tuTho[i + 1];
+    const truoc = tuTho[i - 1];
+    if (chuanHoa(w) === 'bao' && sau !== undefined && chuanHoa(sau) === 'nhieu') continue;
+    if (chuanHoa(w) === 'nhieu' && truoc !== undefined && chuanHoa(truoc) === 'bao') continue;
+
+    const mong = chuanHoa(w);
+    const nhieuChu = mong.includes(' ');
+    for (const t of mong.split(' ')) {
+      if (t.length <= 1 || TU_HOI.has(t) || HU_TU.has(t)) continue;
+      const dang = hoiDau.get(t) ?? new Set<string>();
+      dang.add(nhieuChu || !coDauTiengViet(w) ? '' : w);
+      hoiDau.set(t, dang);
+    }
+  }
+
+  const tuHoi = new Set(hoiDau.keys());
   if (tuHoi.size === 0) return null;
+
+  /*
+   * HAI MỨC, và phải là hai — đã thử một mức và bộ đánh giá đỏ ngay.
+   *
+   * Bản đầu coi lệch dấu là KHÔNG KHỚP, và nó làm mất một câu đang đúng:
+   *
+   *   hỏi "báo cáo X DÙNG mô hình nào"   — nhãn "Báo cáo X DỰNG trên gì"
+   *
+   * "dùng" và "dựng" cũng chụm vào nhau sau khi bỏ dấu, nhưng ở đây chúng GẦN
+   * NGHĨA — khác hẳn "đó" với "đồ". Một luật chỉ biết nói có/không thì phải
+   * chọn mất một trong hai ca.
+   *
+   * Nên tách: lệch dấu vẫn ĐẾM ĐIỂM (nó là bằng chứng yếu, không phải không
+   * có bằng chứng), nhưng KHÔNG được làm CHỮ RIÊNG mở thêm một vế trả lời.
+   * Một vế trả lời thêm vào vì chữ "đó" khớp chữ "đồ" thì cả vế đó là bịa.
+   */
+
+  /** ĐÒI ĐÚNG DẤU người dùng đã gõ. */
+  const hopChuChat = (w: string): boolean => {
+    const dang = hoiDau.get(chuanHoa(w));
+    if (dang === undefined) return false;
+    const coDau = chuanHoaCoDau(w);
+    return [...dang].some((d) => d === '' || d === coDau);
+  };
+
+  /*
+   * ⚠️ CHỮ HAI KÝ TỰ thì DẤU LÀ GẦN HẾT NGHĨA, nên chúng chấm theo mức CHẶT.
+   *
+   * "đó" và "đồ" — hai chữ không liên quan gì — cùng ra `do`. "bộ" và "bỏ", "số"
+   * và "so", "là" và "lạ" cũng vậy. Còn từ BA ký tự trở lên thì hai chữ trùng
+   * nhau sau khi bỏ dấu thường là cùng gốc và gần nghĩa — "dùng" với "dựng" — nên
+   * chặn chúng là mất một câu đang đúng.
+   *
+   * ĐO ĐƯỢC Ở CẢ HAI CHIỀU: siết hết thì câu "báo cáo X DÙNG mô hình nào" mất
+   * đáp án; nới hết thì câu hỏi số BẢNG của một mô hình hoà điểm với nhãn
+   * "Loại biểu ĐỒ" — chỉ vì chữ "ĐÓ" — rồi bỏ cả hai.
+   */
+  const hopChu = (w: string): boolean =>
+    chuanHoa(w).length <= 2 ? hopChuChat(w) : hoiDau.has(chuanHoa(w));
 
   /*
    * ⚠️ KHÔNG khử trùng phía nhãn, dù phía câu hỏi đã là một `Set`.
@@ -947,7 +1081,7 @@ function traCuu(
     const theoGoc = new Map<string, Map<string, number>>();
     for (const w of nhan.toLowerCase().split(/\s+/)) {
       const t = chuanHoa(w);
-      if (t.length <= 1 || TU_HOI.has(t) || !tuHoi.has(t)) continue;
+      if (t.length <= 1 || TU_HOI.has(t) || !hopChu(w)) continue;
       const cach = theoGoc.get(t) ?? new Map<string, number>();
       cach.set(w, (cach.get(w) ?? 0) + 1);
       theoGoc.set(t, cach);
@@ -991,7 +1125,7 @@ function traCuu(
     const r = new Set<string>();
     for (const w of nhan.toLowerCase().split(/\s+/)) {
       const t = chuanHoa(w);
-      if (t.length > 1 && !TU_HOI.has(t) && tuHoi.has(t)) r.add(t);
+      if (t.length > 1 && !TU_HOI.has(t) && hopChuChat(w)) r.add(t);
     }
     return r;
   };
@@ -1073,16 +1207,29 @@ function traCuu(
    * người đọc phải tự ghép lại từng vế. Mốc sắp là chữ RIÊNG đầu tiên của mỗi
    * dữ kiện — chữ chung (tên mục) có trong mọi nhãn nên không sắp được theo nó.
    */
-  const chon = [nhat, ...them].slice(0, 3);
+  /*
+   * ⚠️ SẮP THEO THỨ TỰ HỎI TRƯỚC, CẮT SAU — không được làm ngược.
+   *
+   * Bản đầu cắt theo ĐIỂM rồi mới sắp, nên vế bị bỏ là vế điểm thấp nhất
+   * chứ không phải vế hỏi sau cùng. ĐO ĐƯỢC trên máy thật:
+   *
+   *   "… bao nhiêu dòng, bao nhiêu CỘT và trạng thái nạp DỮ LIỆU …"
+   *
+   * Vế "cột" trùng đúng một chữ nên điểm thấp; nhãn "Số mô hình DỮ LIỆU dùng
+   * Orders" trùng hai chữ của cụm "nạp dữ liệu" nên điểm cao hơn — và nó đẩy vế
+   * người ta thực sự hỏi ra khỏi câu trả lời. Sắp theo chỗ người ta gõ ra thì
+   * cái bị cắt là cái hỏi sau cùng, đúng như người đọc chờ đợi.
+   */
+  const tatCaChon = [nhat, ...them];
   const chungChon = new Set(
-    [...(chon[0]?.khop ?? [])].filter((t) => chon.every((c) => c.khop.has(t))),
+    [...(tatCaChon[0]?.khop ?? [])].filter((t) => tatCaChon.every((c) => c.khop.has(t))),
   );
   const thuTu = [...tuHoi];
-  const viTri = (c: (typeof chon)[number]): number => {
+  const viTri = (c: (typeof tatCaChon)[number]): number => {
     const i = [...c.khop].filter((t) => !chungChon.has(t)).map((t) => thuTu.indexOf(t));
     return i.length === 0 ? thuTu.length : Math.min(...i);
   };
-  chon.sort((a, b) => viTri(a) - viTri(b));
+  const chon = [...tatCaChon].sort((a, b) => viTri(a) - viTri(b)).slice(0, 3);
 
   const phan = chon.map((c) => traLoiTheoDuKien(c.d));
   return { cau: phan.map((x) => x.cau).join(' '), so: phan.flatMap((x) => x.so) };
@@ -1097,6 +1244,24 @@ export function traLoiBangThoEp(
   if (kq === null) return null;
 
   const y = docYDinh(cauHoi);
+
+  /*
+   * ═══ MỘT NHÓM THÌ KHÔNG CÓ GÌ ĐỂ SO ════════════════════════════
+   *
+   * ĐO ĐƯỢC trên máy thật: "Trong thư mục Chung của Kho dữ liệu, bảng nào có số
+   * lượng cột ít nhất?" — câu hỏi nhắc tên một thư mục, nên phép gộp chọn cột
+   * THƯ MỤC làm nhãn, gộp bốn bộ dữ liệu thành ĐÚNG MỘT nhóm, rồi trả về "Thư
+   * mục thấp nhất là Chung, với tổng Cột 41 trên 1 Thư mục". So một thứ với
+   * chính nó: luôn đúng, luôn vô nghĩa — và nó đứng chắn đúng chỗ đáng ra phải so
+   * giữa các BẢNG.
+   *
+   * ⚠️ ĐẶT Ở ĐÂY, không đặt trong `tinhBang`. Ở đó danh sách đã gộp xong nên
+   * không còn phân biệt được "bảng vốn chỉ có một dòng" với "gộp bóp nhiều
+   * dòng thành một". Đã thử đặt ở đó và nó làm đỏ bảy ca của luồng "hỏi lại
+   * khi mơ hồ", nơi hai biểu đồ mỗi cái MỘT dòng chính là thứ tạo ra sự mơ hồ.
+   */
+  const soSanh = y === 'cao_nhat' || y === 'thap_nhat' || y === 'top_n';
+  if (soSanh && kq.bang.rows.length < 2 && bt.dong.length >= 2) return null;
 
   /*
    * ═══ Ý định ĐẾM đòi câu hỏi phải GỌI TÊN cột nhãn ════════════════════════
