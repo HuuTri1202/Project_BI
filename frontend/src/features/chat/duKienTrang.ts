@@ -164,7 +164,20 @@ function duKienChung(ds: DatasetDto): DuKien[] {
   }
 
   if (ds.source === 'file') {
-    d.push({ nhan: `Dung lượng tệp của ${ds.name}`, gia: dinhDangDungLuong(ds.fileSizeBytes) });
+    /*
+     * ⚠️ KHÔNG có chữ "tệp" trong nhãn này — cố ý.
+     *
+     * "Tên tệp gốc của X" cũng có chữ ấy, và hai nhãn cùng mang một chữ phân
+     * biệt thì câu hỏi nào chỉ gõ chữ đó sẽ hoà điểm, và luật "phải hơn hẳn
+     * ứng viên nhì" bỏ cả hai.
+     *
+     * ĐO ĐƯỢC: "Orders tạo từ file nào" — ca trượt cuối cùng còn lại của cả
+     * bảng điểm. "file" đổi thành "tệp" qua bảng đồng nghĩa, rồi trùng đúng hai
+     * nhãn này 2–2. Bỏ chữ "tệp" ở đây thì chữ ấy chỉ còn một chủ — mà nhãn
+     * này không mất gì: "dung lượng" vẫn là chữ người ta gõ, và "nặng"/"nhẹ"
+     * đã được bảng đồng nghĩa đưa về "dung lượng" từ trước.
+     */
+    d.push({ nhan: `Dung lượng của ${ds.name}`, gia: dinhDangDungLuong(ds.fileSizeBytes) });
     if (ds.originalFilename !== null) {
       d.push({ nhan: `Tên tệp gốc của ${ds.name}`, gia: ds.originalFilename });
     }

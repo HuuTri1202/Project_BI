@@ -716,12 +716,16 @@ const HU_TU = new Set(['cua', 'co']);
 /**
  * @param uuTienSo chỉ dữ kiện có giá trị LÀ SỐ được làm vế CHÍNH của câu trả lời.
  *   Vế GHÉP thì vẫn tìm trên cả danh sách — xem khối chú thích ở nhánh `dem`.
+ * @param phuToiThieu tỉ lệ chữ của NHÃN thắng phải có mặt trong câu hỏi.
+ *   Mặc định 0 — trùng hai chữ là đủ, như cũ. Xem `traLoiHeThong` về chỗ duy
+ *   nhất đòi cao hơn, và vì sao.
  */
 function traCuu(
   duKien: DuKien[],
   cauHoi: string,
   nenChung: DuKien[] = duKien,
   uuTienSo = false,
+  phuToiThieu = 0,
 ): TraLoi | null {
   const noiDung = (s: string): string[] =>
     chuanHoa(s)
@@ -932,6 +936,11 @@ function traCuu(
   const chieuHoi = chieuSoSanh(cauHoi);
   const chieuNhan = chieuSoSanh(nhat.d.nhan);
   if (chieuHoi !== null && chieuNhan !== null && chieuHoi !== chieuNhan) return null;
+
+  if (phuToiThieu > 0) {
+    const chu = new Set(noiDung(nhat.d.nhan));
+    if (chu.size > 0 && nhat.khop.size / chu.size < phuToiThieu) return null;
+  }
 
   if (them.length === 0) return traLoiTheoDuKien(nhat.d);
 
@@ -1165,7 +1174,12 @@ export function bangTuBangTho(
   };
 }
 
-export function traLoi(nguon: Nguon, cauHoi: string, biet?: Set<string>): TraLoi | null {
+export function traLoi(
+  nguon: Nguon,
+  cauHoi: string,
+  biet?: Set<string>,
+  phuToiThieu = 0,
+): TraLoi | null {
   if (chuanHoa(cauHoi) === '') return null;
 
   const y = docYDinh(cauHoi);
@@ -1226,7 +1240,7 @@ export function traLoi(nguon: Nguon, cauHoi: string, biet?: Set<string>): TraLoi
    * chưa khớp — đúng ca đã làm khối trên ra đời.
    */
   if (y === 'dem' && !laLa) {
-    const kq = traCuu(nguon.duKien, cauHoi, nguon.duKien, true);
+    const kq = traCuu(nguon.duKien, cauHoi, nguon.duKien, true, phuToiThieu);
     if (kq !== null) return kq;
   }
 
@@ -1247,7 +1261,7 @@ export function traLoi(nguon: Nguon, cauHoi: string, biet?: Set<string>): TraLoi
   const tuBang = laLa && !bangNhacToi(nguon.bangTho, cauHoi) ? null : tuBangTho();
   if (tuBang !== null) return tuBang;
 
-  return laLa ? null : traCuu(nguon.duKien, cauHoi);
+  return laLa ? null : traCuu(nguon.duKien, cauHoi, nguon.duKien, false, phuToiThieu);
 }
 
 /* ═══ So GIỮA các mục của một danh sách ═════════════════════════════════════
@@ -2240,9 +2254,28 @@ export function traLoiHeThong(heThong: Nguon[], cauHoi: string): TraLoi | null {
    * một mục thì bản tóm tắt không được giành. Câu không gọi tên ai mà trùng từ
    * hai chữ với một nhãn tóm tắt thì đúng là đang hỏi về cả tổ chức.
    */
+  /*
+   * ⚠️ CÂU TRA CỨU xuyên hệ thống ĐÒI BẰNG CHỨNG MẠNH HƠN câu trên trang.
+   *
+   * Trên trang đang mở, trùng hai chữ là đủ — người ta nhìn thấy dữ liệu nên
+   * họ gõ tắt được. Ở đây thì ngược: dữ kiện nằm ở trang KHÁC, người hỏi
+   * không nhìn thấy nó, nên họ phải gọi nó ra tương đối đầy đủ.
+   *
+   * LỖI ĐO ĐƯỢC, do chính bản mở cửa này gây ra: "làm sao để xoá một bộ dữ
+   * liệu" — một câu HƯỚNG DẪN, đáng ra phải từ chối — trùng ba chữ "bộ dữ
+   * liệu" với nhãn "Số bộ dữ liệu trong toàn bộ tổ chức" rồi nhận về "12".
+   * Ba chữ trên tám của nhãn — chưa tới một nửa. Còn "tổ chức đang dùng gói
+   * nào" trùng đủ năm trên năm.
+   *
+   * ⚠️ KHÔNG áp cho câu ĐẾM. "có bao nhiêu thành viên" chỉ phủ hai trên năm
+   * chữ của "Số thành viên của HR", và nó là câu đúng. Cửa đếm vốn đã mở từ
+   * trước và không sinh ra ca SAI nào — chỉ cửa tra cứu mới cần siết.
+   */
+  const yHoi = docYDinh(cauHoi);
   const biet = tuDaBiet(heThong);
   if (goiTen === null) {
-    const tom = traLoi(dau, cauHoi, biet);
+    const demDuoc = yHoi === 'dem' || yHoi === 'chua_co';
+    const tom = traLoi(dau, cauHoi, biet, demDuoc ? 0 : 0.5);
     if (tom !== null) return noiPham(tom);
   }
 

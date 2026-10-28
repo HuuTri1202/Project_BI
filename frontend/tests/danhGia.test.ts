@@ -1941,6 +1941,15 @@ const CA: Ca[] = [
     can: ['5'],
     vi: 'CA CANH CHIỀU NGƯỢC: câu về chính biểu đồ thì phép đếm chung chung đúng là đáp án',
   },
+  /*
+   * ⚠️ CA CANH: câu HƯỚNG DẪN không được nhận về một con số.
+   *
+   * Khi mở cửa tra cứu xuyên hệ thống, câu này trùng ba chữ "bộ dữ liệu" với
+   * nhãn "Số bộ dữ liệu trong toàn bộ tổ chức" rồi nhận về "12" — một con số
+   * thật cho một câu hỏi không hỏi số nào. Ba trên tám chữ của nhãn — chưa tới
+   * một nửa — nên ngưỡng phủ nhãn ở `traLoiHeThong` chặn nó.
+   */
+  { trang: 'khoDuLieu', hoi: 'làm sao để xoá một bộ dữ liệu', can: 'chua-hieu' },
 ];
 
 // ─── Chạy và đếm ─────────────────────────────────────────────────────────────
@@ -2001,7 +2010,7 @@ describe('Bộ đánh giá khung hỏi đáp', () => {
    * nghĩa là thay đổi đó đang đánh đổi câu này lấy câu kia mà không nói ra.
    */
   it('số câu ĐÚNG không được tụt', () => {
-    expect(dem('dung')).toBeGreaterThanOrEqual(237);
+    expect(dem('dung')).toBeGreaterThanOrEqual(239);
   });
 
   /*
