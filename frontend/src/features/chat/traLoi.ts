@@ -74,6 +74,28 @@ const DONG_NGHIA = new Map<string, string>([
   ['nang', 'dung luong'],
   ['nhe', 'dung luong'],
   ['size', 'dung luong'],
+  /*
+   * TỪ HỎI tiếng Anh. Bảng này đã dịch DANH TỪ từ lâu (`dataset`, `table`,
+   * `report`) nhưng không dịch từ hỏi, nên "how many datasets are there" nhận ra
+   * đúng "bộ dữ liệu" mà không biết là đang được hỏi ĐẾM. Thiếu đúng một nửa.
+   *
+   * ĐO ĐƯỢC: 4 trên 40 câu của bộ đo lạ là tiếng Anh, và cả bốn đều bế tắc ở
+   * lớp ngoại tuyến. Lớp mô hình lo được cả bốn (đo được trong `llmDaGhi.json`)
+   * — nhưng nó chỉ có khi có khoá và có mạng, còn bảng này thì luôn có.
+   *
+   * ⚠️ Chỉ những chữ không trùng với một tiếng Việt nào sau khi bỏ dấu. "all"
+   * không có ở đây vì nó chẳng thêm được gì, còn "count" thì vừa là từ hỏi vừa
+   * là tên cột trong rất nhiều bảng của khách.
+   */
+  ['highest', 'cao nhat'],
+  ['largest', 'cao nhat'],
+  ['lowest', 'thap nhat'],
+  ['smallest', 'thap nhat'],
+  ['total', 'tong'],
+  ['sum', 'tong'],
+  ['average', 'trung binh'],
+  ['many', 'may'],
+  ['list', 'liet ke'],
 ]);
 
 const TU_KHOA: { y: YDinh; tu: string[] }[] = [
@@ -82,7 +104,29 @@ const TU_KHOA: { y: YDinh; tu: string[] }[] = [
   { y: 'ti_trong', tu: ['chiem bao nhieu', 'ti trong', 'ti le', 'phan tram', 'bao nhieu %'] },
   { y: 'so_sanh', tu: ['so voi', 'so sanh', 'hon hay', 'cao hon', 'thap hon', 'chenh'] },
   { y: 'top_n', tu: ['top ', 'cao nhat la nhung', 'xep hang'] },
-  { y: 'cao_nhat', tu: ['cao nhat', 'lon nhat', 'nhieu nhat', 'dat nhat', 'dinh cao', 'max'] },
+  /*
+   * "đứng đầu" và "dẫn đầu" ĐO ĐƯỢC là trượt ở CẢ HAI lớp.
+   *
+   * Lớp ngoại tuyến thiếu chúng trong bảng này; lớp mô hình thì từ chối chọn
+   * nhãn — ba lượt gọi, trượt cả ba, đo được trong `llmDaGhi.json`. Nên không
+   * có lớp nào đỡ cho lớp nào, và đây là chỗ duy nhất sửa được.
+   *
+   * Đây là bảng TỪ KHOÁ: thêm một cách nói vào đúng chỗ nó sinh ra để nhận,
+   * không phải một ngoại lệ vá vào logic.
+   */
+  {
+    y: 'cao_nhat',
+    tu: [
+      'cao nhat',
+      'lon nhat',
+      'nhieu nhat',
+      'dat nhat',
+      'dinh cao',
+      'dung dau',
+      'dan dau',
+      'max',
+    ],
+  },
   { y: 'thap_nhat', tu: ['thap nhat', 'nho nhat', 'it nhat', 're nhat', 'min'] },
   /*
    * `loc` đứng SAU các từ so sánh: "liệt kê sản phẩm có số lượng cao nhất" là
@@ -108,7 +152,7 @@ const TU_KHOA: { y: YDinh; tu: string[] }[] = [
     ],
   },
   { y: 'trung_binh', tu: ['trung binh', 'binh quan'] },
-  { y: 'tong', tu: ['tong', 'cong lai', 'tat ca la bao nhieu'] },
+  { y: 'tong', tu: ['tong', 'cong lai', 'cong het', 'tat ca la bao nhieu'] },
   /*
    * `co bao nhieu` là cách đếm tự nhiên nhất trong tiếng Việt, và trước đây
    * bảng này bỏ sót nó: mọi cụm đều đòi chữ "nhóm" hay "mục" — tức chỉ nhận ra
@@ -1467,6 +1511,23 @@ const TU_BO_QUA = new Set<string>([
    * lo, không cần kể ra. Giữ danh sách ở đúng mấy từ thật sự cần là cách nó
    * không lớn dần thành một bảng đồng nghĩa.
    */
+  /*
+   * Từ CHỨC NĂNG tiếng Anh — cùng vai với "trên"/"dưới" ở dưới, chỉ khác
+   * ngôn ngữ. `nhacThuLa` coi mọi chữ từ bốn ký tự mà khung chưa từng thấy là tên
+   * một thực thể không tồn tại, rồi bỏ hẳn câu trả lời.
+   *
+   * ĐO ĐƯỢC: "how many datasets are there" đã đọc đúng ý ĐẾM và đúng chữ "bộ
+   * dữ liệu" sau khi qua bảng đồng nghĩa, rồi vẫn bế tắc — vì chữ "there".
+   *
+   * ⚠️ Chỉ chữ KHÔNG trùng một tiếng Việt nào sau khi bỏ dấu. "the" không có
+   * ở đây (nó là "thể" bỏ dấu, và ba ký tự thì cận độ dài đã lo).
+   */
+  'there',
+  'which',
+  'what',
+  'have',
+  'does',
+  'about',
   'tren',
   // `duoi` đi CẶP với `tren`: cả hai là nửa của một toán tử lọc ("trên 5000",
   // "dưới 5000"), và bỏ sót một nửa là nửa đó bị coi là tên lạ rồi mất đáp án.

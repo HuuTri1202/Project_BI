@@ -92,6 +92,28 @@ const CA: Ca[] = [
   { cauHoi: 'có mấy vùng tất cả', nhan: TRANG_BAO_CAO, dung: 3 },
   { cauHoi: 'báo cáo này lấy số ở đâu', nhan: TRANG_BAO_CAO, dung: 7 },
 
+  /*
+   * ─── Khoảng trống ĐO ĐƯỢC của lớp ngoại tuyến ────────────────────
+   *
+   * Tám câu này là toàn bộ phần "chưa hiểu" còn lại của bộ 40 câu lạ đo trên
+   * lớp ngoại tuyến. Chúng không phải lỗi của lớp đó: "đứng đầu", "dẫn đầu",
+   * "total", "how many" là khoảng cách TỪ VỰNG, mà bắc cầu từ vựng đúng là việc
+   * lớp này sinh ra để làm. Đưa chúng vào đây là để câu "lớp mô hình lo được
+   * mấy câu đó" có một con số, thay vì một lời hứa.
+   */
+  { cauHoi: 'mặt hàng nào đứng đầu', nhan: TRANG_BAO_CAO, dung: 0, vi: 'đứng đầu → cao nhất' },
+  { cauHoi: 'nhóm hàng nào dẫn đầu', nhan: TRANG_BAO_CAO, dung: 0 },
+  { cauHoi: 'which region has the highest revenue', nhan: TRANG_BAO_CAO, dung: 0 },
+  { cauHoi: 'total revenue', nhan: TRANG_BAO_CAO, dung: 4 },
+  { cauHoi: 'how many regions are there', nhan: TRANG_BAO_CAO, dung: 3 },
+  { cauHoi: 'average revenue per region', nhan: TRANG_BAO_CAO, dung: 5 },
+  {
+    cauHoi: 'chênh lệch giữa khu vực cao nhất và thấp nhất',
+    nhan: TRANG_BAO_CAO,
+    dung: null,
+    vi: 'CA ÂM: không nhãn nào tính hiệu hai đầu — chọn đại là một số thật cho câu khác',
+  },
+
   // ─── Trình dựng: chọn đúng CẶP để vẽ ──────────────────────────────────────
   { cauHoi: 'tui muốn xem doanh thu theo vùng', nhan: TRINH_DUNG, dung: 0 },
   { cauHoi: 'vẽ doanh thu theo thời gian', nhan: TRINH_DUNG, dung: 2, vi: 'thời gian → Ngày đặt' },

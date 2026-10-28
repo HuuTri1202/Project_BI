@@ -1986,6 +1986,23 @@ const CA: Ca[] = [
     khong: ['cao hơn'],
     vi: 'CA CANH cột chồng: một nhóm trải ra hai dòng, không được đem hai mảnh ấy so với nhau',
   },
+  /*
+   * ═══ TỪ VỰNG: "đứng đầu" và tiếng Anh ══════════════════════════
+   *
+   * "đứng đầu"/"dẫn đầu" trượt ở CẢ HAI lớp — lớp mô hình từ chối chọn nhãn,
+   * ba lượt gọi trượt cả ba, đo được trong `backend/tests/llmDaGhi.json`. Không lớp
+   * nào đỡ cho lớp nào, nên bảng từ khoá là chỗ duy nhất sửa được.
+   *
+   * Tiếng Anh thì ngược: lớp mô hình lo được cả bốn câu (cũng đo được ở đó).
+   * Nhưng nó chỉ có khi có khoá và có mạng, còn bảng đồng nghĩa thì luôn có —
+   * và cả khung được dựng để chạy đủ khi không có cả hai.
+   */
+  { trang: 'bieuDo1', hoi: 'mặt hàng nào đứng đầu', can: ['Staples', '10'] },
+  { trang: 'bieuDoKhuVuc', hoi: 'nhóm hàng nào dẫn đầu', can: ['Gia dụng'] },
+  { trang: 'bieuDo1', hoi: 'cộng hết lại được bao nhiêu', can: ['35'] },
+  { trang: 'bieuDo1', hoi: 'which product has the highest quantity', can: ['Staples', '10'] },
+  { trang: 'bieuDo1', hoi: 'total quantity', can: ['35'] },
+  { trang: 'khoDuLieu', hoi: 'how many datasets are there', can: ['10'] },
 ];
 
 // ─── Chạy và đếm ─────────────────────────────────────────────────────────────
@@ -2046,7 +2063,7 @@ describe('Bộ đánh giá khung hỏi đáp', () => {
    * nghĩa là thay đổi đó đang đánh đổi câu này lấy câu kia mà không nói ra.
    */
   it('số câu ĐÚNG không được tụt', () => {
-    expect(dem('dung')).toBeGreaterThanOrEqual(245);
+    expect(dem('dung')).toBeGreaterThanOrEqual(251);
   });
 
   /*
