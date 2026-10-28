@@ -1693,6 +1693,81 @@ const CA: Ca[] = [
    */
   { trang: 'khoDuLieu', hoi: 'bộ nào cập nhật sớm nhất', can: 'chua-hieu' },
 
+  /* ═══ BẢNG THÔ của trang danh sách — bốn ý định vừa mở ════════════════════
+   *
+   * Đo được trước bản này: biểu đồ 12/12 ý định, bảng thô 12/12, nhưng DANH
+   * SÁCH MỤC chỉ 6/12 — thiếu tổng, trung bình, xếp hạng, lọc theo ngưỡng.
+   * `soSanhNguon` so được giữa các mục nhưng không làm bốn phép ấy.
+   *
+   * Nhóm ca dưới đây đo đúng bốn phép đó, và hai ca cuối là CA CANH: bảng mới
+   * không được cướp câu trả lời mà một dữ kiện đang trả lời đúng.
+   */
+  { trang: 'dsMoHinh', hoi: 'tổng số bảng của các mô hình', can: ['10'] },
+  { trang: 'dsMoHinh', hoi: 'tổng số quan hệ', can: ['5'] },
+  {
+    trang: 'dsMoHinh',
+    hoi: 'xếp hạng mô hình theo số bảng',
+    can: ['Global-Superstore', 'Bán hàng', 'Kho vận'],
+  },
+  {
+    trang: 'dsMoHinh',
+    hoi: 'mô hình nào có hơn 2 bảng',
+    can: ['Global-Superstore', 'Bán hàng'],
+    khong: ['Kho vận'],
+  },
+  { trang: 'dsMoHinh', hoi: 'mô hình nào nhiều báo cáo nhất', can: ['Global-Superstore', '7'] },
+  { trang: 'dsBaoCao', hoi: 'báo cáo nào nhiều biểu đồ nhất', can: ['Tồn kho', '2'] },
+  { trang: 'dsBaoCao', hoi: 'tổng số biểu đồ', can: ['3'] },
+  { trang: 'ketNoi', hoi: 'tổng số bộ dữ liệu của các kết nối', can: ['2'] },
+  {
+    trang: 'ketNoi',
+    hoi: 'kết nối nào có hơn 1 bộ dữ liệu',
+    can: ['MySQL bán hàng'],
+    khong: ['Postgres kho'],
+  },
+  { trang: 'adminToChuc', hoi: 'tổng số người dùng của các tổ chức', can: ['15'] },
+  {
+    trang: 'adminToChuc',
+    hoi: 'tổ chức nào có hơn 5 người dùng',
+    can: ['Công ty ABC'],
+    khong: ['Không gian của Hùng'],
+  },
+  {
+    trang: 'adminToChuc',
+    hoi: 'xếp hạng tổ chức theo số workspace',
+    can: ['Công ty ABC', 'Không gian của Hùng'],
+  },
+  /*
+   * ⚠️ CA CANH: cột "Báo cáo" của bảng mô hình KHÔNG được cướp câu đếm.
+   *
+   * Bảng mới có một cột tên "Báo cáo" chứa SỐ báo cáo đang dùng mỗi mô hình.
+   * Nếu nó trả lời câu này thì nó đếm số GIÁ TRỊ KHÁC NHAU của một cột đếm —
+   * một con số có thật cho một câu hỏi khác — và nó chặn luôn đường sang dữ
+   * kiện xuyên hệ thống vốn trả lời đúng (7 báo cáo trong workspace HR).
+   */
+  { trang: 'dsMoHinh', hoi: 'có bao nhiêu báo cáo', can: ['7'], khong: ['Kho vận'] },
+  /*
+   * ⚠️ CA CANH: bảng chỉ có 2 dòng trong khi workspace có 7 báo cáo. Câu đếm
+   * phải lấy con số của DỮ KIỆN tóm tắt, không phải số dòng đang hiện.
+   */
+  { trang: 'dsBaoCao', hoi: 'có bao nhiêu báo cáo', can: ['7'], khong: ['Có 2'] },
+  /*
+   * TỈ TRỌNG và SO SÁNH trên một danh sách mục — hai ý định vốn bị chốt
+   * "nhường cho tên" của `traLoiTrang` chặn mất.
+   *
+   * Ca đầu TỪNG LÀ SAI: câu gọi tên đúng một mục nên chốt ấy đưa nó cho
+   * `traLoi` của riêng mục đó, mà một mục đứng một mình không có mẫu số, nên
+   * nó trả về "Số bảng trong mô hình Bán hàng: 3" — một con số có thật cho
+   * một câu hỏi về TỈ LỆ.
+   */
+  { trang: 'dsMoHinh', hoi: 'Bán hàng chiếm bao nhiêu % số bảng', can: ['30'], khong: [': 3.'] },
+  { trang: 'dsMoHinh', hoi: 'Bán hàng so với Kho vận về số bảng', can: ['3', '2'] },
+  {
+    trang: 'adminToChuc',
+    hoi: 'Công ty ABC chiếm bao nhiêu % người dùng',
+    can: ['93', '%'],
+  },
+
   // ─── Câu dài: phần mở đầu lịch sự KHÔNG được đổi câu trả lời ──────────────
   /*
    * TỪNG LÀ SAI, và nó cần cả hai nửa để thấy: câu ngắn đã đúng từ trước, câu
@@ -1768,7 +1843,7 @@ describe('Bộ đánh giá khung hỏi đáp', () => {
    * nghĩa là thay đổi đó đang đánh đổi câu này lấy câu kia mà không nói ra.
    */
   it('số câu ĐÚNG không được tụt', () => {
-    expect(dem('dung')).toBeGreaterThanOrEqual(200);
+    expect(dem('dung')).toBeGreaterThanOrEqual(217);
   });
 
   /*

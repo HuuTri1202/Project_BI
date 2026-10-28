@@ -844,7 +844,34 @@ export function traLoiBangThoEp(
 ): TraLoi | null {
   const kq = bangTuBangTho(bt, cauHoi, epCot);
   if (kq === null) return null;
-  return tinhBang(kq.bang, cauHoi, docYDinh(cauHoi), 'label', {
+
+  const y = docYDinh(cauHoi);
+
+  /*
+   * ═══ Ý định ĐẾM đòi câu hỏi phải GỌI TÊN cột nhãn ════════════════════════
+   *
+   * `bangTuBangTho` đã có một chốt gần giống ngay trên — nhưng nó chỉ bắt
+   * trường hợp câu hỏi không gọi tên cột NÀO cả. Trường hợp này khác: câu hỏi
+   * gọi tên một cột ĐO ĐƯỢC, nên `iDo` có giá trị và chốt kia không chạy, rồi
+   * cột nhãn bị lấy bừa là cột chữ đầu tiên.
+   *
+   * LỖI ĐO ĐƯỢC: trang Mô hình dữ liệu khai bảng có cột "Báo cáo" (số báo cáo
+   * đang dùng mỗi mô hình). Câu "có bao nhiêu báo cáo" khớp đúng cột ấy, rồi
+   * `tinhBang` đếm số NHÓM của cột nhãn và trả về "Có 3 Tên trên bảng này" —
+   * ba mô hình, cho một câu hỏi về số báo cáo. Nó còn chặn luôn đường sang dữ
+   * kiện xuyên hệ thống vốn trả lời đúng (7 báo cáo trong workspace).
+   *
+   * "Có bao nhiêu X" luôn đếm X, nên X phải là cột nhãn. Gọi tên một cột đếm
+   * rồi đi đếm nhóm của cột khác là trả lời một câu hỏi khác — và ở đây từ chối
+   * là đúng, vì bảng không biết câu hỏi đang nói về phạm vi nào.
+   *
+   * ⚠️ `cotQuaGiaTri` cũng tính là "có gọi tên": "Boston có bao nhiêu" không
+   * nhắc tên cột nào mà nhắc một GIÁ TRỊ của nó, và câu đó vẫn phải trả lời
+   * được.
+   */
+  if (y === 'dem' && !kq.coNhan) return null;
+
+  return tinhBang(kq.bang, cauHoi, y, 'label', {
     chu: 'bảng này',
     luuY: [kq.gop, bt.luuY].filter((x) => x !== null).join('; '),
   });
@@ -938,7 +965,7 @@ export function bangTuBangTho(
   bt: BangTho,
   cauHoi: string,
   epCot?: { nhan: number | null; do: number | null },
-): { bang: ReportDataDto; gop: string | null } | null {
+): { bang: ReportDataDto; gop: string | null; coNhan: boolean } | null {
   if (bt.dong.length === 0) return null;
   const q = ` ${chuanHoa(cauHoi)} `;
 
@@ -1011,6 +1038,11 @@ export function bangTuBangTho(
     // Chỉ nói ra khi phép gộp THẬT SỰ nhập mấy dòng lại. Bảng mỗi nhãn một dòng
     // mà vẫn nói "đã cộng theo …" là thêm một vế không mang thông tin nào.
     gop: rows.length < tho.length ? `đã cộng theo ${tenNhan}` : null,
+    /*
+     * Câu hỏi có GỌI TÊN cột nhãn không, hay cột nhãn là cột chữ đầu tiên lấy
+     * cho đủ. Nơi gọi cần biết để chặn ý định ĐẾM — xem `traLoiBangThoEp`.
+     */
+    coNhan: nhanGoiTen !== null,
   };
 }
 
@@ -1208,6 +1240,10 @@ const TU_BO_QUA = new Set<string>([
    * không lớn dần thành một bảng đồng nghĩa.
    */
   'tren',
+  // `duoi` đi CẶP với `tren`: cả hai là nửa của một toán tử lọc ("trên 5000",
+  // "dưới 5000"), và bỏ sót một nửa là nửa đó bị coi là tên lạ rồi mất đáp án.
+  // ĐO ĐƯỢC: "trên 5000 dòng" chạy, "dưới 5000 dòng" bế tắc.
+  'duoi',
   'trong',
   'theo',
   'cung',
@@ -1261,7 +1297,23 @@ function nhacThuLa(cauHoi: string, biet: Set<string>): boolean {
        * ba ký tự lọt qua được — đánh đổi đã biết, và nó nghiêng về phía trả lời
        * được nhiều câu hơn thay vì từ chối nhiều câu hơn.
        */
-      .some((t) => t.length >= 4 && !TU_BO_QUA.has(t) && !biet.has(t))
+      /*
+       * ⚠️ Một chuỗi TOÀN SỐ là một con số, không phải tên một thực thể.
+       *
+       * LỖI ĐO ĐƯỢC, và nó im lặng: "bộ nào có hơn 5000 dòng" mất đáp án, vì
+       * "5000" đúng 4 ký tự nên cận trên coi nó là tên một thứ không tồn tại
+       * rồi bỏ cả câu trả lời. Còn "hơn 50.000 dòng" thì chạy — chỉ vì
+       * `chuanHoa` xé dấu chấm thành khoảng trắng và để lại "50" với "000",
+       * cả hai đều dưới cận.
+       *
+       * Nên MỌI câu lọc theo ngưỡng gõ số liền đều bế tắc: "trên 1000",
+       * "hơn 2500", "dưới 9999" — đúng cách gõ tự nhiên hơn hẳn "50.000".
+       *
+       * Bỏ qua số KHÔNG nới cửa: hai ca SAI mà chốt này sinh ra để chặn đều
+       * gọi tên thực thể bằng CHỮ ("sale", "sales"). Và số trong câu hỏi đã có
+       * `docDieuKien` và `docSo` lo — chúng đọc nó như một ngưỡng, đúng việc.
+       */
+      .some((t) => t.length >= 4 && !/^\d+$/.test(t) && !TU_BO_QUA.has(t) && !biet.has(t))
   );
 }
 
@@ -1648,7 +1700,25 @@ export function traLoiTrang(tatCa: Nguon[], chon: Nguon, cauHoi: string): TraLoi
    * "cuoi" vào `TU_BO_QUA` là nuôi đúng cái danh sách mà khối chú thích ở đó
    * đã cảnh báo; chốt này gỡ cả lớp ca ấy một lần.
    */
-  if (goiTen !== null && soMucGoiTen(tatCa, cauHoi) === 1) return traLoi(goiTen, cauHoi);
+  /*
+   * ⚠️ TRỪ hai ý định vốn hỏi về CẢ DANH SÁCH, dù câu có gọi tên một mục.
+   *
+   * "Bán hàng chiếm bao nhiêu % số bảng" gọi tên đúng một mục, nên chốt này
+   * đưa nó cho `traLoi` của riêng mục ấy — mà một mục đứng một mình không có
+   * mẫu số nào để chia, nên nó trả về "Số bảng trong mô hình Bán hàng: 3".
+   * Một con số có thật, cho một câu hỏi về TỈ LỆ. Đo được.
+   *
+   * `ti_trong` và `so_sanh` theo định nghĩa cần nhiều hơn một mục. Nhường cho
+   * tên là đúng với câu TRA CỨU — lý do đã ghi ở khối trên — nhưng với hai ý
+   * định này thì cái tên nói "lấy mục nào làm tử số", không nói "chỉ đọc mục
+   * này". Bỏ qua chốt ở đây là để chúng xuống tới bảng thô của bản tóm tắt,
+   * nơi `tinhBang` tính tỉ lệ trên cả danh sách.
+   */
+  const yCauHoi = docYDinh(cauHoi);
+  const caDanhSach = yCauHoi === 'ti_trong' || yCauHoi === 'so_sanh';
+  if (!caDanhSach && goiTen !== null && soMucGoiTen(tatCa, cauHoi) === 1) {
+    return traLoi(goiTen, cauHoi);
+  }
 
   // Xem `TraLoi.rong`: câu "không mục nào" xuống cuối hàng, không bị bỏ.
   const soSanh = soSanhNguon(tatCa, cauHoi);
