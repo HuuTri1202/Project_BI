@@ -11,140 +11,31 @@ import {
 import { coCauHinhLlm, goiMoHinh } from './dienDat';
 import { CUM_CO_DINH, giaiCum } from './khoangThoiGian';
 
-/**
- * Để mô hình ĐIỀN MỘT CÁI FORM truy vấn — không để nó viết truy vấn.
- *
- * ═══ Trần mà lớp này phá ═══════════════════════════════════════════════════
- *
- * `hieuY` cho mô hình chọn một mục trong danh sách sẵn có, nên khung chỉ trả
- * lời được những câu mà một trang nào đó ĐÃ tải sẵn câu trả lời. "Doanh thu
- * tháng 3 của Miền Bắc" thì không: nó cần một truy vấn MỚI, và không ô biểu đồ
- * nào trên màn hình có nó.
- *
- * ═══ Vì sao đây KHÔNG phải text-to-SQL ════════════════════════════════════
- *
- * Text-to-SQL để mô hình viết ra một CHUỖI, và khi đó phải chống injection,
- * chặn `DROP`, chặn truy vấn chéo tổ chức, và một câu `JOIN` sai vẫn ra số
- * trông hợp lý. Ở đây mô hình điền `explorerQueryBodySchema` — một form mà
- * TOÀN BỘ định danh là SỐ NGUYÊN:
- *
- *     { dimensionIds: [12], measureIds: [34], filters: [{ dimensionId, operator, values }] }
- *
- * Nên không gian đầu ra vẫn ĐÓNG, y như `hieuY`, chỉ là form có bốn ô thay vì
- * một ô:
- *
- *   - Mỗi id phải nằm trong danh sách trường ta vừa gửi. Id lạ -> bỏ CẢ FORM.
- *   - `operator` phải nằm trong `FILTER_OPERATORS`. Toán tử lạ -> bỏ cả form.
- *   - Tên cube, tên cột, câu SQL đều do `buildQuery` dựng từ id. Mô hình không
- *     chạm tới một ký tự nào của chúng.
- *   - Con số trong câu trả lời do Cube tính và do code đọc ra. Mô hình không
- *     thấy số liệu, và không viết câu trả lời.
- *
- * ═══ Chỗ DUY NHẤT mô hình sinh ra chuỗi, và cách bịt nó ═══════════════════
- *
- * `filters[].values`. Mô hình phải viết ra "Miền Bắc" để lọc theo Miền Bắc —
- * và nếu nó viết "Miền Bắc Trung Bộ" thì truy vấn trả về không dòng nào, rồi
- * khung nói "không có dữ liệu" một cách rất tự tin. Đó là lời nói dối khó bắt
- * nhất ở đây: nó TRUNG THỰC về truy vấn đã chạy, và truy vấn đó thì sai.
- *
- * Luật bịt: mỗi giá trị PHẢI xuất hiện trong chính câu người dùng gõ. Xem
- * `giuNguyenLoi`. Cùng họ với `giuNguyenSo` của `dienDat`, và cùng lý do nằm ở
- * backend: frontend sửa được.
- */
-
-/** Một trường gửi cho mô hình chọn. Chỉ id + nhãn, không có số liệu nào. */
 export interface TruongChon {
   id: number;
   nhan: string;
   loai: 'chieu' | 'thuoc do';
-  /**
-   * Chiều này gom theo thời gian được không — chỉ có nghĩa với `loai: 'chieu'`.
-   *
-   * Cần thiết vì `timeDimension` gom một cột theo tháng/quý/năm, và Cube ném
-   * lỗi khi cột đó là chuỗi. Không có trường này thì mô hình gom "Tên sản phẩm"
-   * theo tháng được, và người dùng nhận một lỗi 500 thay vì "chưa hiểu".
-   */
   thoiGian?: boolean;
-  /**
-   * MỌI phép gộp thước đo này nhận — chỉ có nghĩa với `loai: 'thuoc do'`.
-   *
-   * Gồm cả phép ĐANG KHAI lẫn các phép đổi được (`availableAggs`), vì đó đúng
-   * là tập mà `buildQuery` chấp nhận. Nó ném `HttpError 400` cho một phép ngoài
-   * tập — cố ý, để không ai lặng lẽ nhận số tính bằng phép khác. Nhưng ở đường
-   * hỏi đáp thì một 400 là câu trả lời tệ hơn "chưa hiểu", nên `kiemForm` chặn
-   * trước, và nó chỉ chặn được khi biết tập này.
-   */
   phepGop?: readonly MeasureAgg[];
 }
 
 export interface DatCauHoiInput {
   cauHoi: string;
   truong: readonly TruongChon[];
-  /**
-   * Lượt hỏi TRƯỚC trong cùng cuộc trò chuyện — bộ nhớ hội thoại (bước 6).
-   *
-   * ═══ Vì sao giữ TRUY VẤN, không giữ đoạn chat ═════════════════════════════
-   *
-   * "Còn tháng 4 thì sao" chỉ có nghĩa khi biết lượt trước hỏi gì. Cách hiển
-   * nhiên là gửi cả lịch sử hội thoại lên cho mô hình đọc. Nó chạy được, và nó
-   * tốn dần theo độ dài cuộc trò chuyện, rồi mỗi lượt lại cho mô hình thêm một
-   * cơ hội lạc khỏi câu hỏi thật.
-   *
-   * Thứ thật sự cần nhớ là CÁI FORM: một lượt hỏi tiếp gần như luôn là "form
-   * cũ, sửa một ô". Giữ nó nghĩa là bộ nhớ có kích thước KHÔNG ĐỔI, và mô hình
-   * nhận một thứ đã được kiểm xong chứ không phải văn bản tự do.
-   *
-   * ⚠️ Nó ĐI TỪ CLIENT lên, nên nó phải qua `explorerQueryBodySchema` y như mọi
-   * thân request khác. Điều đó không thêm quyền cho ai: ai gọi được đường này
-   * đã có `datamodel:read`, tức đã gọi thẳng `/query` với bất kỳ form nào.
-   */
   boiCanh?: { cauHoi: string; truyVan: ExplorerQueryDto } | undefined;
-  /**
-   * "Bây giờ" theo đó mà giải cụm thời gian. Vắng mặt = `new Date()`.
-   *
-   * Có mặt CHỈ để test chốt được mốc. Một hàm ngày tháng tự đọc `Date.now()`
-   * thì không kiểm được, và nó sẽ đỏ đúng vào ngày cuối tháng.
-   */
   moc?: Date | undefined;
 }
 
 export interface DatCauHoiKetQua {
-  /** Form đã kiểm xong, hoặc `null` khi không dùng được. */
   truyVan: ExplorerQueryDto | null;
-  /** Mô hình có THẬT SỰ được hỏi không — xem `HieuYKetQua.daHoi`. */
   daHoi: boolean;
-  /** Vì sao bỏ form, nếu đó là một lý do nói ra được — xem `LyDoBoForm`. */
   lyDo: LyDoBoForm | null;
 }
 
-/**
- * Trần số trường gửi lên.
- *
- * Một mô hình 20 bảng × 24 cột là gần năm trăm trường. Gửi hết vừa tốn vừa làm
- * mô hình chọn kém đi. Người gọi xếp chiều và thước đo xen nhau theo thứ tự của
- * `explorerFields`, vốn đã nhóm theo bảng.
- */
 export const TRAN_TRUONG = 120;
 
-/**
- * Trần `limit` mà một câu hỏi trò chuyện được phép đặt.
- *
- * Thấp hơn hẳn trần 5000 của `explorerQueryBodySchema`, và vì một lý do khác
- * hẳn: ở đây `limit` chỉ sinh ra từ chữ "top N" trong một câu nói, mà "top
- * 501" thì không phải là một câu nói. `docKetQua` cũng chỉ đọc ra 15 dòng.
- */
 const TRAN_LIMIT = 500;
 
-/**
- * Bỏ dấu + hạ chữ thường, để so câu hỏi với giá trị lọc.
- *
- * ⚠️ `đ`/`Đ` phải thay TAY — chúng là ký tự Latin riêng (U+0111/U+0110) nên
- * `NFD` không tách được gì. Cùng cái bẫy đã ghi ở `services/dataset/storageKey.ts`
- * và ở `features/chat/traLoi.ts` bên frontend.
- *
- * Xuất ra để `hoiTrenMoHinh` đọc hướng sắp bằng ĐÚNG phép chuẩn hoá này — hai
- * bản chuẩn hoá hơi khác nhau trong cùng một đường là một lớp lỗi vô hình.
- */
 export function chuanHoa(raw: string): string {
   return raw
     .normalize('NFD')
@@ -156,34 +47,6 @@ export function chuanHoa(raw: string): string {
     .trim();
 }
 
-/**
- * Mọi giá trị lọc có nằm trong chính câu người dùng gõ không.
- *
- * ═══ Vì sao luật này là luật quan trọng nhất của cả lớp ═══════════════════
- *
- * Đây là chỗ duy nhất mô hình sinh ra chuỗi tự do, nên nó là chỗ duy nhất một
- * điều sai có thể đi vào truy vấn mà không ai thấy. Một giá trị bịa ra không
- * làm hệ thống hỏng — nó làm truy vấn trả về rỗng, và khung nói "không có dòng
- * nào thoả" bằng giọng chắc chắn. Người dùng không có cách nào biết là điều
- * kiện đã bị đổi.
- *
- * So bằng CHUỖI CON trên bản đã bỏ dấu: người ta gõ "miền bắc", mô hình viết
- * "Miền Bắc", và hai thứ đó phải khớp. Còn "Q1" khi người ta gõ "quý 1" thì
- * KHÔNG khớp — và từ chối là đúng, vì ta không biết "Q1" có phải cách dữ liệu
- * ghi quý một hay không.
- *
- * ═══ Khi có bộ nhớ hội thoại, "lời người dùng" là CẢ CUỘC TRÒ CHUYỆN ══════
- *
- * Lượt hỏi tiếp giữ lại bộ lọc của lượt trước: "doanh thu Miền Bắc" rồi "còn
- * tháng 4 thì sao" thì form mới vẫn phải lọc Miền Bắc, mà chữ đó nằm ở câu
- * TRƯỚC. So chỉ với câu mới nhất là luật tự bác bỏ mọi lượt hỏi tiếp.
- *
- * Nên `loiNguoiDung` là câu mới NỐI câu trước. Luật vẫn giữ đúng nghĩa của nó:
- * giá trị phải là chữ mà CHÍNH NGƯỜI DÙNG đã nói ra, ở đâu đó trong cuộc trò
- * chuyện này — chỉ không còn đòi nó nằm trong câu cuối.
- *
- * Xuất ra để test riêng: đây là luật canh gác, nên nó phải kiểm được một mình.
- */
 export function giuNguyenLoi(loiNguoiDung: string, values: readonly string[]): boolean {
   const q = chuanHoa(loiNguoiDung);
   return values.every((v) => {
@@ -192,7 +55,6 @@ export function giuNguyenLoi(loiNguoiDung: string, values: readonly string[]): b
   });
 }
 
-/** Đọc JSON mô hình trả về, chịu được rào ```json và chữ thừa quanh nó. */
 function docJson(raw: string): unknown {
   const dau = raw.indexOf('{');
   const cuoi = raw.lastIndexOf('}');
@@ -209,78 +71,17 @@ function soNguyenDuong(v: unknown): number | null {
   return Number.isInteger(n) && n > 0 ? n : null;
 }
 
-/**
- * Kiểm form mô hình điền. `null` = bỏ, và bỏ CẢ FORM chứ không vá từng ô.
- *
- * ═══ Vì sao bỏ cả form, không bỏ từng ô sai ═══════════════════════════════
- *
- * Vì vá từng ô đổi CÂU HỎI. Bỏ một `filters` sai đi thì truy vấn còn lại chạy
- * được và trả về một con số đúng — của toàn bộ dữ liệu, cho một câu hỏi về Miền
- * Bắc. Bỏ một `dimensionIds` sai thì còn lại một con số tổng, cho một câu hỏi
- * về từng vùng. Cả hai đều là con số thật trả lời một câu hỏi khác, tức đúng
- * thứ cả thiết kế này dựng lên để chặn.
- *
- * Bỏ cả form thì khung nói "chưa hiểu" — một kết cục nhìn thấy được.
- */
-/** Mọi chữ người dùng đã nói trong cuộc trò chuyện này. */
 function loiNguoiDung(input: DatCauHoiInput): string {
   return input.boiCanh === undefined ? input.cauHoi : `${input.boiCanh.cauHoi} ${input.cauHoi}`;
 }
 
-/**
- * Giá trị này đã nằm trong form ĐÃ ĐƯỢC KIỂM của lượt trước chưa.
- *
- * ═══ Vì sao cần một cửa thứ hai bên cạnh `giuNguyenLoi` ═══════════════════
- *
- * Vì `khoangThoiGian` sinh ra `2026-10-01`, và chuỗi đó không bao giờ có
- * trong lời người dùng. Lượt sau ("còn Miền Nam thì sao") mô hình giữ lại cả
- * form cũ — đúng như nó được dạy — nên nó chép lại cái ngày ấy, rồi
- * `giuNguyenLoi` bác, rồi CẢ FORM bị bỏ. Hậu quả: mọi câu hỏi tiếp sau một
- * câu có mốc thời gian đều thành "chưa hiểu".
- *
- * Luật không bị nới, nó được nói chính xác hơn: giá trị phải là chữ của
- * NGƯỜI DÙNG, hoặc là chữ CHÍNH HỆ NÀY đã dựng và đã kiểm ở lượt trước. Thứ
- * duy nhất vẫn bị chặn — và là thứ luật này sinh ra để chặn — là một chuỗi
- * mô hình tự nghĩ ra.
- *
- * ⚠️ `boiCanh` đi từ client lên, nên nó không được tin vì "backend từng dựng
- * ra nó": nó đã qua `explorerQueryBodySchema` như mọi thân request khác, và
- * mọi `dimensionId` trong đó vẫn bị kiểm lại ở vòng trên. Cái được thừa
- * hưởng chỉ là mấy GIÁ TRỊ — và ai gọi được đường này thì đã có
- * `datamodel:read`, tức đã gọi thẳng `/query` với bất kỳ bộ lọc nào.
- */
 function daTinCay(input: DatCauHoiInput, values: readonly string[]): boolean {
   const cu = new Set((input.boiCanh?.truyVan.filters ?? []).flatMap((f) => f.values));
   return values.every((v) => cu.has(v));
 }
 
-/**
- * Vì sao form bị bỏ — chỉ những lý do NGƯỜI DÙNG LÀM ĐƯỢC GÌ ĐÓ.
- *
- * ═══ Vì sao không phải cả 31 lý do ════════════════════════════════════════
- *
- * `kiemForm` có hơn ba mươi chỗ `return null`, và người dùng thấy đúng một câu
- * "Tôi chưa hiểu câu này" cho cả ba mươi. Phần lớn số đó là "mô hình trả về
- * rác" — nói ra cũng không ai làm gì được, và nó còn phơi ruột của một lớp mà
- * người dùng không cần biết có tồn tại.
- *
- * Ba lý do dưới đây thì khác: mỗi cái ứng với một việc làm được. Nói ra là
- * biến một đường cụt vô hình thành một bước tiếp theo; im lặng là đẩy người ta
- * vào vòng gõ lại bằng cách khác, mà cách nào cũng trượt vì thứ chặn không nằm
- * ở câu chữ.
- *
- * ⚠️ Enum ĐÓNG, và câu chữ do CODE viết (xem `LY_DO_NOI`). Mô hình không góp
- * một ký tự nào vào câu hiện lên màn hình — cùng luật với mọi lớp khác ở đây.
- */
-export type LyDoBoForm =
-  /** Giá trị lọc không phải lời người dùng, và cũng không phải của lượt trước. */
-  | 'gia-tri-la'
-  /** Thước đo không nhận phép gộp mà câu hỏi đòi. */
-  | 'phep-gop-la'
-  /** Câu hỏi có mốc thời gian, mô hình dữ liệu không có cột ngày nào dùng được. */
-  | 'thieu-cot-ngay';
+export type LyDoBoForm = 'gia-tri-la' | 'phep-gop-la' | 'thieu-cot-ngay';
 
-/** Câu nói cho người dùng — một chỗ duy nhất, để không ai viết lại mỗi nơi một kiểu. */
 export const LY_DO_NOI: Record<LyDoBoForm, string> = {
   'gia-tri-la':
     'Tôi không chắc giá trị bạn nói được ghi thế nào trong dữ liệu, nên tôi không ' +
@@ -294,13 +95,6 @@ export const LY_DO_NOI: Record<LyDoBoForm, string> = {
     'Mở tab Schemas và đặt kiểu ngày cho cột thời gian của bảng, rồi hỏi lại.',
 };
 
-/**
- * `kiemForm` kèm lý do — xem `LyDoBoForm`.
- *
- * Tồn tại như một hàm riêng để `kiemForm` giữ nguyên chữ ký: nó được gọi ở hơn
- * ba mươi chỗ trong test, và đổi chữ ký của nó chỉ để lấy một chuỗi là sửa ba
- * mươi chỗ cho một thứ hai mươi bảy chỗ không dùng.
- */
 export function kiemFormCoLyDo(
   tho: unknown,
   input: DatCauHoiInput,
@@ -326,7 +120,6 @@ export function kiemFormCoLyDo(
 export function kiemForm(
   tho: unknown,
   input: DatCauHoiInput,
-  /** Ghi lại lý do bỏ form. Mặc định không ghi gì — xem `kiemFormCoLyDo`. */
   ghi: (ly: LyDoBoForm) => null = () => null,
 ): ExplorerQueryDto | null {
   if (typeof tho !== 'object' || tho === null) return null;
@@ -335,7 +128,6 @@ export function kiemForm(
   const chieuHopLe = new Set(input.truong.filter((t) => t.loai === 'chieu').map((t) => t.id));
   const doHopLe = new Set(input.truong.filter((t) => t.loai === 'thuoc do').map((t) => t.id));
 
-  /** Đọc một mảng id, và trả `null` nếu có BẤT KỲ id nào ngoài danh sách. */
   const docIds = (v: unknown, hopLe: Set<number>): number[] | null => {
     if (v === undefined || v === null) return [];
     if (!Array.isArray(v)) return null;
@@ -521,13 +313,6 @@ export function kiemForm(
   return truyVan;
 }
 
-/**
- * Lượt hỏi trước, viết ra cho mô hình đọc.
- *
- * Gửi JSON của chính cái form, không phải văn xuôi: mô hình phải SỬA một
- * object, và cho nó thấy đúng hình dạng mà nó sắp trả về là cách ngắn nhất để
- * nói điều đó.
- */
 function moTaLuotTruoc(input: DatCauHoiInput): string {
   if (input.boiCanh === undefined) return '';
   return (
@@ -567,13 +352,6 @@ const NHAC = [
   'đúng phần họ vừa nói, giữ nguyên những phần họ không nhắc tới.',
 ].join(' ');
 
-/**
- * Nhờ mô hình điền form. Mọi trục trặc đều ra `truyVan: null`.
- *
- * Cùng khuôn chịu lỗi với `dienDat` và `hieuY`: chưa cấu hình, mất mạng, hết
- * lượt, JSON rác, id bịa — tất cả cho cùng một kết quả, và khung hỏi đáp quay
- * về đúng hành vi nó vẫn có khi không có mô hình nào.
- */
 export async function datCauHoi(input: DatCauHoiInput): Promise<DatCauHoiKetQua> {
   const truong = input.truong.slice(0, TRAN_TRUONG);
   if (!coCauHinhLlm() || truong.length === 0) return { truyVan: null, daHoi: false, lyDo: null };

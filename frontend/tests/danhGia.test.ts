@@ -239,6 +239,23 @@ const MO_HINH: DataModelDto[] = [
 // Nhiều bảng nhất: Global-Superstore 5 · dùng nhiều nhất: Global-Superstore 7
 // Chưa nối đủ: Bán hàng (0 quan hệ cho 3 bảng)
 
+/**
+ * Mốc nạp của từng bộ — và ba quyết định nằm trong mấy con số này.
+ *
+ * `Products` (id 3) là MỚI NHẤT, cố ý không phải bộ đứng đầu danh sách và cũng
+ * không phải bộ nhiều dòng nhất. Cho cả bốn cùng một ngày, hay cho bộ đầu tiên
+ * ngày mới nhất, thì ca "bộ nào cập nhật gần đây nhất" vẫn xanh trong khi code
+ * chỉ cần `ds[0]` — tức bài test xanh mà không canh gì cả.
+ *
+ * `Returns` (id 4) là cũ nhất, để câu hỏi ngược có đáp án khác hẳn.
+ */
+const NGAY_NAP: Record<number, string> = {
+  1: '2026-02-10T08:00:00.000Z',
+  2: '2026-02-11T08:00:00.000Z',
+  3: '2026-03-05T08:00:00.000Z',
+  4: '2026-01-20T08:00:00.000Z',
+};
+
 const BO_DU_LIEU: DatasetDto[] = [
   {
     id: 1,
@@ -306,6 +323,8 @@ const BO_DU_LIEU: DatasetDto[] = [
       sourceSchema: null,
       sourceTable: null,
       connectionName: null,
+      syncedAt: null,
+      loadedAt: NGAY_NAP[d.id] ?? null,
     }) as unknown as DatasetDto,
 );
 // Orders 51.290 dòng / 24 cột · Returns 1.173 dòng (ĐÃ CẮT) / 3 cột
@@ -419,6 +438,62 @@ const KET_NOI: ConnectionDto[] = [
  * `tong` cố ý LỚN hơn số mục (12 so với 4): đó là chuyện bình thường của một
  * danh sách phân trang, và nó bắt mọi phép đếm phải mang vế điều kiện.
  */
+const DON = [
+  {
+    id: 9,
+    orderCode: 'DH2026030001',
+    planName: 'Pro',
+    amountVnd: 2_000_000,
+    status: 'pending',
+    paymentMethodName: 'Chuyển khoản SePay',
+    createdAt: '2026-03-01T03:00:00.000Z',
+    paidAt: null,
+  },
+] as unknown as Parameters<typeof duKienDonHang>[0];
+
+const THANH_VIEN = [
+  {
+    id: 1,
+    fullName: 'Trần Thu Hà',
+    email: 'ha@congty.vn',
+    role: 'admin',
+    jobTitle: 'Trưởng phòng dữ liệu',
+    joinedAt: '2025-11-01T03:00:00.000Z',
+    lastLoginAt: '2026-03-10T03:00:00.000Z',
+    removedAt: null,
+    memberActive: true,
+    userActive: true,
+  },
+  {
+    id: 2,
+    fullName: 'Lê Minh',
+    email: 'minh@congty.vn',
+    role: 'viewer',
+    jobTitle: null,
+    joinedAt: '2026-01-15T03:00:00.000Z',
+    lastLoginAt: null,
+    removedAt: null,
+    memberActive: false,
+    userActive: true,
+  },
+] as unknown as Parameters<typeof duKienThanhVien>[0];
+
+const THANH_TOAN = {
+  plan: { id: 2, name: 'Pro', priceVnd: 2_000_000, durationDays: 30 },
+  subscription: { status: 'active', periodEnd: '2026-04-01T03:00:00.000Z' },
+  usage: {
+    workspaces: { used: 3, limit: 10 },
+    reports: { used: 12, limit: 50 },
+    members: { used: 4, limit: null },
+    storageBytes: { used: 1_048_576, limit: 10_737_418_240 },
+  },
+} as unknown as Parameters<typeof duKienThanhToan>[0];
+
+const WS_CUA_TOI = [
+  { id: 1, name: 'Phân tích' },
+  { id: 2, name: 'Vận hành' },
+];
+
 const HE_THONG: Nguon[] = [
   {
     ten: 'Tổng quan toàn tổ chức',
@@ -427,6 +502,19 @@ const HE_THONG: Nguon[] = [
       ...tomTatMoHinh(MO_HINH, 3, 'trong toàn bộ tổ chức'),
       ...(duKienKetNoi(KET_NOI)[0]?.duKien ?? []),
       ...(duKienTrangChu(trangChu())[0]?.duKien ?? []),
+      /*
+       * Ba module còn lại của hệ thống — workspace, thành viên, gói dịch vụ.
+       *
+       * Thiếu chúng thì "xuyên hệ thống" chỉ có nghĩa với khu DỮ LIỆU, còn đứng
+       * ở trang hồ sơ hỏi "tổ chức đang dùng gói nào" thì bế tắc — dù đó là một
+       * trong những câu đơn giản nhất người ta hỏi.
+       */
+      ...(duKienWorkspace(WS_CUA_TOI)[0]?.duKien ?? []),
+      ...(duKienDonHang(DON, 1)[0]?.duKien ?? []),
+      // Khối hạn mức bị bỏ — xem khối chú thích cùng tên ở `nguCanhHeThong`.
+      ...(duKienThanhToan(THANH_TOAN)[0]?.duKien ?? []).filter(
+        (d) => !d.nhan.startsWith('Đã dùng bao nhiêu'),
+      ),
     ],
   },
   ...duKienKhoDuLieu(BO_DU_LIEU, 12).slice(1),
@@ -569,44 +657,6 @@ const BAO_CAO = [
   },
 ] as unknown as Parameters<typeof duKienDanhSachBaoCao>[0];
 
-const THANH_VIEN = [
-  {
-    id: 1,
-    fullName: 'Trần Thu Hà',
-    email: 'ha@congty.vn',
-    role: 'admin',
-    jobTitle: 'Trưởng phòng dữ liệu',
-    joinedAt: '2025-11-01T03:00:00.000Z',
-    lastLoginAt: '2026-03-10T03:00:00.000Z',
-    removedAt: null,
-    memberActive: true,
-    userActive: true,
-  },
-  {
-    id: 2,
-    fullName: 'Lê Minh',
-    email: 'minh@congty.vn',
-    role: 'viewer',
-    jobTitle: null,
-    joinedAt: '2026-01-15T03:00:00.000Z',
-    lastLoginAt: null,
-    removedAt: null,
-    memberActive: false,
-    userActive: true,
-  },
-] as unknown as Parameters<typeof duKienThanhVien>[0];
-
-const THANH_TOAN = {
-  plan: { id: 2, name: 'Pro', priceVnd: 2_000_000, durationDays: 30 },
-  subscription: { status: 'active', periodEnd: '2026-04-01T03:00:00.000Z' },
-  usage: {
-    workspaces: { used: 3, limit: 10 },
-    reports: { used: 12, limit: 50 },
-    members: { used: 4, limit: null },
-    storageBytes: { used: 1_048_576, limit: 10_737_418_240 },
-  },
-} as unknown as Parameters<typeof duKienThanhToan>[0];
-
 const TRANG_THEM = {
   dsBaoCao: {
     ten: 'Báo cáo (danh sách)',
@@ -666,19 +716,6 @@ const GOI = [
     description: 'Gói cho đội nhỏ',
   },
 ] as unknown as Parameters<typeof duKienBangGia>[0];
-
-const DON = [
-  {
-    id: 9,
-    orderCode: 'DH2026030001',
-    planName: 'Pro',
-    amountVnd: 2_000_000,
-    status: 'pending',
-    paymentMethodName: 'Chuyển khoản SePay',
-    createdAt: '2026-03-01T03:00:00.000Z',
-    paidAt: null,
-  },
-] as unknown as Parameters<typeof duKienDonHang>[0];
 
 const PHUONG_THUC = [
   { id: 1, name: 'Chuyển khoản SePay', provider: 'sepay', isActive: true, isConfigured: false },
@@ -766,10 +803,7 @@ const TRANG_NOT = {
   },
   wsCuaToi: {
     ten: 'Workspace của tôi',
-    nguon: duKienWorkspace([
-      { id: 1, name: 'Phân tích' },
-      { id: 2, name: 'Vận hành' },
-    ]),
+    nguon: duKienWorkspace(WS_CUA_TOI),
     chon: 0,
     heThong: HE_THONG,
   },
@@ -1165,6 +1199,37 @@ const CA: Ca[] = [
   // ─── Trang Kho dữ liệu ────────────────────────────────────────────────────
   { trang: 'khoDuLieu', hoi: 'Orders có bao nhiêu dòng', can: ['51.290'] },
   { trang: 'khoDuLieu', hoi: 'Orders có mấy cột', can: ['24'] },
+
+  /*
+   * ─── NGÀY CẬP NHẬT: ba ca dựng từ đúng hai ảnh chụp máy thật ────────────
+   *
+   * Ca đầu là một kết cục SAI đã đo được: khung trả lời "Số mô hình dữ liệu
+   * dùng Global-Superstore · Orders là 1" cho câu hỏi về thời gian. Nguyên
+   * nhân nằm ở cấu trúc chứ không ở câu chữ — `duKienChung` khai bảy dữ kiện
+   * và KHÔNG cái nào nói về thời gian, nên lớp chọn-nhãn buộc phải chọn một
+   * trong bảy nhãn sai.
+   *
+   * `can: ['Products']` chứ không phải một ngày: tên bộ là thứ không phụ
+   * thuộc múi giờ của máy chạy test, còn chuỗi ngày thì có.
+   */
+  {
+    trang: 'khoDuLieu',
+    hoi: 'bộ dữ liệu nào cập nhật gần đây nhất',
+    can: ['Products'],
+    vi: 'Products nạp 05/03, mới hơn Orders 10/02 — và nó KHÔNG đứng đầu danh sách',
+  },
+  { trang: 'khoDuLieu', hoi: 'Orders cập nhật lần cuối khi nào', can: ['2026'] },
+  /*
+   * Ca thứ ba là ảnh số hai: lọc theo NGƯỠNG trên danh sách. Trước bản này
+   * trang chỉ khai nhãn→giá trị nên `docEieuKien` không có bảng nào để lọc,
+   * và khung trả "chưa hiểu" trong khi con số đang nằm trên màn hình.
+   */
+  {
+    trang: 'khoDuLieu',
+    hoi: 'bộ dữ liệu nào có hơn 50.000 dòng',
+    can: ['Orders'],
+    vi: 'chỉ Orders (51.290) vượt ngưỡng; People 2.501 · Products 10.292 · Returns 1.173',
+  },
   /*
    * ─── THƯ MỤC: cột bên trái bảng, trước đó không trang nào khai ──────────
    */
@@ -1236,6 +1301,45 @@ const CA: Ca[] = [
     hoi: 'Returns có bao nhiêu dòng',
     can: ['1.173', 'bị cắt'],
     vi: 'truncated: con số một mình NÓI DỐI, phải mang điều kiện',
+  },
+  /*
+   * ═══ CÂU HỊI CÓ/KHÔNG ═══════════════════════════════════════════
+   *
+   * Dạng này KHÔNG cần một ý định riêng. Đo 16 câu có/không thật thì 10 câu
+   * đã đúng sẵn qua các lớp cũ — "có bộ nào trên 5000 dòng không" là `loc`,
+   * "có mô hình nào chưa có thước đo không" là `chua_co`, "Boston có cao hơn Acco
+   * không" là `so_sanh`. Cái khung thiếu là dự kiện ĐÚNG/SAI: `truncated` trước
+   * bản này chỉ là một `luuY` đính kèm câu trả lời về số dòng, nên không có gì
+   * để hỏi trực tiếp. Xem khối chú thích ở `duKienChung`.
+   *
+   * ⚠️ Ca thứ tư là CA CANH, và nó bắt đúng một ca tụt đã xảy ra thật: bản đầu
+   * đặt nhãn dự kiện mới theo dạng CÂU HỊI ("Orders có bị cắt bớt không"), và
+   * nhãn ấy chứa đúng hai chữ "có" và "không" có trong MỌI câu hỏi có/không —
+   * nên nó thắng 3–2 trên nhãn "Số dòng của Orders" và làm câu dưới đây bế tắc.
+   * Nhãn phải là một DANH NGỮ ("Orders bị cắt bớt hay đầy đủ"), không phải
+   * một câu hỏi.
+   */
+  {
+    trang: 'khoDuLieu',
+    hoi: 'có bộ nào bị cắt dữ liệu không',
+    can: ['Returns'],
+    khong: ['Orders'],
+    vi: 'TỒN TẠI trên cả danh sách — đi qua `locNguon`, nên giá trị phải là chữ mô tả',
+  },
+  { trang: 'khoDuLieu', hoi: 'bộ Returns có bị cắt không', can: ['bị cắt'] },
+  {
+    trang: 'khoDuLieu',
+    hoi: 'bộ Orders có bị cắt không',
+    can: ['đầy đủ'],
+    khong: [': bị cắt'],
+    vi: 'Chiều PHỦ định — một dự kiện chỉ khai khi cờ BẬT thì câu này không trả lời được',
+  },
+  {
+    trang: 'khoDuLieu',
+    hoi: 'bộ Orders có nhiều dòng không',
+    can: ['51.290'],
+    khong: ['cắt'],
+    vi: 'CA CANH: dự kiện cắt-bớt không được cướp câu hỏi về số dòng',
   },
   {
     trang: 'khoDuLieu',
@@ -1601,6 +1705,507 @@ const CA: Ca[] = [
     can: 'chua-hieu',
     vi: 'CANH BẢO MẬT: bankAccountNo/bankBin CỐ Ý không khai — xem `duKienPhuongThucThanhToan`',
   },
+
+  // ─── Cụm so sánh NGƯỢC: đo bằng 40 câu thăm dò ngoài bộ này ───────────────
+  /*
+   * Ba ca đầu TỪNG LÀ SAI, cùng một gốc: danh sách từ chỉ chiều ngược chỉ có
+   * `ít thấp nhỏ rẻ cũ sớm`, nên "kém"/"tệ"/"yếu" rơi xuống nhánh `cao nhất` và
+   * khung trả về đúng cái NGƯỢC LẠI — Miền Trung 310 cho một câu hỏi mà đáp án
+   * là Miền Bắc 255. Xem `@bi/shared` (`soSanh.ts`) về phép sửa.
+   */
+  { trang: 'bieuDoKhuVuc', hoi: 'miền nào bán kém nhất', can: ['Miền Bắc', '255'] },
+  { trang: 'bieuDoKhuVuc', hoi: 'miền nào bán tệ nhất', can: ['Miền Bắc', '255'] },
+  { trang: 'bieuDoKhuVuc', hoi: 'miền nào yếu nhất', can: ['Miền Bắc', '255'] },
+  /*
+   * ⚠️ CA CANH ĐỘT BIẾN. Nó đỏ ngay nếu ai đó "gọn lại" `chieuSoSanh` thành một
+   * phép quét cả câu: `chuanHoa` bỏ dấu nên "tế" của "thực tế" cũng ra `te`, và
+   * khi đó câu này đọc thành THẤP NHẤT rồi trả về Acco 4.
+   */
+  {
+    trang: 'bieuDo1',
+    hoi: 'số lượng thực tế cao nhất là bao nhiêu',
+    can: ['Staples', '10'],
+    khong: ['Acco'],
+    vi: 'Chữ "tế" ra `te` sau khi bỏ dấu — một phép quét cả câu sẽ lộn ngược câu này',
+  },
+  /*
+   * ⚠️ CA CANH chọn chữ "nhất" CUỐI CÙNG. "cập nhật" chuẩn hoá ra `cap nhat`,
+   * nên câu này có hai chữ `nhat`; đọc ngược từ chữ ĐẦU thì gặp `cap` rồi hết
+   * câu và mất luôn chữ "sớm" đứng sau nó.
+   */
+  /*
+   * ⚠️ Ca này mong đợi TỪ CHỐI, không mong đợi "Returns" — và khoảng cách giữa
+   * hai điều đó là một giới hạn đã biết, không phải một lỗi còn để đó.
+   *
+   * Cột ngày KHÔNG so được bằng số: `soVi` không đọc nổi "20/01/2026", nên
+   * `soSanhNguon` không xếp được các mục theo ngày. Câu này vì vậy không có
+   * đường nào trả lời đúng ở lớp ngoại tuyến.
+   *
+   * Nhưng nó TỪNG trả lời SAI: nhãn "Bộ dữ liệu cập nhật gần đây nhất" khớp đủ
+   * chữ để về đích, và khung đáp "Products" — bộ MỚI nhất cho câu hỏi về bộ CŨ
+   * nhất. Chốt phủ quyết chiều trong `traCuu` đổi nó thành "chưa hiểu".
+   */
+  { trang: 'khoDuLieu', hoi: 'bộ nào cập nhật sớm nhất', can: 'chua-hieu' },
+
+  /* ═══ BẢNG THÔ của trang danh sách — bốn ý định vừa mở ════════════════════
+   *
+   * Đo được trước bản này: biểu đồ 12/12 ý định, bảng thô 12/12, nhưng DANH
+   * SÁCH MỤC chỉ 6/12 — thiếu tổng, trung bình, xếp hạng, lọc theo ngưỡng.
+   * `soSanhNguon` so được giữa các mục nhưng không làm bốn phép ấy.
+   *
+   * Nhóm ca dưới đây đo đúng bốn phép đó, và hai ca cuối là CA CANH: bảng mới
+   * không được cướp câu trả lời mà một dữ kiện đang trả lời đúng.
+   */
+  { trang: 'dsMoHinh', hoi: 'tổng số bảng của các mô hình', can: ['10'] },
+  { trang: 'dsMoHinh', hoi: 'tổng số quan hệ', can: ['5'] },
+  {
+    trang: 'dsMoHinh',
+    hoi: 'xếp hạng mô hình theo số bảng',
+    can: ['Global-Superstore', 'Bán hàng', 'Kho vận'],
+  },
+  {
+    trang: 'dsMoHinh',
+    hoi: 'mô hình nào có hơn 2 bảng',
+    can: ['Global-Superstore', 'Bán hàng'],
+    khong: ['Kho vận'],
+  },
+  { trang: 'dsMoHinh', hoi: 'mô hình nào nhiều báo cáo nhất', can: ['Global-Superstore', '7'] },
+  { trang: 'dsBaoCao', hoi: 'báo cáo nào nhiều biểu đồ nhất', can: ['Tồn kho', '2'] },
+  { trang: 'dsBaoCao', hoi: 'tổng số biểu đồ', can: ['3'] },
+  { trang: 'ketNoi', hoi: 'tổng số bộ dữ liệu của các kết nối', can: ['2'] },
+  {
+    trang: 'ketNoi',
+    hoi: 'kết nối nào có hơn 1 bộ dữ liệu',
+    can: ['MySQL bán hàng'],
+    khong: ['Postgres kho'],
+  },
+  { trang: 'adminToChuc', hoi: 'tổng số người dùng của các tổ chức', can: ['15'] },
+  {
+    trang: 'adminToChuc',
+    hoi: 'tổ chức nào có hơn 5 người dùng',
+    can: ['Công ty ABC'],
+    khong: ['Không gian của Hùng'],
+  },
+  {
+    trang: 'adminToChuc',
+    hoi: 'xếp hạng tổ chức theo số workspace',
+    can: ['Công ty ABC', 'Không gian của Hùng'],
+  },
+  /*
+   * ⚠️ CA CANH: cột "Báo cáo" của bảng mô hình KHÔNG được cướp câu đếm.
+   *
+   * Bảng mới có một cột tên "Báo cáo" chứa SỐ báo cáo đang dùng mỗi mô hình.
+   * Nếu nó trả lời câu này thì nó đếm số GIÁ TRỊ KHÁC NHAU của một cột đếm —
+   * một con số có thật cho một câu hỏi khác — và nó chặn luôn đường sang dữ
+   * kiện xuyên hệ thống vốn trả lời đúng (7 báo cáo trong workspace HR).
+   */
+  { trang: 'dsMoHinh', hoi: 'có bao nhiêu báo cáo', can: ['7'], khong: ['Kho vận'] },
+  /*
+   * ⚠️ CA CANH: bảng chỉ có 2 dòng trong khi workspace có 7 báo cáo. Câu đếm
+   * phải lấy con số của DỮ KIỆN tóm tắt, không phải số dòng đang hiện.
+   */
+  { trang: 'dsBaoCao', hoi: 'có bao nhiêu báo cáo', can: ['7'], khong: ['Có 2'] },
+  /*
+   * TỈ TRỌNG và SO SÁNH trên một danh sách mục — hai ý định vốn bị chốt
+   * "nhường cho tên" của `traLoiTrang` chặn mất.
+   *
+   * Ca đầu TỪNG LÀ SAI: câu gọi tên đúng một mục nên chốt ấy đưa nó cho
+   * `traLoi` của riêng mục đó, mà một mục đứng một mình không có mẫu số, nên
+   * nó trả về "Số bảng trong mô hình Bán hàng: 3" — một con số có thật cho
+   * một câu hỏi về TỈ LỆ.
+   */
+  { trang: 'dsMoHinh', hoi: 'Bán hàng chiếm bao nhiêu % số bảng', can: ['30'], khong: [': 3.'] },
+  { trang: 'dsMoHinh', hoi: 'Bán hàng so với Kho vận về số bảng', can: ['3', '2'] },
+  {
+    trang: 'adminToChuc',
+    hoi: 'Công ty ABC chiếm bao nhiêu % người dùng',
+    can: ['93', '%'],
+  },
+  /*
+   * ⚠️ CA CANH trên trang KẾT NỐI, nơi TÊN mục trùng GIÁ TRỊ của một dữ kiện.
+   *
+   * "mysql" vừa là giá trị của dữ kiện "Kết nối thuộc loại gì", vừa nằm trong
+   * tên mục "MySQL bán hàng". Trước bản này cả bốn cách gõ đều nhận về
+   * `1 mục có "Kết nối thuộc loại gì" là mysql: MySQL bán hàng` — một câu
+   * trả lời ĐÚNG cho câu "kết nối nào là mysql", mà không ai hỏi. `khong`
+   * canh đúng câu ấy.
+   */
+  {
+    trang: 'ketNoi',
+    hoi: 'MySQL bán hàng chiếm bao nhiêu % bộ dữ liệu',
+    can: ['100', '%'],
+    khong: ['là mysql'],
+  },
+  {
+    trang: 'ketNoi',
+    hoi: 'MySQL bán hàng so với Postgres kho về số bộ dữ liệu',
+    can: ['MySQL bán hàng', 'Postgres kho', '2'],
+    khong: ['là postgres'],
+    vi: 'Câu SO SÁNH gọi tên HAI mục — chốt "nhường cho tên" chưa bao giờ che nó',
+  },
+
+  // ─── Câu dài: phần mở đầu lịch sự KHÔNG được đổi câu trả lời ──────────────
+  /*
+   * TỪNG LÀ SAI, và nó cần cả hai nửa để thấy: câu ngắn đã đúng từ trước, câu
+   * dài thì chữ "trong" của phần mở đầu hoà 1–1 với chữ "cột", luật hoà bỏ cả
+   * hai, rồi lượt chấm sau để "dữ liệu" của cùng phần mở đầu ấy thắng — trả về
+   * "Số mô hình dữ liệu dùng: 2" thay cho "Số cột: 24".
+   */
+  { trang: 'khoDuLieu', hoi: 'bộ nào nhiều cột nhất', can: ['Orders', '24'] },
+  {
+    trang: 'khoDuLieu',
+    hoi: 'trong các bộ dữ liệu hiện có thì bộ nào nhiều cột nhất',
+    can: ['Orders', '24'],
+    khong: ['mô hình'],
+    vi: 'Cùng câu hỏi với ca trên, chỉ thêm phần mở đầu lịch sự',
+  },
+
+  /*
+   * ═══ CÂU GHÉP — hỏi hai thứ trong một câu ══════════════════════════
+   *
+   * Năm ca đầu là NĂM ẢNH CHỤP từ buổi thử trên máy thật. Cả năm đều nhận
+   * được đúng MỘT vế, và vế bị bỏ không theo quy luật trước/sau nào — nhãn nào
+   * trùng nhiều chữ hơn thì thắng, nên người hỏi không có cách nào biết mình
+   * vừa mất nửa câu.
+   *
+   * Hai ca cuối là CA CANH theo chiều ngược: câu MỘT Ý không được tự động kèm
+   * thêm một dữ kiện thứ hai, và câu nhập nhằng vẫn phải bỏ cả hai như cũ.
+   */
+  {
+    trang: 'dsMoHinh',
+    hoi: 'mô hình Global-Superstore có bao nhiêu bảng và bao nhiêu thước đo',
+    can: ['5', '3'],
+  },
+  {
+    trang: 'dsMoHinh',
+    hoi: 'mô hình Global-Superstore có bao nhiêu quan hệ và bao nhiêu báo cáo dùng',
+    can: ['4', '7'],
+  },
+  {
+    trang: 'khoDuLieu',
+    hoi: 'bộ Orders có bao nhiêu dòng, bao nhiêu cột và cập nhật lúc nào',
+    can: ['51.290', '24', '2026'],
+    vi: 'Ba vế, và vế thứ ba là CHỮ — nhánh đếm từng lọc bỏ nó trước khi chấm',
+  },
+  {
+    trang: 'dsBaoCao',
+    hoi: 'báo cáo Doanh thu 2026 có mấy trang và ai tạo',
+    can: ['1', 'Mai'],
+  },
+  {
+    trang: 'moHinh',
+    hoi: 'mô hình này có mấy bảng và mấy quan hệ',
+    can: ['Số bảng', 'Số quan hệ'],
+    khong: ['nối'],
+    vi: 'Ô "mấy bảng" đòi một SỐ; nhãn "Quan hệ giữa bảng … và bảng …" nói "bảng" hai lần nên từng cướp mất ô ấy',
+  },
+  {
+    trang: 'khoDuLieu',
+    hoi: 'Orders có bao nhiêu dòng',
+    can: ['51.290'],
+    khong: ['Số cột'],
+    vi: 'CA CANH: câu MỘT Ý không được kèm thêm dữ kiện thứ hai',
+  },
+
+  /*
+   * ═══ Hỏi XUYÊN TRANG — đứng ở trang KHÔNG LIÊN QUAN ═════════════════
+   *
+   * `trang: 'bieuDo1'` là một ô biểu đồ trên trang báo cáo — nó không khai MỘT
+   * dự kiện nào về thành viên, workspace hay gói dịch vụ. Mọi câu dưới đây
+   * chỉ trả lời được qua bản tóm tắt toàn tổ chức, nên chúng canh đúng cái lớp
+   * đó — và canh cả việc ba module mới có mặt trong nó.
+   */
+  { trang: 'hoSo', hoi: 'tổ chức đang dùng gói nào', can: ['Pro'] },
+  { trang: 'hoSo', hoi: 'giá gói đang dùng là bao nhiêu', can: ['2.000.000'] },
+  { trang: 'hoSo', hoi: 'tôi vào được mấy workspace', can: ['2'] },
+  { trang: 'hoSo', hoi: 'tên các workspace tôi vào được', can: ['Phân tích', 'Vận hành'] },
+
+  /*
+   * ═══ PHÉP ĐẾM CHUNG CHUNG CỦA BIỂU ĐỒ ═══════════════════════════
+   *
+   * Nhánh `dem` của biểu đồ đếm số nhóm của chính nó mà KHÔNG đọc câu hỏi.
+   * Đứng ở một ô biểu đồ, mọi câu đếm đều nhận về ĐÚNG MỘT câu:
+   * "Có 5 Product Name trên biểu đồ này". NĂM ca SAI đo được cùng một lúc.
+   *
+   * ⚠️ Ca cuối là CA CANH CHIỀU NGƯỢC, và nó bắt buộc: câu hỏi VỀ CHÍNH biểu
+   * đồ thì phép đếm ấy đúng là đáp án. Chiều của biểu đồ tên là "Product
+   * Name" còn người ta gõ "sản phẩm" — không trùng chữ nào — nên không chữa
+   * được bằng cách đòi câu hỏi gọi tên chiều.
+   */
+  { trang: 'bieuDo1', hoi: 'có bao nhiêu thành viên', can: ['3'], khong: ['Product Name'] },
+  { trang: 'bieuDo1', hoi: 'có bao nhiêu kết nối', can: ['2'], khong: ['Product Name'] },
+  { trang: 'bieuDo1', hoi: 'có mấy đơn hàng', can: ['1'], khong: ['Product Name'] },
+  {
+    trang: 'bieuDo1',
+    hoi: 'có bao nhiêu sản phẩm',
+    can: ['5'],
+    vi: 'CA CANH CHIỀU NGƯỢC: câu về chính biểu đồ thì phép đếm chung chung đúng là đáp án',
+  },
+  /*
+   * ⚠️ CA CANH: câu HƯỚNG DẪN không được nhận về một con số.
+   *
+   * Khi mở cửa tra cứu xuyên hệ thống, câu này trùng ba chữ "bộ dữ liệu" với
+   * nhãn "Số bộ dữ liệu trong toàn bộ tổ chức" rồi nhận về "12" — một con số
+   * thật cho một câu hỏi không hỏi số nào. Ba trên tám chữ của nhãn — chưa tới
+   * một nửa — nên ngưỡng phủ nhãn ở `traLoiHeThong` chặn nó.
+   */
+  { trang: 'khoDuLieu', hoi: 'làm sao để xoá một bộ dữ liệu', can: 'chua-hieu' },
+  /*
+   * ═══ HỎI VỀ HAI THỨ, VÀ "N … NHẤT" ═════════════════════════════
+   *
+   * BỐN ca đầu đều TỪNG LÀ SAI trên bộ 40 câu lạ, và đều SAI theo kiểu khó
+   * thấy nhất: một cái tên thật, một con số thật, cho một câu hỏi khác.
+   *
+   *   "Xerox với Avery cái nào hơn" → Quantity của Xerox là 7.   (bỏ mất Avery)
+   *   "3 cái bán kém nhất"          → Thấp nhất là Acco …          (bỏ mất số 3)
+   *
+   * HAI ca cuối là CA CANH CHIỀU NGƯỢC: chiều mặc định của top N vẫn là CAO
+   * nhất, và câu gọi tên MỘT nhóm trên biểu đồ cột chồng vẫn phải ra TỔNG của
+   * nhóm đó, không phải hai mảnh của nó đem so với nhau.
+   */
+  { trang: 'bieuDo1', hoi: 'Xerox với Avery cái nào hơn', can: ['Xerox', 'Avery', '7', '5'] },
+  { trang: 'bieuDo1', hoi: 'Staples gấp mấy lần Acco', can: ['Staples', 'Acco', '10', '4'] },
+  {
+    trang: 'bieuDo1',
+    hoi: '3 cái bán kém nhất',
+    can: ['Acco', 'Avery', 'Xerox'],
+    khong: ['Staples'],
+  },
+  { trang: 'bieuDo1', hoi: 'top 3 thấp nhất', can: ['Acco', 'Avery', 'Xerox'], khong: ['Staples'] },
+  {
+    trang: 'bieuDo1',
+    hoi: 'top 3 sản phẩm',
+    can: ['Staples', 'Boston', 'Xerox'],
+    khong: ['Acco'],
+    vi: 'CA CANH: không nói chiều thì top N vẫn là CAO nhất',
+  },
+  {
+    trang: 'bieuDoKhuVuc',
+    hoi: 'Miền Nam là bao nhiêu',
+    can: ['290'],
+    khong: ['cao hơn'],
+    vi: 'CA CANH cột chồng: một nhóm trải ra hai dòng, không được đem hai mảnh ấy so với nhau',
+  },
+  /*
+   * ═══ TỪ VỰNG: "đứng đầu" và tiếng Anh ══════════════════════════
+   *
+   * "đứng đầu"/"dẫn đầu" trượt ở CẢ HAI lớp — lớp mô hình từ chối chọn nhãn,
+   * ba lượt gọi trượt cả ba, đo được trong `backend/tests/llmDaGhi.json`. Không lớp
+   * nào đỡ cho lớp nào, nên bảng từ khoá là chỗ duy nhất sửa được.
+   *
+   * Tiếng Anh thì ngược: lớp mô hình lo được cả bốn câu (cũng đo được ở đó).
+   * Nhưng nó chỉ có khi có khoá và có mạng, còn bảng đồng nghĩa thì luôn có —
+   * và cả khung được dựng để chạy đủ khi không có cả hai.
+   */
+  { trang: 'bieuDo1', hoi: 'mặt hàng nào đứng đầu', can: ['Staples', '10'] },
+  { trang: 'bieuDoKhuVuc', hoi: 'nhóm hàng nào dẫn đầu', can: ['Gia dụng'] },
+  { trang: 'bieuDo1', hoi: 'cộng hết lại được bao nhiêu', can: ['35'] },
+  { trang: 'bieuDo1', hoi: 'which product has the highest quantity', can: ['Staples', '10'] },
+  { trang: 'bieuDo1', hoi: 'total quantity', can: ['35'] },
+  { trang: 'khoDuLieu', hoi: 'how many datasets are there', can: ['10'] },
+  /*
+   * ═══ LỌC THEO TỆP NGUỒN ════════════════════════════════════
+   *
+   * Ảnh chụp từ buổi thử: "Kho dữ liệu hiện có bao nhiêu bảng từ file
+   * Global-Superstore?" — và khung trả về TỔNG số bộ của cả workspace, bỏ hẳn vế
+   * lọc. Một con số thật cho một câu hỏi khác.
+   *
+   * Gốc: phép khớp đòi giá trị nằm nguyên cụm trong câu hỏi, mà giá trị là
+   * "global-superstore.xlsx" còn không ai gõ đuôi tệp ra cả.
+   */
+  {
+    trang: 'khoDuLieu',
+    hoi: 'những bộ nào lấy từ file Global-Superstore',
+    can: ['Orders', 'People'],
+    khong: ['Returns'],
+  },
+  { trang: 'khoDuLieu', hoi: 'có bao nhiêu bộ từ file Global-Superstore', can: ['2'] },
+  /*
+   * ═══ BỎ DẤU TẠO RA TỪ GIẢ ═════════════════════════════════
+   *
+   * Bốn ca dưới đây là ảnh chụp từ buổi thử, cộng một ca tự tìm ra khi đi
+   * săn đồng bọn. Tất cả cùng một gốc: hai chữ khác hẳn nhau cho ra cùng một
+   * chuỗi sau khi bỏ dấu.
+   *
+   *   chứa / chưa → chua     đó / đồ → do     máy / mấy → may
+   *
+   * Ca "máy chủ" chưa ai thấy: nó được đọc thành ý định ĐẾM vì chữ "máy".
+   */
+  {
+    trang: 'ketNoi',
+    hoi: 'máy chủ của kết nối MySQL bán hàng là gì',
+    can: ['db.local'],
+    vi: '"máy" bỏ dấu thành "may" — trùng từ khoá đếm "mấy"',
+  },
+  {
+    trang: 'khoDuLieu',
+    hoi: 'Bảng Orders có bao nhiêu dòng, bao nhiêu cột và trạng thái nạp dữ liệu vào kho phân tích là bao nhiêu?',
+    can: ['51.290', '24', 'đã nạp'],
+    khong: ['Số mô hình'],
+    vi: 'Ba vế. Vế "cột" điểm thấp nhất nên từng bị cắt — phải cắt theo thứ tự HỎI, không theo điểm',
+  },
+  {
+    trang: 'khoDuLieu',
+    hoi: 'trong thư mục Chung, bảng nào có số lượng cột ít nhất',
+    can: 'chua-hieu',
+    vi: 'TỪNG LÀ SAI: gộp theo THƯ MỤC rồi so "thấp nhất" trên đúng MỘT thư mục. Lọc theo phạm vi là tính năng chưa có',
+  },
+  { trang: 'khoDuLieu', hoi: 'bảng nào có số lượng cột ít nhất', can: ['Returns', '3'] },
+
+  /*
+   * ═══ HÌNH DẠNG ĐÁP ÁN PHẢI KHỚP TỪ ĐỂ HỎI ══════════════════════════
+   *
+   * NĂM ca đầu đều SAI theo đúng một kiểu: câu hỏi đòi một CÁI TÊN, khung trả
+   * về một PHÉP ĐẾM. Phép chấm nhãn chỉ đếm chữ trùng nên nó không bao giờ hỏi
+   * "thứ này có trả lời được từ để hỏi kia không" — xem `doiTen`.
+   *
+   *   "ai xoá …"            → "Số mô hình dữ liệu dùng Returns: 1"
+   *   "quan hệ nối bảng nào với bảng nào" → "Số mô hình chưa nối đủ: 1"
+   *   "… kiểu gì"           → "Số cột của Orders: 24"
+   *
+   * ⚠️ HAI ca cuối là CA CANH, và cả hai bắt buộc — chúng là hai cách chốt này
+   * đã từng siết quá tay:
+   *   · câu đã GỌI ĐÍCH DANH một mục thì "nào" đã được trả lời, và vế còn lại
+   *     hỏi một con số thật ("bộ nào nhiều dòng nhất" sau khi lọc theo tệp);
+   *   · "có … nào chưa" là câu CÓ/KHÔNG, ở đó một phép đếm đúng là đáp án.
+   */
+  { trang: 'khoDuLieu', hoi: 'ai xoá bộ dữ liệu Returns', can: 'chua-hieu' },
+  { trang: 'dsMoHinh', hoi: 'quan hệ nối bảng nào với bảng nào', can: 'chua-hieu' },
+  { trang: 'khoDuLieu', hoi: 'cột Doanh thu của bộ Orders kiểu gì', can: 'chua-hieu' },
+  {
+    trang: 'khoDuLieu',
+    hoi: 'trong thư mục Bán hàng, bảng nào ít cột nhất',
+    can: 'chua-hieu',
+    vi: 'Tên thư mục là PHẠM VI, không phải chủ thể — từng trả về "Số mục trong Thư mục Bán hàng: 5"',
+  },
+  {
+    trang: 'khoDuLieu',
+    hoi: 'bộ nào chưa nạp vào kho',
+    can: 'chua-hieu',
+    vi: 'Lọc theo GIÁ TRỊ là tính năng chưa có; từng đọc ra tên một KẾT NỐI qua chữ chỉ loại',
+  },
+  {
+    trang: 'khoDuLieu',
+    hoi: 'chỉ tính các bộ từ file products, bộ nào nhiều dòng nhất',
+    can: ['Products'],
+    vi: 'CA CANH: câu gọi đích danh một mục thì "nào" đã được trả lời, con số vẫn phải ra',
+  },
+  {
+    trang: 'dsMoHinh',
+    hoi: 'mô hình Kho vận có thước đo nào chưa',
+    can: ['0'],
+    vi: 'CA CANH: "có … nào chưa" là câu CÓ/KHÔNG — ở đó một phép đếm đúng là đáp án',
+  },
+
+  /*
+   * ═══ SO THEO THỜI GIAN thì ở đây KHÔNG có cột nào so được ══════════
+   *
+   * "cũ nhất" so THỜI GIAN, mà `soVi` không đọc nổi một ngày. Trước bản này câu
+   * ấy vẫn đi hết `soSanhNguon` rồi lấy min trên một cột ĐẾM khớp vài chữ:
+   * "Thấp nhất là People — Số mô hình dữ liệu dùng: 0". Một cái tên thật, một
+   * con số thật, cho một câu hỏi về NGÀY.
+   */
+  { trang: 'khoDuLieu', hoi: 'bộ dữ liệu nào cũ nhất', can: 'chua-hieu' },
+
+  /*
+   * ═══ TỈ TRỌNG trên CỘT CHỒNG ═══════════════════════════════════════
+   *
+   * Nhánh GIÁ TRỊ đã biết gộp cả nhóm từ lâu (ca "Miền Nam là bao nhiêu" ở
+   * trên). Nhánh TỈ TRỌNG thì chưa, và nó sai CẢ TỬ LẪN MẪU: "Miền Trung (Thời
+   * trang) chiếm 11,1 %" trong khi Miền Trung là 310/855 = 36,3 %.
+   *
+   * Ca thứ hai canh chiều CHUỖI — đối xứng, cùng một phép gộp.
+   */
+  {
+    trang: 'bieuDoKhuVuc',
+    hoi: 'Miền Trung chiếm bao nhiêu phần trăm',
+    can: ['36,3', 'cộng qua 3'],
+    khong: ['11,1'],
+  },
+  { trang: 'bieuDoKhuVuc', hoi: 'Gia dụng chiếm bao nhiêu phần trăm', can: ['35,3'] },
+
+  /*
+   * ═══ CỤM LIỀN MẠCH mạnh hơn mấy chữ RỜI ════════════════════════════
+   *
+   * Vế "cơ sở dữ liệu nào" từng nhận về "Số BỘ DỮ LIỆU lấy từ kết nối: 2" — hai
+   * nhãn trùng đúng tám chữ nên chúng hoà, rồi cả hai bị bỏ. Màn hình ghi
+   * "Database" còn người ta gõ "cơ sở dữ liệu": một dòng đồng nghĩa cộng phép
+   * thưởng cho cụm người ta gõ nguyên văn.
+   */
+  {
+    trang: 'ketNoi',
+    hoi: 'kết nối MySQL bán hàng dùng máy chủ nào, cổng nào, cơ sở dữ liệu nào',
+    can: ['db.local', '3306', 'sales'],
+    chip: 1,
+  },
+
+  /*
+   * ═══ MỘT CÂU, HAI PHÉP TÍNH ════════════════════════════════════════
+   *
+   * Máy chia vế của `traCuu` chữa nhánh TRA CỨU và để nhánh TÍNH nguyên vẹn,
+   * nên câu ghép vẫn mất một nửa — xem `tinhHaiVe`:
+   *
+   *   "cao nhất và thấp nhất"              → chỉ Staples
+   *   "tổng doanh thu và doanh thu trung bình" → chỉ 118, mất 590
+   *
+   * Ca cuối là CA CANH: một câu SO SÁNH không được xé làm hai.
+   */
+  {
+    trang: 'bieuDo1',
+    hoi: 'sản phẩm nào cao nhất và sản phẩm nào thấp nhất',
+    can: ['Staples', 'Acco'],
+  },
+  {
+    trang: 'bieuDo1',
+    hoi: 'thấp nhất là cái nào, còn cao nhất là cái nào',
+    can: ['Acco', 'Staples'],
+  },
+  {
+    trang: 'chiTietDataset',
+    hoi: 'tổng doanh thu và doanh thu trung bình là bao nhiêu',
+    can: ['590', '118'],
+  },
+  {
+    trang: 'bieuDo1',
+    hoi: 'Boston so với Acco, cái nào hơn',
+    can: ['Boston', 'Acco', '9', '4'],
+    vi: 'CA CANH: một phép SO SÁNH trên hai mục không được chia thành hai vế',
+  },
+
+  /*
+   * ═══ ĐIỀU KIỆN DỒN VỀ CUỐI, KHÔNG NẰM GIỮA CÂU ═════════════════════
+   *
+   * `ghep` dán điều kiện vào cuối bằng " — ", và câu điều kiện kết thúc giữa mệnh
+   * đề. Nối vế sau vào đó thì nó bị đọc như phần còn lại của điều kiện:
+   * "… chưa phải toàn bộ Nguồn gốc của Returns: returns.csv." — vô nghĩa, và nó
+   * bẻ nghĩa của đúng cái cảnh báo quan trọng nhất trong câu.
+   */
+  {
+    trang: 'khoDuLieu',
+    hoi: 'Returns thật sự có bao nhiêu dòng ở nguồn',
+    can: ['1.173', 'bị cắt'],
+    khong: ['toàn bộ Nguồn gốc'],
+  },
+
+  /*
+   * ⚠️ Nhãn phải nói ra nó là trạng thái CỦA VIỆC GÌ. Chữ "nạp" chỉ có trong
+   * GIÁ TRỊ, nên vế thứ ba của câu này từng mất hẳn.
+   */
+  {
+    trang: 'khoDuLieu',
+    hoi: 'bộ Orders có bao nhiêu dòng, bao nhiêu cột, và nạp xong chưa',
+    can: ['51.290', '24', 'đã nạp'],
+  },
+
+  /*
+   * ═══ NGUYÊN NHÂN và DỰ BÁO: ngoài tầm, và phải nói thế ═════════════
+   *
+   * Khung đọc số liệu, không suy ra nguyên nhân và không ngoại suy. Mà câu gọi
+   * tên một nhóm thì phép tra giá trị vẫn về đích: "vì sao Acco bán ít" nhận về
+   * "Quantity của Acco là 4" — con số đúng, đặt vào chỗ của một lời GIẢI THÍCH.
+   */
+  { trang: 'bieuDo1', hoi: 'vì sao Acco bán ít', can: 'chua-hieu' },
+  { trang: 'bieuDo1', hoi: 'dự báo số lượng tháng sau', can: 'chua-hieu' },
 ];
 
 // ─── Chạy và đếm ─────────────────────────────────────────────────────────────
@@ -1661,7 +2266,7 @@ describe('Bộ đánh giá khung hỏi đáp', () => {
    * nghĩa là thay đổi đó đang đánh đổi câu này lấy câu kia mà không nói ra.
    */
   it('số câu ĐÚNG không được tụt', () => {
-    expect(dem('dung')).toBeGreaterThanOrEqual(190);
+    expect(dem('dung')).toBeGreaterThanOrEqual(276);
   });
 
   /*

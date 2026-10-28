@@ -39,145 +39,22 @@ import {
 } from './traLoi';
 import type { TraLoi } from './traLoi';
 
-/**
- * Khung hỏi đáp nổi ở góc dưới-phải.
- *
- * ═══ Vì sao KHÔNG dùng `components/ui/Modal` ═══════════════════════════════
- *
- * `Modal` dựng trên `<dialog>` + `showModal()`, nên nó khoá phần còn lại của
- * trang: nền thành `inert`, Esc đóng, tiêu điểm bị giam. Với một hộp thoại xác
- * nhận thì đó đúng là thứ cần. Ở đây thì nó che mất chính cái biểu đồ, cái bảng
- * mà người ta đang hỏi về — tức là lấy đi thứ duy nhất giúp họ kiểm lại câu trả
- * lời. Nên đây là một hộp `fixed` thường, và trang vẫn đọc được, vẫn cuộn được.
- *
- * ═══ Màu: MƯỢN của hệ thống, không mang bảng màu riêng ═════════════════════
- *
- * Khung chỉ dùng `brand-*` và `slate-*` — đúng hai thang màu mà mọi màn hình
- * khác đang dùng. Một khung chat mang tông màu riêng (tím, cam…) sẽ đọc ra như
- * một tiện ích của bên thứ ba dán vào góc màn hình, chứ không phải một phần của
- * sản phẩm.
- *
- * Đúng MỘT chỗ lệch có chủ ý: chấm xanh lá "đang đọc". Nó mượn màu dải trạng
- * thái trên bụng con robot, và nó là thứ duy nhất trong khung cần được nhận ra
- * mà không phải đọc chữ.
- *
- * ═══ Vì sao `KHONG_XUAT` ═══════════════════════════════════════════════════
- *
- * Trang báo cáo xuất được ra PNG/PDF, và việc chụp quét cả vùng. Thiếu dấu này
- * thì mọi tệp xuất ra đều có một khung chat dán ở góc. Xem `services/danhDauXuat`.
- *
- * ═══ Khung tự ẩn khi trang chưa khai gì ════════════════════════════════════
- *
- * Trang nào chưa có hàm khai ngữ cảnh thì không có nguồn nào, và một khung mở ra
- * để trả lời "tôi không biết gì về trang này" thì tệ hơn là không có khung. Nó
- * sẽ tự hiện khi trang đó được khai.
- */
-
 interface TinNhan {
-  /**
-   * Mã riêng của từng tin.
-   *
-   * Bản viết lại của mô hình về MUỘN, và nó phải đáp xuống ĐÚNG bong bóng đã
-   * sinh ra nó — không phải bong bóng cuối cùng. Hỏi câu thứ hai trong lúc câu
-   * thứ nhất còn đang bay là chuyện bình thường, và khi đó "cập nhật tin cuối"
-   * sẽ dán câu trả lời của câu một vào dưới câu hỏi hai: một câu đúng, cho một
-   * câu hỏi khác, ở chỗ không ai nghi ngờ.
-   */
   id: number;
   ai: 'nguoi' | 'bot';
   cau: string;
   luc: string;
-  /** Bot không hiểu câu hỏi — vẽ khác, và đọc bằng `role="status"`. */
   chuaHieu?: boolean;
-  /** Câu bấm được, chỉ có ở tin "chưa hiểu" — xem `goiYGan`. */
   goiY?: string[];
-  /**
-   * Mấy nguồn CÙNG trả lời được câu vừa hỏi — xem `nguonMoHo`.
-   *
-   * Mang CHỈ SỐ chứ không mang tên: tên nguồn trùng nhau được (hai ô cùng tiêu
-   * đề trên một khung là chuyện có thật), và một cú bấm phải trỏ đúng ô chứ
-   * không phải ô đầu tiên trùng tên. Cùng lý do dãy chip khoá theo chỉ số.
-   */
   chonNguon?: { nhan: string; i: number }[];
-  /** Câu hỏi gốc, để một cú bấm ở `chonNguon` hỏi lại ĐÚNG nó. */
   cauGoc?: string;
-  /** Biểu đồ dựng sẵn để bấm — chỉ trình dựng có. Xem `deXuatBieuDo`. */
   deXuat?: GoiYBieuDo[];
-  /**
-   * Bot ĐANG soạn — vẽ ba chấm nhấp nháy thay cho chữ.
-   *
-   * ═══ Vì sao nó thay chỗ câu "chưa hiểu" ═══════════════════════════════════
-   *
-   * Trước đây khung hiện "Tôi chưa hiểu câu này" NGAY, rồi vài trăm mili giây
-   * sau mới thay bằng câu trả lời của lớp mô hình. Người dùng đọc được cả hai,
-   * và cái đầu là một lời nói dối ngắn: khung chưa đọc xong thì chưa biết nó
-   * hiểu hay không.
-   *
-   * Ba chấm nói đúng thứ đang xảy ra, và nó chỉ xuất hiện ở nhánh CÓ CHỜ THẬT.
-   * Nhánh trả lời được ngay vẫn hiện thẳng câu trả lời — tốc độ là thứ duy
-   * nhất mà lớp mô hình không làm tốt hơn được.
-   */
   dangSoan?: true;
-  /**
-   * LỚP NÀO đang chạy, nói bằng lời — chỉ có nghĩa cùng `dangSoan`.
-   *
-   * ═══ Vì sao một chuỗi, không phải chỉ ba chấm ═════════════════════════════
-   *
-   * Một câu hỏi số liệu trên trang mô hình đi qua HAI lượt gọi mô hình nối
-   * đuôi nhau: lớp chọn-nhãn đọc thứ trang đang giữ, trượt, rồi lớp điền-form
-   * dựng một truy vấn mới và quét kho. Mỗi lượt một hai giây, nên người dùng
-   * nhìn ba chấm nhấp nháy bốn năm giây mà không biết gì đang xảy ra — và
-   * không biết thì bốn giây dài hơn hẳn bốn giây.
-   *
-   * ⚠️ Lượt gọi thứ hai KHÔNG bỏ được, dù nó tốn. Đã đo và đã thử ba đường:
-   *
-   *   - Bỏ lớp chọn-nhãn khi câu hỏi gọi tên một thước đo: "mô hình này có
-   *     thước đo Doanh thu không" cũng gọi tên thước đo, và nó sẽ nhận về một
-   *     CON SỐ cho một câu hỏi metadata. Đó là SAI, đúng thứ cả khung chặn.
-   *   - Chạy song song hai lớp: mỗi câu metadata trên trang dựng đốt thêm một
-   *     lượt quét ClickHouse và một suất trong hạn mức 20 lượt/10 phút.
-   *   - Song song chỉ phần gọi mô hình: đúng về lý, nhưng phải tách endpoint
-   *     làm hai và thêm một mặt tiếp xúc mới.
-   *
-   * Nên thứ được xoá là sự IM LẶNG, không phải lượt gọi. Và nó nói luôn phạm
-   * vi đang được đọc — cùng việc mà `hieuLa` và `doMoHinh` làm ở chỗ khác.
-   */
   dangLam?: string;
-  /**
-   * Lớp mô hình nào đã tham gia câu này — `undefined` = thuần ngoại tuyến.
-   *
-   * ═══ Vì sao nói ra ở TỪNG CÂU, không chỉ ở tiêu đề ════════════════════════
-   *
-   * Nhãn trên tiêu đề nói "đã cấu hình", mà đã cấu hình không có nghĩa là đang
-   * gọi được: hết lượt miễn phí, mất mạng, khoá hết hạn — ba thứ xảy ra liên
-   * tục và cả ba đều IM LẶNG theo đúng thiết kế của khung.
-   *
-   * Dấu ở từng câu là chỗ duy nhất đọc được trạng thái thật: còn thấy nó nghĩa
-   * là mô hình vẫn đang chạy; cả loạt câu không còn dấu nghĩa là nó đã tắt,
-   * dù tiêu đề vẫn xanh.
-   *
-   * Nó cũng trả lời câu hỏi quan trọng hơn: "con số này do ai tính ra". Không
-   * có dấu = hoàn toàn do máy người dùng. Có dấu = mô hình đã CHỌN hoặc đã
-   * VIẾT LẠI, và cả hai đều không chạm được vào con số.
-   */
   doMoHinh?: string;
-  /**
-   * Cách truy vấn đã được hiểu — chỉ có ở đường đặt câu hỏi MỚI.
-   *
-   * Nó không phải lời giải thích cho đẹp: đó là đường duy nhất trong khung mà
-   * con số được tính bởi một truy vấn do mô hình dựng, nên nó là chỗ duy nhất
-   * một câu trả lời sai KHÔNG tự lộ ra. Xem `services/chat/dienGiai.ts`.
-   */
   hieuLa?: string;
 }
 
-/**
- * RUỘT một tin — mọi thứ trừ mã, vai và giờ.
- *
- * Ba thứ bị trừ ra là ba thứ KHÔNG nhánh nào được phép tự đặt: mã phải chẵn/lẻ
- * đúng cặp, vai thì cố định, giờ phải là giờ lúc tin sinh ra. `day` và `thayBot`
- * đặt cả ba, nên mọi chỗ gọi chỉ còn lo phần nội dung.
- */
 type RuotTin = Omit<TinNhan, 'id' | 'ai' | 'luc'>;
 
 function gioBayGio(): string {
@@ -206,36 +83,8 @@ export function HoiDapPanel(): React.ReactElement | null {
   const demId = useRef(daLuu.current?.demId ?? 0);
   const dayCuon = useRef<HTMLDivElement>(null);
 
-  /**
-   * Lượt hỏi trước của đường đặt-câu-hỏi-mới — bộ nhớ hội thoại.
-   *
-   * ═══ Vì sao mang theo `moHinhId` ══════════════════════════════════════════
-   *
-   * Khung được dựng ở `ProtectedRoute` nên nó KHÔNG bị tháo khi đổi trang —
-   * cuộc trò chuyện ở lại. Mà một form của mô hình số 7 thì vô nghĩa trên mô
-   * hình số 9: id trường của hai mô hình không liên quan gì nhau, và lượt hỏi
-   * tiếp sẽ sửa một form trỏ vào những trường không còn tồn tại.
-   *
-   * Backend sẽ chặn (id lạ -> bỏ cả form), nên hậu quả chỉ là một câu "chưa
-   * hiểu" vô cớ. Nhưng đó vẫn là một câu sai, nên kiểm ngay ở đây rẻ hơn.
-   */
-  /**
-   * Câu NGƯỜI DÙNG hỏi ở lượt trước — bộ nhớ của lớp ngoại tuyến.
-   *
-   * Khác `boiCanh` bên dưới: cái kia nhớ một FORM truy vấn của lớp mô hình,
-   * cái này nhớ đúng mấy chữ người ta vừa gõ, để `traLoiKhung` nối vào một câu
-   * hỏi tiếp rỗng nghĩa. Hai thứ độc lập nhau vì hai lớp độc lập nhau.
-   */
   const [cauTruoc, setCauTruoc] = useState<string | null>(null);
 
-  /**
-   * Người dùng ĐÃ tự chọn nguồn chưa — bằng chip, hay bằng một cú bấm hỏi lại.
-   *
-   * Chừng nào chưa, `chon` vẫn là số 0 mặc định: một lựa chọn KHÔNG ai làm, và
-   * là thứ làm nên cả lỗi mà `nguonMoHo` sinh ra để chặn. Chọn rồi thì thôi hỏi
-   * lại — bắt người ta xác nhận lại cùng một ô ở mỗi câu là một cái khung phiền
-   * hơn là một cái khung cẩn thận.
-   */
   const [daChon, setDaChon] = useState(false);
 
   const [boiCanh, setBoiCanh] = useState<{
@@ -299,19 +148,6 @@ export function HoiDapPanel(): React.ReactElement | null {
   // thay vì vẽ ra một khung trống không giải thích được.
   const nguon: Nguon = nguCanh.nguon[chon] ?? nguCanh.nguon[0]!;
 
-  /**
-   * Đẩy một LƯỢT vào cuối đoạn chat: câu người dùng, rồi bong bóng của bot.
-   *
-   * ═══ Vì sao nó đáng một hàm riêng ══════════════════════════════════════════
-   *
-   * Bốn nhánh của `hoi` từng lặp lại đúng cùng một nghi thức bốn phần — cộng
-   * hai vào `demId`, lấy giờ, nối hai tin, xoá ô nhập. Bốn bản sao của một nghi
-   * thức là bốn chỗ để quên một phần, và phần dễ quên nhất là `setCauHoi('')`:
-   * quên nó thì câu vừa gửi nằm lại trong ô nhập và người dùng gửi lần nữa.
-   *
-   * Cộng HAI vì một lượt là hai tin: mã lẻ cho người, mã chẵn cho bot. Trả về
-   * mã của BOT — mọi lớp mô hình đều vá lại đúng bong bóng đó, qua `thayBot`.
-   */
   function day(q: string, bot: RuotTin): number {
     demId.current += 2;
     const id = demId.current;
@@ -325,25 +161,12 @@ export function HoiDapPanel(): React.ReactElement | null {
     return id;
   }
 
-  /**
-   * Thay RUỘT một bong bóng đã hiện, giữ lại mã–vai–giờ của nó.
-   *
-   * ⚠️ THAY, không TRỘN — và đó là cả lý do nó tồn tại thay vì một phép trộn
-   * chung. `dangSoan` với `dangLam` phải RƠI đi: chúng là ba chấm nhấp nháy và
-   * cái nhãn "đang đọc…", nên trộn chúng vào một câu trả lời đã về là để ba
-   * chấm nhấp nháy mãi mãi bên dưới một con số đã có. Chỗ nào cần trộn thật
-   * thì nói ra tại chỗ, không đi qua đây — xem `vietLai`.
-   */
   function thayBot(id: number, tin: RuotTin): void {
     setTinNhan((cu) =>
       cu.map((t) => (t.id === id ? { id: t.id, ai: t.ai, luc: t.luc, ...tin } : t)),
     );
   }
 
-  /**
-   * @param raw câu để hỏi; mặc định là thứ đang gõ trong ô nhập.
-   * @param ro  chỉ số nguồn người dùng VỪA chỉ đích danh, `null` = chưa chỉ.
-   */
   function hoi(raw: string = cauHoi, ro: number | null = null): void {
     const q = raw.trim();
     if (q === '') return;
@@ -488,20 +311,12 @@ export function HoiDapPanel(): React.ReactElement | null {
     vietLai(q, idBot, kq);
   }
 
-  /**
-   * Tên chiều mà câu vừa rồi tách màu theo — để câu báo gọi đúng chữ trên màn hình.
-   *
-   * Đọc từ `truong`, không đọc từ `chieuPhu` của ngữ cảnh: `chieuPhu` là chiều
-   * đang tách TRƯỚC khi sửa, còn thứ cần in ra là chiều VỪA chọn. Hai cái đó chỉ
-   * trùng nhau khi người dùng tách lại đúng chiều cũ.
-   */
   function tenChieuPhuMoi(nguCanh: NguCanh, sua: SuaBieuDo): string | null {
     const id = sua.chieuPhuId;
     if (id === undefined || id === null) return null;
     return nguCanh.truong?.dimensions.find((d) => d.id === id)?.label ?? null;
   }
 
-  /** Thêm một câu của bot vào cuối, và trả lại mã của nó. */
   function botNoi(cau: string, them: Partial<TinNhan> = {}): number {
     demId.current += 1;
     const id = demId.current;
@@ -509,24 +324,11 @@ export function HoiDapPanel(): React.ReactElement | null {
     return id;
   }
 
-  /**
-   * Bấm "Gợi ý" ở một đề xuất — nói cách kéo, không đụng vào trang.
-   *
-   * Vẫn đi qua lớp diễn đạt như mọi câu khác: tên trường đã nằm trong `so` nên
-   * mô hình viết lại cho mượt được mà không đổi được tên nào.
-   */
   function goiYTuDeXuat(g: GoiYBieuDo): void {
     const kq = cauGoiY(g);
     vietLai(tenDeXuat(g), botNoi(kq.cau), kq);
   }
 
-  /**
-   * Bấm "Vẽ" — điền thẳng vào ô đang chọn.
-   *
-   * Nói ra CẢ Ctrl+Z. Đây là thao tác duy nhất trong khung đụng vào trang, nên
-   * người dùng phải biết đường lùi ngay lúc nó vừa xảy ra, chứ không phải đi
-   * tìm khi đã lỡ.
-   */
   function veTuDeXuat(g: GoiYBieuDo): void {
     nguCanh.veBieuDo?.({ chieuId: g.chieu.id, thuocDoId: g.thuocDo.id, loai: g.loai });
     botNoi(
@@ -534,37 +336,12 @@ export function HoiDapPanel(): React.ReactElement | null {
     );
   }
 
-  /**
-   * Người dùng đã chỉ ra mục họ muốn hỏi — ghi nhớ, rồi hỏi lại chính câu cũ.
-   *
-   * `setChon` để dãy chip chỉ đúng mục vừa chọn: nó là chỗ duy nhất trên màn
-   * hình nói ra khung đang đọc cái gì, và một câu trả lời về ô số 2 nằm dưới
-   * một chip đang sáng ở ô số 1 là mời người đọc gán nhầm nó.
-   *
-   * Vẫn truyền `i` xuống `hoi`: `setChon` chỉ có hiệu lực ở lần render SAU, còn
-   * câu trả lời thì tính ngay bây giờ.
-   */
   function chonRoiHoi(i: number, q: string): void {
     setChon(i);
     setDaChon(true);
     hoi(q, i);
   }
 
-  /**
-   * Hết đường: thay ba chấm bằng câu "chưa hiểu" kèm lối đi tiếp.
-   *
-   * MỌI nhánh bất thành của các lớp mô hình phải đi qua đây. Bỏ sót một nhánh
-   * là ba chấm nhấp nháy mãi mãi — một trạng thái chờ không bao giờ kết thúc,
-   * tệ hơn hẳn một câu "chưa hiểu" tử tế.
-   */
-  /**
-   * Ba trạng thái, ba câu — và không câu nào hứa quá thứ đã làm.
-   *
-   * `goi-hong` sửa một lời nói sai: nhà cung cấp trả 500 hay hết giờ 8 giây mà
-   * khung vẫn khẳng định "tôi đã đọc hết" là nói chắc nịch về một việc chưa hề
-   * xảy ra. Nó cũng là trạng thái TỰ HẾT — nói ra để người dùng thử lại, thay
-   * vì tưởng bot dốt đi.
-   */
   function cauTrangThai(trangThai: HieuCauHoiKetQua['trangThai']): string | undefined {
     if (trangThai === 'da-doc')
       return `Tôi đã đọc hết số liệu đang có trên ${nguCanh.trang} và không có mục nào trả lời được câu này.`;
@@ -573,13 +350,6 @@ export function HoiDapPanel(): React.ReactElement | null {
     return undefined;
   }
 
-  /**
-   * Hai đường cuối cùng, theo thứ tự: đặt một câu hỏi MỚI, rồi mới tới bế tắc.
-   *
-   * Tách ra vì giờ có BA chỗ rơi vào đây — lớp chọn nhãn, lớp chọn cột, và
-   * lượt gọi hỏng của lớp chọn cột. Ba bản sao của cùng một chuỗi quyết định
-   * là ba chỗ để lệch nhau.
-   */
   function duongCuoi(q: string, idBot: number, trangThai: HieuCauHoiKetQua['trangThai']): void {
     const moHinh = moHinhHoiDuoc(q);
     if (moHinh !== null) {
@@ -589,24 +359,6 @@ export function HoiDapPanel(): React.ReactElement | null {
     hetDuong(q, idBot, cauTrangThai(trangThai));
   }
 
-  /**
-   * Bảng đang hiện: nhờ mô hình CHỌN HAI CỘT, rồi tính tại máy này.
-   *
-   * ═══ Vì sao không nhét mấy cột này vào danh sách của `hieuCauHoi` ════════
-   *
-   * Vì lớp ấy chọn MỘT mục, nên một cặp cột phải được liệt kê SẴN thành một
-   * nhãn. Bảng 18 cột chữ × 6 cột số là 108 nhãn, mà trần là 60 — đo được trên
-   * một bảng cỡ thật: 3/6 câu có đáp án bị cắt mất, và mô hình chọn đúng 3/3 ở
-   * mấy câu còn lại. Nút thắt là cái trần, không phải mô hình.
-   *
-   * `phepCuaBangTho` còn cắt sâu hơn nữa — hai cột chữ, hai cột số — vì nó
-   * dựng một danh sách cho NGƯỜI đọc. Dùng lại đúng danh sách ấy làm không
-   * gian lựa chọn của mô hình là lỗi đã gỡ hai lần ở chỗ khác.
-   *
-   * Đường này cho mô hình chọn riêng từng ô: không gian là `18 + 6`, một lượt
-   * gọi, và mọi phép tính vẫn chạy tại máy này trên đúng bảng đang hiện.
-   */
-  /** Trần cột gửi lên, khớp `chonCotBodySchema` và `TRAN_TRUONG` của lớp dưới. */
   const TRAN_COT = 120;
 
   function nhoChonCot(
@@ -725,17 +477,6 @@ export function HoiDapPanel(): React.ReactElement | null {
     });
   }
 
-  /**
-   * Nhờ mô hình viết lại thành câu tiếng Việt tự nhiên, rồi vá vào đúng tin đó.
-   *
-   * Dùng cho CẢ HAI đường ra câu trả lời — phép so từ khoá và đường mô hình
-   * chọn nhãn. Trước đây chỉ đường thứ nhất đi qua đây, nên đúng những câu hỏi
-   * khó nhất (những câu phải nhờ mô hình mới hiểu) lại nhận về câu khô nhất:
-   * một nhãn, một dấu hai chấm, một con số.
-   *
-   * Con số vẫn không đổi được: luật đối chiếu ở backend bỏ cả câu nếu một chuỗi
-   * trong `so` biến mất. Xem `services/chat/dienDat.ts`.
-   */
   function vietLai(q: string, idBot: number, kq: TraLoi): void {
     void dienDatLai({ cauHoi: q, cau: kq.cau, so: kq.so })
       .then((moi) => {
@@ -757,13 +498,6 @@ export function HoiDapPanel(): React.ReactElement | null {
       });
   }
 
-  /**
-   * So từ khoá đã trượt — nhờ mô hình CHỌN một nhãn trong số dữ kiện trang giữ.
-   *
-   * Bong bóng "chưa hiểu" đã hiện rồi, và nó tự nâng cấp tại chỗ khi câu trả
-   * lời về. Cùng khuôn với lớp viết lại: hiện ngay thứ máy này biết, rồi mới
-   * cải thiện — người dùng không bao giờ nhìn một vòng xoay.
-   */
   function nhoMoHinhChon(q: string, idBot: number): void {
     /*
      * Lựa chọn của TRANG xếp trước, rồi mới tới mấy câu xuyên hệ thống.
@@ -860,42 +594,10 @@ export function HoiDapPanel(): React.ReactElement | null {
       });
   }
 
-  /**
-   * Mô hình dữ liệu để đặt một câu hỏi MỚI lên. `null` = không có cái nào.
-   *
-   * Hai nguồn, theo đúng thứ tự này:
-   *
-   *   1. Mô hình mà TRANG đang đứng trên. Người dùng đang nhìn nó, không phải
-   *      gọi tên nó ra mới được hỏi.
-   *   2. Mô hình mà CÂU HỎI gọi tên, trong danh sách xuyên hệ thống.
-   *
-   * (2) là thứ mở đường cho một câu số liệu THẬT hỏi từ BẤT KỲ trang nào. Trước
-   * đó chỉ ba màn khai `moHinhId`, nên đứng ở Kho dữ liệu hỏi "doanh thu Miền Bắc
-   * tháng 3" là bế tắc — dù danh sách mô hình đang nằm sẵn trong tay khung.
-   */
   function moHinhHoiDuoc(q: string): number | null {
     return nguCanh.moHinhId ?? moHinhTheoTen(heThong, q);
   }
 
-  /**
-   * Đường CUỐI: nhờ mô hình ĐẶT MỘT CÂU HỎI MỚI trên mô hình dữ liệu.
-   *
-   * ═══ Vì sao nó đứng cuối, sau cả lớp chọn-nhãn ════════════════════════════
-   *
-   * Vì nó đắt nhất và nguy hiểm nhất.
-   *
-   * Đắt: một lần gọi là một lượt gọi mô hình CỘNG một lượt quét ClickHouse.
-   * Mấy đường trước đó miễn phí hoặc chỉ tốn một lượt gọi mô hình.
-   *
-   * Nguy hiểm: mọi đường trước đó chỉ CHỌN trong thứ đã tính xong, nên câu trả
-   * lời luôn kèm nguyên văn cái nhãn được chọn và người đọc thấy ngay nếu nó
-   * nói chuyện khác. Đường này thì tự dựng một truy vấn mới, và một truy vấn
-   * sai trường vẫn ra một con số đẹp. Đó là lý do câu trả lời của nó LUÔN mang
-   * theo `hieuLa` — xem `services/chat/dienGiai.ts`.
-   *
-   * ⚠️ Chỉ chạy khi trang khai `moHinhId`. Trang Kho dữ liệu hay Hồ sơ không
-   * có mô hình nào, nên ở đó khung dừng ở "chưa hiểu" như trước.
-   */
   function nhoMoHinhHoi(q: string, idBot: number, moHinhId: number): void {
     // Chỉ nhớ lượt trước khi nó thuộc ĐÚNG mô hình này.
     const truoc =
@@ -1228,7 +930,6 @@ export function HoiDapPanel(): React.ReactElement | null {
   );
 }
 
-/** Một bong bóng tin nhắn. */
 function BongBong({
   tin,
   onChon,
@@ -1238,7 +939,6 @@ function BongBong({
 }: {
   tin: TinNhan;
   onChon: (q: string) => void;
-  /** Bấm một mục ở câu hỏi ngược — xem `chonRoiHoi`. */
   onChonNguon?: ((i: number, q: string) => void) | undefined;
   onGoiYDeXuat?: ((g: GoiYBieuDo) => void) | undefined;
   onVeDeXuat?: ((g: GoiYBieuDo) => void) | undefined;
@@ -1344,21 +1044,6 @@ function BongBong({
   );
 }
 
-/**
- * Ba chấm "đang soạn".
- *
- * ═══ Vì sao vẽ tay, không dùng một spinner ════════════════════════════════
- *
- * Vòng xoay nói "hệ thống đang bận"; ba chấm nói "người kia đang viết cho bạn".
- * Ở một khung trò chuyện thì vế thứ hai mới đúng, và nó là quy ước mà ai cũng
- * đọc được mà không phải học.
- *
- * `aria-label` để trình đọc màn hình nói ra điều đó thành lời — ba chấm nhấp
- * nháy là một hình ảnh, và người không nhìn được màn hình sẽ chỉ gặp im lặng.
- *
- * Lệch pha bằng `animationDelay` chứ không bằng ba animation khác nhau: cùng
- * một nhịp, chỉ vào sau nhau, nên không bao giờ trôi lệch khỏi nhau.
- */
 function BaCham(): React.ReactElement {
   return (
     <span
@@ -1378,16 +1063,6 @@ function BaCham(): React.ReactElement {
   );
 }
 
-/**
- * Dãy câu mẫu bấm được.
- *
- * Dùng chung cho màn chào và cho bong bóng "chưa hiểu": hai chỗ này gợi ý cùng
- * một kiểu câu, và hai bản sao sẽ lệch nhau ngay lần đầu có người sửa một bên.
- *
- * `<span>` chứ không `<ul>`: nó nằm TRONG một `<p>`, và `<ul>` trong `<p>` là
- * HTML không hợp lệ — trình duyệt sẽ tự đóng `<p>` lại trước đó và câu trả lời
- * bị tách khỏi gợi ý của chính nó.
- */
 function NutGoiY({
   mau,
   onChon,
@@ -1411,16 +1086,6 @@ function NutGoiY({
   );
 }
 
-/**
- * Một câu trả lời của đường VẼ — hoặc một hướng dẫn, hoặc một câu hỏi ngược.
- *
- * Hai trạng thái, một chỗ dựng: khung có đúng HAI chỗ nói về việc vẽ (trước
- * đường số liệu, và sau khi nó trượt), và hai bản chép tay sẽ lệch nhau ở lần
- * sửa câu chữ đầu tiên.
- *
- * `kq` là `null` ở nhánh hỏi ngược — không có gì để lớp diễn đạt viết lại, vì
- * câu đó chưa chứa một con số hay một tên trường nào để mà giữ.
- */
 function dungCauVe(
   gy: GoiYBieuDo | null,
   moHo: GoiYBieuDo[],
@@ -1440,20 +1105,6 @@ function dungCauVe(
   };
 }
 
-/**
- * Dãy biểu đồ dựng sẵn — mỗi cái hai cú bấm khác hẳn nhau.
- *
- * ═══ Vì sao HAI nút, không phải một ═══════════════════════════════════════
- *
- * Hai người dùng khác nhau đứng trước cùng một đề xuất. Người đang học thì
- * muốn biết nó ĐƯỢC DỰNG RA SAO — kéo trường nào vào đâu — để lần sau tự làm.
- * Người đang vội thì muốn nhìn thấy cái biểu đồ, ngay.
- *
- * Gộp hai thứ đó vào một nút nghĩa là chọn hộ một trong hai, và nhóm còn lại
- * phải làm thêm một bước thừa ở MỌI lần bấm.
- *
- * "Vẽ" đứng sau và là nút duy nhất tô đậm: nó là cái DUY NHẤT đụng vào trang.
- */
 function NutDeXuat({
   mau,
   onGoiY,
@@ -1500,13 +1151,6 @@ function NutDeXuat({
   );
 }
 
-/**
- * Màn chào + câu mẫu, sinh từ CHÍNH nguồn đang chọn.
- *
- * Đây là chỗ nói ra năng lực thật của khung. Một danh sách viết cứng sẽ gợi ý
- * "khu vực nào cao nhất" trên một trang không có biểu đồ nào, tức là dạy người
- * dùng hỏi những câu chắc chắn nhận về "tôi chưa hiểu".
- */
 function ChaoHoi({
   nguon,
   soSanh,
@@ -1517,12 +1161,9 @@ function ChaoHoi({
   onVeDeXuat,
 }: {
   nguon: Nguon;
-  /** Câu mẫu hỏi về CẢ danh sách, không riêng nguồn đang chọn. */
   soSanh: string[];
-  /** Hai lời gọi xuyên hệ thống có dữ liệu hay không — xem `useNguCanhHeThong`. */
   coHeThong: boolean;
   onChon: (q: string) => void;
-  /** Biểu đồ dựng sẵn — chỉ trình dựng có. Xem `deXuatBieuDo`. */
   deXuat: GoiYBieuDo[];
   onGoiYDeXuat: (g: GoiYBieuDo) => void;
   onVeDeXuat: ((g: GoiYBieuDo) => void) | undefined;
@@ -1558,13 +1199,6 @@ function ChaoHoi({
   );
 }
 
-/**
- * Câu mẫu của MỘT nguồn — bốn câu, đúng kiểu mà nguồn đó trả lời được.
- *
- * Một danh sách viết cứng sẽ gợi ý "khu vực nào cao nhất" trên một trang không
- * có biểu đồ nào, tức là dạy người dùng hỏi những câu chắc chắn nhận về "tôi
- * chưa hiểu".
- */
 function cauMau(nguon: Nguon, soSanh: string[]): string[] {
   // Câu so sánh giữa các mục đứng TRƯỚC: đó là nhóm câu hỏi người dùng không
   // đoán được là hỏi được, còn "Số dòng của X?" thì nhìn chip là nghĩ ra.
@@ -1572,24 +1206,6 @@ function cauMau(nguon: Nguon, soSanh: string[]): string[] {
   return [...soSanh, ...tu].slice(0, 4);
 }
 
-/**
- * Con robot của khung hỏi đáp.
- *
- * ═══ Vì sao vẽ tay bằng SVG ════════════════════════════════════════════════
- *
- * Cùng lý do đã ghi ở `components/ui/Field.tsx`: không kéo cả một thư viện icon
- * về cho đúng một hình. Nhưng ở đây còn hai lý do nữa:
- *
- *   - Nó phải đọc được ở 20px (trong bong bóng) lẫn 36px (nút nổi). Một ảnh PNG
- *     dựng 3D nhìn đẹp ở 720px sẽ thành một vệt xám ở cỡ đó, và vẫn ăn vài trăm
- *     KB của mọi lần tải trang.
- *   - Nó nằm trong vùng bị CHỤP khi xuất báo cáo. Hình vector thì nét ở mọi
- *     thang đo; ảnh bitmap phóng theo devicePixelRatio của `modern-screenshot`
- *     sẽ rỗ.
- *
- * `currentColor` KHÔNG dùng ở đây: con robot có bảng màu riêng của nó (trắng,
- * xám, đỏ má, xanh dải). Màu chữ của nút không nói gì về nó.
- */
 function BieuTuongRobot({ className }: { className?: string }): React.ReactElement {
   return (
     <svg viewBox="0 0 48 48" className={className} aria-hidden="true">

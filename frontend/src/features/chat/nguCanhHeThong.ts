@@ -3,6 +3,8 @@ import { useMemo } from 'react';
 
 import { useAuth } from '../../auth/useAuth';
 import { readRememberedWorkspace } from '../../workspace/workspaceStorage';
+import * as billingApi from '../billing/api';
+import { billingKeys } from '../billing/keys';
 import * as moHinhApi from '../datamodels/api';
 import { dataModelKeys } from '../datamodels/keys';
 import * as tenantApi from '../tenant/api';
@@ -11,56 +13,15 @@ import {
   duKienDanhSachMoHinh,
   duKienKetNoi,
   duKienKhoDuLieu,
+  duKienDonHang,
+  duKienThanhToan,
   duKienTrangChu,
+  duKienWorkspace,
   tomTatBoDuLieu,
   tomTatMoHinh,
 } from './duKienTrang';
 import type { Nguon } from './nguCanh';
 
-/**
- * Dữ kiện XUYÊN HỆ THỐNG — thứ khung trả lời được mà trang đang mở không giữ.
- *
- * ═══ Vì sao gọi mấy endpoint ĐÃ CÓ, không dựng một endpoint "hỏi gì cũng trả" ═
- *
- * Vì lớp quyền. `GET /datasets` và `GET /datamodels` đã đi qua
- * `authorize('dataset', 'read')` và `authorize('datamodel', 'read')`, mà
- * `viewer` CỐ Ý không có hai quyền đó (migration 26 xoá khỏi `casbin_rule`).
- * Nên với một viewer, mấy lời gọi này trả 403, `data` là `undefined`, và khung
- * không có nguồn nào của hệ thống — không cần thêm một dòng kiểm quyền nào ở
- * đây, và không có đường nào để quên nó.
- *
- * Một endpoint tổng hợp riêng cho khung hỏi đáp thì ngược lại: nó phải tự dựng
- * lại toàn bộ lớp quyền đó, và mỗi quyền mới thêm vào hệ thống là một chỗ nữa
- * phải nhớ sửa.
- *
- * ═══ Vì sao bỏ trống `workspaceId` ════════════════════════════════════════
- *
- * Người dùng hỏi "xuyên hệ thống", không hỏi "trong workspace đang mở" — và cả
- * hai schema đều hiểu `workspaceId` vắng mặt là CẢ TỔ CHỨC (xem
- * `listDatasetsQuerySchema`). Khung cũng nằm ngoài `WorkspaceProvider`: nó được
- * dựng ở `ProtectedRoute` để phủ cả trang báo cáo, nên nó không có workspace
- * nào trong tay mà đọc. Lấy id từ `localStorage` là nuôi một bản sao thứ hai
- * của trạng thái đó, và một bản sao sẽ cũ — câu trả lời khi ấy nói về workspace
- * người dùng vừa rời.
- *
- * ═══ Chỉ gọi khi khung ĐANG MỞ ════════════════════════════════════════════
- *
- * Khung có mặt trên mọi trang đã đăng nhập. Không có cờ này thì mỗi lần tải bất
- * cứ trang nào cũng là hai request mà phần lớn không ai hỏi tới. Cùng khuôn với
- * `useDataModels(query, { enabled })` và `useDataModelsElsewhere`.
- *
- * Khoá cache dùng CHÍNH hàm khoá của hai tính năng kia, nên `useInvalidateDatasets`
- * và `useInvalidateDataModel` dọn luôn cho chỗ này — không thêm một khoá nữa
- * phải nhớ xoá sau mỗi lần ghi.
- */
-
-/**
- * Trần số mục kéo về.
- *
- * ⚠️ Vượt trần thì câu trả lời so sánh KHÔNG còn là "cao nhất toàn tổ chức".
- * Nó không im: `soSanhNguon` luôn nói ra nó so trên bao nhiêu mục, nên con số
- * đó lệch khỏi tổng là dấu hiệu đọc được ngay trong câu trả lời.
- */
 const TRAN = 200;
 
 const HOI_DATASET = {
@@ -81,7 +42,14 @@ const HOI_MO_HINH = {
   order: 'desc' as const,
 };
 
-/** Phạm vi dán vào nhãn — xem khối `tomTatBoDuLieu` bên `duKienTrang.ts`. */
+const HOI_DON = {
+  page: 1,
+  pageSize: TRAN,
+  status: '' as const,
+  sort: 'createdAt',
+  order: 'desc' as const,
+};
+
 const PHAM = 'trong toàn bộ tổ chức';
 
 export function useNguCanhHeThong(dangMo: boolean): Nguon[] {
@@ -146,12 +114,53 @@ export function useNguCanhHeThong(dangMo: boolean): Nguon[] {
     staleTime: 60_000,
   });
 
+  /*
+   * Ở ĐÂY LÀ BA MODULE CÒN LẠI CỦA HỆ THỐNG: workspace, thành viên, gói dịch vụ.
+   *
+   * Bản tóm tắt cũ chỉ biết bốn loại đối tượng: bộ dữ liệu, mô hình, kết nối,
+   * báo cáo. Nên "hỏi từ bất kỳ trang nào" vẫn tắt ở đúng mấy câu người ta hay
+   * hỏi nhất khi đứng ngoài khu dữ liệu: "ai là quản trị viên", "tổ chức đang
+   * dùng gói nào", "tôi vào được mấy workspace".
+   *
+   * ⚠️ QUYỀN VẪN LÀ QUYỀN CỦA CHÍNH ENDPOINT — không thêm một dòng kiểm nào ở đây.
+   *
+   * Đó là cả lý do lớp này gọi BỐN endpoint riêng thay vì một endpoint "lấy hết".
+   * `GET /billing/me` đi qua `authorize('billing', 'read')`, `GET /members` qua
+   * `authorize('member', 'read')`. Ai không có thì ăn 403, `data` là `undefined`, và
+   * bản tóm tắt thiếu đúng phần đó — không phải vì ai đó nhớ viết một chốt,
+   * mà vì không có đường nào để quên nó. Một endpoint gom hết sẽ đảo chiều đó:
+   * lúc đó quyền là một việc phải nhớ làm.
+   */
+  const workspace = useQuery({
+    queryKey: tenantKeys.workspaces(),
+    queryFn: () => tenantApi.fetchWorkspaces(),
+    enabled: dangMo,
+    staleTime: 60_000,
+  });
+
+  const donHang = useQuery({
+    queryKey: billingKeys.orderList(HOI_DON),
+    queryFn: () => billingApi.fetchOrders(HOI_DON),
+    enabled: dangMo,
+    staleTime: 60_000,
+  });
+
+  const goi = useQuery({
+    queryKey: billingKeys.summary(),
+    queryFn: () => billingApi.fetchBillingSummary(),
+    enabled: dangMo,
+    staleTime: 60_000,
+  });
+
   return useMemo(() => {
     const kd = kho.data;
     const mh = moHinh.data;
     const kn = ketNoi.data;
     const nh = nha.data;
-    if (kd === undefined && mh === undefined && kn === undefined && nh === undefined) return [];
+    const ws = workspace.data;
+    const gi = goi.data;
+    const dh = donHang.data;
+    if ([kd, mh, kn, nh, ws, gi, dh].every((x) => x === undefined)) return [];
 
     // `duKienTrangChu` trả về [nguồn workspace, ...từng thẻ báo cáo]; `duKienKetNoi`
     // trả về [nguồn tóm tắt, ...từng kết nối]. Tách làm đôi ở đây: phần đếm đi
@@ -179,6 +188,32 @@ export function useNguCanhHeThong(dangMo: boolean): Nguon[] {
         ...(mh === undefined ? [] : tomTatMoHinh(mh.items, mh.total, PHAM)),
         ...(dsKetNoi[0]?.duKien ?? []),
         ...(trangChu[0]?.duKien ?? []),
+        ...(ws === undefined ? [] : (duKienWorkspace(ws)[0]?.duKien ?? [])),
+        /*
+         * CHỈ phần tóm tắt của đơn hàng — KHÔNG đưa từng đơn vào danh sách nguồn.
+         *
+         * Đã đo: đổ từng mục của một module mới vào danh sách xuyên hệ thống làm
+         * phép so giữa các mục bắt đầu so nhầm loại này với loại kia — thêm thành
+         * viên vào cho ra bốn câu SAI. Phần tóm tắt thì không có rủi ro đó: nó là
+         * mấy con số của cả tổ chức, không phải một mục đem ra so.
+         */
+        ...(dh === undefined ? [] : (duKienDonHang(dh.items, dh.total)[0]?.duKien ?? [])),
+        /*
+         * ⚠️ CHỈ lấy phần NHẬN DẠNG gói, BỎ khối "Đã dùng bao nhiêu …".
+         *
+         * Khối hạn mức đếm lại workspace, báo cáo, thành viên và dung lượng — đúng
+         * mấy thứ bản tóm tắt này đã khai từ nguồn khác, chỉ khác phạm vi. Hai dự
+         * kiện cùng nói một khái niệm ở hai phạm vi thì không phải thêm một câu trả
+         * lời — chúng HOÀ điểm và luật "phải hơn hẳn ứng viên nhì" bỏ cả hai.
+         *
+         * ĐO ĐƯỢC: "có bao nhiêu thành viên" đang ĐÚNG (3, từ trang chủ) trở
+         * thành bế tắc ngay khi nhãn "Đã dùng bao nhiêu thành viên" được thêm vào.
+         */
+        ...(gi === undefined
+          ? []
+          : (duKienThanhToan(gi)[0]?.duKien ?? []).filter(
+              (d) => !d.nhan.startsWith('Đã dùng bao nhiêu'),
+            )),
       ],
     };
 
@@ -195,5 +230,5 @@ export function useNguCanhHeThong(dangMo: boolean): Nguon[] {
       ...dsKetNoi.slice(1),
       ...trangChu.slice(1),
     ];
-  }, [kho.data, moHinh.data, ketNoi.data, nha.data]);
+  }, [kho.data, moHinh.data, ketNoi.data, nha.data, workspace.data, goi.data, donHang.data]);
 }

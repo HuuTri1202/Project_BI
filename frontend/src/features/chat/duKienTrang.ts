@@ -16,6 +16,7 @@ import {
   type FolderDto,
   type HomeDataDto,
   type OrderDto,
+  ORDER_STATUS_LABELS,
   type PaymentMethodDto,
   type PlanDto,
   type PlatformOverviewDto,
@@ -28,26 +29,8 @@ import {
 } from '@bi/shared';
 
 import { dinhDangDungLuong, dinhDangHanMuc, dinhDangNgay, dinhDangTien } from '../billing/format';
-import type { DuKien, Nguon } from './nguCanh';
+import type { BangTho, DuKien, Nguon } from './nguCanh';
 
-/**
- * Chuyển DTO của từng trang thành dữ kiện hỏi được.
- *
- * ═══ Vì sao gộp ba hàm vào một file ════════════════════════════════════════
- *
- * Chúng là ba phép ánh xạ THUẦN từ DTO sang `Nguon[]` — không state, không
- * hook, không gọi gì. Để cùng chỗ thì chúng test được bằng một file test không
- * cần DOM, và người sửa thấy ngay ba trang đang hứa những gì để mà giữ cho
- * chúng nói cùng một kiểu. Thêm trang mới = thêm một hàm ở đây.
- *
- * ═══ Luật chung: con số nào có ĐIỀU KIỆN thì mang `luuY` ═══════════════════
- *
- * Mỗi lần một hàm ở đây in ra một con số mà con số đó chưa phải toàn bộ sự
- * thật, nó PHẢI nói ra điều kiện. Màn hình còn có chỗ hiện cảnh báo bên cạnh;
- * một câu trả lời thì chỉ có chính nó.
- */
-
-/** Trạng thái nạp kho, đọc thành câu người dùng hiểu. */
 function docTrangThaiNap(ds: DatasetDto): string {
   switch (ds.loadStatus) {
     case 'loaded':
@@ -63,7 +46,6 @@ function docTrangThaiNap(ds: DatasetDto): string {
   }
 }
 
-/** Một câu nói bộ dữ liệu này từ đâu ra. */
 function docNguon(ds: DatasetDto): string {
   if (ds.source === 'file') {
     const ten = ds.originalFilename ?? 'một tệp đã tải lên';
@@ -73,7 +55,40 @@ function docNguon(ds: DatasetDto): string {
   return ds.connectionName === null ? bang : `bảng ${bang} qua kết nối "${ds.connectionName}"`;
 }
 
-/** Dữ kiện chung cho cả trang danh sách và trang chi tiết của một bộ dữ liệu. */
+/*
+ * Mốc cập nhật gần nhất của một bộ dữ liệu, dạng ISO — hoặc `null`.
+ *
+ * `loadedAt` đứng TRƯỚC `syncedAt`: nạp vào kho phân tích là việc xảy ra sau
+ * đồng bộ, nên nó mới là lần cuối con số trên màn hình đổi. Bộ từ tệp không có
+ * `syncedAt`, bộ chưa nạp không có `loadedAt`, nên phải lấy cái nào đang có.
+ *
+ * Trả về nguyên chuỗi ISO chứ không định dạng sẵn: ISO 8601 so sánh bằng chuỗi
+ * ra đúng thứ tự thời gian, nên chỗ nào cần XẾP HẠNG thì dùng thẳng được.
+ */
+function mocCapNhat(ds: DatasetDto): string | null {
+  /*
+   * `?? null` ở cuối KHÔNG thừa dù kiểu khai là `string | null`.
+   *
+   * Kiểu khai là một GIẢ ĐỊNH về mạng, không phải bảo đảm: frontend và backend
+   * triển khai độc lập, nên một bản frontend mới nói chuyện với bản backend cũ
+   * là chuyện bình thường và khi đó trường này VẮNG MẶT. Thiếu dòng này thì
+   * `undefined !== null` lọt qua chốt bên dưới và khung in ra "Invalid Date" —
+   * một dữ kiện hỏng, đứng cạnh sáu dữ kiện đúng.
+   */
+  return ds.loadedAt ?? ds.syncedAt ?? null;
+}
+
+/*
+ * In ngày theo ĐÚNG cách `DatasetsPage` đang in nó.
+ *
+ * Khung nói "25/10/2026" còn bảng ngay cạnh nói "2026-10-25" là bắt người đọc
+ * tự dịch giữa hai bản của cùng một mốc — cùng lý do `formatValue` được dùng
+ * lại thay vì viết phép chia thứ hai.
+ */
+function docNgay(iso: string): string {
+  return new Date(iso).toLocaleDateString('vi-VN');
+}
+
 function duKienChung(ds: DatasetDto): DuKien[] {
   const d: DuKien[] = [
     {
@@ -88,13 +103,89 @@ function duKienChung(ds: DatasetDto): DuKien[] {
       ...(ds.truncated ? { luuY: 'tệp đã bị cắt khi tải lên nên đây chưa phải toàn bộ' } : {}),
     },
     { nhan: `Số cột của ${ds.name}`, gia: String(ds.columnCount) },
+    /*
+     * ⚠️ `truncated` PHẢI là một DỰ KIỆN riêng, không chỉ là `luuY` ở trên.
+     *
+     * `luuY` là chú thích đi KÈM một câu trả lời khác — nó chỉ tối nơi khi người
+     * ta đã hỏi về số dòng. Còn "có bộ nào bị cắt dữ liệu không" hỏi về CHÍNH
+     * cái cờ ấy, và không lớp nào trả lời được một thứ chưa được khai.
+     *
+     * ĐO ĐƯỢC: cả câu danh sách lẩn câu gọi tên ("bộ Orders có bị cắt không")
+     * đều bế tắc, trong khi màn hình ngay cạnh đó đang hiện một nhãn "đã cắt
+     * bớt". Một câu hỏi CÓ/KHÔNG không cần ý định mới nào — các lớp sẵn có trả
+     * lời được hết, miễn là dự kiện tồn tại.
+     *
+     * ⚠️ GIÁ TRỊ là chữ MÔ TẢ, KHÔNG phải "có"/"không" như dự kiện SSL.
+     *
+     * `locNguon` — lớp duy nhất trả lời được câu hỏi trên CẢ danh sách — nhận ra
+     * cột qua GIÁ TRỊ của nó nằm trong câu hỏi, và nó bỏ mọi giá trị ngắn hơn
+     * năm ký tự vì "có"/"không" có trong gần như mọi câu hỏi. Nên một cờ khai
+     * thành "có"/"không" trả lời được câu GỊI TÊN mà không bao giờ trả lời được
+     * câu DANH SÁCH. Chữ mô tả thì được cả hai.
+     *
+     * "bị cắt" chứ không phải "đã cắt bớt" như nhãn trên màn hình: `locNguon` đòi
+     * giá trị nằm nguyên cụm trong câu hỏi, và "bị cắt" nằm trong CẢ hai cách gõ
+     * tự nhiên ("bị cắt dữ liệu", "bị cắt bớt"), còn "đã cắt bớt" thì không nằm
+     * trong cách nào. Đây là ngoại lệ CÓ Ý của luật "lấy chữ trên màn hình".
+     */
+    {
+      nhan: `${ds.name} bị cắt bớt hay đầy đủ`,
+      gia: ds.truncated ? 'bị cắt' : 'đầy đủ',
+    },
     { nhan: `Nguồn gốc của ${ds.name}`, gia: docNguon(ds) },
-    { nhan: `Trạng thái của ${ds.name}`, gia: docTrangThaiNap(ds) },
+    /*
+     * ⚠️ Nhãn phải nói ra đây là trạng thái CỦA VIỆC GÌ — "Trạng thái của
+     * Orders" không nói, và chữ "nạp" chỉ có trong GIÁ TRỊ.
+     *
+     * ĐO ĐƯỢC: "bộ Orders có bao nhiêu dòng, bao nhiêu cột, và NẠP xong chưa"
+     * mất hẳn vế thứ ba — phép chấm nhãn so trên NHÃN, nên chữ duy nhất người
+     * ta gõ ra để chỉ vế ấy không khớp gì cả.
+     */
+    { nhan: `Trạng thái nạp vào kho của ${ds.name}`, gia: docTrangThaiNap(ds) },
     { nhan: `Số mô hình dữ liệu dùng ${ds.name}`, gia: String(ds.datamodelCount) },
   ];
 
+  /*
+   * NGÀY CẬP NHẬT — thiếu nó là một câu SAI, không phải một câu thiếu.
+   *
+   * Trước bản này khung khai bảy dữ kiện cho mỗi bộ và KHÔNG cái nào nói về
+   * thời gian. Hỏi "bộ nào cập nhật gần đây nhất" thì phép so từ khoá trượt,
+   * rơi xuống lớp chọn-nhãn, và mô hình buộc phải chọn một trong bảy nhãn
+   * đang có. Đo được trên máy thật: nó chọn "Số mô hình dữ liệu dùng …" và
+   * trả về "là 1" — một con số THẬT cho một câu hỏi KHÁC.
+   *
+   * Đó đúng là kết cục SAI mà cả khung dựng lên để chặn, và chặn nó không
+   * phải bằng cách dạy mô hình từ chối — mà bằng cách để câu hỏi có một đáp
+   * án thật để khớp vào.
+   */
+  const moc = mocCapNhat(ds);
+  if (moc !== null) {
+    d.push({
+      nhan: `Cập nhật lần cuối của ${ds.name}`,
+      gia: docNgay(moc),
+      // Nói rõ mốc này là mốc GÌ khi nó không phải lần nạp: "cập nhật" của một
+      // bộ chưa nạp nghĩa là đồng bộ cấu trúc, số liệu thì chưa vào kho.
+      ...(ds.loadedAt === null
+        ? { luuY: 'đây là lần đồng bộ từ CSDL nguồn; bộ này chưa nạp vào kho phân tích' }
+        : {}),
+    });
+  }
+
   if (ds.source === 'file') {
-    d.push({ nhan: `Dung lượng tệp của ${ds.name}`, gia: dinhDangDungLuong(ds.fileSizeBytes) });
+    /*
+     * ⚠️ KHÔNG có chữ "tệp" trong nhãn này — cố ý.
+     *
+     * "Tên tệp gốc của X" cũng có chữ ấy, và hai nhãn cùng mang một chữ phân
+     * biệt thì câu hỏi nào chỉ gõ chữ đó sẽ hoà điểm, và luật "phải hơn hẳn
+     * ứng viên nhì" bỏ cả hai.
+     *
+     * ĐO ĐƯỢC: "Orders tạo từ file nào" — ca trượt cuối cùng còn lại của cả
+     * bảng điểm. "file" đổi thành "tệp" qua bảng đồng nghĩa, rồi trùng đúng hai
+     * nhãn này 2–2. Bỏ chữ "tệp" ở đây thì chữ ấy chỉ còn một chủ — mà nhãn
+     * này không mất gì: "dung lượng" vẫn là chữ người ta gõ, và "nặng"/"nhẹ"
+     * đã được bảng đồng nghĩa đưa về "dung lượng" từ trước.
+     */
+    d.push({ nhan: `Dung lượng của ${ds.name}`, gia: dinhDangDungLuong(ds.fileSizeBytes) });
     if (ds.originalFilename !== null) {
       d.push({ nhan: `Tên tệp gốc của ${ds.name}`, gia: ds.originalFilename });
     }
@@ -117,7 +208,6 @@ function duKienChung(ds: DatasetDto): DuKien[] {
  * `pham`.
  */
 
-/** Tên dễ đọc của một đuôi tệp. Người dùng gõ "excel", không gõ "xlsx". */
 const TEN_DUOI = new Map<string, string>([
   ['xlsx', 'Excel'],
   ['xlsm', 'Excel'],
@@ -133,48 +223,81 @@ function loaiTep(ten: string): string {
   return TEN_DUOI.get(duoi) ?? duoi.toUpperCase();
 }
 
-/**
- * Vế điều kiện cho mọi con số ĐẾM TRÊN DANH SÁCH ĐANG CÓ TRONG TAY.
- *
- * ⚠️ Mọi danh sách đều phân trang. Trang Kho dữ liệu thật hiện 20 trên 24 bộ,
- * nên "số tệp Excel" đếm ở đây là số tệp của 20 bộ ĐÃ TẢI, không phải của cả
- * kho. Không nói ra thì nó đọc thành "toàn bộ", và đó là một con số có thật trả
- * lời cho một câu hỏi khác — cùng lý do `luuYCat` và `truncated` tồn tại.
- */
 function luuYChuaDu(hien: number, tong: number): string | undefined {
   return tong > hien
     ? `đếm trên ${hien.toLocaleString('vi-VN')} mục đang hiện, không phải toàn bộ ${tong.toLocaleString('vi-VN')}`
     : undefined;
 }
 
-/**
- * Vế điều kiện khi danh sách ĐANG BỊ LỌC — xem `dangLoc` bên `useListQueryState`.
- *
- * ⚠️ Khác `luuYChuaDu`, và hai cái này không thay nhau được. `luuYChuaDu` nói về
- * phần ĐÃ TẢI của một tập hợp đã xác định ("20 trên 24"); cái này nói rằng chính
- * tập hợp ấy đã bị thu hẹp, nên `tong` không còn là toàn bộ. Gõ "an" vào ô tìm
- * thành viên rồi hỏi "tổ chức có bao nhiêu thành viên" là nhận một con số có
- * thật trả lời cho một câu hỏi khác — và `luuYChuaDu` im lặng ở đó, vì `tong`
- * khớp đúng số dòng đang hiện.
- */
 function luuYLoc(loc: boolean): string | undefined {
   return loc ? 'đếm trên phần ĐANG LỌC, không phải toàn bộ' : undefined;
 }
 
-/** Dán hai vế điều kiện lại — bỏ vế nào không có. */
+/* ═══ BẢNG THÔ của một trang danh sách ═══════════════════════════════════════
+ *
+ * ─── Lỗ mà nó bịt, và vì sao nó bịt được cả bốn lỗ một lúc ─────────────────
+ *
+ * Trang danh sách khai mỗi mục thành một `Nguon` riêng, nên `soSanhNguon` so
+ * được GIỮA các mục: "mô hình nào nhiều bảng nhất" chạy từ lâu. Nhưng nó chỉ
+ * làm được chừng ấy. Đo được trên 12 ý định × 3 loại nguồn:
+ *
+ *   biểu đồ (`bang`)      12/12
+ *   bảng thô (`bangTho`)  12/12
+ *   danh sách mục          6/12   ← thiếu TỔNG, TRUNG BÌNH, XẾP HẠNG, LỌC
+ *
+ * Và bằng chứng trực tiếp rằng `bangTho` là thứ còn thiếu, không phải một phép
+ * tính nào:
+ *
+ *   "xếp hạng bộ dữ liệu theo số dòng"   ĐÚNG       (Kho dữ liệu CÓ khai bảng)
+ *   "xếp hạng mô hình theo số bảng"      chưa hiểu  (trang mô hình KHÔNG khai)
+ *
+ * Nên mỗi trang khai thêm chính cái bảng nó đang in ra màn hình là được cả
+ * bốn ý định kia miễn phí, qua đúng bộ máy `bangTuBangTho` đã có test.
+ *
+ * ─── Ba luật của một bảng khai ở đây ───────────────────────────────────────
+ *
+ * ⚠️ 1. Ô SỐ phải là SỐ THÔ. `oThanhSo` đọc bằng `Number()`, nên một chuỗi
+ * vi-VN như "51.290" ra 51,29 — sai hơn ba nghìn lần, và sai im lặng. Không
+ * bao giờ cho `dinhDangTien`/`dinhDangHanMuc`/`toLocaleString` vào đây.
+ *
+ * ⚠️ 2. TÊN CỘT lấy đúng chữ đang in trên tiêu đề bảng, vì `cotGoiTen` khớp
+ * tên cột như một TỪ NGUYÊN trong câu hỏi. Đặt "Số bảng" thì "mô hình nào
+ * nhiều bảng nhất" trượt — trong câu chỉ có " bang ", không có " so bang ".
+ *
+ * ⚠️ 3. Nhưng KHÔNG đặt tên cột trùng với thứ một DỮ KIỆN đã trả lời. Cột
+ * "Số mô hình dùng" của Kho dữ liệu cố ý không gọn lại thành "Mô hình": gọn
+ * lại thì "có bao nhiêu mô hình" khớp vào cột ấy rồi đếm số giá trị KHÁC NHAU
+ * của một cột đếm — một con số có thật, trả lời câu hỏi khác, và nó chặn luôn
+ * đường sang dữ kiện xuyên hệ thống vốn trả lời đúng câu đó.
+ */
+function bangDanhSach(
+  cot: string[],
+  dong: (string | number | boolean | null)[][],
+  tong: number,
+  don: string,
+): BangTho | undefined {
+  if (dong.length === 0) return undefined;
+  const so = (x: number): string => x.toLocaleString('vi-VN');
+  return {
+    cot,
+    dong,
+    /*
+     * `luuY` BẮT BUỘC nói ra phạm vi. Trang danh sách nào cũng phân trang, và
+     * vài trang còn mặc định lọc; "mục nào cao nhất" tính trên 20 trong 24 là
+     * một con số có thật cho một câu hỏi về cả danh sách.
+     */
+    luuY:
+      tong > dong.length
+        ? `chỉ gồm ${so(dong.length)} ${don} đang hiện trên trang này, không phải toàn bộ ${so(tong)}`
+        : `gồm cả ${so(dong.length)} ${don} trong phạm vi đang xem`,
+  };
+}
+
 function gopLuuY(...phan: (string | undefined)[]): string | undefined {
   const co = phan.filter((x): x is string => x !== undefined && x !== '');
   return co.length === 0 ? undefined : co.join('; ');
 }
 
-/**
- * Bản tóm tắt của một danh sách bộ dữ liệu.
- *
- * Đếm TỆP chứ không đếm BỘ, và đó là phần quan trọng nhất ở đây: một tệp Excel
- * bốn sheet sinh ra BỐN bộ dữ liệu trỏ vào cùng một tệp. Đếm dòng trong bảng rồi
- * gọi đó là "số file excel" là một con số có thật trả lời cho một câu hỏi khác —
- * nên số bộ đi theo trong `luuY`, không đi vào chỗ của con số chính.
- */
 export function tomTatBoDuLieu(ds: DatasetDto[], tong: number, pham: string): DuKien[] {
   const theoLoai = new Map<string, { tep: Set<string>; bo: number }>();
   for (const d of ds) {
@@ -188,9 +311,31 @@ export function tomTatBoDuLieu(ds: DatasetDto[], tong: number, pham: string): Du
 
   const chuaDu = luuYChuaDu(ds.length, tong);
 
+  /*
+   * "Cái nào mới nhất" — CODE tính, không ai xếp hạng hộ.
+   *
+   * Xếp hạng theo cột ngày là thứ `tinhBang` KHÔNG làm được: `cotDoDuoc` chỉ
+   * nhận cột mà mọi ô đều đọc ra số, nên một cột ngày luôn bị loại. Dạy nó
+   * hiểu ngày thì mở luôn cửa cho "tổng của cột ngày" — một con số có thật,
+   * hoàn toàn vô nghĩa, tức đúng loại SAI đang phải chặn.
+   *
+   * Nên phép so nằm ở đây, trên chuỗi ISO (so chuỗi ra đúng thứ tự thời gian),
+   * và kết quả thành MỘT dữ kiện đọc sẵn. Mô hình chỉ còn việc chọn nhãn.
+   */
+  const moiNhat = ds.reduce<DatasetDto | null>((tot, d) => {
+    const a = mocCapNhat(d);
+    if (a === null) return tot;
+    const b = tot === null ? null : mocCapNhat(tot);
+    return b === null || a > b ? d : tot;
+  }, null);
+  const mocMoiNhat = moiNhat === null ? null : mocCapNhat(moiNhat);
+
   return [
     ...dk(`Số bộ dữ liệu ${pham}`, tong),
     ...dk('Tên các bộ dữ liệu đang hiện', ds.map((d) => d.name).join('; ')),
+    ...(moiNhat === null || mocMoiNhat === null
+      ? []
+      : dk('Bộ dữ liệu cập nhật gần đây nhất', `${moiNhat.name} (${docNgay(mocMoiNhat)})`, chuaDu)),
     /*
      * ⚠️ Nhãn cố ý KHÔNG chứa cụm "bộ dữ liệu". Cụm đó đã là của nhãn đầu
      * tiên; dùng lại là hai nhãn hoà điểm trong `traCuu` cho câu "có bao nhiêu bộ
@@ -210,28 +355,73 @@ export function tomTatBoDuLieu(ds: DatasetDto[], tong: number, pham: string): Du
   ];
 }
 
-/**
- * Trang Kho dữ liệu — bản tóm tắt trước, rồi mỗi bộ dữ liệu là một nguồn.
+/*
+ * CHÍNH BẢNG đang hiện trên màn hình, dưới dạng bảng thô.
  *
- * ⚠️ Nguồn TÓM TẮT phải đứng ĐẦU — cùng quy ước mọi danh sách khác đang dùng,
- * và `traLoiHeThong` đọc nó theo đúng vị trí đó. Trước đây danh sách này là danh
- * sách DUY NHẤT không có bản tóm tắt, nên câu "có bao nhiêu bộ dữ liệu" hỏi ngay
- * trên trang Kho dữ liệu lại không có chỗ nào trả lời được.
+ * ─── Lỗ mà nó bịt ──────────────────────────────────────────────────────────
+ *
+ * Trước bản này trang chỉ khai dữ kiện dạng nhãn→giá trị, nên mọi câu LỌC
+ * THEO NGƯỠNG đều bế tắc: "bộ nào có hơn 50.000 dòng" không có bảng nào để
+ * lọc, dù con số đang nằm ngay trên màn hình. `docDieuKien` (các phép `>`,
+ * `<`, `>=`) chỉ chạy bên trong `tinhBang`, mà `tinhBang` cần một bảng.
+ *
+ * Khai bảng này là nối trang vào đúng bộ máy ĐÃ CÓ và đã có test — không
+ * viết thêm phép tính nào.
+ *
+ * ⚠️ Ô số phải là SỐ THÔ, không phải chuỗi đã định dạng. `oThanhSo` đọc bằng
+ * `Number()`, nên "51.290" kiểu vi-VN sẽ ra 51,29 — sai hơn ba nghìn lần, và
+ * sai im lặng.
  */
+function bangKhoDuLieu(ds: DatasetDto[], tong: number): BangTho | undefined {
+  if (ds.length === 0) return undefined;
+  return {
+    /*
+     * Tên cột lấy ĐÚNG tiêu đề đang in trên bảng: Tên · Nguồn · Cột · Dòng.
+     *
+     * Không phải cho đẹp. `cotGoiTen` khớp tên cột như một TỪ NGUYÊN trong câu
+     * hỏi, nên đặt là "Số dòng" thì câu "bộ nào có hơn 50.000 dòng" trượt —
+     * trong câu chỉ có " dong ", không có " so dong ". Người dùng gõ lại đúng
+     * chữ họ đọc được trên màn hình, nên cột phải mang chính chữ đó.
+     */
+    cot: ['Tên', 'Thư mục', 'Nguồn', 'Cột', 'Dòng', 'Số mô hình dùng', 'Cập nhật lần cuối'],
+    dong: ds.map((d) => {
+      const moc = mocCapNhat(d);
+      return [
+        d.name,
+        d.folderName ?? 'Chung',
+        docNguon(d),
+        d.columnCount,
+        d.rowCount,
+        d.datamodelCount,
+        moc === null ? null : docNgay(moc),
+      ];
+    }),
+    /*
+     * `luuY` BẮT BUỘC nói ra phạm vi, và đây là chỗ nó quan trọng nhất của cả
+     * tệp: trang phân trang 20 mục một lần và mặc định lọc theo một thư mục.
+     * "Bộ nào nhiều dòng nhất" tính trên 20 trong 24 là một con số có thật
+     * cho một câu hỏi về cả kho — đúng loại sai mà `truncated` của §7 đã phải
+     * chặn một lần rồi.
+     */
+    luuY:
+      tong > ds.length
+        ? `chỉ gồm ${ds.length.toLocaleString('vi-VN')} bộ đang hiện trên trang này, không phải toàn bộ ${tong.toLocaleString('vi-VN')} bộ của workspace`
+        : `gồm cả ${ds.length.toLocaleString('vi-VN')} bộ trong phạm vi đang xem`,
+  };
+}
+
 export function duKienKhoDuLieu(ds: DatasetDto[], tong = ds.length): Nguon[] {
+  const bangTho = bangKhoDuLieu(ds, tong);
   return [
-    { ten: 'Danh sách bộ dữ liệu', duKien: tomTatBoDuLieu(ds, tong, 'trong workspace này') },
+    {
+      ten: 'Danh sách bộ dữ liệu',
+      duKien: tomTatBoDuLieu(ds, tong, 'trong workspace này'),
+      ...(bangTho === undefined ? {} : { bangTho }),
+    },
     ...ds.map((d) => ({ ten: d.name, duKien: duKienChung(d) })),
   ];
 }
 
-/**
- * Trang chi tiết một bộ dữ liệu — có thêm KIỂU của từng cột.
- *
- * Đây là thứ trang danh sách không có: ở đó chỉ có `columnCount`. Nên câu "cột
- * X kiểu gì" chỉ trả lời được ở trang này, và ở trang danh sách khung sẽ nói
- * "chưa hiểu" thay vì đoán — xem luật hai-dữ-kiện-bằng-điểm trong `traLoi`.
- */
 export function duKienChiTietDataset(
   ds: DatasetDetailDto,
   xemTruoc?: DatasetPreviewDto,
@@ -296,23 +486,6 @@ export function duKienChiTietDataset(
   return [{ ten: ds.name, duKien: d, ...(bangTho === undefined ? {} : { bangTho }) }];
 }
 
-/**
- * Nguồn của TRÌNH DỰNG: ô đang chọn, rồi tới cấu trúc mô hình.
- *
- * ═══ Vì sao tách ra khỏi trang ═════════════════════════════════════════════
- *
- * `ReportBuilderPage` gọi mười hook và kéo theo cả kéo-thả, thu phóng, lịch
- * sử — dựng nó trong jsdom để canh đúng một mảng là một cái giá không đáng.
- * Mà chỗ dễ hỏng lại nằm gọn trong mảng ấy: bỏ `duKienO` ra thì khung im lặng
- * mất khả năng đọc ô đang chọn, và không có gì đỏ.
- *
- * Nên phần thuần tuý ở đây, trang chỉ còn việc đưa vào. Hàm này test được mà
- * không cần một DOM nào.
- *
- * ⚠️ Ô đang chọn đứng TRƯỚC. Backend chỉ lấy 60 nhãn đầu, và `duKienMoHinh`
- * của một mô hình nhiều bảng đẩy ra hàng trăm nhãn — xếp sau là ô người dùng
- * đang nhìn bị cắt sạch trước khi mô hình kịp thấy.
- */
 export function nguonTrinhDung(
   tenO: string | null,
   bang: ReportDataDto | undefined,
@@ -325,28 +498,6 @@ export function nguonTrinhDung(
   ];
 }
 
-/**
- * Kết quả tab KHÁM PHÁ — bảng số người dùng vừa bấm Chạy và đang nhìn vào.
- *
- * ═══ Lỗ hổng mà nó lấp ═════════════════════════════════════════════════════
- *
- * Trang mô hình khai rất kỹ CẤU TRÚC — bảng nào, cột nào, kiểu gì, mấy quan hệ
- * — nhưng không khai một con số nào của KẾT QUẢ. Nên người dùng kéo chiều, kéo
- * thước đo, bấm Chạy, nhìn một bảng đầy số, rồi hỏi "cao nhất là gì" và nhận
- * về "chưa hiểu". Thứ họ đang nhìn thẳng vào lại là thứ khung mù nhất.
- *
- * ═══ Vì sao là `bangTho` chứ không phải `bang` ═════════════════════════════
- *
- * `bang` (`ReportDataDto`) đã có người chọn sẵn MỘT chiều và MỘT thước đo. Kết
- * quả Khám phá thì không: nó có thể ba chiều bốn thước đo, và không cột nào
- * được đề cử. Câu hỏi mới là thứ chọn ra hai cột đó — đúng việc `bangTuBangTho`
- * sinh ra để làm.
- *
- * ⚠️ `luuY` không phải tuỳ chọn. `ExplorerResultDto.truncated` nói kết quả đã
- * chạm trần dòng, và một câu "tổng doanh thu" tính trên phần bị cắt mà đọc
- * thành tổng của cả mô hình thì sai bằng một con số có thật. Cùng cái bẫy đã
- * ghi ở `DatasetPreviewDto`.
- */
 export function duKienKhamPha(kq: ExplorerResultDto | null): Nguon[] {
   if (kq === null || kq.rows.length === 0) return [];
 
@@ -376,33 +527,7 @@ export function duKienKhamPha(kq: ExplorerResultDto | null): Nguon[] {
   ];
 }
 
-/**
- * Trang Mô hình dữ liệu — mỗi BẢNG trong mô hình là một nguồn, cộng một nguồn
- * cho chính mô hình.
- *
- * Câu "mô hình này dựng từ tệp nào" trả lời được nhờ `source`/`originalFilename`
- * vừa thêm vào `DataModelDatasetDto`. Trước đó DTO chỉ có `datasetName` —
- * tên người dùng đặt, không dính gì tới tệp.
- */
-export function duKienMoHinh(
-  m: DataModelDetailDto,
-  /**
-   * Bảng người dùng ĐANG MỞ ở tab Schemas — `DataModelDatasetDto.id`.
-   *
-   * ═══ Vì sao thứ tự ở đây quyết định câu trả lời ══════════════════════════
-   *
-   * Hai chuyện cùng treo vào phần tử đầu mảng. Một, chip mặc định của khung là
-   * nguồn số 0 — nên "cột này kiểu gì" được chấm trên bảng nào là do thứ tự
-   * này quyết. Hai, `duKienPhang` xếp nguồn ĐANG CHỌN lên đầu rồi backend cắt
-   * ở 60 nhãn: một mô hình 8 bảng × 25 cột sinh ra hơn 230 dữ kiện, nên từ
-   * bảng thứ ba trở đi KHÔNG một nhãn nào tới được lớp mô hình.
-   *
-   * Người dùng vừa bấm mở một bảng là đã nói rõ họ đang nhìn bảng nào. Không
-   * đọc lấy điều đó thì khung trả lời về một bảng khác — bằng một con số có
-   * thật, và không có gì trên màn hình nói đó là bảng nào.
-   */
-  bangTruoc?: number | null,
-): Nguon[] {
+export function duKienMoHinh(m: DataModelDetailDto, bangTruoc?: number | null): Nguon[] {
   const tenBang = (i: number): string => {
     const ds = m.datasets[i];
     return ds === undefined ? '' : (ds.displayName ?? ds.datasetName);
@@ -526,14 +651,12 @@ export function duKienMoHinh(
  * — rồi trả lời bằng một ô trống. Thà không có nó.
  */
 
-/** Một dữ kiện, hoặc KHÔNG dữ kiện nào nếu giá trị trống. Dùng với `flatMap`. */
 function dk(nhan: string, gia: string | number | null | undefined, luuY?: string): DuKien[] {
   if (gia === null || gia === undefined || gia === '') return [];
   const doc = typeof gia === 'number' ? gia.toLocaleString('vi-VN') : gia;
   return [{ nhan, gia: doc, ...(luuY === undefined ? {} : { luuY }) }];
 }
 
-/** Trang chủ — workspace đang mở và hai con số của nó. */
 export function duKienTrangChu(home: HomeDataDto): Nguon[] {
   const w = home.workspace.name;
   return [
@@ -563,7 +686,6 @@ export function duKienTrangChu(home: HomeDataDto): Nguon[] {
   ];
 }
 
-/** Danh sách báo cáo. */
 export function duKienDanhSachBaoCao(reports: ReportDto[], tong: number): Nguon[] {
   const mot = (r: ReportDto): DuKien[] => [
     /*
@@ -596,6 +718,39 @@ export function duKienDanhSachBaoCao(reports: ReportDto[], tong: number): Nguon[
     ...dk(`Báo cáo ${r.name} sửa lần cuối lúc nào`, dinhDangNgay(r.updatedAt)),
   ];
 
+  /*
+   * Tiêu đề thật trên `ReportsPage`: Tên · Biểu đồ · Nguồn · Người tạo · Cập
+   * nhật lần cuối.
+   *
+   * ⚠️ HAI chỗ lệch khỏi tiêu đề, cả hai đều có lý do đo được:
+   *
+   *   Cột LOẠI biểu đồ tên là "Loại", không phải "Biểu đồ". Vì cột ĐẾM ô cần
+   *   đúng hai chữ "Biểu đồ" — "báo cáo nào nhiều biểu đồ nhất" là câu người
+   *   ta hỏi, và `cotGoiTen` khớp tên cột như một từ nguyên nên chỉ một trong
+   *   hai cột được mang cái tên ấy. Cột đếm cần nó hơn: lọc và xếp hạng chỉ
+   *   chạy trên cột số, còn lọc theo LOẠI thì `cotQuaGiaTri` tìm bằng chính
+   *   giá trị ("biểu đồ cột") nên không cần tên cột khớp.
+   *
+   *   "Số báo cáo" KHÔNG thành một cột. Mỗi dòng đã là một báo cáo, nên cột
+   *   ấy vô nghĩa — và nó sẽ cướp câu "có bao nhiêu báo cáo" của dữ kiện tóm
+   *   tắt ngay bên trên.
+   */
+  const bangTho = bangDanhSach(
+    ['Tên', 'Loại', 'Nguồn', 'Thư mục', 'Người tạo', 'Biểu đồ', 'Trang', 'Cập nhật lần cuối'],
+    reports.map((r) => [
+      r.name,
+      r.chartType === null ? null : CHART_TYPE_LABELS[r.chartType],
+      r.sourceName,
+      r.folderName ?? 'Chung',
+      r.creatorName,
+      r.canvas?.pages.flatMap((p) => p.visuals).length ?? 1,
+      r.canvas?.pages.length ?? 1,
+      dinhDangNgay(r.updatedAt),
+    ]),
+    tong,
+    'báo cáo',
+  );
+
   return [
     {
       ten: 'Danh sách báo cáo',
@@ -603,24 +758,16 @@ export function duKienDanhSachBaoCao(reports: ReportDto[], tong: number): Nguon[
         ...dk('Số báo cáo trong workspace này', tong),
         ...dk('Tên các báo cáo đang hiện', reports.map((r) => r.name).join('; ')),
       ],
+      ...(bangTho === undefined ? {} : { bangTho }),
     },
     ...reports.map((r) => ({ ten: r.name, duKien: mot(r) })),
   ];
 }
 
-/**
- * Mô hình này chưa nối đủ quan hệ chưa?
- *
- * CÙNG cận dưới mà cột "Quan hệ" trên màn hình đang dùng để treo thẻ "chưa nối
- * đủ": N bảng cần ÍT NHẤT N−1 quan hệ. Một hàm chứ không phải hai phép so chép
- * tay, vì màn hình và câu trả lời lệch nhau một cận là người dùng thấy thẻ cảnh
- * báo rồi nghe khung nói không có gì.
- */
 function chuaNoiDu(m: DataModelDto): boolean {
   return m.relationshipCount < m.datasetCount - 1;
 }
 
-/** Bản tóm tắt của một danh sách mô hình — xem khối ở `tomTatBoDuLieu`. */
 export function tomTatMoHinh(
   models: DataModelDto[],
   tong: number,
@@ -648,61 +795,6 @@ export function tomTatMoHinh(
   ];
 }
 
-/**
- * THƯ MỤC — dùng chung cho cả Kho dữ liệu lẫn Báo cáo (§7.9 và §10.25).
- *
- * Một hàm cho hai tab, đúng như `FolderDto` là một DTO cho hai tab. Cột thư mục
- * nằm ngay bên trái bảng ở cả hai trang, mà trước đó không trang nào khai nó —
- * nhìn thấy mà hỏi không được.
- *
- * ═══ Mỗi thư mục một NGUỒN, không phải một dữ kiện phẳng ═══════════════
- *
- * Bản đầu khai phẳng — "Số mục trong thư mục Chung" nằm chung nguồn với "Số thư
- * mục đang có" — và hai nhãn đó luôn hoà điểm, vì cả hai cùng chứa "thư" và
- * "mục" còn chữ phân biệt chúng là TÊN thư mục. Hoà thì khung bỏ cả hai.
- *
- * Thành nguồn thì `nguonTheoTen` lo chuyện đó: gõ "thư mục Chung" ra là đã nói rõ
- * hỏi thư mục nào, không cần phép chấm điểm đoán hộ. Và `soSanhNguon` được "thư
- * mục nào nhiều mục nhất" miễn phí — cùng lợi ích mà mọi danh sách khác đang có.
- *
- * ⚠️ Nhãn dùng chữ "mục", KHÔNG dùng tên loại ("bộ dữ liệu" hay "báo cáo") —
- * cùng lý do `itemCount` của chính DTO tránh tên loại, và còn vì "Số bộ dữ liệu
- * trong thư mục Chung" sẽ hoà điểm với "Số bộ dữ liệu trong workspace này".
- */
-/**
- * Báo cáo này lấy số từ ĐÂU — dữ kiện gắn vào mọi nguồn của trang xem báo cáo.
- *
- * ═══ Lỗi đo được ═══════════════════════════════════════════════════════════
- *
- * Người dùng thật, lượt đầu tiên sau khi bật sổ ghi câu trượt, hỏi "lấy từ đâu
- * ra đó" trên trang xem báo cáo. Khung trả lời "tôi chưa hiểu" — và nó chưa
- * hiểu thật, vì trang đó khai `duKien: []`: nguồn duy nhất nó có là BẢNG SỐ của
- * từng ô. Cả hai lớp đều bó tay cùng một lý do, không phải hai lý do khác nhau:
- * phép so từ khoá không có nhãn nào để so, và mô hình không có mục nào để chọn.
- *
- * Mà câu đó CÓ đáp án, nằm sẵn trong tay trang: `ReportDto` mang đủ `source`,
- * `sourceName` và `datasetSource`. Không thiếu dữ liệu — chỉ thiếu một bản khai.
- *
- * ═══ Vì sao trả `DuKien[]` chứ không phải `Nguon[]` như mọi hàm khác ═══════
- *
- * Hai dữ kiện này nói về CẢ BÁO CÁO, không về riêng ô nào. Dựng chúng thành
- * một nguồn riêng là thêm một con chip nữa vào hàng chọn ô, cho một thứ không
- * phải một ô — người dùng sẽ phải chọn "báo cáo X" để hỏi về chính cái báo cáo
- * họ đang mở.
- *
- * Nên chúng được gắn vào MỌI nguồn của trang. Lặp lại không tốn gì:
- * `duKienPhang` và `luaChonTrang` đều gạt trùng theo `nhan`, nên trần 60 nhãn
- * gửi lên mô hình chỉ tốn đúng hai chỗ dù khung có mười hai ô.
- *
- * Và câu trả lời GIỐNG HỆT nhau ở mọi nguồn, nên `nguonMoHo` không hỏi ngược
- * "bạn muốn hỏi biểu đồ nào" — nó chỉ hỏi khi hai nguồn cho hai câu KHÁC nhau.
- * Đó là lý do cái chốt ấy đếm câu trả lời chứ không đếm số nguồn khớp.
- *
- * ⚠️ Nhãn là CỤM DANH TỪ, không phải câu hỏi. Đặt nhãn thành "...lấy từ đâu"
- * thì nó khớp đúng một câu tui vừa nhìn thấy, và trượt mọi cách nói khác —
- * đúng cái bẫy "danh sách từ viết tay" đã gỡ khỏi đường vẽ. Việc hiểu "lấy từ
- * đâu ra đó" là việc của lớp mô hình, và nó làm được ngay khi có nhãn để chọn.
- */
 export function duKienNguonBaoCao(r: ReportDto): DuKien[] {
   return [
     ...dk(
@@ -749,29 +841,10 @@ export function duKienThuMuc(thuMuc: FolderDto[]): Nguon[] {
   }));
 }
 
-/**
- * Tổng số mục THẬT của workspace, dựng từ chính cột thư mục đang hiện.
- *
- * ═══ Vì sao `total` của danh sách KHÔNG dùng được ═══════════════════════════
- *
- * Hai trang danh sách có cột thư mục đều MẶC ĐỊNH lọc theo Chung
- * (`DEFAULTS.folder`), nên `total` mà API trả về chỉ là số mục CHƯA xếp thư
- * mục. Khai con số ấy dưới nhãn "… trong workspace này" là một con số có thật
- * trả lời cho một câu hỏi khác — và nó sai ngay khi người dùng vừa mở trang,
- * không cần ai bấm gì.
- *
- * ⚠️ "Chung" đi riêng vì nó KHÔNG phải một thư mục: backend cố ý không trả nó
- * trong `items` (xem route `/report-folders`), nên cộng thẳng `items` là thiếu
- * đúng phần lớn nhất.
- *
- * Không thêm một request nào: `GET /dataset-folders` đã về cùng lúc với danh
- * sách, và cột bên trái đang hiện đúng mấy con số này.
- */
 export function tongTheoThuMuc(chungCount: number, thuMuc: FolderDto[]): number {
   return thuMuc.reduce((t, m) => t + m.itemCount, chungCount);
 }
 
-/** Hai con số về CẢ cột thư mục — nối vào bản tóm tắt của danh sách. */
 export function tomTatThuMuc(thuMuc: FolderDto[]): DuKien[] {
   if (thuMuc.length === 0) return [];
   return [
@@ -780,12 +853,36 @@ export function tomTatThuMuc(thuMuc: FolderDto[]): DuKien[] {
   ];
 }
 
-/** Danh sách mô hình dữ liệu. */
 export function duKienDanhSachMoHinh(models: DataModelDto[], tong: number, loc = false): Nguon[] {
+  /*
+   * Tiêu đề thật trên `DataModelsPage`: Tên · Bảng · Thước đo · Quan hệ ·
+   * Báo cáo · Người tạo · Cập nhật lần cuối.
+   *
+   * ⚠️ "Báo cáo" cố ý ĐỂ NGUYÊN chứ không đổi thành "Số báo cáo dùng", khác
+   * cách cột "Số mô hình dùng" của Kho dữ liệu phải làm. Lý do là trang này
+   * KHÔNG có dữ kiện nào đếm báo cáo, nên không có đáp án nào để nó cướp —
+   * còn "mô hình nào nhiều báo cáo nhất" thì chỉ khớp được khi cột tên đúng
+   * hai chữ ấy. Có ca canh trong bộ đánh giá cho cả hai chiều.
+   */
+  const bangTho = bangDanhSach(
+    ['Tên', 'Bảng', 'Thước đo', 'Quan hệ', 'Báo cáo', 'Người tạo', 'Cập nhật lần cuối'],
+    models.map((m) => [
+      m.name,
+      m.datasetCount,
+      m.measureCount,
+      m.relationshipCount,
+      m.reportCount,
+      m.creatorName,
+      dinhDangNgay(m.updatedAt),
+    ]),
+    tong,
+    'mô hình',
+  );
   return [
     {
       ten: 'Danh sách mô hình dữ liệu',
       duKien: tomTatMoHinh(models, tong, 'trong workspace này', loc),
+      ...(bangTho === undefined ? {} : { bangTho }),
     },
     ...models.map((m) => ({
       ten: m.name,
@@ -821,8 +918,27 @@ export function duKienDanhSachMoHinh(models: DataModelDto[], tong: number, loc =
   ];
 }
 
-/** Danh sách kết nối cơ sở dữ liệu. */
 export function duKienKetNoi(conns: ConnectionDto[]): Nguon[] {
+  /*
+   * ⚠️ Cột đếm tên là "Bộ dữ liệu", không phải "Tập dữ liệu" như tiêu đề đang
+   * in trên `ConnectionsPage`. Luật "lấy đúng chữ trên màn hình" nhường ở đây
+   * vì chính màn hình đang lệch với cả phần còn lại của sản phẩm: mục sidebar
+   * là "Kho dữ liệu", mọi dữ kiện nói "bộ dữ liệu", và người dùng gõ lại chữ
+   * họ gặp nhiều nhất. Một tiêu đề lẻ không đủ để đổi từ vựng của cả hệ thống.
+   */
+  const bangTho = bangDanhSach(
+    ['Tên', 'Loại', 'Máy chủ', 'Database', 'Bộ dữ liệu', 'Kiểm tra gần nhất'],
+    conns.map((c) => [
+      c.name,
+      c.kind,
+      `${c.host}:${String(c.port)}`,
+      c.databaseName,
+      c.datasetCount,
+      c.lastTestedAt === null ? 'chưa kiểm tra lần nào' : dinhDangNgay(c.lastTestedAt),
+    ]),
+    conns.length,
+    'kết nối',
+  );
   return [
     {
       ten: 'Danh sách kết nối',
@@ -830,6 +946,7 @@ export function duKienKetNoi(conns: ConnectionDto[]): Nguon[] {
         ...dk('Số kết nối đang có', conns.length),
         ...dk('Tên các kết nối', conns.map((c) => c.name).join('; ')),
       ],
+      ...(bangTho === undefined ? {} : { bangTho }),
     },
     ...conns.map((c) => ({
       ten: c.name,
@@ -857,7 +974,6 @@ export function duKienKetNoi(conns: ConnectionDto[]): Nguon[] {
   ];
 }
 
-/** Danh sách thành viên tổ chức. */
 export function duKienThanhVien(members: AdminUserDto[], tong: number, loc = false): Nguon[] {
   const vaiTro = (r: AdminUserDto['role']): string =>
     r === 'admin' ? 'quản trị viên' : r === 'creator' ? 'người tạo' : 'người xem';
@@ -898,12 +1014,6 @@ export function duKienThanhVien(members: AdminUserDto[], tong: number, loc = fal
   ];
 }
 
-/**
- * Danh sách workspace.
- *
- * Con số này là phạm vi CỦA NGƯỜI ĐANG ĐĂNG NHẬP, không phải của cả tổ chức —
- * từ migration 40 hai thứ đó khác nhau, nên nhãn phải nói rõ.
- */
 export function duKienWorkspace(ws: { id: number; name: string }[]): Nguon[] {
   return [
     {
@@ -916,7 +1026,6 @@ export function duKienWorkspace(ws: { id: number; name: string }[]): Nguon[] {
   ];
 }
 
-/** Thông tin tổ chức. */
 export function duKienToChuc(t: { name: string; slug: string }): Nguon[] {
   return [
     {
@@ -926,7 +1035,6 @@ export function duKienToChuc(t: { name: string; slug: string }): Nguon[] {
   ];
 }
 
-/** Trang Thanh toán — gói đang dùng, hạn mức và mức đã dùng. */
 export function duKienThanhToan(s: BillingSummaryDto): Nguon[] {
   const muc = (ten: string, u: { used: number; limit: number | null }, byte = false): DuKien[] =>
     dk(
@@ -960,8 +1068,35 @@ export function duKienThanhToan(s: BillingSummaryDto): Nguon[] {
   ];
 }
 
-/** Bảng giá. */
+const BYTE_MOT_GB = 1024 ** 3;
+
 export function duKienBangGia(plans: PlanDto[]): Nguon[] {
+  /*
+   * ⚠️ SỐ THÔ, không phải `dinhDangTien`/`dinhDangHanMuc` — hai hàm đó trả về
+   * chuỗi vi-VN ("1.990.000 ₫", "Không giới hạn"), và `oThanhSo` đọc chúng
+   * thành 1,99 hoặc `null`. Cả cột mất quyền tính toán vì một dấu chấm.
+   *
+   * `null` của hạn mức nghĩa là KHÔNG GIỚI HẠN, và để nguyên `null` là đúng:
+   * `cotDoDuoc` bỏ qua ô rỗng, nên gói không giới hạn không bị đọc thành gói
+   * hạn mức 0 — tức không bao giờ thành "gói ít báo cáo nhất".
+   *
+   * Dung lượng đổi sang GB vì đó là con số đang in trên màn hình; để nguyên
+   * byte là câu trả lời đọc ra "53.687.091.200" cho một dòng ghi "50 GB".
+   */
+  const bangTho = bangDanhSach(
+    ['Tên', 'Giá', 'Chu kỳ', 'Workspace', 'Báo cáo', 'Thành viên', 'Dung lượng'],
+    plans.map((p) => [
+      p.name,
+      p.priceVnd,
+      p.durationDays,
+      p.maxWorkspaces,
+      p.maxReports,
+      p.maxMembers,
+      p.maxStorageBytes === null ? null : Math.round(p.maxStorageBytes / BYTE_MOT_GB),
+    ]),
+    plans.length,
+    'gói',
+  );
   return [
     {
       ten: 'Bảng giá',
@@ -969,6 +1104,7 @@ export function duKienBangGia(plans: PlanDto[]): Nguon[] {
         ...dk('Có mấy gói đang bán', plans.length),
         ...dk('Tên các gói đang bán', plans.map((p) => p.name).join('; ')),
       ],
+      ...(bangTho === undefined ? {} : { bangTho }),
     },
     ...plans.map((p) => ({
       ten: p.name,
@@ -997,8 +1133,20 @@ export function duKienBangGia(plans: PlanDto[]): Nguon[] {
   ];
 }
 
-/** Danh sách đơn hàng. */
 export function duKienDonHang(orders: OrderDto[], tong: number, loc = false): Nguon[] {
+  // Tiêu đề thật trên `OrdersPage`: Mã đơn · Gói · Số tiền · Trạng thái · Tạo lúc.
+  const bangTho = bangDanhSach(
+    ['Mã đơn', 'Gói', 'Số tiền', 'Trạng thái', 'Tạo lúc'],
+    orders.map((o) => [
+      o.orderCode,
+      o.planName,
+      o.amountVnd,
+      ORDER_STATUS_LABELS[o.status],
+      dinhDangNgay(o.createdAt),
+    ]),
+    tong,
+    'đơn',
+  );
   return [
     {
       ten: 'Danh sách đơn hàng',
@@ -1007,6 +1155,7 @@ export function duKienDonHang(orders: OrderDto[], tong: number, loc = false): Ng
         ...dk('Số đơn đang chờ thanh toán', orders.filter((o) => o.status === 'pending').length),
         ...dk('Mã các đơn đang hiện', orders.map((o) => o.orderCode).join('; ')),
       ],
+      ...(bangTho === undefined ? {} : { bangTho }),
     },
     ...orders.map((o) => ({
       ten: `Đơn ${o.orderCode}`,
@@ -1036,12 +1185,10 @@ export function duKienDonHang(orders: OrderDto[], tong: number, loc = false): Ng
  * nhau ngay lần đầu có người thêm một trường.
  */
 
-/** Trang sửa một kết nối. `null` khi đang TẠO MỚI — chưa có gì để hỏi. */
 export function duKienMotKetNoi(conn: ConnectionDto | null): Nguon[] {
   return conn === null ? [] : duKienKetNoi([conn]).slice(1);
 }
 
-/** Màn mua gói: gói đang mua, kèm chu kỳ người dùng vừa chọn trên bảng giá. */
 export function duKienMuaGoi(plan: PlanDto | undefined, cycle: BillingCycle): Nguon[] {
   if (plan === undefined) return [];
   const [goi] = duKienBangGia([plan]).slice(1);
@@ -1060,15 +1207,6 @@ export function duKienMuaGoi(plan: PlanDto | undefined, cycle: BillingCycle): Ng
   ];
 }
 
-/**
- * Trang một đơn hàng — màn chờ tiền về.
- *
- * ⚠️ Mượn `duKienDonHang`, và đó là CHỖ CHẶN: `OrderDetailDto` còn mang
- * `bankAccountNo`, `bankBin`, `bankAccountName` và `qrPayload` (chuỗi EMVCo có
- * sẵn số tài khoản bên trong). `duKienDonHang` chỉ đọc các trường của `OrderDto`
- * nên bốn thứ đó không có đường nào đi vào câu trả lời — xem cùng lý do đã ghi ở
- * `duKienPhuongThucThanhToan`.
- */
 export function duKienMotDonHang(order: OrderDto | undefined): Nguon[] {
   return order === undefined ? [] : duKienDonHang([order], 1).slice(1);
 }
@@ -1083,7 +1221,6 @@ export function duKienMotDonHang(order: OrderDto | undefined): Nguon[] {
  * người không vào được console lại hỏi ra số liệu của console.
  */
 
-/** Trang tổng quan hệ thống. */
 export function duKienTongQuanHeThong(o: PlatformOverviewDto): Nguon[] {
   return [
     {
@@ -1100,8 +1237,20 @@ export function duKienTongQuanHeThong(o: PlatformOverviewDto): Nguon[] {
   ];
 }
 
-/** Danh sách tổ chức trong console. */
 export function duKienDanhSachToChuc(ts: PlatformTenantDto[], tong: number, loc = false): Nguon[] {
+  // Tiêu đề thật: Tên công ty · Trạng thái · Người dùng · Workspace · Ngày tạo.
+  const bangTho = bangDanhSach(
+    ['Tên công ty', 'Người dùng', 'Workspace', 'Trạng thái', 'Ngày tạo'],
+    ts.map((t) => [
+      t.name,
+      t.userCount,
+      t.workspaceCount,
+      t.isActive ? 'đang hoạt động' : 'đã khoá',
+      dinhDangNgay(t.createdAt),
+    ]),
+    tong,
+    'tổ chức',
+  );
   return [
     {
       ten: 'Danh sách tổ chức',
@@ -1110,6 +1259,7 @@ export function duKienDanhSachToChuc(ts: PlatformTenantDto[], tong: number, loc 
         ...dk('Số không gian cá nhân đang hiện', ts.filter((t) => t.isPersonal).length),
         ...dk('Tên các tổ chức đang hiện', ts.map((t) => t.name).join('; ')),
       ],
+      ...(bangTho === undefined ? {} : { bangTho }),
     },
     ...ts.map((t) => ({
       ten: t.name,
@@ -1127,8 +1277,28 @@ export function duKienDanhSachToChuc(ts: PlatformTenantDto[], tong: number, loc 
   ];
 }
 
-/** Danh sách người dùng trong console. */
 export function duKienDanhSachNguoiDung(us: PlatformUserDto[], tong: number, loc = false): Nguon[] {
+  /*
+   * Tiêu đề thật: Họ và tên · Email · Tổ chức · Gói dịch vụ · Trạng thái ·
+   * Đăng nhập gần nhất.
+   *
+   * Cột "Tổ chức" ở đây là một SỐ ĐẾM (người này thuộc mấy tổ chức), đúng như
+   * màn hình đang in, nên "người dùng nào thuộc nhiều tổ chức nhất" chạy được.
+   */
+  const bangTho = bangDanhSach(
+    ['Họ và tên', 'Email', 'Chức danh', 'Vai trò', 'Tổ chức', 'Trạng thái', 'Đăng nhập gần nhất'],
+    us.map((u) => [
+      u.fullName,
+      u.email,
+      u.jobTitle,
+      u.platformRole === 'superadmin' ? 'superadmin' : 'người dùng thường',
+      u.tenants.length,
+      u.isActive ? 'đang mở' : 'đã khoá',
+      u.lastLoginAt === null ? 'chưa đăng nhập lần nào' : dinhDangNgay(u.lastLoginAt),
+    ]),
+    tong,
+    'người dùng',
+  );
   return [
     {
       ten: 'Danh sách người dùng',
@@ -1137,6 +1307,7 @@ export function duKienDanhSachNguoiDung(us: PlatformUserDto[], tong: number, loc
         ...dk('Số superadmin đang hiện', us.filter((u) => u.platformRole === 'superadmin').length),
         ...dk('Tên các người dùng đang hiện', us.map((u) => u.fullName).join('; ')),
       ],
+      ...(bangTho === undefined ? {} : { bangTho }),
     },
     ...us.map((u) => ({
       ten: u.fullName,
@@ -1159,12 +1330,24 @@ export function duKienDanhSachNguoiDung(us: PlatformUserDto[], tong: number, loc
   ];
 }
 
-/** Danh sách workspace trong console — xuyên mọi tổ chức. */
 export function duKienWorkspaceHeThong(
   ws: PlatformWorkspaceDto[],
   tong: number,
   loc = false,
 ): Nguon[] {
+  // Tiêu đề thật: Tổ chức · Workspace · Trạng thái · Báo cáo.
+  const bangTho = bangDanhSach(
+    ['Workspace', 'Tổ chức', 'Báo cáo', 'Trạng thái', 'Ngày tạo'],
+    ws.map((w) => [
+      w.name,
+      w.tenantName,
+      w.reportCount,
+      w.isActive ? 'đang hoạt động' : 'đã khoá',
+      dinhDangNgay(w.createdAt),
+    ]),
+    tong,
+    'workspace',
+  );
   return [
     {
       ten: 'Danh sách workspace toàn hệ thống',
@@ -1172,6 +1355,7 @@ export function duKienWorkspaceHeThong(
         ...dk('Số workspace toàn hệ thống', tong, luuYLoc(loc)),
         ...dk('Tên các workspace đang hiện', ws.map((w) => w.name).join('; ')),
       ],
+      ...(bangTho === undefined ? {} : { bangTho }),
     },
     ...ws.map((w) => ({
       ten: `${w.name} (${w.tenantName})`,
@@ -1186,7 +1370,6 @@ export function duKienWorkspaceHeThong(
   ];
 }
 
-/** Phương thức thanh toán trong console. */
 export function duKienPhuongThucThanhToan(ms: PaymentMethodDto[]): Nguon[] {
   return [
     {
@@ -1226,12 +1409,6 @@ export function duKienPhuongThucThanhToan(ms: PaymentMethodDto[]): Nguon[] {
   ];
 }
 
-/**
- * Hồ sơ của chính người đang đăng nhập.
- *
- * ⚠️ Chỉ những gì CHÍNH HỌ thấy trên màn hình hồ sơ. Không có gì về người khác,
- * và không có gì về mật khẩu.
- */
 export function duKienHoSo(u: {
   fullName: string;
   email: string;

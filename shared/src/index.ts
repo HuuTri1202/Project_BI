@@ -32,6 +32,11 @@ export * from './dto';
 export * from './folder';
 export * from './platform';
 export * from './rbac';
+/**
+ * `soSanh` là luật NGÔN NGỮ, không phải DTO: hai lớp của khung hỏi đáp (một ở
+ * frontend, một ở backend) phải đọc "kém nhất" ra cùng một chiều.
+ */
+export * from './soSanh';
 export * from './report';
 export * from './reportFolder';
 export * from './workspace';
