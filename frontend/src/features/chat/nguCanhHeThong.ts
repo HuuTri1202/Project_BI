@@ -3,6 +3,8 @@ import { useMemo } from 'react';
 
 import { useAuth } from '../../auth/useAuth';
 import { readRememberedWorkspace } from '../../workspace/workspaceStorage';
+import * as billingApi from '../billing/api';
+import { billingKeys } from '../billing/keys';
 import * as moHinhApi from '../datamodels/api';
 import { dataModelKeys } from '../datamodels/keys';
 import * as tenantApi from '../tenant/api';
@@ -11,7 +13,9 @@ import {
   duKienDanhSachMoHinh,
   duKienKetNoi,
   duKienKhoDuLieu,
+  duKienThanhToan,
   duKienTrangChu,
+  duKienWorkspace,
   tomTatBoDuLieu,
   tomTatMoHinh,
 } from './duKienTrang';
@@ -101,12 +105,45 @@ export function useNguCanhHeThong(dangMo: boolean): Nguon[] {
     staleTime: 60_000,
   });
 
+  /*
+   * Ở ĐÂY LÀ BA MODULE CÒN LẠI CỦA HỆ THỐNG: workspace, thành viên, gói dịch vụ.
+   *
+   * Bản tóm tắt cũ chỉ biết bốn loại đối tượng: bộ dữ liệu, mô hình, kết nối,
+   * báo cáo. Nên "hỏi từ bất kỳ trang nào" vẫn tắt ở đúng mấy câu người ta hay
+   * hỏi nhất khi đứng ngoài khu dữ liệu: "ai là quản trị viên", "tổ chức đang
+   * dùng gói nào", "tôi vào được mấy workspace".
+   *
+   * ⚠️ QUYỀN VẪN LÀ QUYỀN CỦA CHÍNH ENDPOINT — không thêm một dòng kiểm nào ở đây.
+   *
+   * Đó là cả lý do lớp này gọi BỐN endpoint riêng thay vì một endpoint "lấy hết".
+   * `GET /billing/me` đi qua `authorize('billing', 'read')`, `GET /members` qua
+   * `authorize('member', 'read')`. Ai không có thì ăn 403, `data` là `undefined`, và
+   * bản tóm tắt thiếu đúng phần đó — không phải vì ai đó nhớ viết một chốt,
+   * mà vì không có đường nào để quên nó. Một endpoint gom hết sẽ đảo chiều đó:
+   * lúc đó quyền là một việc phải nhớ làm.
+   */
+  const workspace = useQuery({
+    queryKey: tenantKeys.workspaces(),
+    queryFn: () => tenantApi.fetchWorkspaces(),
+    enabled: dangMo,
+    staleTime: 60_000,
+  });
+
+  const goi = useQuery({
+    queryKey: billingKeys.summary(),
+    queryFn: () => billingApi.fetchBillingSummary(),
+    enabled: dangMo,
+    staleTime: 60_000,
+  });
+
   return useMemo(() => {
     const kd = kho.data;
     const mh = moHinh.data;
     const kn = ketNoi.data;
     const nh = nha.data;
-    if (kd === undefined && mh === undefined && kn === undefined && nh === undefined) return [];
+    const ws = workspace.data;
+    const gi = goi.data;
+    if ([kd, mh, kn, nh, ws, gi].every((x) => x === undefined)) return [];
 
     // `duKienTrangChu` trả về [nguồn workspace, ...từng thẻ báo cáo]; `duKienKetNoi`
     // trả về [nguồn tóm tắt, ...từng kết nối]. Tách làm đôi ở đây: phần đếm đi
@@ -134,6 +171,23 @@ export function useNguCanhHeThong(dangMo: boolean): Nguon[] {
         ...(mh === undefined ? [] : tomTatMoHinh(mh.items, mh.total, PHAM)),
         ...(dsKetNoi[0]?.duKien ?? []),
         ...(trangChu[0]?.duKien ?? []),
+        ...(ws === undefined ? [] : (duKienWorkspace(ws)[0]?.duKien ?? [])),
+        /*
+         * ⚠️ CHỈ lấy phần NHẬN DẠNG gói, BỎ khối "Đã dùng bao nhiêu …".
+         *
+         * Khối hạn mức đếm lại workspace, báo cáo, thành viên và dung lượng — đúng
+         * mấy thứ bản tóm tắt này đã khai từ nguồn khác, chỉ khác phạm vi. Hai dự
+         * kiện cùng nói một khái niệm ở hai phạm vi thì không phải thêm một câu trả
+         * lời — chúng HOÀ điểm và luật "phải hơn hẳn ứng viên nhì" bỏ cả hai.
+         *
+         * ĐO ĐƯỢC: "có bao nhiêu thành viên" đang ĐÚNG (3, từ trang chủ) trở
+         * thành bế tắc ngay khi nhãn "Đã dùng bao nhiêu thành viên" được thêm vào.
+         */
+        ...(gi === undefined
+          ? []
+          : (duKienThanhToan(gi)[0]?.duKien ?? []).filter(
+              (d) => !d.nhan.startsWith('Đã dùng bao nhiêu'),
+            )),
       ],
     };
 
@@ -150,5 +204,5 @@ export function useNguCanhHeThong(dangMo: boolean): Nguon[] {
       ...dsKetNoi.slice(1),
       ...trangChu.slice(1),
     ];
-  }, [kho.data, moHinh.data, ketNoi.data, nha.data]);
+  }, [kho.data, moHinh.data, ketNoi.data, nha.data, workspace.data, goi.data]);
 }

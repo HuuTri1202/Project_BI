@@ -438,6 +438,49 @@ const KET_NOI: ConnectionDto[] = [
  * `tong` cố ý LỚN hơn số mục (12 so với 4): đó là chuyện bình thường của một
  * danh sách phân trang, và nó bắt mọi phép đếm phải mang vế điều kiện.
  */
+const THANH_VIEN = [
+  {
+    id: 1,
+    fullName: 'Trần Thu Hà',
+    email: 'ha@congty.vn',
+    role: 'admin',
+    jobTitle: 'Trưởng phòng dữ liệu',
+    joinedAt: '2025-11-01T03:00:00.000Z',
+    lastLoginAt: '2026-03-10T03:00:00.000Z',
+    removedAt: null,
+    memberActive: true,
+    userActive: true,
+  },
+  {
+    id: 2,
+    fullName: 'Lê Minh',
+    email: 'minh@congty.vn',
+    role: 'viewer',
+    jobTitle: null,
+    joinedAt: '2026-01-15T03:00:00.000Z',
+    lastLoginAt: null,
+    removedAt: null,
+    memberActive: false,
+    userActive: true,
+  },
+] as unknown as Parameters<typeof duKienThanhVien>[0];
+
+const THANH_TOAN = {
+  plan: { id: 2, name: 'Pro', priceVnd: 2_000_000, durationDays: 30 },
+  subscription: { status: 'active', periodEnd: '2026-04-01T03:00:00.000Z' },
+  usage: {
+    workspaces: { used: 3, limit: 10 },
+    reports: { used: 12, limit: 50 },
+    members: { used: 4, limit: null },
+    storageBytes: { used: 1_048_576, limit: 10_737_418_240 },
+  },
+} as unknown as Parameters<typeof duKienThanhToan>[0];
+
+const WS_CUA_TOI = [
+  { id: 1, name: 'Phân tích' },
+  { id: 2, name: 'Vận hành' },
+];
+
 const HE_THONG: Nguon[] = [
   {
     ten: 'Tổng quan toàn tổ chức',
@@ -446,6 +489,18 @@ const HE_THONG: Nguon[] = [
       ...tomTatMoHinh(MO_HINH, 3, 'trong toàn bộ tổ chức'),
       ...(duKienKetNoi(KET_NOI)[0]?.duKien ?? []),
       ...(duKienTrangChu(trangChu())[0]?.duKien ?? []),
+      /*
+       * Ba module còn lại của hệ thống — workspace, thành viên, gói dịch vụ.
+       *
+       * Thiếu chúng thì "xuyên hệ thống" chỉ có nghĩa với khu DỮ LIỆU, còn đứng
+       * ở trang hồ sơ hỏi "tổ chức đang dùng gói nào" thì bế tắc — dù đó là một
+       * trong những câu đơn giản nhất người ta hỏi.
+       */
+      ...(duKienWorkspace(WS_CUA_TOI)[0]?.duKien ?? []),
+      // Khối hạn mức bị bỏ — xem khối chú thích cùng tên ở `nguCanhHeThong`.
+      ...(duKienThanhToan(THANH_TOAN)[0]?.duKien ?? []).filter(
+        (d) => !d.nhan.startsWith('Đã dùng bao nhiêu'),
+      ),
     ],
   },
   ...duKienKhoDuLieu(BO_DU_LIEU, 12).slice(1),
@@ -587,44 +642,6 @@ const BAO_CAO = [
     updatedAt: '2026-03-05T03:00:00.000Z',
   },
 ] as unknown as Parameters<typeof duKienDanhSachBaoCao>[0];
-
-const THANH_VIEN = [
-  {
-    id: 1,
-    fullName: 'Trần Thu Hà',
-    email: 'ha@congty.vn',
-    role: 'admin',
-    jobTitle: 'Trưởng phòng dữ liệu',
-    joinedAt: '2025-11-01T03:00:00.000Z',
-    lastLoginAt: '2026-03-10T03:00:00.000Z',
-    removedAt: null,
-    memberActive: true,
-    userActive: true,
-  },
-  {
-    id: 2,
-    fullName: 'Lê Minh',
-    email: 'minh@congty.vn',
-    role: 'viewer',
-    jobTitle: null,
-    joinedAt: '2026-01-15T03:00:00.000Z',
-    lastLoginAt: null,
-    removedAt: null,
-    memberActive: false,
-    userActive: true,
-  },
-] as unknown as Parameters<typeof duKienThanhVien>[0];
-
-const THANH_TOAN = {
-  plan: { id: 2, name: 'Pro', priceVnd: 2_000_000, durationDays: 30 },
-  subscription: { status: 'active', periodEnd: '2026-04-01T03:00:00.000Z' },
-  usage: {
-    workspaces: { used: 3, limit: 10 },
-    reports: { used: 12, limit: 50 },
-    members: { used: 4, limit: null },
-    storageBytes: { used: 1_048_576, limit: 10_737_418_240 },
-  },
-} as unknown as Parameters<typeof duKienThanhToan>[0];
 
 const TRANG_THEM = {
   dsBaoCao: {
@@ -785,10 +802,7 @@ const TRANG_NOT = {
   },
   wsCuaToi: {
     ten: 'Workspace của tôi',
-    nguon: duKienWorkspace([
-      { id: 1, name: 'Phân tích' },
-      { id: 2, name: 'Vận hành' },
-    ]),
+    nguon: duKienWorkspace(WS_CUA_TOI),
     chon: 0,
     heThong: HE_THONG,
   },
@@ -1891,6 +1905,19 @@ const CA: Ca[] = [
     khong: ['Số cột'],
     vi: 'CA CANH: câu MỘT Ý không được kèm thêm dữ kiện thứ hai',
   },
+
+  /*
+   * ═══ Hỏi XUYÊN TRANG — đứng ở trang KHÔNG LIÊN QUAN ═════════════════
+   *
+   * `trang: 'bieuDo1'` là một ô biểu đồ trên trang báo cáo — nó không khai MỘT
+   * dự kiện nào về thành viên, workspace hay gói dịch vụ. Mọi câu dưới đây
+   * chỉ trả lời được qua bản tóm tắt toàn tổ chức, nên chúng canh đúng cái lớp
+   * đó — và canh cả việc ba module mới có mặt trong nó.
+   */
+  { trang: 'hoSo', hoi: 'tổ chức đang dùng gói nào', can: ['Pro'] },
+  { trang: 'hoSo', hoi: 'giá gói đang dùng là bao nhiêu', can: ['2.000.000'] },
+  { trang: 'hoSo', hoi: 'tôi vào được mấy workspace', can: ['2'] },
+  { trang: 'hoSo', hoi: 'tên các workspace tôi vào được', can: ['Phân tích', 'Vận hành'] },
 ];
 
 // ─── Chạy và đếm ─────────────────────────────────────────────────────────────
@@ -1951,7 +1978,7 @@ describe('Bộ đánh giá khung hỏi đáp', () => {
    * nghĩa là thay đổi đó đang đánh đổi câu này lấy câu kia mà không nói ra.
    */
   it('số câu ĐÚNG không được tụt', () => {
-    expect(dem('dung')).toBeGreaterThanOrEqual(229);
+    expect(dem('dung')).toBeGreaterThanOrEqual(233);
   });
 
   /*

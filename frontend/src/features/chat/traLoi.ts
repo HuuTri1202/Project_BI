@@ -2186,19 +2186,23 @@ export function traLoiHeThong(heThong: Nguon[], cauHoi: string): TraLoi | null {
    * mà `traLoiTrang` và nhánh `dem` của `tinhBang` đang dùng.
    */
   /*
-   * `chua_co` đi cùng `dem`: "bao nhiêu mô hình chưa nối đủ quan hệ" cũng là một
-   * câu hỏi về CẢ DANH SÁCH muốn một con số, chỉ khác là nó còn kèm điều kiện.
-   * `soSanhNguon` ở trên đếm được nó khi một cột thắng rõ; khi hai cột hoà điểm
-   * thì bản tóm tắt là lưới hứng — và nó chỉ có ở đây.
+   * `traLoi` chứ không phải `traCuu`: `traLoi` lọc trước về dữ kiện LÀ SỐ cho ý
+   * định đếm. Thiếu phép lọc đó thì "có bao nhiêu báo cáo" hoà điểm giữa "Số
+   * báo cáo trong HR" và "Báo cáo mở gần đây trong HR".
    *
-   * Dùng `traLoi` chứ không dùng thẳng `traCuu`: `traLoi` lọc trước về những dữ
-   * kiện LÀ SỐ cho ý định đếm. Thiếu phép lọc đó thì "có bao nhiêu báo cáo" hoà
-   * điểm giữa "Số báo cáo trong HR" và "Báo cáo mở gần đây trong HR" — đúng cái
-   * hoà mà nhánh `dem` của `traLoi` được viết ra để gỡ.
+   * ═══ BẢN TÓM TẮT TRẢ LỜI MỌI Ý ĐỊNH, không chỉ câu ĐẾM ══════════════
+   *
+   * Bản cũ chỉ mở cửa này cho `dem` và `chua_co`, nên mọi câu TRA CỨU xuyên
+   * hệ thống đều bế tắc — "tổ chức đang dùng gói nào", "tên các workspace
+   * tôi vào được" không đếm gì cả, nên chúng không có cửa nào. Không phải vì
+   * thiếu dữ kiện: dữ kiện nằm sẵn trong bản tóm tắt, chỉ là không ai hỏi tới.
+   *
+   * Chốt `goiTen === null` mới là thứ giữ an toàn, và nó không đổi: câu gọi tên
+   * một mục thì bản tóm tắt không được giành. Câu không gọi tên ai mà trùng từ
+   * hai chữ với một nhãn tóm tắt thì đúng là đang hỏi về cả tổ chức.
    */
-  const yHoi = docYDinh(cauHoi);
   const biet = tuDaBiet(heThong);
-  if (goiTen === null && (yHoi === 'dem' || yHoi === 'chua_co')) {
+  if (goiTen === null) {
     const tom = traLoi(dau, cauHoi, biet);
     if (tom !== null) return noiPham(tom);
   }
