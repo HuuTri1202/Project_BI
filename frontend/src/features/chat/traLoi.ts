@@ -693,7 +693,16 @@ function timHaiDong(
 
 const HU_TU = new Set(['cua', 'co']);
 
-function traCuu(duKien: DuKien[], cauHoi: string, nenChung: DuKien[] = duKien): TraLoi | null {
+/**
+ * @param uuTienSo chỉ dữ kiện có giá trị LÀ SỐ được làm vế CHÍNH của câu trả lời.
+ *   Vế GHÉP thì vẫn tìm trên cả danh sách — xem khối chú thích ở nhánh `dem`.
+ */
+function traCuu(
+  duKien: DuKien[],
+  cauHoi: string,
+  nenChung: DuKien[] = duKien,
+  uuTienSo = false,
+): TraLoi | null {
   const noiDung = (s: string): string[] =>
     chuanHoa(s)
       .split(' ')
@@ -801,13 +810,83 @@ function traCuu(duKien: DuKien[], cauHoi: string, nenChung: DuKien[] = duKien): 
     return tong;
   };
 
-  const diem = duKien.map((d) => ({ d, diem: demLap(d.nhan) }));
+  /*
+   * ═══ MỘT CÂU HỊI CÓ THỂ HỊI NHIỀU THỨ ═════════════════════════════
+   *
+   * Bản cũ lấy `diem[0]` rồi trả về ĐÚNG MỘT dữ kiện, luôn luôn. Người dùng
+   * thật không hỏi như vậy — năm ảnh chụp màn hình từ buổi thử trên máy thật,
+   * cả năm đều là câu ghép và cả năm đều mất một nửa:
+   *
+   *   "... có bao nhiêu bảng VÀ bao nhiêu thước đo"   → chỉ thước đo
+   *   "... bao nhiêu dòng, bao nhiêu cột VÀ cập nhật lúc nào" → chỉ ngày cập nhật
+   *   "... chứa bao nhiêu biểu đồ VÀ được tạo bởi ai"      → chỉ số biểu đồ
+   *
+   * Vế bị bỏ không theo quy luật trước/sau nào cả — nhãn nào trùng NHIỀU CHỮ
+   * hơn thì thắng, nên "thước đo" (hai chữ) đè "bảng" (một chữ). Người hỏi
+   * không có cách nào biết mình vừa mất nửa câu.
+   *
+   * ═══ Phân biệt "hỏi HAI thứ" với "không rõ hỏi thứ nào" ═══════════════
+   *
+   * Hai thứ này cùng hiện ra là "nhiều nhãn cùng điểm cao", và luật cũ xử cả
+   * hai bằng một cách: hoà điểm thì bỏ cả hai. Đúng với vế sau, sai với vế trước.
+   *
+   * Chỗ khác nhau: một dữ kiện được HỊI THÊM thì khớp một chữ TRONG CÂU HỊI mà
+   * cái thắng KHÔNG khớp — chữ "bảng" có mặt vì người ta gõ nó ra. Còn hai
+   * nhãn hoà vì nhập nhằng thì cùng trung trên ĐÚNG MỘT bộ chữ, không nhãn nào
+   * có chữ riêng — "có bao nhiêu mô hình" trùng cả hai nhãn tóm tắt bằng đúng
+   * hai chữ "mô hình". Nhập nhằng vẫn bỏ cả hai như cũ.
+   *
+   * ⚠️ Mỗi Ô trong câu hỏi chỉ nhận MỘT dữ kiện. Hai nhãn cùng giành một chữ
+   * riêng mà bằng điểm thì chính ô ấy là nhập nhằng, và nó bị bỏ — cùng luật,
+   * áp riêng cho từng ô, thay vì bỏ cả câu vì một vế không rõ.
+   */
+  const khopTu = (nhan: string): Set<string> => {
+    const r = new Set<string>();
+    for (const w of nhan.toLowerCase().split(/\s+/)) {
+      const t = chuanHoa(w);
+      if (t.length > 1 && !TU_HOI.has(t) && tuHoi.has(t)) r.add(t);
+    }
+    return r;
+  };
+
+  const diem = duKien.map((d) => ({ d, diem: demLap(d.nhan), khop: khopTu(d.nhan) }));
   diem.sort((a, b) => b.diem - a.diem);
 
-  const nhat = diem[0];
-  const nhi = diem[1];
+  const hopLe = uuTienSo ? diem.filter((x) => soVi(x.d.gia) !== null) : diem;
+  const nhat = hopLe[0];
   if (nhat === undefined || nhat.diem < 2) return null;
-  if (nhi !== undefined && nhi.diem === nhat.diem) return null;
+
+  const theoO = new Map<string, typeof diem>();
+  for (const c of diem) {
+    if (c === nhat) continue;
+    const riengC = [...c.khop].filter((t) => !nhat.khop.has(t));
+    const o = riengC[0];
+    if (c.diem < 2 || o === undefined) continue;
+    theoO.set(o, [...(theoO.get(o) ?? []), c]);
+  }
+  /*
+   * ⚠️ `uuTienSo` ÁP CHO CẢ VẾ GHÉP, không chỉ vế chính — nhưng có đường lùi.
+   *
+   * Ô "mấy bảng" trong câu đếm đòi một CON SỐ. Bỏ cờ ở đây thì trên trang chi
+   * tiết mô hình, nhãn "Quan hệ giữa bảng Orders và bảng Customers" chiếm mất ô
+   * ấy — nó nói chữ "bảng" HAI lần nên điểm cao hơn "Số bảng trong mô hình".
+   * ĐO ĐƯỢC: "mô hình này có mấy bảng và mấy quan hệ" mất vế số bảng, đổi lấy
+   * một câu mô tả quan hệ không ai hỏi.
+   *
+   * Đường lùi là bắt buộc: ô "ai tạo" và ô "cập nhật lúc nào" KHÔNG có ứng
+   * viên số nào, và chính là hai ô mà cả bản vá này sinh ra để cứu. Nên: có ứng
+   * viên số thì chỉ xét ứng viên số; không có thì xét cả ô.
+   */
+  const them = [...theoO.values()]
+    .map((ds) => {
+      const so = ds.filter((x) => soVi(x.d.gia) !== null);
+      return uuTienSo && so.length > 0 ? so : ds;
+    })
+    .filter((ds) => ds.length === 1 || (ds[0]?.diem ?? 0) > (ds[1]?.diem ?? 0))
+    .flatMap((ds) => (ds[0] === undefined ? [] : [ds[0]]));
+
+  const nhi = hopLe[1];
+  if (them.length === 0 && nhi !== undefined && nhi.diem === nhat.diem) return null;
 
   const rieng = noiDung(nhat.d.nhan).filter((t) => tuHoi.has(t) && !chung.has(t));
   if (chung.size > 0 && rieng.length === 0) return null;
@@ -834,7 +913,27 @@ function traCuu(duKien: DuKien[], cauHoi: string, nenChung: DuKien[] = duKien): 
   const chieuNhan = chieuSoSanh(nhat.d.nhan);
   if (chieuHoi !== null && chieuNhan !== null && chieuHoi !== chieuNhan) return null;
 
-  return traLoiTheoDuKien(nhat.d);
+  if (them.length === 0) return traLoiTheoDuKien(nhat.d);
+
+  /*
+   * Trả lời theo thứ tự NGƯỜI TA HỊI, không theo thứ tự điểm. Hỏi "bao nhiêu
+   * dòng, bao nhiêu cột rồi cập nhật lúc nào" mà đáp "cập nhật … dòng … cột" thì
+   * người đọc phải tự ghép lại từng vế. Mốc sắp là chữ RIÊNG đầu tiên của mỗi
+   * dữ kiện — chữ chung (tên mục) có trong mọi nhãn nên không sắp được theo nó.
+   */
+  const chon = [nhat, ...them].slice(0, 3);
+  const chungChon = new Set(
+    [...(chon[0]?.khop ?? [])].filter((t) => chon.every((c) => c.khop.has(t))),
+  );
+  const thuTu = [...tuHoi];
+  const viTri = (c: (typeof chon)[number]): number => {
+    const i = [...c.khop].filter((t) => !chungChon.has(t)).map((t) => thuTu.indexOf(t));
+    return i.length === 0 ? thuTu.length : Math.min(...i);
+  };
+  chon.sort((a, b) => viTri(a) - viTri(b));
+
+  const phan = chon.map((c) => traLoiTheoDuKien(c.d));
+  return { cau: phan.map((x) => x.cau).join(' '), so: phan.flatMap((x) => x.so) };
 }
 
 export function traLoiBangThoEp(
@@ -1089,9 +1188,25 @@ export function traLoi(nguon: Nguon, cauHoi: string, biet?: Set<string>): TraLoi
   // Câu nhắc một thứ không tồn tại thì BỎ hẳn nhánh so nhãn — xem `nhacThuLa`.
   const laLa = biet !== undefined && nhacThuLa(cauHoi, biet);
 
+  /*
+   * ⚠️ Lọc "chỉ dữ kiện là số" là một CỜ, không phải một phép xén danh sách.
+   *
+   * Bản cũ cắt `nguon.duKien` xuống còn mấy dữ kiện số rồi mới đưa cho `traCuu`.
+   * Với một câu hỏi MỘT Ý thì không khác gì; với câu GHÉP thì nó vứt luôn vế
+   * kia trước khi có ai kịp đọc:
+   *
+   *   "… chứa bao nhiêu biểu đồ và được TẠO BỞI AI"      → "Người tạo …" là chữ
+   *   "… bao nhiêu dòng, bao nhiêu cột và CẬP NHẬT LÚC NÀO" → ngày tháng là chữ
+   *
+   * Cả hai đều là ảnh chụp từ buổi thử trên máy thật. Đưa cờ xuống `traCuu` thì
+   * vế chính vẫn phải là số — giữ nguyên lý do đã ghi ở khối trên — còn vế ghép
+   * thì tìm trên cả danh sách, và nó vẫn phải trả lời cho một chữ RIÊNG trong câu
+   * hỏi. Nhờ chốt chữ riêng ấy mà "có bao nhiêu báo cáo" vẫn KHÔNG kèm thêm
+   * "Báo cáo mở gần đây trong HR": nhãn ấy không khớp chữ nào mà nhãn thắng
+   * chưa khớp — đúng ca đã làm khối trên ra đời.
+   */
   if (y === 'dem' && !laLa) {
-    const soDuoc = nguon.duKien.filter((d) => soVi(d.gia) !== null);
-    const kq = soDuoc.length === 0 ? null : traCuu(soDuoc, cauHoi, nguon.duKien);
+    const kq = traCuu(nguon.duKien, cauHoi, nguon.duKien, true);
     if (kq !== null) return kq;
   }
 

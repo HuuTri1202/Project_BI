@@ -1844,6 +1844,53 @@ const CA: Ca[] = [
     khong: ['mô hình'],
     vi: 'Cùng câu hỏi với ca trên, chỉ thêm phần mở đầu lịch sự',
   },
+
+  /*
+   * ═══ CÂU GHÉP — hỏi hai thứ trong một câu ══════════════════════════
+   *
+   * Năm ca đầu là NĂM ẢNH CHỤP từ buổi thử trên máy thật. Cả năm đều nhận
+   * được đúng MỘT vế, và vế bị bỏ không theo quy luật trước/sau nào — nhãn nào
+   * trùng nhiều chữ hơn thì thắng, nên người hỏi không có cách nào biết mình
+   * vừa mất nửa câu.
+   *
+   * Hai ca cuối là CA CANH theo chiều ngược: câu MỘT Ý không được tự động kèm
+   * thêm một dữ kiện thứ hai, và câu nhập nhằng vẫn phải bỏ cả hai như cũ.
+   */
+  {
+    trang: 'dsMoHinh',
+    hoi: 'mô hình Global-Superstore có bao nhiêu bảng và bao nhiêu thước đo',
+    can: ['5', '3'],
+  },
+  {
+    trang: 'dsMoHinh',
+    hoi: 'mô hình Global-Superstore có bao nhiêu quan hệ và bao nhiêu báo cáo dùng',
+    can: ['4', '7'],
+  },
+  {
+    trang: 'khoDuLieu',
+    hoi: 'bộ Orders có bao nhiêu dòng, bao nhiêu cột và cập nhật lúc nào',
+    can: ['51.290', '24', '2026'],
+    vi: 'Ba vế, và vế thứ ba là CHỮ — nhánh đếm từng lọc bỏ nó trước khi chấm',
+  },
+  {
+    trang: 'dsBaoCao',
+    hoi: 'báo cáo Doanh thu 2026 có mấy trang và ai tạo',
+    can: ['1', 'Mai'],
+  },
+  {
+    trang: 'moHinh',
+    hoi: 'mô hình này có mấy bảng và mấy quan hệ',
+    can: ['Số bảng', 'Số quan hệ'],
+    khong: ['nối'],
+    vi: 'Ô "mấy bảng" đòi một SỐ; nhãn "Quan hệ giữa bảng … và bảng …" nói "bảng" hai lần nên từng cướp mất ô ấy',
+  },
+  {
+    trang: 'khoDuLieu',
+    hoi: 'Orders có bao nhiêu dòng',
+    can: ['51.290'],
+    khong: ['Số cột'],
+    vi: 'CA CANH: câu MỘT Ý không được kèm thêm dữ kiện thứ hai',
+  },
 ];
 
 // ─── Chạy và đếm ─────────────────────────────────────────────────────────────
@@ -1904,7 +1951,7 @@ describe('Bộ đánh giá khung hỏi đáp', () => {
    * nghĩa là thay đổi đó đang đánh đổi câu này lấy câu kia mà không nói ra.
    */
   it('số câu ĐÚNG không được tụt', () => {
-    expect(dem('dung')).toBeGreaterThanOrEqual(223);
+    expect(dem('dung')).toBeGreaterThanOrEqual(229);
   });
 
   /*
