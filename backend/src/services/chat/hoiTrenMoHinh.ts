@@ -1,4 +1,4 @@
-import type { ExplorerQueryDto, MeasureAgg } from '@bi/shared';
+import { chieuSoSanh, type ExplorerQueryDto, type MeasureAgg } from '@bi/shared';
 
 import { fieldsFromIndex, loadModelContext, runExplorerQuery } from '../datamodel/explorer';
 import { chuanHoa, datCauHoi, LY_DO_NOI, type TruongChon } from './datCauHoi';
@@ -7,12 +7,18 @@ import { goiYTiep } from './goiYTiep';
 
 const CO_NHAT = /(^| )nhat( |$)/;
 
-const TU_NGUOC = /(^| )(it|thap|nho|re|cu|som)( |$)/;
-
 export function huongSap(cauHoi: string, cauTruoc?: string): 'asc' | 'desc' {
   const q = chuanHoa(cauHoi);
   if (!CO_NHAT.test(q) && cauTruoc !== undefined) return huongSap(cauTruoc);
-  return CO_NHAT.test(q) && TU_NGUOC.test(q) ? 'asc' : 'desc';
+  /*
+   * `chieuSoSanh` ở `@bi/shared` — CÙNG hàm mà lớp ngoại tuyến của frontend
+   * dùng để chọn `thap_nhat`. Trước đây chỗ này giữ một bản sao của danh sách
+   * từ chỉ chiều, và một bản sao thì lệch: "kém nhất" sắp GIẢM ở đây trong khi
+   * lớp kia đã đọc ra là tăng.
+   *
+   * ⚠️ Truyền `cauHoi` THÔ, không truyền `q`: hàm đó cố ý đọc trên chữ CÒN DẤU.
+   */
+  return chieuSoSanh(cauHoi) === 'thap' ? 'asc' : 'desc';
 }
 
 export interface HoiTrenMoHinhKetQua {

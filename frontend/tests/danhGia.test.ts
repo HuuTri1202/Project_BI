@@ -1651,6 +1651,63 @@ const CA: Ca[] = [
     can: 'chua-hieu',
     vi: 'CANH BẢO MẬT: bankAccountNo/bankBin CỐ Ý không khai — xem `duKienPhuongThucThanhToan`',
   },
+
+  // ─── Cụm so sánh NGƯỢC: đo bằng 40 câu thăm dò ngoài bộ này ───────────────
+  /*
+   * Ba ca đầu TỪNG LÀ SAI, cùng một gốc: danh sách từ chỉ chiều ngược chỉ có
+   * `ít thấp nhỏ rẻ cũ sớm`, nên "kém"/"tệ"/"yếu" rơi xuống nhánh `cao nhất` và
+   * khung trả về đúng cái NGƯỢC LẠI — Miền Trung 310 cho một câu hỏi mà đáp án
+   * là Miền Bắc 255. Xem `@bi/shared` (`soSanh.ts`) về phép sửa.
+   */
+  { trang: 'bieuDoKhuVuc', hoi: 'miền nào bán kém nhất', can: ['Miền Bắc', '255'] },
+  { trang: 'bieuDoKhuVuc', hoi: 'miền nào bán tệ nhất', can: ['Miền Bắc', '255'] },
+  { trang: 'bieuDoKhuVuc', hoi: 'miền nào yếu nhất', can: ['Miền Bắc', '255'] },
+  /*
+   * ⚠️ CA CANH ĐỘT BIẾN. Nó đỏ ngay nếu ai đó "gọn lại" `chieuSoSanh` thành một
+   * phép quét cả câu: `chuanHoa` bỏ dấu nên "tế" của "thực tế" cũng ra `te`, và
+   * khi đó câu này đọc thành THẤP NHẤT rồi trả về Acco 4.
+   */
+  {
+    trang: 'bieuDo1',
+    hoi: 'số lượng thực tế cao nhất là bao nhiêu',
+    can: ['Staples', '10'],
+    khong: ['Acco'],
+    vi: 'Chữ "tế" ra `te` sau khi bỏ dấu — một phép quét cả câu sẽ lộn ngược câu này',
+  },
+  /*
+   * ⚠️ CA CANH chọn chữ "nhất" CUỐI CÙNG. "cập nhật" chuẩn hoá ra `cap nhat`,
+   * nên câu này có hai chữ `nhat`; đọc ngược từ chữ ĐẦU thì gặp `cap` rồi hết
+   * câu và mất luôn chữ "sớm" đứng sau nó.
+   */
+  /*
+   * ⚠️ Ca này mong đợi TỪ CHỐI, không mong đợi "Returns" — và khoảng cách giữa
+   * hai điều đó là một giới hạn đã biết, không phải một lỗi còn để đó.
+   *
+   * Cột ngày KHÔNG so được bằng số: `soVi` không đọc nổi "20/01/2026", nên
+   * `soSanhNguon` không xếp được các mục theo ngày. Câu này vì vậy không có
+   * đường nào trả lời đúng ở lớp ngoại tuyến.
+   *
+   * Nhưng nó TỪNG trả lời SAI: nhãn "Bộ dữ liệu cập nhật gần đây nhất" khớp đủ
+   * chữ để về đích, và khung đáp "Products" — bộ MỚI nhất cho câu hỏi về bộ CŨ
+   * nhất. Chốt phủ quyết chiều trong `traCuu` đổi nó thành "chưa hiểu".
+   */
+  { trang: 'khoDuLieu', hoi: 'bộ nào cập nhật sớm nhất', can: 'chua-hieu' },
+
+  // ─── Câu dài: phần mở đầu lịch sự KHÔNG được đổi câu trả lời ──────────────
+  /*
+   * TỪNG LÀ SAI, và nó cần cả hai nửa để thấy: câu ngắn đã đúng từ trước, câu
+   * dài thì chữ "trong" của phần mở đầu hoà 1–1 với chữ "cột", luật hoà bỏ cả
+   * hai, rồi lượt chấm sau để "dữ liệu" của cùng phần mở đầu ấy thắng — trả về
+   * "Số mô hình dữ liệu dùng: 2" thay cho "Số cột: 24".
+   */
+  { trang: 'khoDuLieu', hoi: 'bộ nào nhiều cột nhất', can: ['Orders', '24'] },
+  {
+    trang: 'khoDuLieu',
+    hoi: 'trong các bộ dữ liệu hiện có thì bộ nào nhiều cột nhất',
+    can: ['Orders', '24'],
+    khong: ['mô hình'],
+    vi: 'Cùng câu hỏi với ca trên, chỉ thêm phần mở đầu lịch sự',
+  },
 ];
 
 // ─── Chạy và đếm ─────────────────────────────────────────────────────────────
@@ -1711,7 +1768,7 @@ describe('Bộ đánh giá khung hỏi đáp', () => {
    * nghĩa là thay đổi đó đang đánh đổi câu này lấy câu kia mà không nói ra.
    */
   it('số câu ĐÚNG không được tụt', () => {
-    expect(dem('dung')).toBeGreaterThanOrEqual(193);
+    expect(dem('dung')).toBeGreaterThanOrEqual(200);
   });
 
   /*

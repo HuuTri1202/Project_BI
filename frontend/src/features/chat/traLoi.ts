@@ -1,4 +1,4 @@
-import type { ReportDataDto } from '@bi/shared';
+import { chieuSoSanh, type ReportDataDto } from '@bi/shared';
 
 import { formatValue } from '../reports/nhanO';
 import type { BangTho, DuKien, Nguon } from './nguCanh';
@@ -150,11 +150,17 @@ const TU_KHOA: { y: YDinh; tu: string[] }[] = [
 
 const CO_NHAT = /(^| )nhat( |$)/;
 
-const TU_NGUOC = /(^| )(it|thap|nho|re|cu|som)( |$)/;
-
 export function docYDinh(cauHoi: string): YDinh | null {
   const q = chuanHoa(cauHoi);
-  if (CO_NHAT.test(q) && TU_NGUOC.test(q)) return 'thap_nhat';
+  /*
+   * Cụm so sánh NGƯỢC — luật đọc dùng chung với backend, xem `@bi/shared`
+   * (`soSanh.ts`). Trước đây chỗ này quét cả câu bằng một danh sách sáu chữ
+   * riêng, và nó trả về CAO NHẤT cho "miền nào bán kém nhất".
+   *
+   * ⚠️ Truyền `cauHoi` THÔ, không truyền `q`. `chieuSoSanh` cố ý đọc trên chữ
+   * CÒN DẤU: bỏ dấu thì "ít báo CÁO nhất" có `cao` và đọc ngược hẳn chiều.
+   */
+  if (chieuSoSanh(cauHoi) === 'thap') return 'thap_nhat';
   for (const { y, tu } of TU_KHOA) {
     if (tu.some((t) => q.includes(t))) return y;
   }
@@ -806,6 +812,28 @@ function traCuu(duKien: DuKien[], cauHoi: string, nenChung: DuKien[] = duKien): 
   const rieng = noiDung(nhat.d.nhan).filter((t) => tuHoi.has(t) && !chung.has(t));
   if (chung.size > 0 && rieng.length === 0) return null;
 
+  /*
+   * ═══ PHỦ QUYẾT: nhãn nói một CHIỀU, câu hỏi hỏi chiều NGƯỢC LẠI ══════════
+   *
+   * Một dữ kiện có thể tự mang sẵn một phép so sánh trong tên nó — "Bộ dữ liệu
+   * cập nhật GẦN ĐÂY NHẤT" là một đáp án đã tính xong, không phải một thuộc
+   * tính trung tính. Phép chấm điểm không đọc được chỗ đó: nó chỉ đếm chữ
+   * trùng, và "cập nhật" trùng là đủ để nhãn ấy về đích.
+   *
+   * LỖI ĐO ĐƯỢC: "bộ nào cập nhật SỚM NHẤT" nhận về "Bộ dữ liệu cập nhật gần
+   * đây nhất: Products" — tức bộ MỚI nhất cho một câu hỏi về bộ CŨ nhất. Một
+   * cái tên có thật, một ngày có thật, đáp án lộn ngược. Cùng hạng với lỗi mà
+   * `chieuSoSanh` sinh ra để chặn, chỉ khác là nó đi qua nhánh tra cứu.
+   *
+   * ⚠️ Chốt này KHÔNG làm câu đó trả lời được: cột ngày không so được bằng số
+   * (`soVi` không đọc nổi "20/01/2026"), nên `soSanhNguon` cũng không xếp theo
+   * nó. Nó đổi một câu SAI thành một câu CHƯA HIỂU — và đó đúng là chiều mà cả
+   * khung này đổi. Muốn trả lời được thì phải cho cột ngày so được, việc khác.
+   */
+  const chieuHoi = chieuSoSanh(cauHoi);
+  const chieuNhan = chieuSoSanh(nhat.d.nhan);
+  if (chieuHoi !== null && chieuNhan !== null && chieuHoi !== chieuNhan) return null;
+
   return traLoiTheoDuKien(nhat.d);
 }
 
@@ -1075,10 +1103,27 @@ export function traLoi(nguon: Nguon, cauHoi: string, biet?: Set<string>): TraLoi
  * phải sửa gì ở đây.
  */
 
+/*
+ * Từ không mang nội dung — không được tính điểm ở `chamCot` và `goiYGan`.
+ *
+ * ⚠️ `trong` và `cua` nằm đây vì chúng là GIỚI TỪ: mọi nhãn dùng chúng đều dùng
+ * như chất keo ngữ pháp ("Số cột CỦA Orders", "Số mục TRONG Bán hàng"), nên
+ * chúng không phân biệt được hai nhãn nào với nhau. Một từ không phân biệt được
+ * gì thì cho nó điểm là tạo ra nhiễu.
+ *
+ * LỖI ĐO ĐƯỢC, và nó cần đúng chữ `trong` này: "TRONG các bộ dữ liệu hiện có
+ * thì bộ nào nhiều cột nhất" — chữ "trong" của phần mở đầu lịch sự khớp nhãn
+ * "Số mục trong" và HOÀ 1–1 với chữ "cột" khớp nhãn "Số cột của". Luật hoà bỏ
+ * cả hai, lượt chấm thứ hai (không bỏ cụm chỉ loại) để "dữ liệu" của cùng phần
+ * mở đầu ấy thắng với 2 điểm, và câu trả lời là "Số mô hình dữ liệu dùng: 2"
+ * thay vì "Số cột: 24". Đúng tên bộ, sai con số. Bỏ phần mở đầu đi thì câu y
+ * hệt trả lời đúng.
+ */
 const TU_DEM = new Set([
   'nao',
   'la',
   'cua',
+  'trong',
   'co',
   'duoc',
   'bi',

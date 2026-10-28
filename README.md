@@ -17,7 +17,7 @@ mà **không cần viết SQL**.
 | **Xác thực** — đăng ký, đăng nhập, JWT, đổi & quên mật khẩu, đổi tổ chức                     | ✅ xong — xem mục _Xác thực_                           |
 | **Console vận hành hệ thống** (`/admin`) — nhìn xuyên mọi tổ chức                            | ✅ xong                                                |
 | **Khu người dùng** — trang chủ, project, workspace, thành viên, hồ sơ                        | ✅ xong                                                |
-| **Phân quyền Casbin** — 8 tài nguyên × 4 hành động, policy trong database                    | ✅ xong                                                |
+| **Phân quyền Casbin** — 9 tài nguyên × 4 hành động, policy trong database                    | ✅ xong                                                |
 | **Kết nối CSDL & Kho dữ liệu** (§8) — MySQL, ClickHouse (SSL/TLS, xem trước dữ liệu)         | ✅ xong                                                |
 | **Nạp dữ liệu vào ClickHouse** (§9) — bảng `raw_*`, nạp nền, nạp lại nguyên tử               | ✅ xong                                                |
 | **Mô hình dữ liệu** (§10) — Cube schema, quan hệ, thước đo, Explorer                         | ✅ xong — xem mục _Mô hình dữ liệu_                    |

@@ -252,7 +252,7 @@ describe('§6.8 GET /v1/permissions', () => {
     expect(creator.body.member).not.toContain('invite');
     expect(viewer.body.report).toEqual(['read']);
     // Ô RỖNG, không phải thiếu khoá: `emptyPermissionMatrix()` liệt kê tay đủ
-    // tám tài nguyên, nên giao diện đọc `matrix.dataset` ra `[]` chứ không ra
+    // chín tài nguyên, nên giao diện đọc `matrix.dataset` ra `[]` chứ không ra
     // `undefined`. Khác biệt đó quyết định `can()` trả `false` hay nổ.
     expect(viewer.body.dataset).toEqual([]);
     expect(viewer.body.datamodel).toEqual([]);
