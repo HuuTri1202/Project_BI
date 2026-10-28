@@ -438,6 +438,19 @@ const KET_NOI: ConnectionDto[] = [
  * `tong` cố ý LỚN hơn số mục (12 so với 4): đó là chuyện bình thường của một
  * danh sách phân trang, và nó bắt mọi phép đếm phải mang vế điều kiện.
  */
+const DON = [
+  {
+    id: 9,
+    orderCode: 'DH2026030001',
+    planName: 'Pro',
+    amountVnd: 2_000_000,
+    status: 'pending',
+    paymentMethodName: 'Chuyển khoản SePay',
+    createdAt: '2026-03-01T03:00:00.000Z',
+    paidAt: null,
+  },
+] as unknown as Parameters<typeof duKienDonHang>[0];
+
 const THANH_VIEN = [
   {
     id: 1,
@@ -497,6 +510,7 @@ const HE_THONG: Nguon[] = [
        * trong những câu đơn giản nhất người ta hỏi.
        */
       ...(duKienWorkspace(WS_CUA_TOI)[0]?.duKien ?? []),
+      ...(duKienDonHang(DON, 1)[0]?.duKien ?? []),
       // Khối hạn mức bị bỏ — xem khối chú thích cùng tên ở `nguCanhHeThong`.
       ...(duKienThanhToan(THANH_TOAN)[0]?.duKien ?? []).filter(
         (d) => !d.nhan.startsWith('Đã dùng bao nhiêu'),
@@ -702,19 +716,6 @@ const GOI = [
     description: 'Gói cho đội nhỏ',
   },
 ] as unknown as Parameters<typeof duKienBangGia>[0];
-
-const DON = [
-  {
-    id: 9,
-    orderCode: 'DH2026030001',
-    planName: 'Pro',
-    amountVnd: 2_000_000,
-    status: 'pending',
-    paymentMethodName: 'Chuyển khoản SePay',
-    createdAt: '2026-03-01T03:00:00.000Z',
-    paidAt: null,
-  },
-] as unknown as Parameters<typeof duKienDonHang>[0];
 
 const PHUONG_THUC = [
   { id: 1, name: 'Chuyển khoản SePay', provider: 'sepay', isActive: true, isConfigured: false },
@@ -1918,6 +1919,28 @@ const CA: Ca[] = [
   { trang: 'hoSo', hoi: 'giá gói đang dùng là bao nhiêu', can: ['2.000.000'] },
   { trang: 'hoSo', hoi: 'tôi vào được mấy workspace', can: ['2'] },
   { trang: 'hoSo', hoi: 'tên các workspace tôi vào được', can: ['Phân tích', 'Vận hành'] },
+
+  /*
+   * ═══ PHÉP ĐẾM CHUNG CHUNG CỦA BIỂU ĐỒ ═══════════════════════════
+   *
+   * Nhánh `dem` của biểu đồ đếm số nhóm của chính nó mà KHÔNG đọc câu hỏi.
+   * Đứng ở một ô biểu đồ, mọi câu đếm đều nhận về ĐÚNG MỘT câu:
+   * "Có 5 Product Name trên biểu đồ này". NĂM ca SAI đo được cùng một lúc.
+   *
+   * ⚠️ Ca cuối là CA CANH CHIỀU NGƯỢC, và nó bắt buộc: câu hỏi VỀ CHÍNH biểu
+   * đồ thì phép đếm ấy đúng là đáp án. Chiều của biểu đồ tên là "Product
+   * Name" còn người ta gõ "sản phẩm" — không trùng chữ nào — nên không chữa
+   * được bằng cách đòi câu hỏi gọi tên chiều.
+   */
+  { trang: 'bieuDo1', hoi: 'có bao nhiêu thành viên', can: ['3'], khong: ['Product Name'] },
+  { trang: 'bieuDo1', hoi: 'có bao nhiêu kết nối', can: ['2'], khong: ['Product Name'] },
+  { trang: 'bieuDo1', hoi: 'có mấy đơn hàng', can: ['1'], khong: ['Product Name'] },
+  {
+    trang: 'bieuDo1',
+    hoi: 'có bao nhiêu sản phẩm',
+    can: ['5'],
+    vi: 'CA CANH CHIỀU NGƯỢC: câu về chính biểu đồ thì phép đếm chung chung đúng là đáp án',
+  },
 ];
 
 // ─── Chạy và đếm ─────────────────────────────────────────────────────────────
@@ -1978,7 +2001,7 @@ describe('Bộ đánh giá khung hỏi đáp', () => {
    * nghĩa là thay đổi đó đang đánh đổi câu này lấy câu kia mà không nói ra.
    */
   it('số câu ĐÚNG không được tụt', () => {
-    expect(dem('dung')).toBeGreaterThanOrEqual(233);
+    expect(dem('dung')).toBeGreaterThanOrEqual(237);
   });
 
   /*

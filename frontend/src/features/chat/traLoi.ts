@@ -20,6 +20,11 @@ export type YDinh =
 export interface TraLoi {
   cau: string;
   rong?: true;
+  /**
+   * Câu trả lời CHUNG CHUNG: đúng về chính nó, nhưng không có bằng chứng nào
+   * rằng nó đúng về CÂU HỎI. Một dữ kiện được gọi đích danh phải đi trước nó.
+   */
+  chung?: true;
   so: string[];
 }
 
@@ -362,9 +367,24 @@ function tinhBang(
         return { cau: `${measureLabel} của ${tenDong(goiTen)} là ${gia}.`, so: [gia] };
       }
 
+      /*
+       * ⚠️ CHUNG CHUNG — phép đếm này KHÔNG đọc câu hỏi.
+       *
+       * Nó đếm số nhóm của chính bảng này, bất kể người ta hỏi đếm CÁI GÌ. Đứng
+       * ở một ô biểu đồ hỏi "có bao nhiêu thành viên", "có bao nhiêu kết nối",
+       * "tôi vào được mấy workspace" đều nhận về ĐÚNG MỘT câu: "Có 5 Product Name
+       * trên biểu đồ này". NĂM ca SAI đo được, cùng một giây.
+       *
+       * Không thể chừa bằng cách đòi câu hỏi phải gọi tên chiều: chiều ở đây tên
+       * là "Product Name" còn người ta gõ "sản phẩm" — không trùng chữ nào, mà đó
+       * lại là câu phải trả lời được. Nên đánh dấu thay vì chặn: một dự kiện
+       * được GỌI ĐÍCH DANH ở lớp xuyên hệ thống thắng nó, còn không ai trả lời
+       * được thì nó vẫn là câu đúng — xem `traLoiKhung`.
+       */
       const soNhom = new Set(rows.map((r) => r.label)).size;
       return {
         cau: ghep(`Có ${String(soNhom)} ${dimensionLabel} trên ${chu}.`, cat),
+        chung: true,
         so: [String(soNhom)],
       };
     }
@@ -2045,7 +2065,26 @@ export function traLoiKhung(
   cauHoi: string,
   cauTruoc: string | null,
 ): TraLoi | null {
-  const mot = traLoiTrang(tatCa, chon, cauHoi) ?? traLoiHeThong(heThong, cauHoi);
+  /*
+   * Một dữ kiện được GỌI ĐÍCH DANH thắng một phép đếm CHUNG CHUNG.
+   *
+   * Trật tự "trang trước, hệ thống sau" đúng với mọi câu trả lời có bằng
+   * chứng — người ta đang nhìn trang này thì trang này ưu tiên. Nhưng câu đánh
+   * dấu `chung` thì không có bằng chứng nào: nó đếm nhóm của chính bảng đang
+   * xem mà không đọc câu hỏi. Để nó thắng là "có bao nhiêu thành viên" nhận
+   * về số cột của biểu đồ.
+   *
+   * ⚠️ VẪN giữ làm đáp án cuối khi lớp xuyên hệ thống chiịu: "có bao nhiêu
+   * sản phẩm" không khớp dự kiện hệ thống nào, và lúc đó số nhóm của biểu đồ
+   * đúng là thứ người ta hỏi.
+   */
+  const motLuot = (hoi: string): TraLoi | null => {
+    const tren = traLoiTrang(tatCa, chon, hoi);
+    if (tren !== null && tren.chung !== true) return tren;
+    return traLoiHeThong(heThong, hoi) ?? tren;
+  };
+
+  const mot = motLuot(cauHoi);
   if (cauTruoc === null) return mot;
 
   /*
@@ -2081,7 +2120,7 @@ export function traLoiKhung(
    * hàng — đúng cái lỗi mà bộ nhớ sinh ra để sửa.
    */
   const noi = `${cauHoi} ${cauTruoc}`;
-  const kq = traLoiTrang(tatCa, chon, noi) ?? traLoiHeThong(heThong, noi);
+  const kq = motLuot(noi);
   // Nối vào cũng không ra gì thì rơi về câu trả lời không bộ nhớ.
   if (kq === null) return mot;
 

@@ -13,6 +13,7 @@ import {
   duKienDanhSachMoHinh,
   duKienKetNoi,
   duKienKhoDuLieu,
+  duKienDonHang,
   duKienThanhToan,
   duKienTrangChu,
   duKienWorkspace,
@@ -38,6 +39,14 @@ const HOI_MO_HINH = {
   pageSize: TRAN,
   q: '',
   sort: 'updatedAt',
+  order: 'desc' as const,
+};
+
+const HOI_DON = {
+  page: 1,
+  pageSize: TRAN,
+  status: '' as const,
+  sort: 'createdAt',
   order: 'desc' as const,
 };
 
@@ -129,6 +138,13 @@ export function useNguCanhHeThong(dangMo: boolean): Nguon[] {
     staleTime: 60_000,
   });
 
+  const donHang = useQuery({
+    queryKey: billingKeys.orderList(HOI_DON),
+    queryFn: () => billingApi.fetchOrders(HOI_DON),
+    enabled: dangMo,
+    staleTime: 60_000,
+  });
+
   const goi = useQuery({
     queryKey: billingKeys.summary(),
     queryFn: () => billingApi.fetchBillingSummary(),
@@ -143,7 +159,8 @@ export function useNguCanhHeThong(dangMo: boolean): Nguon[] {
     const nh = nha.data;
     const ws = workspace.data;
     const gi = goi.data;
-    if ([kd, mh, kn, nh, ws, gi].every((x) => x === undefined)) return [];
+    const dh = donHang.data;
+    if ([kd, mh, kn, nh, ws, gi, dh].every((x) => x === undefined)) return [];
 
     // `duKienTrangChu` trả về [nguồn workspace, ...từng thẻ báo cáo]; `duKienKetNoi`
     // trả về [nguồn tóm tắt, ...từng kết nối]. Tách làm đôi ở đây: phần đếm đi
@@ -172,6 +189,15 @@ export function useNguCanhHeThong(dangMo: boolean): Nguon[] {
         ...(dsKetNoi[0]?.duKien ?? []),
         ...(trangChu[0]?.duKien ?? []),
         ...(ws === undefined ? [] : (duKienWorkspace(ws)[0]?.duKien ?? [])),
+        /*
+         * CHỈ phần tóm tắt của đơn hàng — KHÔNG đưa từng đơn vào danh sách nguồn.
+         *
+         * Đã đo: đổ từng mục của một module mới vào danh sách xuyên hệ thống làm
+         * phép so giữa các mục bắt đầu so nhầm loại này với loại kia — thêm thành
+         * viên vào cho ra bốn câu SAI. Phần tóm tắt thì không có rủi ro đó: nó là
+         * mấy con số của cả tổ chức, không phải một mục đem ra so.
+         */
+        ...(dh === undefined ? [] : (duKienDonHang(dh.items, dh.total)[0]?.duKien ?? [])),
         /*
          * ⚠️ CHỈ lấy phần NHẬN DẠNG gói, BỎ khối "Đã dùng bao nhiêu …".
          *
@@ -204,5 +230,5 @@ export function useNguCanhHeThong(dangMo: boolean): Nguon[] {
       ...dsKetNoi.slice(1),
       ...trangChu.slice(1),
     ];
-  }, [kho.data, moHinh.data, ketNoi.data, nha.data, workspace.data, goi.data]);
+  }, [kho.data, moHinh.data, ketNoi.data, nha.data, workspace.data, goi.data, donHang.data]);
 }
