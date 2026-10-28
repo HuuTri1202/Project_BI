@@ -1287,6 +1287,45 @@ const CA: Ca[] = [
     can: ['1.173', 'bị cắt'],
     vi: 'truncated: con số một mình NÓI DỐI, phải mang điều kiện',
   },
+  /*
+   * ═══ CÂU HỊI CÓ/KHÔNG ═══════════════════════════════════════════
+   *
+   * Dạng này KHÔNG cần một ý định riêng. Đo 16 câu có/không thật thì 10 câu
+   * đã đúng sẵn qua các lớp cũ — "có bộ nào trên 5000 dòng không" là `loc`,
+   * "có mô hình nào chưa có thước đo không" là `chua_co`, "Boston có cao hơn Acco
+   * không" là `so_sanh`. Cái khung thiếu là dự kiện ĐÚNG/SAI: `truncated` trước
+   * bản này chỉ là một `luuY` đính kèm câu trả lời về số dòng, nên không có gì
+   * để hỏi trực tiếp. Xem khối chú thích ở `duKienChung`.
+   *
+   * ⚠️ Ca thứ tư là CA CANH, và nó bắt đúng một ca tụt đã xảy ra thật: bản đầu
+   * đặt nhãn dự kiện mới theo dạng CÂU HỊI ("Orders có bị cắt bớt không"), và
+   * nhãn ấy chứa đúng hai chữ "có" và "không" có trong MỌI câu hỏi có/không —
+   * nên nó thắng 3–2 trên nhãn "Số dòng của Orders" và làm câu dưới đây bế tắc.
+   * Nhãn phải là một DANH NGỮ ("Orders bị cắt bớt hay đầy đủ"), không phải
+   * một câu hỏi.
+   */
+  {
+    trang: 'khoDuLieu',
+    hoi: 'có bộ nào bị cắt dữ liệu không',
+    can: ['Returns'],
+    khong: ['Orders'],
+    vi: 'TỒN TẠI trên cả danh sách — đi qua `locNguon`, nên giá trị phải là chữ mô tả',
+  },
+  { trang: 'khoDuLieu', hoi: 'bộ Returns có bị cắt không', can: ['bị cắt'] },
+  {
+    trang: 'khoDuLieu',
+    hoi: 'bộ Orders có bị cắt không',
+    can: ['đầy đủ'],
+    khong: [': bị cắt'],
+    vi: 'Chiều PHỦ định — một dự kiện chỉ khai khi cờ BẬT thì câu này không trả lời được',
+  },
+  {
+    trang: 'khoDuLieu',
+    hoi: 'bộ Orders có nhiều dòng không',
+    can: ['51.290'],
+    khong: ['cắt'],
+    vi: 'CA CANH: dự kiện cắt-bớt không được cướp câu hỏi về số dòng',
+  },
   {
     trang: 'khoDuLieu',
     hoi: 'Orders tạo từ file nào',
@@ -1865,7 +1904,7 @@ describe('Bộ đánh giá khung hỏi đáp', () => {
    * nghĩa là thay đổi đó đang đánh đổi câu này lấy câu kia mà không nói ra.
    */
   it('số câu ĐÚNG không được tụt', () => {
-    expect(dem('dung')).toBeGreaterThanOrEqual(219);
+    expect(dem('dung')).toBeGreaterThanOrEqual(223);
   });
 
   /*

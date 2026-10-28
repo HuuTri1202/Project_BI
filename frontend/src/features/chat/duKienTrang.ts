@@ -103,6 +103,35 @@ function duKienChung(ds: DatasetDto): DuKien[] {
       ...(ds.truncated ? { luuY: 'tệp đã bị cắt khi tải lên nên đây chưa phải toàn bộ' } : {}),
     },
     { nhan: `Số cột của ${ds.name}`, gia: String(ds.columnCount) },
+    /*
+     * ⚠️ `truncated` PHẢI là một DỰ KIỆN riêng, không chỉ là `luuY` ở trên.
+     *
+     * `luuY` là chú thích đi KÈM một câu trả lời khác — nó chỉ tối nơi khi người
+     * ta đã hỏi về số dòng. Còn "có bộ nào bị cắt dữ liệu không" hỏi về CHÍNH
+     * cái cờ ấy, và không lớp nào trả lời được một thứ chưa được khai.
+     *
+     * ĐO ĐƯỢC: cả câu danh sách lẩn câu gọi tên ("bộ Orders có bị cắt không")
+     * đều bế tắc, trong khi màn hình ngay cạnh đó đang hiện một nhãn "đã cắt
+     * bớt". Một câu hỏi CÓ/KHÔNG không cần ý định mới nào — các lớp sẵn có trả
+     * lời được hết, miễn là dự kiện tồn tại.
+     *
+     * ⚠️ GIÁ TRỊ là chữ MÔ TẢ, KHÔNG phải "có"/"không" như dự kiện SSL.
+     *
+     * `locNguon` — lớp duy nhất trả lời được câu hỏi trên CẢ danh sách — nhận ra
+     * cột qua GIÁ TRỊ của nó nằm trong câu hỏi, và nó bỏ mọi giá trị ngắn hơn
+     * năm ký tự vì "có"/"không" có trong gần như mọi câu hỏi. Nên một cờ khai
+     * thành "có"/"không" trả lời được câu GỊI TÊN mà không bao giờ trả lời được
+     * câu DANH SÁCH. Chữ mô tả thì được cả hai.
+     *
+     * "bị cắt" chứ không phải "đã cắt bớt" như nhãn trên màn hình: `locNguon` đòi
+     * giá trị nằm nguyên cụm trong câu hỏi, và "bị cắt" nằm trong CẢ hai cách gõ
+     * tự nhiên ("bị cắt dữ liệu", "bị cắt bớt"), còn "đã cắt bớt" thì không nằm
+     * trong cách nào. Đây là ngoại lệ CÓ Ý của luật "lấy chữ trên màn hình".
+     */
+    {
+      nhan: `${ds.name} bị cắt bớt hay đầy đủ`,
+      gia: ds.truncated ? 'bị cắt' : 'đầy đủ',
+    },
     { nhan: `Nguồn gốc của ${ds.name}`, gia: docNguon(ds) },
     { nhan: `Trạng thái của ${ds.name}`, gia: docTrangThaiNap(ds) },
     { nhan: `Số mô hình dữ liệu dùng ${ds.name}`, gia: String(ds.datamodelCount) },
