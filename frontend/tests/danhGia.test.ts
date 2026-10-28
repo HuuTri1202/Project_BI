@@ -2051,6 +2051,161 @@ const CA: Ca[] = [
     vi: 'TỪNG LÀ SAI: gộp theo THƯ MỤC rồi so "thấp nhất" trên đúng MỘT thư mục. Lọc theo phạm vi là tính năng chưa có',
   },
   { trang: 'khoDuLieu', hoi: 'bảng nào có số lượng cột ít nhất', can: ['Returns', '3'] },
+
+  /*
+   * ═══ HÌNH DẠNG ĐÁP ÁN PHẢI KHỚP TỪ ĐỂ HỎI ══════════════════════════
+   *
+   * NĂM ca đầu đều SAI theo đúng một kiểu: câu hỏi đòi một CÁI TÊN, khung trả
+   * về một PHÉP ĐẾM. Phép chấm nhãn chỉ đếm chữ trùng nên nó không bao giờ hỏi
+   * "thứ này có trả lời được từ để hỏi kia không" — xem `doiTen`.
+   *
+   *   "ai xoá …"            → "Số mô hình dữ liệu dùng Returns: 1"
+   *   "quan hệ nối bảng nào với bảng nào" → "Số mô hình chưa nối đủ: 1"
+   *   "… kiểu gì"           → "Số cột của Orders: 24"
+   *
+   * ⚠️ HAI ca cuối là CA CANH, và cả hai bắt buộc — chúng là hai cách chốt này
+   * đã từng siết quá tay:
+   *   · câu đã GỌI ĐÍCH DANH một mục thì "nào" đã được trả lời, và vế còn lại
+   *     hỏi một con số thật ("bộ nào nhiều dòng nhất" sau khi lọc theo tệp);
+   *   · "có … nào chưa" là câu CÓ/KHÔNG, ở đó một phép đếm đúng là đáp án.
+   */
+  { trang: 'khoDuLieu', hoi: 'ai xoá bộ dữ liệu Returns', can: 'chua-hieu' },
+  { trang: 'dsMoHinh', hoi: 'quan hệ nối bảng nào với bảng nào', can: 'chua-hieu' },
+  { trang: 'khoDuLieu', hoi: 'cột Doanh thu của bộ Orders kiểu gì', can: 'chua-hieu' },
+  {
+    trang: 'khoDuLieu',
+    hoi: 'trong thư mục Bán hàng, bảng nào ít cột nhất',
+    can: 'chua-hieu',
+    vi: 'Tên thư mục là PHẠM VI, không phải chủ thể — từng trả về "Số mục trong Thư mục Bán hàng: 5"',
+  },
+  {
+    trang: 'khoDuLieu',
+    hoi: 'bộ nào chưa nạp vào kho',
+    can: 'chua-hieu',
+    vi: 'Lọc theo GIÁ TRỊ là tính năng chưa có; từng đọc ra tên một KẾT NỐI qua chữ chỉ loại',
+  },
+  {
+    trang: 'khoDuLieu',
+    hoi: 'chỉ tính các bộ từ file products, bộ nào nhiều dòng nhất',
+    can: ['Products'],
+    vi: 'CA CANH: câu gọi đích danh một mục thì "nào" đã được trả lời, con số vẫn phải ra',
+  },
+  {
+    trang: 'dsMoHinh',
+    hoi: 'mô hình Kho vận có thước đo nào chưa',
+    can: ['0'],
+    vi: 'CA CANH: "có … nào chưa" là câu CÓ/KHÔNG — ở đó một phép đếm đúng là đáp án',
+  },
+
+  /*
+   * ═══ SO THEO THỜI GIAN thì ở đây KHÔNG có cột nào so được ══════════
+   *
+   * "cũ nhất" so THỜI GIAN, mà `soVi` không đọc nổi một ngày. Trước bản này câu
+   * ấy vẫn đi hết `soSanhNguon` rồi lấy min trên một cột ĐẾM khớp vài chữ:
+   * "Thấp nhất là People — Số mô hình dữ liệu dùng: 0". Một cái tên thật, một
+   * con số thật, cho một câu hỏi về NGÀY.
+   */
+  { trang: 'khoDuLieu', hoi: 'bộ dữ liệu nào cũ nhất', can: 'chua-hieu' },
+
+  /*
+   * ═══ TỈ TRỌNG trên CỘT CHỒNG ═══════════════════════════════════════
+   *
+   * Nhánh GIÁ TRỊ đã biết gộp cả nhóm từ lâu (ca "Miền Nam là bao nhiêu" ở
+   * trên). Nhánh TỈ TRỌNG thì chưa, và nó sai CẢ TỬ LẪN MẪU: "Miền Trung (Thời
+   * trang) chiếm 11,1 %" trong khi Miền Trung là 310/855 = 36,3 %.
+   *
+   * Ca thứ hai canh chiều CHUỖI — đối xứng, cùng một phép gộp.
+   */
+  {
+    trang: 'bieuDoKhuVuc',
+    hoi: 'Miền Trung chiếm bao nhiêu phần trăm',
+    can: ['36,3', 'cộng qua 3'],
+    khong: ['11,1'],
+  },
+  { trang: 'bieuDoKhuVuc', hoi: 'Gia dụng chiếm bao nhiêu phần trăm', can: ['35,3'] },
+
+  /*
+   * ═══ CỤM LIỀN MẠCH mạnh hơn mấy chữ RỜI ════════════════════════════
+   *
+   * Vế "cơ sở dữ liệu nào" từng nhận về "Số BỘ DỮ LIỆU lấy từ kết nối: 2" — hai
+   * nhãn trùng đúng tám chữ nên chúng hoà, rồi cả hai bị bỏ. Màn hình ghi
+   * "Database" còn người ta gõ "cơ sở dữ liệu": một dòng đồng nghĩa cộng phép
+   * thưởng cho cụm người ta gõ nguyên văn.
+   */
+  {
+    trang: 'ketNoi',
+    hoi: 'kết nối MySQL bán hàng dùng máy chủ nào, cổng nào, cơ sở dữ liệu nào',
+    can: ['db.local', '3306', 'sales'],
+    chip: 1,
+  },
+
+  /*
+   * ═══ MỘT CÂU, HAI PHÉP TÍNH ════════════════════════════════════════
+   *
+   * Máy chia vế của `traCuu` chữa nhánh TRA CỨU và để nhánh TÍNH nguyên vẹn,
+   * nên câu ghép vẫn mất một nửa — xem `tinhHaiVe`:
+   *
+   *   "cao nhất và thấp nhất"              → chỉ Staples
+   *   "tổng doanh thu và doanh thu trung bình" → chỉ 118, mất 590
+   *
+   * Ca cuối là CA CANH: một câu SO SÁNH không được xé làm hai.
+   */
+  {
+    trang: 'bieuDo1',
+    hoi: 'sản phẩm nào cao nhất và sản phẩm nào thấp nhất',
+    can: ['Staples', 'Acco'],
+  },
+  {
+    trang: 'bieuDo1',
+    hoi: 'thấp nhất là cái nào, còn cao nhất là cái nào',
+    can: ['Acco', 'Staples'],
+  },
+  {
+    trang: 'chiTietDataset',
+    hoi: 'tổng doanh thu và doanh thu trung bình là bao nhiêu',
+    can: ['590', '118'],
+  },
+  {
+    trang: 'bieuDo1',
+    hoi: 'Boston so với Acco, cái nào hơn',
+    can: ['Boston', 'Acco', '9', '4'],
+    vi: 'CA CANH: một phép SO SÁNH trên hai mục không được chia thành hai vế',
+  },
+
+  /*
+   * ═══ ĐIỀU KIỆN DỒN VỀ CUỐI, KHÔNG NẰM GIỮA CÂU ═════════════════════
+   *
+   * `ghep` dán điều kiện vào cuối bằng " — ", và câu điều kiện kết thúc giữa mệnh
+   * đề. Nối vế sau vào đó thì nó bị đọc như phần còn lại của điều kiện:
+   * "… chưa phải toàn bộ Nguồn gốc của Returns: returns.csv." — vô nghĩa, và nó
+   * bẻ nghĩa của đúng cái cảnh báo quan trọng nhất trong câu.
+   */
+  {
+    trang: 'khoDuLieu',
+    hoi: 'Returns thật sự có bao nhiêu dòng ở nguồn',
+    can: ['1.173', 'bị cắt'],
+    khong: ['toàn bộ Nguồn gốc'],
+  },
+
+  /*
+   * ⚠️ Nhãn phải nói ra nó là trạng thái CỦA VIỆC GÌ. Chữ "nạp" chỉ có trong
+   * GIÁ TRỊ, nên vế thứ ba của câu này từng mất hẳn.
+   */
+  {
+    trang: 'khoDuLieu',
+    hoi: 'bộ Orders có bao nhiêu dòng, bao nhiêu cột, và nạp xong chưa',
+    can: ['51.290', '24', 'đã nạp'],
+  },
+
+  /*
+   * ═══ NGUYÊN NHÂN và DỰ BÁO: ngoài tầm, và phải nói thế ═════════════
+   *
+   * Khung đọc số liệu, không suy ra nguyên nhân và không ngoại suy. Mà câu gọi
+   * tên một nhóm thì phép tra giá trị vẫn về đích: "vì sao Acco bán ít" nhận về
+   * "Quantity của Acco là 4" — con số đúng, đặt vào chỗ của một lời GIẢI THÍCH.
+   */
+  { trang: 'bieuDo1', hoi: 'vì sao Acco bán ít', can: 'chua-hieu' },
+  { trang: 'bieuDo1', hoi: 'dự báo số lượng tháng sau', can: 'chua-hieu' },
 ];
 
 // ─── Chạy và đếm ─────────────────────────────────────────────────────────────
@@ -2111,7 +2266,7 @@ describe('Bộ đánh giá khung hỏi đáp', () => {
    * nghĩa là thay đổi đó đang đánh đổi câu này lấy câu kia mà không nói ra.
    */
   it('số câu ĐÚNG không được tụt', () => {
-    expect(dem('dung')).toBeGreaterThanOrEqual(257);
+    expect(dem('dung')).toBeGreaterThanOrEqual(276);
   });
 
   /*

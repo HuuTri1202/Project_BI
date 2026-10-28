@@ -133,7 +133,15 @@ function duKienChung(ds: DatasetDto): DuKien[] {
       gia: ds.truncated ? 'bị cắt' : 'đầy đủ',
     },
     { nhan: `Nguồn gốc của ${ds.name}`, gia: docNguon(ds) },
-    { nhan: `Trạng thái của ${ds.name}`, gia: docTrangThaiNap(ds) },
+    /*
+     * ⚠️ Nhãn phải nói ra đây là trạng thái CỦA VIỆC GÌ — "Trạng thái của
+     * Orders" không nói, và chữ "nạp" chỉ có trong GIÁ TRỊ.
+     *
+     * ĐO ĐƯỢC: "bộ Orders có bao nhiêu dòng, bao nhiêu cột, và NẠP xong chưa"
+     * mất hẳn vế thứ ba — phép chấm nhãn so trên NHÃN, nên chữ duy nhất người
+     * ta gõ ra để chỉ vế ấy không khớp gì cả.
+     */
+    { nhan: `Trạng thái nạp vào kho của ${ds.name}`, gia: docTrangThaiNap(ds) },
     { nhan: `Số mô hình dữ liệu dùng ${ds.name}`, gia: String(ds.datamodelCount) },
   ];
 

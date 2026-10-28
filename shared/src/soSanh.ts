@@ -86,6 +86,47 @@ const THUAN = bo(['cao', 'lớn', 'nhiều', 'đắt', 'mới', 'muộn', 'trễ
 export type ChieuSoSanh = 'cao' | 'thap';
 
 /**
+ * Từ chỉ THỨ ĐƯỢC ĐEM SO của cụm so sánh — `null` khi cụm không nói ra.
+ *
+ *   "bảng nào ít CỘT nhất"       → `cột`
+ *   "bộ nào nhiều DÒNG nhất"     → `dòng`
+ *   "sản phẩm nào cao nhất"      → `null`   (không nói so cái gì)
+ *
+ * ═══ Vì sao nó cần tồn tại ════════════════════════════════════════════════
+ *
+ * Phép tra cứu dữ kiện chấm nhãn bằng CHỮ TRÙNG, nên một cụm so sánh có thể về
+ * đích trên một nhãn chẳng nói gì về thứ đang được so:
+ *
+ *   "trong thư mục Bán hàng, bảng nào ít CỘT nhất"
+ *      → "Số MỤC trong Thư mục Bán hàng: 5"        (ĐO ĐƯỢC)
+ *
+ * Mấy chữ của cụm phạm vi ("trong thư mục Bán hàng") đủ cho nhãn ấy thắng, còn
+ * chữ `cột` — thứ duy nhất nói ra phép so — không khớp gì cả. Người ta hỏi bảng
+ * nào ít cột nhất; khung đọc ra số MỤC của một THƯ MỤC.
+ *
+ * Có hàm này thì nơi gọi đòi được điều hiển nhiên: nhãn thắng phải nhắc tới thứ
+ * đang được đem so.
+ *
+ * ⚠️ Đọc NGƯỢC từ "nhất" ra và BỎ QUA từ chỉ chiều, vì tiếng Việt đặt chúng cả
+ * hai thứ tự — "ít CỘT nhất" và "CỘT ít nhất" đều nghe tự nhiên. Cùng phép đi
+ * ngược mà `chieuSoSanh` dùng, nên hai hàm không thể lệch nhau về chỗ bắt đầu.
+ */
+export function tuDoSoSanh(raw: string): string | null {
+  const tu = tachTu(raw);
+
+  for (const [i, chu] of tu.entries()) {
+    if (chu !== NHAT) continue;
+    for (let j = i - 1; j >= 0; j -= 1) {
+      const t = tu[j];
+      if (t === undefined || t === '') continue;
+      if (NGUOC.has(t) || THUAN.has(t)) continue;
+      return t;
+    }
+  }
+  return null;
+}
+
+/**
  * Chiều của cụm so sánh, hoặc `null` khi câu không có cụm so sánh nào đọc được.
  *
  * @param raw câu hỏi hoặc nhãn dữ kiện, THÔ — còn dấu, chưa qua `chuanHoa`.
