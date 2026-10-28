@@ -2003,6 +2003,23 @@ const CA: Ca[] = [
   { trang: 'bieuDo1', hoi: 'which product has the highest quantity', can: ['Staples', '10'] },
   { trang: 'bieuDo1', hoi: 'total quantity', can: ['35'] },
   { trang: 'khoDuLieu', hoi: 'how many datasets are there', can: ['10'] },
+  /*
+   * ═══ LỌC THEO TỆP NGUỒN ════════════════════════════════════
+   *
+   * Ảnh chụp từ buổi thử: "Kho dữ liệu hiện có bao nhiêu bảng từ file
+   * Global-Superstore?" — và khung trả về TỔNG số bộ của cả workspace, bỏ hẳn vế
+   * lọc. Một con số thật cho một câu hỏi khác.
+   *
+   * Gốc: phép khớp đòi giá trị nằm nguyên cụm trong câu hỏi, mà giá trị là
+   * "global-superstore.xlsx" còn không ai gõ đuôi tệp ra cả.
+   */
+  {
+    trang: 'khoDuLieu',
+    hoi: 'những bộ nào lấy từ file Global-Superstore',
+    can: ['Orders', 'People'],
+    khong: ['Returns'],
+  },
+  { trang: 'khoDuLieu', hoi: 'có bao nhiêu bộ từ file Global-Superstore', can: ['2'] },
 ];
 
 // ─── Chạy và đếm ─────────────────────────────────────────────────────────────
@@ -2063,7 +2080,7 @@ describe('Bộ đánh giá khung hỏi đáp', () => {
    * nghĩa là thay đổi đó đang đánh đổi câu này lấy câu kia mà không nói ra.
    */
   it('số câu ĐÚNG không được tụt', () => {
-    expect(dem('dung')).toBeGreaterThanOrEqual(251);
+    expect(dem('dung')).toBeGreaterThanOrEqual(253);
   });
 
   /*

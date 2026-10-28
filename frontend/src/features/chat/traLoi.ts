@@ -1858,12 +1858,30 @@ function locNguon(
    * Giá trị khớp vừa là bằng chứng nhận ra cột, vừa là điều kiện lọc. Một cột
    * mà không giá trị nào của nó được gõ ra thì không có gì để lọc theo.
    */
+  /*
+   * ⚠️ TÊN TỆP khớp ĐƯỢC CẢ KHI THIẾU ĐUÔI.
+   *
+   * Không ai gõ đuôi tệp ra khi hỏi: "những bộ nào lấy từ file Global-Superstore",
+   * chứ không phải "… từ file global-superstore.xlsx". Mà phép khớp ở đây đòi
+   * giá trị nằm NGUYÊN CỤM trong câu hỏi, nên cả nhóm câu "lọc theo tệp nguồn"
+   * bế tắc — đo được, và đó là câu người dùng hỏi thật trong ảnh chụp
+   * màn hình của buổi thử.
+   *
+   * ⚠️ CHỈ bỏ đuôi, không nới phép khớp. Vẫn phải trùng nguyên cụm, vẫn phải
+   * từ năm ký tự. Cho khớp một PHẦN giá trị bất kỳ là mở đúng cái cửa mà cả
+   * khối chú thích trên nói là nguy hiểm — ở đây chỉ có đuôi tệp là thứ người
+   * ta có lý do để không gõ.
+   */
+  const boDuoi = (v: string): string => v.replace(/\.(xlsx|xlsm|xls|csv|tsv|json)$/i, '');
+
   const ungVien = cot.flatMap((g) =>
     [...new Set([...g.gia.values()].map((d) => d.gia))]
-      .filter((v) => {
-        const c = chuanHoa(v);
-        return c.length >= 5 && q.includes(` ${c} `);
-      })
+      .filter((v) =>
+        [v, boDuoi(v)].some((ung) => {
+          const c = chuanHoa(ung);
+          return c.length >= 5 && q.includes(` ${c} `);
+        }),
+      )
       .map((v) => ({ g, v })),
   );
 
