@@ -1950,6 +1950,42 @@ const CA: Ca[] = [
    * một nửa — nên ngưỡng phủ nhãn ở `traLoiHeThong` chặn nó.
    */
   { trang: 'khoDuLieu', hoi: 'làm sao để xoá một bộ dữ liệu', can: 'chua-hieu' },
+  /*
+   * ═══ HỎI VỀ HAI THỨ, VÀ "N … NHẤT" ═════════════════════════════
+   *
+   * BỐN ca đầu đều TỪNG LÀ SAI trên bộ 40 câu lạ, và đều SAI theo kiểu khó
+   * thấy nhất: một cái tên thật, một con số thật, cho một câu hỏi khác.
+   *
+   *   "Xerox với Avery cái nào hơn" → Quantity của Xerox là 7.   (bỏ mất Avery)
+   *   "3 cái bán kém nhất"          → Thấp nhất là Acco …          (bỏ mất số 3)
+   *
+   * HAI ca cuối là CA CANH CHIỀU NGƯỢC: chiều mặc định của top N vẫn là CAO
+   * nhất, và câu gọi tên MỘT nhóm trên biểu đồ cột chồng vẫn phải ra TỔNG của
+   * nhóm đó, không phải hai mảnh của nó đem so với nhau.
+   */
+  { trang: 'bieuDo1', hoi: 'Xerox với Avery cái nào hơn', can: ['Xerox', 'Avery', '7', '5'] },
+  { trang: 'bieuDo1', hoi: 'Staples gấp mấy lần Acco', can: ['Staples', 'Acco', '10', '4'] },
+  {
+    trang: 'bieuDo1',
+    hoi: '3 cái bán kém nhất',
+    can: ['Acco', 'Avery', 'Xerox'],
+    khong: ['Staples'],
+  },
+  { trang: 'bieuDo1', hoi: 'top 3 thấp nhất', can: ['Acco', 'Avery', 'Xerox'], khong: ['Staples'] },
+  {
+    trang: 'bieuDo1',
+    hoi: 'top 3 sản phẩm',
+    can: ['Staples', 'Boston', 'Xerox'],
+    khong: ['Acco'],
+    vi: 'CA CANH: không nói chiều thì top N vẫn là CAO nhất',
+  },
+  {
+    trang: 'bieuDoKhuVuc',
+    hoi: 'Miền Nam là bao nhiêu',
+    can: ['290'],
+    khong: ['cao hơn'],
+    vi: 'CA CANH cột chồng: một nhóm trải ra hai dòng, không được đem hai mảnh ấy so với nhau',
+  },
 ];
 
 // ─── Chạy và đếm ─────────────────────────────────────────────────────────────
@@ -2010,7 +2046,7 @@ describe('Bộ đánh giá khung hỏi đáp', () => {
    * nghĩa là thay đổi đó đang đánh đổi câu này lấy câu kia mà không nói ra.
    */
   it('số câu ĐÚNG không được tụt', () => {
-    expect(dem('dung')).toBeGreaterThanOrEqual(239);
+    expect(dem('dung')).toBeGreaterThanOrEqual(245);
   });
 
   /*

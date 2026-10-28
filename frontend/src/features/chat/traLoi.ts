@@ -155,6 +155,9 @@ const TU_KHOA: { y: YDinh; tu: string[] }[] = [
 
 const CO_NHAT = /(^| )nhat( |$)/;
 
+/** Số đứng RIÊNG thành một chữ — "3 cái" có, "q4" không. */
+const CO_SO_RIENG = /(^| )\d+( |$)/;
+
 export function docYDinh(cauHoi: string): YDinh | null {
   const q = chuanHoa(cauHoi);
   /*
@@ -165,6 +168,23 @@ export function docYDinh(cauHoi: string): YDinh | null {
    * ⚠️ Truyền `cauHoi` THÔ, không truyền `q`. `chieuSoSanh` cố ý đọc trên chữ
    * CÒN DẤU: bỏ dấu thì "ít báo CÁO nhất" có `cao` và đọc ngược hẳn chiều.
    */
+  /*
+   * ═══ "N … NHẤT" là TOP N, đứng trước cả luật chiều ════════════════
+   *
+   * Bảng `TU_KHOA` chỉ nhận ra top N qua chữ "top" hay "xếp hạng". Người dùng
+   * thật thì đếm bằng số: "3 cái bán kém nhất", "3 sản phẩm bán chạy nhất".
+   * Cả hai trước đây nhận về ĐÚNG MỘT mục — một cái tên thật, một con số thật,
+   * cho một câu hỏi xin BA cái. ĐO ĐƯỢC, và "top 3 thấp nhất" cũng vậy dù nó
+   * có đủ cả chữ "top": luật chiều ở ngay dưới chạy TRƯỚC bảng từ khoá và
+   * nuốt mất nó.
+   *
+   * ⚠️ Con số phải đứng RIÊNG thành một chữ. "mô hình Q4 nào nhiều bảng nhất"
+   * cũng có chữ số và có chữ "nhất", nhưng "q4" là MỘT chữ — đó là tên, không
+   * phải số lượng. Đòi số đứng riêng là đủ tách hai ca ấy mà không cần luật nào
+   * riêng cho chúng.
+   */
+  if (CO_NHAT.test(q) && CO_SO_RIENG.test(q)) return 'top_n';
+
   if (chieuSoSanh(cauHoi) === 'thap') return 'thap_nhat';
   for (const { y, tu } of TU_KHOA) {
     if (tu.some((t) => q.includes(t))) return y;
@@ -307,7 +327,33 @@ function tinhBang(
   const cat = boiCanh?.luuY ?? luuYCat(bang);
   const tong = rows.reduce((s, r) => s + r.value, 0);
 
-  switch (y) {
+  /*
+   * ═══ GÕ TÊN HAI MỤC RA LÀ MỘT CÂU SO SÁNH ═════════════════════════
+   *
+   * Luật này đã được ghi ở `traLoiTrang` cho danh sách mục; ở đây là cùng luật,
+   * áp cho các DÒNG của một bảng. Bảng từ khoá nhận ra "so với" và "so sánh",
+   * nhưng người dùng thật còn nói nhiều kiểu khác — và mỗi kiểu trước đây đều
+   * nhận về giá trị của MỘT mục, là câu đúng cho một câu hỏi khác:
+   *
+   *   "Xerox với Avery cái nào hơn"  → Quantity của Xerox là 7.
+   *   "Staples gấp mấy lần Acco"      → Quantity của Staples là 10.
+   *
+   * Ca thứ hai cho thấy vì sao không nên chữa bằng cách thêm từ khoá: chữ "mấy"
+   * của nó đã khớp ý định ĐẾM rồi, nên một cụm "gấp mấy lần" thêm vào bảng
+   * cũng phải đứng đúng chỗ mới thắng — và cách nói thứ ba sẽ lại trượt.
+   * Bằng chứng thật nằm ở chỗ khác: câu hỏi GỌI ĐÍCH DANH hai dòng của bảng.
+   *
+   * ⚠️ Chỉ đè mấy ý định hỏi về MỘT mục hoặc chưa đọc ra ý định nào. Câu
+   * `tong`, `trung_binh`, `loc`, `top_n`, `ti_trong`, `xu_huong` hỏi về cả bảng
+   * hoặc về một tỉ lệ, và chúng vẫn đúng khi câu có nhắc tên mấy dòng.
+   */
+  const yThat =
+    (y === null || y === 'dem' || y === 'gia_tri' || y === 'cao_nhat' || y === 'thap_nhat') &&
+    timHaiDong(rows, cauHoi) !== null
+      ? 'so_sanh'
+      : y;
+
+  switch (yThat) {
     case 'cao_nhat':
     case 'thap_nhat': {
       const lon = y === 'cao_nhat';
@@ -390,15 +436,25 @@ function tinhBang(
     }
 
     case 'top_n': {
+      /*
+       * ⚠️ TOP N CÓ HAI CHIỀU. Bản cũ luôn sắp giảm dần và luôn viết "cao nhất",
+       * nên "3 cái bán kém nhất" — nếu tới được đây — sẽ trả về ba cái bán
+       * CHẠY nhất, kèm ba con số thật. Luật đọc chiều dùng chung với backend.
+       */
+      const xuong = chieuSoSanh(cauHoi) === 'thap';
+      const xep = <T extends { value: number }>(ds: T[]): T[] =>
+        [...ds].sort((a, b) => (xuong ? a.value - b.value : b.value - a.value));
+      const nhan = xuong ? 'thấp nhất' : 'cao nhất';
+
       const chieu = chieuEp === undefined ? chieuHoi(bang, cauHoi) : chieuEp;
       if (chieu !== null) {
-        const nhom = gopTheo(rows, chieu).sort((a, b) => b.value - a.value);
+        const nhom = xep(gopTheo(rows, chieu));
         const n = Math.min(docSo(cauHoi) ?? 5, nhom.length);
         const dau = nhom.slice(0, n);
         const tenChieu = chieu === 'series' ? (bang.seriesLabel ?? '') : dimensionLabel;
         return {
           cau: ghep(
-            `${String(n)} ${tenChieu} cao nhất: ${dau
+            `${String(n)} ${tenChieu} ${nhan}: ${dau
               .map((g, i) => `${String(i + 1)}. ${g.ten} ${doc(g.value)}`)
               .join('; ')}.`,
             cat,
@@ -408,11 +464,11 @@ function tinhBang(
       }
 
       const n = Math.min(docSo(cauHoi) ?? 5, rows.length);
-      const dau = [...rows].sort((a, b) => b.value - a.value).slice(0, n);
+      const dau = xep(rows).slice(0, n);
       const so = dau.map((r) => doc(r.value));
       return {
         cau: ghep(
-          `${String(n)} ${dimensionLabel} cao nhất: ${dau
+          `${String(n)} ${dimensionLabel} ${nhan}: ${dau
             .map((r, i) => `${String(i + 1)}. ${tenDong(r)} ${doc(r.value)}`)
             .join('; ')}.`,
           cat,
@@ -707,7 +763,30 @@ function timHaiDong(
   const thay = [...rows]
     .sort((a, b) => tenDong(b).length - tenDong(a).length)
     .filter((r) => r.label !== '' && q.includes(chuanHoa(r.label)));
-  const [a, b] = thay;
+
+  /*
+   * ⚠️ HAI NHÃN KHÁC NHAU, không phải hai DÒNG bất kỳ.
+   *
+   * Trên biểu đồ CỘT CHỒNG, một nhóm trải ra thành nhiều dòng — (Miền Nam, Gia
+   * dụng) và (Miền Nam, Thời trang). Câu "Miền Nam là bao nhiêu" gọi tên MỘT
+   * nhóm, nhưng khớp HAI dòng, nên bản cũ đem hai MẢNH của cùng một nhóm ra so
+   * với nhau: "Miền Nam (Gia dụng) cao hơn Miền Nam (Thời trang)" — hai con số
+   * thật cho một câu hỏi xin TỔNG của nhóm đó.
+   *
+   * Lỗi này nằm sẵn trong hàm từ trước nhưng không ai tới được: `so_sanh` chỉ
+   * mở bằng từ khoá ("so với", "so sánh"), mà ai gõ "so với" thì đã gõ hai tên.
+   * Luật "gõ tên hai mục ra là câu so sánh" ở `tinhBang` mở rộng cửa vào, và bộ
+   * đánh giá đỏ ngay ở hai ca cột chồng.
+   */
+  const daCo = new Set<string>();
+  const rieng = thay.filter((r) => {
+    const k = chuanHoa(r.label);
+    if (daCo.has(k)) return false;
+    daCo.add(k);
+    return true;
+  });
+
+  const [a, b] = rieng;
   return a !== undefined && b !== undefined ? [a, b] : null;
 }
 
