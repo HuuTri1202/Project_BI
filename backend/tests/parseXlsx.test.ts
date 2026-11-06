@@ -3,6 +3,7 @@ import JSZip from 'jszip';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { stripCommentRels } from '../src/services/dataset/loadWorkbook';
+import { defaultFieldName } from '../src/services/dataset/inferType';
 import { ParseError, parseFile } from '../src/services/dataset/parseFile';
 
 /**
@@ -141,5 +142,101 @@ describe('parseFile — khi thật sự không đọc được', () => {
     expect((err as Error).message).not.toMatch(/mật khẩu/);
     // Và nguyên nhân thật phải NẰM LẠI trong log, thay vì bị `catch {}` nuốt.
     expect(log).toHaveBeenCalled();
+  });
+});
+
+/**
+ * Ô TIÊU ĐỀ ĐỂ TRỐNG — mảng thưa của exceljs đi qua cache thành `null`.
+ *
+ * ═══ Lỗi này đã xảy ra trên file thật của người dùng ════════════════════════
+ *
+ * Tải một file Excel lên, bước phân tích trả về 200, rồi bước chốt nổ:
+ *
+ *     TypeError: Cannot read properties of null (reading 'replace')
+ *       at defaultFieldName (inferType.ts:186)
+ *       at buildColumns (commit.ts:197)
+ *
+ * Giao diện chỉ nói "Có lỗi xảy ra phía máy chủ", và việc phân tích vừa chạy
+ * xong ngay trước đó làm cho file trông như không có vấn đề gì.
+ *
+ * ─── Vì sao một bước xanh còn bước kia đỏ ───────────────────────────────────
+ *
+ * `row.values` của exceljs là mảng CÓ LỖ cho ô trống. `.map` bỏ qua lỗ và giữ
+ * chúng là lỗ, nên `header` trong bộ nhớ là `['Ngay', <lỗ>, 'So tien']`.
+ *
+ *   · `toPreview` cũng dùng `.map` → cũng bỏ qua lỗ → phân tích chạy lọt.
+ *   · Kết quả phân tích được cache vào Redis bằng `JSON.stringify`, mà JSON
+ *     không có khái niệm lỗ: nó ghi lỗ thành `null`. Bước chốt đọc lại từ
+ *     cache nên nhận một mảng ĐẶC có `null` thật, và `.map` lần này KHÔNG bỏ
+ *     qua nó nữa.
+ *
+ * Tức là giá trị trong bộ nhớ và giá trị đọc từ cache là HAI hình dạng khác
+ * nhau — và kiểu `string[]` của `ParsedSheet.header` nói dối ở cả hai.
+ *
+ * Ca thứ hai canh đúng chỗ đó bằng một bất biến tổng quát hơn phép sửa: đi qua
+ * JSON rồi phải RA ĐÚNG cái đã vào. Nó đỏ với mọi hình dạng không sống nổi qua
+ * cache về sau, không chỉ với mảng thưa.
+ */
+describe('parseFile — ô tiêu đề để trống', () => {
+  /** Tiêu đề thiếu ô GIỮA: file thật hay có một cột không ai đặt tên. */
+  async function thieuTieuDe(): Promise<Buffer> {
+    const wb = new ExcelJS.Workbook();
+    const sheet = wb.addWorksheet('Doanh thu');
+    sheet.addRow(['Ngay', null, 'So tien']);
+    sheet.addRow(['2026-01-01', 'x', 1500]);
+    sheet.addRow(['2026-01-02', 'y', 2750]);
+    return Buffer.from(await wb.xlsx.writeBuffer());
+  }
+
+  it('trả về mảng ĐẶC, không phải mảng có lỗ', async () => {
+    const parsed = await parseFile(await thieuTieuDe(), 'xlsx');
+    const sheet = parsed.sheets[0];
+    expect(sheet).toBeDefined();
+    if (sheet === undefined) return;
+
+    expect(sheet.header).toHaveLength(3);
+    // `Object.hasOwn` là phép đo DUY NHẤT phân biệt được lỗ với `undefined`:
+    // đọc `header[1]` ra `undefined` trong cả hai trường hợp.
+    const dac = Array.from({ length: sheet.header.length }).every((_, i) =>
+      Object.hasOwn(sheet.header, i),
+    );
+    expect(dac).toBe(true);
+    expect(sheet.header[1]).toBe('');
+  });
+
+  it('sống nguyên vẹn qua cache — JSON vào sao, ra vậy', async () => {
+    const parsed = await parseFile(await thieuTieuDe(), 'xlsx');
+
+    // Đúng đường mà `analyzeDataset` đưa kết quả qua Redis.
+    const quaCache = JSON.parse(JSON.stringify(parsed)) as typeof parsed;
+
+    expect(quaCache).toEqual(parsed);
+    expect(quaCache.sheets[0]?.header[1]).toBe('');
+    expect(quaCache.sheets[0]?.header[1]).not.toBeNull();
+  });
+
+  it('cột không tên vẫn nhận được một cái tên dùng được', async () => {
+    const parsed = await parseFile(await thieuTieuDe(), 'xlsx');
+    const quaCache = JSON.parse(JSON.stringify(parsed)) as typeof parsed;
+    const header = quaCache.sheets[0]?.header ?? [];
+
+    // Đây là đúng lời gọi đã ném `TypeError` trên máy thật, chạy trên đúng dữ
+    // liệu đã đi qua cache.
+    expect(() => defaultFieldName(header[1] as string, 1)).not.toThrow();
+    expect(defaultFieldName(header[1] as string, 1)).toBe('Cột 2');
+    // Và hai cột có tên thì không bị đụng tới.
+    expect(defaultFieldName(header[0] as string, 0)).toBe('Ngay');
+    expect(defaultFieldName(header[2] as string, 2)).toBe('So tien');
+  });
+
+  it('dòng dữ liệu cũng đặc — ô trống ra chuỗi rỗng, không phải null', async () => {
+    const wb = new ExcelJS.Workbook();
+    const sheet = wb.addWorksheet('Kho');
+    sheet.addRow(['Ma', 'Ten', 'So luong']);
+    sheet.addRow(['A1', null, 5]);
+    const parsed = await parseFile(Buffer.from(await wb.xlsx.writeBuffer()), 'xlsx');
+    const quaCache = JSON.parse(JSON.stringify(parsed)) as typeof parsed;
+
+    expect(quaCache.sheets[0]?.rows[0]).toEqual(['A1', '', '5']);
   });
 });

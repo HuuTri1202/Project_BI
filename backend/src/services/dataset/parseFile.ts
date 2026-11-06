@@ -183,7 +183,31 @@ async function parseXlsx(buffer: Buffer): Promise<ParseResult> {
       // `row.values` là mảng 1-INDEXED — phần tử 0 luôn là undefined. Cắt bỏ nó,
       // nếu không mọi cột lệch một vị trí và cột cuối cùng biến mất.
       const values = Array.isArray(row.values) ? row.values.slice(1) : [];
-      table.push(values.map(cellText));
+      /*
+       * ⚠️ `Array.from`, KHÔNG phải `.map` — đây là chỗ mảng THƯA được lấp đầy.
+       *
+       * exceljs trả về mảng có LỖ cho ô trống: `['Ngày', <lỗ>, 'Số tiền']`. Mà
+       * `.map` BỎ QUA lỗ và giữ nguyên chúng là lỗ, nên `ParsedSheet.header`
+       * khai kiểu `string[]` mà thật ra không phải — và nó nói dối theo kiểu
+       * chỉ lộ ra ở một nơi duy nhất.
+       *
+       * LỖI ĐÃ XẢY RA TRÊN FILE THẬT: một file Excel có ô tiêu đề để trống ở
+       * giữa. Bước phân tích trả về 200 vì `toPreview` cũng dùng `.map` nên
+       * cũng bỏ qua lỗ. Bước chốt thì chết:
+       *
+       *     TypeError: Cannot read properties of null (reading 'replace')
+       *       at defaultFieldName (inferType.ts:186)
+       *
+       * Chỗ `null` sinh ra là CACHE: kết quả phân tích đi qua Redis bằng
+       * `JSON.stringify`, và JSON không có khái niệm lỗ — nó ghi lỗ thành
+       * `null`. Nên giá trị trong bộ nhớ và giá trị đọc lại từ cache là HAI
+       * hình dạng khác nhau, và chỉ hình dạng thứ hai mới nổ.
+       *
+       * `Array.from` coi lỗ là `undefined` và trả về mảng ĐẶC, nên `cellText`
+       * được gọi cho mọi vị trí và cho ra `''`. Sửa ở đây thì cả `header` lẫn
+       * `rows` đều đặc, vì cả hai đều cắt ra từ `table`.
+       */
+      table.push(Array.from(values, cellText));
     });
 
     if (table.length === 0) continue;
