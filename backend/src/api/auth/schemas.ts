@@ -176,3 +176,14 @@ export const switchTenantSchema = z.object({
 
 export type RegisterInput = z.infer<typeof registerSchema>;
 export type LoginInput = z.infer<typeof loginSchema>;
+
+/**
+ * Đăng nhập bằng Google — §1.9.
+ *
+ * `credential` là ID token do Google Identity Services trả về ở trình duyệt.
+ * Trần 4096 ký tự: ID token thật dài khoảng 1 KB, nên trần này rộng rãi mà vẫn
+ * chặn việc nhét một khối lớn vào đường xác thực chưa đăng nhập.
+ */
+export const googleLoginSchema = z.object({
+  credential: z.string().min(1, 'Thiếu thông tin đăng nhập từ Google').max(4096),
+});

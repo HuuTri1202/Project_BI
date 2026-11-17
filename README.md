@@ -449,8 +449,47 @@ buộc mạnh hơn mọi lớp kiểm tra trong ứng dụng vì nó không quê
 | GET    | `/api/auth/me`              | Khôi phục phiên khi F5 — đọc lại từ DB, không tin payload token                 |
 | POST   | `/api/auth/logout`          | 204 (JWT vô trạng thái, client tự bỏ token)                                     |
 | POST   | `/api/auth/change-password` | 204                                                                             |
+| POST   | `/api/auth/google`          | Đăng nhập bằng ID token Google — trả về ĐÚNG hình dạng của `/login`             |
 
 Mọi lỗi có cùng hình dạng `{ error, message, fields? }`.
+
+### Đăng nhập bằng Google (§1.9)
+
+Tuỳ chọn. Không khai `GOOGLE_CLIENT_ID` thì nút biến mất khỏi trang đăng nhập và
+endpoint trả 503 — cùng khuôn với lớp mô hình ngôn ngữ của khung hỏi đáp.
+
+**CHỈ đăng nhập, không đăng ký.** Endpoint này không bao giờ tạo người dùng mới.
+Google chỉ đưa được `email`, `name` và `sub`, trong khi `registerAccount` còn cần
+tên công ty, số điện thoại, chức danh — và quan trọng hơn, nó **dựng một tổ
+chức**. Tạo tổ chức từ một cú bấm nút là thứ không hoàn tác được qua giao diện,
+nên người chưa có tài khoản được mời đi qua trang đăng ký như cũ.
+
+**Khoá tra cứu là `sub`, không phải email.** Email của một tài khoản Google đổi
+được (đổi tên miền công ty, đổi alias); `sub` thì không bao giờ. Lấy email làm
+khoá nghĩa là người dùng đổi email bên Google xong thì mất lối vào, và một người
+khác nhận được email cũ ấy thì vào được tài khoản của họ. Bảng `user_identities`
+(migration 41) đặt `UNIQUE (provider, provider_user_id)` vì lý do đó.
+
+**Tự liên kết, và một chốt duy nhất giữ cho nó an toàn.** Email đã có tài khoản
+mật khẩu, nay bấm nút Google thì hệ thống tự lập liên kết — nhưng **chỉ khi**
+`email_verified === true`, tức Google đã chứng minh người này kiểm soát hộp thư.
+Thiếu chốt đó thì bất kỳ ai khai được một địa chỉ đều nhận được tài khoản của
+người khác. Không có ngoại lệ, kể cả với tên miền "tin được".
+
+**Vì sao ở đây không sợ lộ danh sách email.** `/register` phải trả 409 khi email
+trùng, và đó là một kênh liệt kê email. `/google` thì không: muốn hỏi "email X có
+tài khoản không" thì phải có một ID token Google hợp lệ **của chính email X**,
+nghĩa là phải đang nắm hộp thư đó. Nên ở đây nói thẳng được.
+
+**Một dependency, và chỉ một.** `jose` để xác minh ID token. Đây là chỗ không nên
+tự viết: phải tải bộ khoá công khai của Google, chọn đúng khoá theo `kid`, cache,
+và xử lý việc Google xoay khoá — sai một trong mấy việc đó thì hoặc hệ thống chết
+lúc Google xoay khoá, hoặc nó nhận một token không ai ký.
+
+Cấu hình: `GOOGLE_CLIENT_ID` ở `backend/.env` và `VITE_GOOGLE_CLIENT_ID` ở
+`frontend/.env` — **hai nơi phải cùng một giá trị**, vì backend kiểm `aud` của ID
+token khớp đúng giá trị ấy. Cả hai đều không phải bí mật; client ID vốn công khai
+trong mã trang. Client _secret_ của Google thì luồng này không dùng tới.
 
 ### Route phía giao diện
 

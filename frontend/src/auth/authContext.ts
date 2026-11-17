@@ -37,6 +37,15 @@ export interface AuthContextValue {
   memberships: Membership[];
   /** Đăng nhập; ném lỗi để trang gọi tự hiển thị thông báo từ API. */
   login: (email: string, password: string) => Promise<LoginOutcome>;
+  /**
+   * Đăng nhập bằng ID token của Google (§1.9).
+   *
+   * Tách khỏi `login` chứ không thêm tham số tuỳ chọn: hai đường dùng hai
+   * endpoint khác nhau và hai kiểu chứng thực khác nhau, gộp lại thành một hàm
+   * nhận "hoặc mật khẩu hoặc credential" là mời gọi lần gọi nào đó truyền cả
+   * hai hoặc không truyền gì.
+   */
+  loginWithGoogle: (credential: string) => Promise<LoginOutcome>;
   logout: () => Promise<void>;
   /**
    * Đổi tổ chức đang mở (§5.1) — cấp lại token vì `tenantId` nằm trong JWT.

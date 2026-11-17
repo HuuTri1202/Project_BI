@@ -5,6 +5,7 @@ import { redirectTargetFor } from '../auth/redirectTarget';
 import { useAuth } from '../auth/useAuth';
 import { validateEmail, validateLoginPassword } from '../auth/validators';
 import { FormField } from '../components/FormField';
+import { NutGoogle } from '../features/auth/NutGoogle';
 import { FullPageLoader } from '../components/FullPageLoader';
 import { PasswordInput } from '../components/PasswordInput';
 import { getApiError } from '../services/apiClient';
@@ -22,7 +23,7 @@ interface LoginLocationState {
 }
 
 export default function LoginPage(): React.ReactElement {
-  const { status, user, role, login } = useAuth();
+  const { status, user, role, login, loginWithGoogle } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -73,6 +74,28 @@ export default function LoginPage(): React.ReactElement {
   function handleBlur(name: FieldName): void {
     setTouched((prev) => ({ ...prev, [name]: true }));
     setErrors((prev) => ({ ...prev, [name]: validateField(name, values[name]) }));
+  }
+
+  /**
+   * Đăng nhập bằng Google — §1.9.
+   *
+   * Dùng lại ĐÚNG đường điều hướng của đăng nhập mật khẩu: cả hai trả về cùng
+   * một `LoginOutcome`, nên luật "vào đâu sau khi đăng nhập" chỉ có một bản.
+   *
+   * ⚠️ NÉM LẠI lỗi thay vì tự hiện. `NutGoogle` hiện thông báo ngay dưới nút,
+   * cạnh chỗ người dùng vừa bấm — đẩy nó lên đầu form thì nó nằm cách xa hành
+   * động vừa gây ra nó, và lẫn với lỗi của ô email/mật khẩu.
+   */
+  async function dangNhapGoogle(credential: string): Promise<void> {
+    setFormError(null);
+    setSubmitting(true);
+    try {
+      const outcome = await loginWithGoogle(credential);
+      navigate(redirectTargetFor(outcome.user, outcome.role, incoming?.from), { replace: true });
+    } catch (err) {
+      setSubmitting(false);
+      throw new Error(getApiError(err).message);
+    }
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
@@ -195,6 +218,13 @@ export default function LoginPage(): React.ReactElement {
               </Link>
             </p>
           </form>
+
+          {/* NGOÀI thẻ <form>: nút của Google không phải một control của form
+              này, và để trong đó thì Enter khi đang gõ mật khẩu có thể kích
+              hoạt nhầm nó thay vì nút Đăng nhập. */}
+          <div className="mt-6">
+            <NutGoogle onCredential={dangNhapGoogle} disabled={submitting} />
+          </div>
         </div>
 
         {/* Nói rõ đăng ký là để LẬP tổ chức, không phải để xin vào tổ chức đã

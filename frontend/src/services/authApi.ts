@@ -28,6 +28,18 @@ export async function login(email: string, password: string): Promise<LoginRespo
 }
 
 /**
+ * §1.9 Đăng nhập bằng Google.
+ *
+ * `credential` là ID token do Google Identity Services trả về ở trình duyệt.
+ * Trả về ĐÚNG hình dạng của `/auth/login` — backend dùng chung một hàm dựng
+ * phiên cho cả hai đường — nên `AuthProvider` xử lý chúng bằng một đoạn code.
+ */
+export async function loginWithGoogle(credential: string): Promise<LoginResponse> {
+  const { data } = await apiClient.post<LoginResponse>('/auth/google', { credential });
+  return data;
+}
+
+/**
  * §5.1 Đổi tổ chức đang mở.
  *
  * Trả về ĐÚNG hình dạng của `/auth/login` — kể cả `token` — vì `tenantId` được

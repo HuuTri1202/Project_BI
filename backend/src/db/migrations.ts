@@ -3216,4 +3216,43 @@ export const migrations: readonly Migration[] = [
             AND m.role <> 'admin'`,
     ],
   },
+  // ─── user_identities: đăng nhập bằng nhà cung cấp ngoài (Google) ──────
+  //
+  // ⚠️ KHOÁ DUY NHẤT ĐẶT TRÊN `provider_user_id`, KHÔNG trên email.
+  //
+  // Cách viết tự nhiên là thêm một cột `users.google_email` rồi so email. Nó
+  // sai, và sai theo kiểu chỉ lộ ra khi đã mất tài khoản: email của một tài
+  // khoản Google ĐỔI ĐƯỢC (đổi tên miền công ty, đổi alias), còn `sub` — định
+  // danh Google cấp — thì không bao giờ đổi. Lấy email làm khoá nghĩa là người
+  // dùng đổi email bên Google xong thì mất lối vào, và một người khác nhận
+  // được email cũ ấy thì vào được tài khoản của họ.
+  //
+  // Hai khoá duy nhất, mỗi cái chặn một chuyện khác nhau:
+  //
+  //   uq_identity_subject  một tài khoản Google chỉ trỏ tới MỘT người dùng
+  //   uq_identity_user     một người dùng chỉ liên kết MỘT tài khoản Google
+  //
+  // `email_at_link` KHÔNG dùng để đăng nhập — nó chỉ để tra cứu về sau khi cần
+  // biết liên kết này được lập lúc ấy bằng email nào. Dùng nó làm khoá tìm là
+  // mở lại đúng lỗ vừa nói.
+  {
+    id: 41,
+    name: 'user_identities',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS user_identities (
+        id               BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+        user_id          BIGINT UNSIGNED NOT NULL,
+        provider         ENUM('google') NOT NULL,
+        provider_user_id VARCHAR(255) NOT NULL,
+        email_at_link    VARCHAR(255) NOT NULL,
+        created_at       DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+        last_login_at    DATETIME(3) NULL,
+        PRIMARY KEY (id),
+        UNIQUE KEY uq_identity_subject (provider, provider_user_id),
+        UNIQUE KEY uq_identity_user (user_id, provider),
+        CONSTRAINT fk_identity_user FOREIGN KEY (user_id)
+          REFERENCES users (id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    ],
+  },
 ];

@@ -274,6 +274,18 @@ const envSchema = z.object({
    * Vite được nhúng thẳng vào bundle gửi về máy người dùng — ai mở devtools
    * cũng đọc được, rồi dùng khoá đó cho việc của họ.
    */
+  /*
+   * Đăng nhập bằng Google — §1.9. Tuỳ chọn, cùng khuôn với lớp LLM: không khai
+   * thì nút Google không hiện và endpoint trả 503, mọi thứ còn lại chạy y hệt.
+   *
+   * ⚠️ KHÔNG phải bí mật, và đó là chủ ý chứ không phải sơ suất: client ID của
+   * Google vốn nằm công khai trong mã trang. Thứ bảo vệ hệ thống không phải là
+   * giữ kín nó, mà là việc backend kiểm `aud` của ID token khớp đúng giá trị
+   * này — xem `services/auth/googleIdentity.ts`. Frontend khai lại nó qua
+   * `VITE_GOOGLE_CLIENT_ID`, và hai nơi PHẢI cùng một giá trị.
+   */
+  GOOGLE_CLIENT_ID: z.string().min(1).optional(),
+
   LLM_BASE_URL: z.string().url().optional(),
   LLM_API_KEY: z.string().min(8).optional(),
   LLM_MODEL: z.string().min(1).optional(),

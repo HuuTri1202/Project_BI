@@ -4,8 +4,10 @@ import { env } from '../../config/env';
 import { authenticate, requireAuth } from '../../middleware/authenticate';
 import { rateLimit } from '../../middleware/rateLimit';
 import * as membershipsRepo from '../../repositories/memberships';
+import * as identitiesRepo from '../../repositories/userIdentities';
 import * as usersRepo from '../../repositories/users';
 import { hashPassword, verifyAgainstDummy, verifyPassword } from '../../services/auth/password';
+import { xacMinhGoogle } from '../../services/auth/googleIdentity';
 import { registerAccount } from '../../services/auth/registerAccount';
 import { expiresInSeconds, signAccessToken } from '../../services/auth/token';
 import { asyncHandler } from '../../utils/asyncHandler';
@@ -19,6 +21,7 @@ import {
 import {
   changePasswordSchema,
   forgotPasswordSchema,
+  googleLoginSchema,
   loginSchema,
   registerSchema,
   resetPasswordSchema,
@@ -123,41 +126,155 @@ authRouter.post(
       throw new HttpError(403, 'AccountDisabled', 'Tài khoản đã bị khoá. Liên hệ quản trị viên.');
     }
 
-    // Từ đây là phần mới do mô hình `memberships`: xác thực xong mới biết người
-    // này thuộc những tổ chức nào.
-    const memberships = await membershipsRepo.listActiveByUser(found.user.id);
+    res.json(await moPhien(found.user));
+  }),
+);
 
-    // Tài khoản có thật, mật khẩu đúng, nhưng không thuộc tổ chức nào — xảy ra
-    // khi vừa bị gỡ khỏi tổ chức cuối cùng. KHÔNG trả 401 ở đây: mật khẩu đúng
-    // rồi, báo sai mật khẩu là nói dối và người dùng sẽ thử lại tới khi bị khoá.
-    const active = memberships[0];
-    if (!active) {
-      throw new HttpError(
-        403,
-        'NoMembership',
-        'Tài khoản chưa thuộc tổ chức nào. Liên hệ quản trị viên để được thêm vào.',
-      );
+/**
+ * Gói phiên trả về — DÙNG CHUNG cho mọi đường đăng nhập.
+ *
+ * ⚠️ Gom lại chứ không chép, và đây là lý do: `/login` và `/google` phải trả về
+ * ĐÚNG MỘT hình dạng, vì frontend chỉ có một đường xử lý phiên. Hai bản sao của
+ * cùng một object literal thì lệch nhau ở lần sửa đầu tiên — và cái lệch đó rơi
+ * vào đường xác thực, nơi một trường thiếu nghĩa là người đăng nhập bằng Google
+ * nhận một phiên khác với người đăng nhập bằng mật khẩu, mà không ai thấy ngay.
+ *
+ * `/switch-tenant` CỐ Ý không dùng hàm này: ở đó tổ chức đang mở do người dùng
+ * chọn chứ không phải lấy cái đầu danh sách, nên nó có một luật khác.
+ */
+async function moPhien(user: usersRepo.PublicUser): Promise<Record<string, unknown>> {
+  // Xác thực xong mới biết người này thuộc những tổ chức nào.
+  const memberships = await membershipsRepo.listActiveByUser(user.id);
+
+  // Tài khoản có thật, chứng thực đúng, nhưng không thuộc tổ chức nào — xảy ra
+  // khi vừa bị gỡ khỏi tổ chức cuối cùng. KHÔNG trả 401 ở đây: chứng thực đã
+  // đúng rồi, báo sai là nói dối và người dùng sẽ thử lại tới khi bị khoá.
+  const active = memberships[0];
+  if (!active) {
+    throw new HttpError(
+      403,
+      'NoMembership',
+      'Tài khoản chưa thuộc tổ chức nào. Liên hệ quản trị viên để được thêm vào.',
+    );
+  }
+
+  await usersRepo.touchLastLogin(user.id);
+
+  return {
+    token: signAccessToken({
+      userId: user.id,
+      tenantId: active.tenantId,
+      role: active.role,
+      platformRole: user.platformRole,
+    }),
+    expiresIn: expiresInSeconds(),
+    /*
+     * ⚠️ Cờ này VẪN áp cho người đăng nhập bằng Google, và đó là chủ ý.
+     *
+     * Nghe vô lý — họ có gõ mật khẩu đâu mà bắt đổi. Nhưng `must_change_password`
+     * bật lên khi quản trị viên tạo tài khoản bằng một mật khẩu TẠM, và mật khẩu
+     * tạm ấy vẫn là một chứng thực sống mà người khác đang biết. Cho qua vì người
+     * dùng vào bằng Google là để lại một lối vào thứ hai không ai đóng.
+     */
+    mustChangePassword: user.mustChangePassword,
+    user,
+    // Tổ chức đang mở và vai trò trong đó — hai thứ frontend dùng để điều hướng.
+    tenant: toTenantSummary(active),
+    role: active.role,
+    // Danh sách đầy đủ, kể cả khi mới có một phần tử.
+    memberships: memberships.map(toTenantSummaryWithRole),
+  };
+}
+
+/**
+ * POST /api/auth/google — §1.9 đăng nhập bằng tài khoản Google.
+ *
+ * ═══ CHỈ ĐĂNG NHẬP, KHÔNG ĐĂNG KÝ ══════════════════════════════════════════
+ *
+ * Endpoint này không bao giờ tạo người dùng mới. Google chỉ đưa được `email`,
+ * `name` và `sub`; mà `registerAccount` còn cần tên công ty, số điện thoại,
+ * chức danh — và quan trọng hơn, nó DỰNG MỘT TỔ CHỨC. Tạo tổ chức từ một cú bấm
+ * nút là thứ không hoàn tác được qua giao diện, nên người chưa có tài khoản
+ * được mời đi qua trang đăng ký như cũ.
+ *
+ * ═══ TỰ LIÊN KẾT, và chốt duy nhất giữ cho nó an toàn ══════════════════════
+ *
+ * Email đã có tài khoản mật khẩu, nay bấm nút Google: hệ thống tự lập liên kết.
+ * Điều đó chỉ đúng khi `email_verified === true` — tức Google đã chứng minh
+ * người này kiểm soát hộp thư ấy. Thiếu chốt đó thì bất kỳ ai khai được một địa
+ * chỉ đều nhận được tài khoản của người khác.
+ *
+ * ⚠️ Không có ngoại lệ nào cho chốt này, kể cả với tên miền "tin được".
+ *
+ * ═══ Vì sao ở đây KHÔNG sợ lộ danh sách email ══════════════════════════════
+ *
+ * `/register` phải trả 409 khi email trùng, và đó là một kênh liệt kê email —
+ * README đã ghi. Endpoint này thì không: muốn hỏi "email X có tài khoản không"
+ * thì phải có một ID token Google hợp lệ CỦA CHÍNH email X, nghĩa là phải đang
+ * nắm hộp thư đó. Nên ở đây nói thẳng được, và nói thẳng thì người dùng thật
+ * biết mình phải làm gì tiếp.
+ */
+authRouter.post(
+  '/google',
+  authRateLimit('google'),
+  asyncHandler(async (req, res) => {
+    const { credential } = googleLoginSchema.parse(req.body);
+    const danhTinh = await xacMinhGoogle(credential);
+
+    // Đã liên kết từ trước: `sub` là khoá tra cứu, không đụng tới email.
+    let userId = await identitiesRepo.findUserIdByProviderSubject('google', danhTinh.sub);
+
+    if (userId === null) {
+      if (!danhTinh.emailVerified) {
+        throw new HttpError(
+          401,
+          'GoogleEmailUnverified',
+          'Google chưa xác nhận email của tài khoản này, nên chưa thể dùng để đăng nhập.',
+        );
+      }
+
+      const theoEmail = await usersRepo.findByEmailForLogin(danhTinh.email);
+      if (!theoEmail) {
+        throw new HttpError(
+          404,
+          'NoAccount',
+          `Chưa có tài khoản nào dùng email ${danhTinh.email}. Vui lòng đăng ký trước.`,
+        );
+      }
+      // Kiểm khoá TRƯỚC khi lập liên kết: một tài khoản đã bị khoá thì không nên
+      // để lại thêm một lối vào, kể cả lối vào chưa dùng được ngay.
+      if (!theoEmail.user.isActive) {
+        throw new HttpError(403, 'AccountDisabled', 'Tài khoản đã bị khoá. Liên hệ quản trị viên.');
+      }
+
+      const lienKetDuoc = await identitiesRepo.linkIdentity({
+        userId: theoEmail.user.id,
+        provider: 'google',
+        subject: danhTinh.sub,
+        email: danhTinh.email,
+      });
+      if (!lienKetDuoc) {
+        // Một trong hai khoá duy nhất đụng — xem `linkIdentity`. Cả hai đều là
+        // tình huống thật, và cả hai đều cần người thật xử lý.
+        throw new HttpError(
+          409,
+          'IdentityConflict',
+          'Tài khoản này đã được liên kết với một tài khoản Google khác. Liên hệ quản trị viên.',
+        );
+      }
+      userId = theoEmail.user.id;
     }
 
-    await usersRepo.touchLastLogin(found.user.id);
+    // Đọc lại từ database chứ không tin bản vừa tìm: đường "đã liên kết" ở trên
+    // mới chỉ có `userId`, và cả hai đường phải kiểm khoá bằng cùng một câu.
+    const user = await usersRepo.findById(userId);
+    if (!user) throw unauthorized('Tài khoản không còn tồn tại.');
+    if (!user.isActive) {
+      throw new HttpError(403, 'AccountDisabled', 'Tài khoản đã bị khoá. Liên hệ quản trị viên.');
+    }
 
-    res.json({
-      token: signAccessToken({
-        userId: found.user.id,
-        tenantId: active.tenantId,
-        role: active.role,
-        platformRole: found.user.platformRole,
-      }),
-      expiresIn: expiresInSeconds(),
-      mustChangePassword: found.user.mustChangePassword,
-      user: found.user,
-      // Tổ chức đang mở và vai trò trong đó — hai thứ frontend dùng để điều hướng.
-      tenant: toTenantSummary(active),
-      role: active.role,
-      // Danh sách đầy đủ, kể cả khi mới có một phần tử. Trả sẵn từ bây giờ để
-      // lúc thêm chức năng đổi tổ chức không phải sửa hợp đồng API.
-      memberships: memberships.map(toTenantSummaryWithRole),
-    });
+    await identitiesRepo.touchIdentityLogin('google', danhTinh.sub);
+    res.json(await moPhien(user));
   }),
 );
 

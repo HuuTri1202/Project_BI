@@ -50,6 +50,10 @@ export async function resetDatabase(): Promise<void> {
     // CASCADE). Bỏ sót nó thì vé của ca trước vẫn nằm lại, trỏ vào một user_id
     // mà AUTO_INCREMENT vừa cấp lại cho người khác.
     'password_reset_tokens',
+    // Liên kết đăng nhập ngoài — migration 41. Phải đứng TRƯỚC `users`: khoá
+    // ngoại đang tắt nên TRUNCATE `users` KHÔNG cascade, và dòng liên kết của
+    // ca trước nằm lại sẽ làm ca sau đụng `uq_identity_subject`.
+    'user_identities',
     'users',
     'tenants',
   ]) {

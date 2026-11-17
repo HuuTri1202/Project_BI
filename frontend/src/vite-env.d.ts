@@ -10,6 +10,15 @@
  */
 interface ImportMetaEnv {
   readonly VITE_API_BASE_URL: string;
+  /**
+   * Client ID của Google — §1.9. Không khai thì nút Google không hiện.
+   *
+   * ⚠️ `?:` chứ không phải bắt buộc, và đó là chủ ý: tính năng này tuỳ chọn,
+   * nên khai bắt buộc ở đây là bắt mọi người tự dựng dự án phải đi xin một
+   * client ID họ chưa cần. Vite nhúng thẳng giá trị này vào bundle — client ID
+   * vốn công khai nên không sao, nhưng client SECRET thì TUYỆT ĐỐI không.
+   */
+  readonly VITE_GOOGLE_CLIENT_ID?: string;
 }
 
 interface ImportMeta {
