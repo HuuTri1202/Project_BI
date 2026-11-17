@@ -174,4 +174,32 @@ export async function datLaiMatKhau(ve: string, matKhauMoi: string): Promise<voi
   // nào bắt họ đổi lại ở màn hình kế tiếp. Đây cũng là đường thoát cho tài khoản
   // được Admin cấp mật khẩu tạm rồi quên mất nó.
   await usersRepo.updatePassword(found.userId, await hashPassword(matKhauMoi), false);
+
+  /*
+   * ─── Và email cũng được xác minh luôn (§1.10) ──────────────────────────────
+   *
+   * ═══ Vì sao điều này ĐÚNG, không phải một sự tiện tay ══════════════════════
+   *
+   * `email_verified_at` ghi lại đúng một mệnh đề: "người này đã chứng minh mình
+   * kiểm soát hộp thư ấy". Vé vừa được chiếm ở trên chỉ tồn tại trong một lá thư
+   * gửi tới chính hộp thư đó, và nó là vé dùng-một-lần. Nên ai tới được dòng này
+   * đã chứng minh đúng mệnh đề ấy — bằng chứng mạnh y như liên kết xác minh, vì
+   * nó LÀ cùng một cơ chế.
+   *
+   * ═══ Và nó bịt một ngõ cụt ════════════════════════════════════════════════
+   *
+   * Không có dòng này, nạn nhân của một tài khoản squat (xem migration 42) bấm
+   * "Quên mật khẩu" sẽ đổi được mật khẩu — giết chứng thực của kẻ squat — rồi
+   * vẫn KHÔNG đăng nhập được, vì email vẫn chưa xác minh. Một ngõ cụt mà họ
+   * không có cách nào tự ra.
+   *
+   * Có nó thì "Quên mật khẩu" trở thành đường TỰ PHỤC VỤ để lấy lại một tài
+   * khoản bị người khác đăng ký bằng email của mình: mật khẩu của kẻ kia chết,
+   * email được xác minh, và họ vào được. Không cần thêm endpoint nào.
+   *
+   * ⚠️ Thứ tự: đặt SAU `updatePassword`. Xác minh trước rồi mới đổi mật khẩu
+   * nghĩa là có một khoảnh khắc tài khoản đã xác minh mà mật khẩu vẫn còn là
+   * mật khẩu của kẻ squat — tức một khoảnh khắc nó đăng nhập được.
+   */
+  await usersRepo.markEmailVerified(found.userId);
 }

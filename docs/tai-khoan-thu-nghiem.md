@@ -10,7 +10,31 @@
 > Khi triển khai thật: đổi `Admin@12345` trong `backend/.env` trước khi chạy
 > `npm run db:seed` lần đầu, và xoá mọi tài khoản trong file này.
 
-Cập nhật lần cuối: 11/08/2026 — bổ sung phần **Không gian cá nhân**.
+Cập nhật lần cuối: 17/11/2026 — thêm mục **Xác minh email** (§1.10).
+
+---
+
+## ⚠️ Từ §1.10: tài khoản MỚI đăng ký phải xác minh email mới vào được
+
+Mọi tài khoản trong file này vẫn đăng nhập bình thường — migration 42 đánh dấu
+sẵn toàn bộ tài khoản đã tồn tại là đã xác minh.
+
+Nhưng **tài khoản bạn tự đăng ký từ bây giờ** thì không: `/login` trả 403
+`EmailNotVerified` cho tới khi email được xác minh. Trên máy dev không có SMTP,
+nên làm thế này:
+
+1. Đăng ký như thường.
+2. Xem **log của backend** — `services/mail/mailer.ts` in cả lá thư ra đó khi chưa
+   cấu hình SMTP.
+3. Copy liên kết dạng `http://localhost:5173/xac-minh-email?token=…` trong log,
+   dán vào trình duyệt.
+4. Quay lại `/login` và đăng nhập.
+
+Nếu lỡ mất lá thư: bấm **"Gửi lại thư xác minh"** ngay trong hộp lỗi ở trang đăng
+nhập, rồi xem log lần nữa.
+
+Tài khoản do Admin tạo qua **Quản lý tổ chức → Thành viên** thì *không* cần bước
+này — chúng được coi là đã xác minh vì Admin tự khai email (xem `createMember.ts`).
 
 ---
 

@@ -9,6 +9,7 @@ import { resetDatabase } from './helpers/db';
 import {
   bearer,
   capGoiKhongGioiHan,
+  daDoiMatKhauTam,
   grantWorkspace,
   makeMembership,
   makeReport,
@@ -383,6 +384,20 @@ describe('Tài khoản MỚI vẫn có workspace mặc định, và THẤY đư�
       })
       .expect(201);
 
+    /*
+     * Xác minh email bằng SQL, không đi qua lá thư — §1.10.
+     *
+     * Từ §1.10, `/login` chặn tài khoản chưa xác minh. Bài test này canh quyền
+     * trên workspace, nên bắt nó mock `guiMail` rồi bóc liên kết trong thân thư
+     * là nhồi một luồng khác vào đường đi và làm nó đỏ vì lý do không liên quan.
+     *
+     * Chính luồng xác minh có bộ test riêng đi đúng đường người dùng đi:
+     * `emailVerification.integration.test.ts`.
+     */
+    await mysqlPool.query('UPDATE users SET email_verified_at = NOW(3) WHERE email = ?', [
+      'nguoimoi@example.com',
+    ]);
+
     const dangNhap = await request(app)
       .post('/api/auth/login')
       .send({ email: 'nguoimoi@example.com', password: 'Matkhau123' })
@@ -412,6 +427,9 @@ describe('Tài khoản MỚI vẫn có workspace mặc định, và THẤY đư�
     expect(moi.status).toBe(201);
 
     const userId = moi.body.user.userId as number;
+    // Người được mời mang mật khẩu TẠM. Từ §1.10, backend chặn `/api/v1` khi cờ
+    // đó còn bật, nên bài này phải đi qua bước mà người dùng thật buộc phải đi.
+    await daDoiMatKhauTam(userId);
     const [rows] = await mysqlPool.query<(ResultSetHeader & { id: number })[]>(
       'SELECT id FROM tenants WHERE owner_user_id = ?',
       [userId],
@@ -442,6 +460,8 @@ describe('Tài khoản MỚI vẫn có workspace mặc định, và THẤY đư�
       .send({ email: 'chuaganws@example.com', fullName: 'Chua Gan Ws', role: 'viewer' });
     expect(moi.status).toBe(201);
 
+    // Xem ghi chú ở ca trên: mật khẩu tạm chặn `/api/v1` từ §1.10.
+    await daDoiMatKhauTam(moi.body.user.userId as number);
     const token = signTokenFor(moi.body.user.userId as number, f.tenantId, 'viewer');
 
     const ds = await request(app).get('/api/v1/workspaces').set(bearer(token)).expect(200);

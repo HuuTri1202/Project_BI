@@ -450,8 +450,97 @@ buộc mạnh hơn mọi lớp kiểm tra trong ứng dụng vì nó không quê
 | POST   | `/api/auth/logout`          | 204 (JWT vô trạng thái, client tự bỏ token)                                     |
 | POST   | `/api/auth/change-password` | 204                                                                             |
 | POST   | `/api/auth/google`          | Đăng nhập bằng ID token Google — trả về ĐÚNG hình dạng của `/login`             |
+| POST   | `/api/auth/verify-email`    | 204 — xác minh email bằng vé trong thư                                          |
+| POST   | `/api/auth/resend-verification` | 202 — gửi lại thư xác minh; LUÔN cùng một câu                               |
 
 Mọi lỗi có cùng hình dạng `{ error, message, fields? }`.
+
+### Xác minh email (§1.10)
+
+**Tài khoản chưa xác minh email thì không đăng nhập được** — không bằng mật khẩu,
+không bằng Google. Đây không phải một thủ tục cho đẹp; nó là thứ chặn một đường
+tấn công thật, và đường đó chỉ xuất hiện khi §1.9 mở đăng nhập Google.
+
+**Lỗ hổng mà nó bịt: pre-hijacking.** Cột `users.email_verified_at` có từ
+migration 1 nhưng tới §1.9 thì **chưa ai ghi và chưa ai đọc**. Ghép với tự-liên-kết
+theo email, chuỗi sự việc là:
+
+1. Kẻ tấn công đăng ký `ketoan@congty.vn` — không phải chứng minh gì. Nó được tài
+   khoản + một tổ chức, làm admin, và biết mật khẩu.
+2. Người thật sau đó bấm "Đăng nhập bằng Google". Google xác nhận email, hệ thống
+   tự liên kết, họ vào được và **tin đó là workspace của mình**.
+3. Họ nạp dữ liệu công ty lên. Kẻ tấn công đăng nhập bằng mật khẩu nó tự đặt và
+   đọc toàn bộ.
+
+Nghịch lý phải sửa: hệ thống **đòi Google chứng minh** quyền sở hữu hộp thư trước
+khi liên kết, nhưng `/register` của chính nó **không đòi gì**.
+
+**Chặn ở hai chỗ, không phải một.** `/login` chặn tài khoản chưa xác minh, và
+`/google` từ chối tự-liên-kết vào tài khoản chưa xác minh. Chỉ chặn `/login` thì
+kẻ squat vẫn thắng qua đường Google; chỉ chặn `/google` thì nó vẫn đăng nhập bằng
+mật khẩu. Mỗi chốt có một bài test khẳng định **cả hai vế** — bị từ chối *và*
+không để lại dòng liên kết nào.
+
+**Chốt chưa-xác-minh đứng SAU `verifyPassword`**, cùng chỗ với chốt `isActive`.
+Đặt trước là biến `/login` thành máy dò "email nào đã đăng ký mà chưa xác minh" —
+đúng thứ mà một thông báo lỗi duy nhất đang cẩn thận che. Có một bài test giữ lấy
+điều này: mật khẩu sai trên tài khoản chưa xác minh phải ra `InvalidCredentials`,
+không phải `EmailNotVerified`.
+
+**Lá thư là một phần của lớp phòng thủ.** Pre-hijacking sống nhờ im lặng: thư này
+đi tới hộp thư của **người thật**, nên nạn nhân biết trong vòng vài giây. Vì vậy
+thân thư phải nêu rõ tài khoản nào vừa được tạo (họ tên, công ty) và cảnh báo đừng
+bấm nếu không tự đăng ký. Đó là nội dung được test, không phải câu chữ trang trí.
+
+**"Quên mật khẩu" cũng xác minh email — và đó là đường lấy lại tài khoản bị squat.**
+Bấm được liên kết trong thư đặt-lại là bằng chứng sở hữu hộp thư, **cùng một cơ
+chế và cùng một bằng chứng** với liên kết xác minh. Nên `datLaiMatKhau` ghi luôn
+`email_verified_at`. Nhờ vậy nạn nhân của một tài khoản squat có một đường tự phục
+vụ, không cần endpoint mới nào: bấm "Quên mật khẩu" → mật khẩu của kẻ kia chết →
+email được xác minh → vào được. Thiếu dòng đó thì họ đổi được mật khẩu mà **vẫn**
+không đăng nhập được, một ngõ cụt không có cách nào tự ra. Thứ tự có nghĩa: xác
+minh đặt **sau** `updatePassword`, vì đảo lại là có một khoảnh khắc tài khoản đã
+xác minh mà mật khẩu vẫn là của kẻ squat.
+
+**Rủi ro còn lại, nói thẳng.** Người bấm liên kết trong thư **xác minh** về một
+tài khoản họ *không* tạo sẽ xác minh hộ kẻ tấn công, và mật khẩu của kẻ đó sống
+lại. Chặn hẳn đòi bước xác minh kiêm luôn việc **đặt** mật khẩu — tức `/register`
+không nhận mật khẩu nữa và trang đăng ký phải làm lại. Đã cân và để ngoài phạm vi;
+cảnh báo trong thư là phần bù, và "Quên mật khẩu" ở trên là đường sửa sai nếu họ
+nhận ra sau. Tương tự, tài khoản do Admin tạo (`createMember`) được coi là đã xác
+minh vì Admin tự khai email ấy — cách sửa thật là **mời bằng liên kết** thay cho
+mật khẩu tạm.
+
+**Migration 42 ân xá mọi tài khoản đang có** (`email_verified_at = created_at`).
+Không có bước đó thì luật mới khoá sạch cơ sở dữ liệu đang chạy, kể cả tài khoản
+seed, và không còn ai vào được để sửa.
+
+⚠️ **SMTP phải chạy được**, nếu không người mới đăng ký không bao giờ vào được hệ
+thống. Chưa cấu hình SMTP thì `services/mail/mailer.ts` in thư ra log backend —
+copy liên kết trong log là chạy dev được.
+
+### Chốt mật khẩu tạm ở backend
+
+`must_change_password` bật lên khi Admin tạo thành viên bằng mật khẩu **tạm** — một
+chứng thực mà **người khác đang biết**. Trước đây thứ duy nhất buộc đổi nó là một
+lệnh điều hướng của React Router (`auth/redirectTarget.ts` tự gọi mình là "cổng
+CỨNG"), trong khi `/login` vẫn cấp một token 7 ngày đầy quyền. Ai gọi API trực
+tiếp — hoặc chỉ cần copy token khỏi `localStorage` — là đi thẳng qua cổng.
+
+Giờ `requireFreshMembership` và `requireFreshAdmin` trả **403 `PasswordChangeRequired`**
+cho mọi request của `/api/v1` và `/api/admin`. Cờ đọc từ **database**, không từ
+token: nó hạ xuống ngay khi người dùng đổi mật khẩu, mà token trong tay họ vẫn là
+token cũ còn mang cờ bật.
+
+Không tốn thêm truy vấn nào: `findAdminContext` đã JOIN đúng dòng `users` ở mỗi
+request, chỉ thêm một cột vào câu đã chạy sẵn.
+
+**Lối ra luôn mở.** `/api/auth/*` cố ý không đi qua hai middleware này, nên
+`POST /auth/change-password` vẫn gọi được — người bị chặn có đúng một việc làm
+được, và đó là việc ta muốn họ làm. Mất luôn mật khẩu tạm thì đi `forgot-password`:
+`datLaiMatKhau` hạ cờ xuống. Có một bài test giữ lấy lối ra này, để ai thêm
+middleware "tươi" cho cả `authRouter` sẽ thấy đỏ trước khi đẩy người dùng vào một
+vòng lặp không cửa thoát.
 
 ### Đăng nhập bằng Google (§1.9)
 

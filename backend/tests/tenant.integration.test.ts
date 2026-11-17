@@ -9,6 +9,7 @@ import { resetDatabase } from './helpers/db';
 import {
   bearer,
   capGoiKhongGioiHan,
+  daDoiMatKhauTam,
   makeMembership,
   makeReport,
   makeTenant,
@@ -675,6 +676,11 @@ describe('thành viên (§4.7)', () => {
 
     it('đổi sang không gian riêng thì làm admin và tạo được workspace ở đó', async () => {
       const created = await inviteEve();
+      // Eve mang mật khẩu TẠM. Từ §1.10 backend chặn `/api/v1` khi cờ đó còn
+      // bật, và ca này đi tới `POST /api/v1/workspaces` ở cuối — nên nó phải đi
+      // qua bước đổi mật khẩu mà người dùng thật buộc phải đi. Ca ngay trên
+      // (đăng nhập rơi vào tổ chức được mời) thì KHÔNG cần: nó dừng ở `/auth`.
+      await daDoiMatKhauTam(created.body.user.userId as number);
       const login = await request(app)
         .post('/api/auth/login')
         .send({ email: 'eve@alpha.test', password: created.body.tempPassword });

@@ -1,5 +1,5 @@
 import { render } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { NutGoogle } from '../src/features/auth/NutGoogle';
 
@@ -19,6 +19,25 @@ import { NutGoogle } from '../src/features/auth/NutGoogle';
  * một tên miền của Google.
  */
 describe('NutGoogle', () => {
+  /*
+   * ⚠️ PHẢI tự đặt biến môi trường, KHÔNG được dựa vào `.env` của máy đang chạy.
+   *
+   * Bản đầu của hai ca dưới đây không `stubEnv` gì cả — chúng xanh vì lúc viết,
+   * `frontend/.env` chưa có `VITE_GOOGLE_CLIENT_ID`. Nghĩa là chúng khẳng định
+   * "chưa cấu hình thì không hiện gì" bằng cách NHỜ máy của người chạy tình cờ
+   * chưa cấu hình.
+   *
+   * Và chúng đỏ ngay khi ai đó cấu hình tính năng này — tức đỏ đúng với người
+   * đang dùng nó, vì một lý do chẳng liên quan gì tới code. Vite nạp `.env` cho
+   * cả lần chạy test, nên `import.meta.env` trong test là `.env` của máy đó.
+   *
+   * `stubEnv(…, undefined)` xoá hẳn khoá khỏi `import.meta.env`, đúng trạng thái
+   * "chưa khai" mà hai ca này muốn nói tới — khác với chuỗi rỗng ở ca thứ ba.
+   */
+  beforeEach(() => {
+    vi.stubEnv('VITE_GOOGLE_CLIENT_ID', undefined);
+  });
+
   afterEach(() => {
     vi.unstubAllEnvs();
     document.head.querySelectorAll('script[src*="gsi/client"]').forEach((el) => {

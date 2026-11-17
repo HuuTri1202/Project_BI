@@ -10,6 +10,7 @@ import HomePage from './pages/HomePage';
 import ForgotPasswordPage from './pages/ForgotPasswordPage';
 import LoginPage from './pages/LoginPage';
 import ResetPasswordPage from './pages/ResetPasswordPage';
+import VerifyEmailPage from './pages/VerifyEmailPage';
 import NotFoundPage from './pages/NotFoundPage';
 import ProfilePage from './pages/ProfilePage';
 import ReportBuilderPage from './pages/tenant/ReportBuilderPage';
@@ -97,6 +98,10 @@ export default function App(): React.ReactElement {
           đăng nhập được. Đường dẫn tiếng Việt vì nó hiện trong email gửi đi. */}
       <Route path="/quen-mat-khau" element={<ForgotPasswordPage />} />
       <Route path="/dat-lai-mat-khau" element={<ResetPasswordPage />} />
+      {/* Xác minh email (§1.10): CÔNG KHAI, vì người mở nó chính là người chưa
+          đăng nhập được. Đường dẫn tiếng Việt vì nó hiện trong email gửi đi —
+          cùng luật với hai đường quên-mật-khẩu ngay trên. */}
+      <Route path="/xac-minh-email" element={<VerifyEmailPage />} />
       <Route path="/403" element={<ForbiddenPage />} />
 
       {/* Đã đăng nhập, nhưng ĐƯỢC PHÉP ở lại khi còn cờ mustChangePassword */}

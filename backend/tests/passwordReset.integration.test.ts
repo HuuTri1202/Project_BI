@@ -380,6 +380,55 @@ describe('POST /api/auth/reset-password/verify', () => {
   });
 });
 
+describe('Đặt lại mật khẩu cũng XÁC MINH email — §1.10', () => {
+  /**
+   * ⚠️ Đây là đường tự phục vụ để lấy lại một tài khoản bị người khác đăng ký
+   * bằng email của mình (pre-hijacking, xem migration 42).
+   *
+   * Bấm được liên kết trong thư đặt-lại là bằng chứng sở hữu hộp thư — cùng một
+   * cơ chế, cùng một bằng chứng với liên kết xác minh. Nên sau bước này nạn nhân
+   * vào được, còn mật khẩu của kẻ squat thì đã chết.
+   *
+   * Không có chốt ấy, bài test này dừng ở 403 `EmailNotVerified`: đổi được mật
+   * khẩu mà vẫn không vào được, một ngõ cụt không có cách nào tự ra.
+   */
+  it('tài khoản CHƯA xác minh: đặt lại mật khẩu xong thì đăng nhập được ngay', async () => {
+    const tenant = await makeTenant('Công ty Squat', 'cong-ty-squat');
+    const nanNhan = await makeUser('nannhan@congty.vn', 'Nạn Nhân', {
+      password: 'MatKhauCuaKeSquat1',
+      emailVerified: false,
+    });
+    await makeMembership(nanNhan, tenant, 'admin');
+
+    // Trước khi lấy lại: kẻ squat biết mật khẩu, nhưng chưa xác minh nên cũng
+    // không vào được. Tài khoản đang vô dụng với CẢ HAI bên.
+    const truoc = await request(app)
+      .post('/api/auth/login')
+      .send({ email: 'nannhan@congty.vn', password: 'MatKhauCuaKeSquat1' })
+      .expect(403);
+    expect(truoc.body.error).toBe('EmailNotVerified');
+
+    const ve = await xinVe('nannhan@congty.vn');
+    await request(app)
+      .post('/api/auth/reset-password')
+      .send({ token: ve, newPassword: 'MatKhauCuaToi456' })
+      .expect(204);
+
+    // Nạn nhân vào được bằng mật khẩu của chính mình.
+    await request(app)
+      .post('/api/auth/login')
+      .send({ email: 'nannhan@congty.vn', password: 'MatKhauCuaToi456' })
+      .expect(200);
+
+    // Và mật khẩu của kẻ squat đã chết — 401, không phải 403.
+    const keSquat = await request(app)
+      .post('/api/auth/login')
+      .send({ email: 'nannhan@congty.vn', password: 'MatKhauCuaKeSquat1' })
+      .expect(401);
+    expect(keSquat.body.error).toBe('InvalidCredentials');
+  });
+});
+
 describe('xoá tài khoản thì vé mất theo (ON DELETE CASCADE)', () => {
   it('vé biến mất khi user bị xoá', async () => {
     await xinVe('alice@alpha.test');

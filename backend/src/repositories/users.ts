@@ -147,6 +147,18 @@ export interface CreateUserInput {
   dateOfBirth?: string | null;
   platformRole?: PlatformRole;
   mustChangePassword?: boolean;
+  /**
+   * Đánh dấu email đã xác minh ngay lúc tạo — §1.10.
+   *
+   * ⚠️ Mặc định `false`, và mặc định đó là CHỦ Ý. `/login` chặn tài khoản chưa
+   * xác minh, nên bỏ qua trường này tạo ra một tài khoản chưa dùng được — một
+   * lỗi lộ ra ngay ở lần đăng nhập đầu. Nếu mặc định là `true` thì mọi lời gọi
+   * mới âm thầm bỏ qua lớp xác minh, và chẳng gì báo cho ai biết.
+   *
+   * Đặt `true` chỉ khi nơi gọi THỰC SỰ bảo đảm được email đó, và phải nói ra
+   * tại chỗ gọi vì sao.
+   */
+  emailVerified?: boolean;
 }
 
 /**
@@ -159,8 +171,9 @@ export interface CreateUserInput {
 export async function createUser(db: Db, input: CreateUserInput): Promise<number> {
   const [result] = await db.query<ResultSetHeader>(
     `INSERT INTO users
-       (email, password_hash, full_name, phone, job_title, date_of_birth, role, must_change_password)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+       (email, password_hash, full_name, phone, job_title, date_of_birth, role,
+        must_change_password, email_verified_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       input.email,
       input.passwordHash,
@@ -170,6 +183,7 @@ export async function createUser(db: Db, input: CreateUserInput): Promise<number
       input.dateOfBirth ?? null,
       input.platformRole ?? 'user',
       input.mustChangePassword ? 1 : 0,
+      input.emailVerified === true ? new Date() : null,
     ],
   );
   return result.insertId;
@@ -179,6 +193,22 @@ export async function touchLastLogin(userId: number): Promise<void> {
   await mysqlPool.query('UPDATE users SET last_login_at = CURRENT_TIMESTAMP(3) WHERE id = ?', [
     userId,
   ]);
+}
+
+/**
+ * Đánh dấu email đã xác minh — §1.10.
+ *
+ * `WHERE email_verified_at IS NULL` không phải để tối ưu: nó giữ cho mốc thời
+ * gian là lần xác minh ĐẦU TIÊN. Một người bấm lại liên kết cũ trong hộp thư
+ * sau nửa năm không được phép dời mốc đó, vì mốc ấy là bằng chứng "email này đã
+ * được chứng minh từ bao giờ".
+ */
+export async function markEmailVerified(userId: number): Promise<void> {
+  await mysqlPool.query(
+    `UPDATE users SET email_verified_at = CURRENT_TIMESTAMP(3)
+      WHERE id = ? AND email_verified_at IS NULL`,
+    [userId],
+  );
 }
 
 export async function updatePassword(

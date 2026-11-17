@@ -28,11 +28,16 @@ export interface CreateMemberInput {
  *
  * ─── Vì sao "mời" lại là "tạo tài khoản + mật khẩu tạm" ──────────────────────
  *
- * Hệ thống chưa có kênh gửi mail nào. Lời mời qua link thì cần bảng token, cần
- * trang nhận lời mời, và vẫn phải nhờ Admin tự chuyển link đi. Cách này dùng
- * đúng những thứ đã có sẵn trong schema: `must_change_password` và trang đổi mật
- * khẩu bắt buộc. Admin đọc mật khẩu tạm cho người kia qua Zalo/Teams, người kia
- * đăng nhập và bị buộc đổi ngay.
+ * Khi viết hàm này, hệ thống chưa có kênh gửi mail nào, nên lời mời qua link
+ * đồng nghĩa với dựng cả một hạ tầng mới. Cách này dùng đúng những thứ đã có sẵn
+ * trong schema: `must_change_password` và trang đổi mật khẩu bắt buộc. Admin đọc
+ * mật khẩu tạm cho người kia qua Zalo/Teams, người kia đăng nhập và bị buộc đổi.
+ *
+ * ⚠️ LÝ LẼ TRÊN ĐÃ CŨ. `services/mail/mailer.ts` có từ lúc làm quên-mật-khẩu, và
+ * migration 42 đã để lại sẵn khuôn bảng vé dùng-một-lần. Nghĩa là mời-bằng-liên-kết
+ * giờ chỉ còn thiếu một trang đặt mật khẩu lần đầu, và nó là cách đúng: Admin sẽ
+ * không còn biết mật khẩu của ai, và chính lá thư mời trở thành bằng chứng sở hữu
+ * hộp thư (xem `emailVerified` ở dưới).
  *
  * ─── Hai luồng, và vì sao email đã tồn tại thì GẮN chứ không báo lỗi ─────────
  *
@@ -137,6 +142,29 @@ export async function createMember(input: CreateMemberInput): Promise<CreateAdmi
       // Điểm mấu chốt của cả luồng này: Admin biết mật khẩu tạm, nên nó phải
       // chết ngay sau lần đăng nhập đầu tiên.
       mustChangePassword: true,
+      /*
+       * ─── Vì sao tài khoản do Admin tạo được coi là ĐÃ xác minh (§1.10) ─────
+       *
+       * Vì không có đường nào khác mà vẫn giữ được luồng này. `/login` chặn tài
+       * khoản chưa xác minh; để `null` ở đây thì người vừa được mời không đăng
+       * nhập được bằng mật khẩu tạm, và cả chức năng "Admin thêm thành viên"
+       * ngừng hoạt động.
+       *
+       * Cái ta dựa vào là: Admin tự gõ email ấy vào và chịu trách nhiệm về nó.
+       * Yếu hơn một lá thư xác minh, nhưng không phải không có gì — và muốn tới
+       * được đây đã phải là admin của một tổ chức thật, tức đã qua một lần đăng
+       * ký có xác minh.
+       *
+       * ⚠️ RỦI RO CÒN LẠI: một admin xấu bụng squat được email của người khác
+       * trong phạm vi tổ chức của mình. Cách sửa thật là MỜI BẰNG LIÊN KẾT thay
+       * cho mật khẩu tạm — lúc đó chính lá thư mời là bằng chứng sở hữu hộp thư,
+       * và `email_verified_at` ghi khi người ta bấm vào nó. Hạ tầng đã có đủ
+       * (`guiMail` + khuôn vé của migration 42); việc còn lại là trang đặt mật
+       * khẩu lần đầu.
+       *
+       * ponytail: tin Admin thay cho thư mời; nâng lên khi làm mời-bằng-liên-kết.
+       */
+      emailVerified: true,
     });
 
     // ⚠️ THỨ TỰ HAI CÂU `upsert` DƯỚI ĐÂY LÀ CÓ NGHĨA, đừng hoán đổi.

@@ -59,6 +59,11 @@ async function main(): Promise<void> {
       // và tạo ra những tài khoản khác. Mật khẩu nằm trong .env nên vẫn phải
       // đổi trước khi deploy.
       mustChangePassword: false,
+      // BẮT BUỘC (§1.10): `/login` chặn tài khoản chưa xác minh email, và tài
+      // khoản này là lối vào ĐẦU TIÊN của một hệ thống vừa dựng. Để `null` thì
+      // không ai đăng nhập được, mà cũng không có ai để gửi thư xác minh tới —
+      // email seed do người vận hành tự khai trong `.env` của chính họ.
+      emailVerified: true,
     });
     console.log(`[seed] đã tạo tài khoản '${email}' (id=${userId})`);
   }

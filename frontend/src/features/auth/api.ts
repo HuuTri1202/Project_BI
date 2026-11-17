@@ -24,3 +24,19 @@ export async function kiemLienKetDatLai(token: string): Promise<void> {
 export async function datLaiMatKhau(token: string, newPassword: string): Promise<void> {
   await apiClient.post('/auth/reset-password', { token, newPassword });
 }
+
+/**
+ * Hai lời gọi của luồng xác minh email — §1.10.
+ *
+ * Cùng luật vé như trên: vé đi trong BODY. Nó có mặt trên URL của trình duyệt vì
+ * đó là cách người dùng nhận nó từ thư, và `VerifyEmailPage` đọc nó từ đấy —
+ * nhưng từ đó trở đi nó không đi vào access log của backend nữa.
+ */
+export async function xacMinhEmail(token: string): Promise<void> {
+  await apiClient.post('/auth/verify-email', { token });
+}
+
+export async function guiLaiThuXacMinh(email: string): Promise<string> {
+  const res = await apiClient.post<{ message: string }>('/auth/resend-verification', { email });
+  return res.data.message;
+}

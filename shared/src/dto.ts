@@ -148,6 +148,23 @@ export const ERROR_CODES = {
   EMAIL_ALREADY_REGISTERED: 'EmailAlreadyRegistered',
   INVALID_CREDENTIALS: 'InvalidCredentials',
   ACCOUNT_DISABLED: 'AccountDisabled',
+  /**
+   * Tài khoản còn cờ `must_change_password` nhưng đang gọi một endpoint khác
+   * `/auth/change-password`.
+   *
+   * ⚠️ Mã này KHÔNG dành cho giao diện hiển thị. Frontend đã chặn cứng ở
+   * `auth/redirectTarget.ts`, nên người dùng thật không bao giờ thấy nó. Nó
+   * tồn tại cho đúng một tình huống: ai đó bỏ qua giao diện và gọi API trực
+   * tiếp bằng token vừa cấp. Xem `middleware/requireFreshMembership.ts`.
+   */
+  PASSWORD_CHANGE_REQUIRED: 'PasswordChangeRequired',
+  /**
+   * Email của tài khoản chưa được xác minh (§1.10).
+   *
+   * Trả về SAU khi mật khẩu đã đúng — y như `ACCOUNT_DISABLED`. Kiểm trước đó
+   * sẽ biến `/login` thành máy dò xem email nào đã đăng ký.
+   */
+  EMAIL_NOT_VERIFIED: 'EmailNotVerified',
   NO_MEMBERSHIP: 'NoMembership',
   UNAUTHENTICATED: 'Unauthorized',
   FORBIDDEN: 'Forbidden',

@@ -156,6 +156,58 @@ describe('POST /api/auth/google', () => {
     expect(await dongLienKet()).toHaveLength(0);
   });
 
+  /*
+   * ⚠️ CA AN NINH THỨ HAI — nửa còn lại của pre-hijacking (§1.10, migration 42).
+   *
+   * Google xác nhận email là chứng minh người ĐANG BẤM NÚT sở hữu hộp thư. Nó
+   * KHÔNG chứng minh gì về cái tài khoản nội bộ đang mang email đó: tài khoản ấy
+   * có thể do người khác đăng ký bằng email này, và chưa ai xác minh nó.
+   *
+   * Liên kết trong tình huống đó là trao tài khoản của kẻ squat cho nạn nhân:
+   * nạn nhân vào được, tin đó là workspace của mình, nạp dữ liệu lên — và mật
+   * khẩu của kẻ squat vẫn dùng được.
+   *
+   * Khẳng định cả hai vế, y như ca `emailVerified: false` ở trên: bị từ chối, VÀ
+   * không để lại liên kết nào. Chốt phải đứng TRƯỚC `linkIdentity`.
+   */
+  it('tài khoản nội bộ CHƯA xác minh email → từ chối, và KHÔNG để lại liên kết nào', async () => {
+    const userId = await makeUser('ha@congty.vn', 'Trần Thu Hà', { emailVerified: false });
+    const tenantId = await makeTenant('Công ty ABC', 'abc-chua-xac-minh');
+    await makeMembership(userId, tenantId, 'admin');
+    google.danhTinh = danhTinh();
+
+    const res = await goi();
+
+    expect(res.status).toBe(403);
+    expect(res.body.error).toBe('EmailNotVerified');
+    expect(await dongLienKet()).toHaveLength(0);
+  });
+
+  /**
+   * Chốt xác minh phải phủ CẢ đường "đã liên kết từ trước".
+   *
+   * Đường đó không đi qua khối tự-liên-kết, nên nó cần chốt riêng ở chỗ đọc lại
+   * người dùng. Không có ca này thì chốt ấy là một lệnh `if` mà không bài test
+   * nào bẻ được — và một chốt như vậy thì không ai biết nó còn sống hay đã chết.
+   *
+   * Tình huống dựng ở đây — liên kết đã có, rồi email bị gỡ xác minh — hôm nay
+   * chưa có đường nào tạo ra trong lúc chạy thật. Nó sẽ có ngay khi ai đó thêm
+   * một thao tác quản trị kiểu "gỡ xác minh email", và lúc đó chốt phải sẵn sàng.
+   */
+  it('liên kết đã có nhưng email bị gỡ xác minh → vẫn từ chối', async () => {
+    const userId = await dungTaiKhoan();
+    google.danhTinh = danhTinh();
+    expect((await goi()).status).toBe(200);
+    expect(await dongLienKet(userId)).toHaveLength(1);
+
+    await mysqlPool.query('UPDATE users SET email_verified_at = NULL WHERE id = ?', [userId]);
+
+    const res = await goi();
+
+    expect(res.status).toBe(403);
+    expect(res.body.error).toBe('EmailNotVerified');
+  });
+
   it('email chưa có tài khoản → mời đăng ký, KHÔNG tự tạo người dùng', async () => {
     google.danhTinh = danhTinh({ email: 'nguoila@congty.vn' });
 

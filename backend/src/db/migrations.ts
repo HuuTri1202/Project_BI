@@ -3255,4 +3255,70 @@ export const migrations: readonly Migration[] = [
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
     ],
   },
+
+  // ─── 42. Xác minh email — §1.10 ───────────────────────────────────────────
+  //
+  // Cột `users.email_verified_at` có từ migration 1 nhưng CHƯA AI GHI và CHƯA AI
+  // ĐỌC. Nghĩa là tới hôm nay, quyền sở hữu một tài khoản không dựa trên gì cả:
+  // ai cũng đăng ký được bằng email của người khác.
+  //
+  // ═══ Vì sao việc này gấp lên từ migration 41 ═══════════════════════════════
+  //
+  // Migration 41 mở đường đăng nhập Google có TỰ LIÊN KẾT theo email. Ghép hai
+  // thứ lại ra một đường tấn công thật, và nó có tên: pre-hijacking.
+  //
+  //   1. Kẻ tấn công đăng ký `ketoan@congty.vn` — không phải chứng minh gì.
+  //      Nó được tài khoản + một tổ chức, làm admin, và biết mật khẩu.
+  //   2. Người thật sau đó bấm "Đăng nhập bằng Google". Google xác nhận email,
+  //      hệ thống tự liên kết, họ vào được và TIN đó là workspace của mình.
+  //   3. Họ nạp dữ liệu công ty lên. Kẻ tấn công đăng nhập bằng mật khẩu nó tự
+  //      đặt và đọc toàn bộ.
+  //
+  // Nghịch lý phải sửa: hệ thống ĐÒI Google chứng minh quyền sở hữu hộp thư
+  // trước khi liên kết, nhưng `/register` của chính nó KHÔNG đòi gì.
+  //
+  // ═══ Vì sao "ân xá" mọi dòng đang có ══════════════════════════════════════
+  //
+  // Câu UPDATE thứ hai đánh dấu MỌI tài khoản hiện tại là đã xác minh. Không có
+  // nó thì luật mới khoá sạch cả cơ sở dữ liệu đang chạy — kể cả tài khoản seed
+  // và các tài khoản trong `docs/tai-khoan-thu-nghiem.md` — và không ai còn
+  // đường vào để sửa.
+  //
+  // ⚠️ Nó cũng ân xá luôn một tài khoản squat có thể đã tồn tại. Chấp nhận được:
+  // luật chỉ có thể áp cho những gì xảy ra TỪ ĐÂY, và ngày mai thì không còn
+  // dòng nào chưa xác minh để ân xá nữa.
+  //
+  // `email_verified_at = created_at` chứ không phải `NOW(3)`: một mốc thời gian
+  // nói "đã xác minh từ lúc tạo" thì trung thực hơn là nói "cả 500 tài khoản
+  // cùng xác minh vào đúng giây chạy migration".
+  {
+    id: 42,
+    name: 'email_verification_tokens',
+    statements: [
+      // Bảng này là bản sinh đôi của `password_reset_tokens` (migration 36), và
+      // KHÔNG dùng chung với nó. Hai loại vé trao hai quyền khác nhau: một vé
+      // đặt lại mật khẩu, một vé xác minh email. Nhét chung một bảng thì mọi câu
+      // truy vấn phải nhớ lọc `purpose`, và `vohieuVeCu(userId)` của bên này sẽ
+      // vô hiệu hoá luôn vé của bên kia. Một lần quên là một vé xác minh đổi
+      // được mật khẩu.
+      `CREATE TABLE IF NOT EXISTS email_verification_tokens (
+         id          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+         user_id     BIGINT UNSIGNED NOT NULL,
+         token_hash  CHAR(64)        NOT NULL,
+         expires_at  DATETIME(3)     NOT NULL,
+         used_at     DATETIME(3)     NULL,
+         created_at  DATETIME(3)     NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+         PRIMARY KEY (id),
+         UNIQUE KEY uq_email_verify_token_hash (token_hash),
+         KEY ix_email_verify_user (user_id, used_at),
+         KEY ix_email_verify_expiry (expires_at),
+         CONSTRAINT fk_email_verify_user FOREIGN KEY (user_id)
+           REFERENCES users (id) ON DELETE CASCADE
+       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+
+      `UPDATE users
+          SET email_verified_at = created_at
+        WHERE email_verified_at IS NULL`,
+    ],
+  },
 ];

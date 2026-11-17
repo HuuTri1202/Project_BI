@@ -1,10 +1,11 @@
-import { APP_NAME } from '@bi/shared';
+import { APP_NAME, ERROR_CODES } from '@bi/shared';
 import { useState, type FormEvent } from 'react';
 import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { redirectTargetFor } from '../auth/redirectTarget';
 import { useAuth } from '../auth/useAuth';
 import { validateEmail, validateLoginPassword } from '../auth/validators';
 import { FormField } from '../components/FormField';
+import { guiLaiThuXacMinh } from '../features/auth/api';
 import { NutGoogle } from '../features/auth/NutGoogle';
 import { FullPageLoader } from '../components/FullPageLoader';
 import { PasswordInput } from '../components/PasswordInput';
@@ -43,6 +44,36 @@ export default function LoginPage(): React.ReactElement {
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
+  /*
+   * ─── Trạng thái riêng cho "email chưa xác minh" (§1.10) ────────────────────
+   *
+   * Đây là lỗi đăng nhập DUY NHẤT mà người dùng có thể tự xử lý ngay tại đây,
+   * nên nó là lỗi duy nhất được kèm một hành động. Mọi lỗi khác (sai mật khẩu,
+   * bị khoá, quá tần suất) chỉ còn cách gõ lại hoặc đi hỏi người khác.
+   *
+   * Nút gửi lại nằm NGAY TRONG hộp lỗi, không phải một dòng link ở cuối trang:
+   * người đọc câu "email chưa được xác minh" cần thấy việc phải làm ở cùng chỗ,
+   * chứ không phải đi tìm.
+   */
+  const [chuaXacMinh, setChuaXacMinh] = useState(false);
+  const [dangGuiLai, setDangGuiLai] = useState(false);
+  const [daGuiLai, setDaGuiLai] = useState<string | null>(null);
+
+  async function guiLaiThu(): Promise<void> {
+    setDangGuiLai(true);
+    try {
+      setDaGuiLai(await guiLaiThuXacMinh(values.email.trim()));
+      // Hạ hộp lỗi xuống: để cả "chưa xác minh" lẫn "đã gửi lại" cùng hiện là
+      // hai tin trái nhau trên một màn hình.
+      setFormError(null);
+      setChuaXacMinh(false);
+    } catch (err) {
+      setFormError(getApiError(err).message);
+    } finally {
+      setDangGuiLai(false);
+    }
+  }
+
   // Cùng lý do với ProtectedRoute: token còn trong máy nhưng `GET /me` chưa
   // trả lời thì CHƯA biết người này là ai. Dựng form ra ngay sẽ nháy một nhịp
   // rồi bị đẩy đi khi câu trả lời về — F5 tại /login trông như trang bị giật.
@@ -64,6 +95,7 @@ export default function LoginPage(): React.ReactElement {
     // trái ngược nhau cùng hiện trên một màn hình.
     setJustRegistered(false);
     setVuaDatLai(false);
+    setDaGuiLai(null);
     // Chỉ validate lại khi ô ĐÃ chạm. Bắt lỗi ngay từ ký tự đầu tiên là kiểu
     // giao diện quát vào mặt người đang gõ dở.
     if (touched[name]) {
@@ -125,6 +157,9 @@ export default function LoginPage(): React.ReactElement {
         });
       } else {
         setFormError(apiError.message);
+        // So mã, KHÔNG so câu chữ: câu chữ là thứ sẽ bị ai đó sửa cho hay hơn,
+        // còn mã là hợp đồng của API (`ERROR_CODES` trong @bi/shared).
+        setChuaXacMinh(apiError.error === ERROR_CODES.EMAIL_NOT_VERIFIED);
       }
       setSubmitting(false);
     }
@@ -140,14 +175,23 @@ export default function LoginPage(): React.ReactElement {
           </header>
 
           {justRegistered && !formError && (
-            // §1.5 — vừa đăng ký xong. `role="status"` chứ không phải "alert":
-            // đây là tin vui, không phải lỗi, nên trình đọc màn hình chỉ cần
-            // đọc khi rảnh chứ không cắt ngang việc đang làm.
+            /*
+             * §1.5 — vừa đăng ký xong. `role="status"` chứ không phải "alert":
+             * đây là tin vui, không phải lỗi, nên trình đọc màn hình chỉ cần đọc
+             * khi rảnh chứ không cắt ngang việc đang làm.
+             *
+             * ⚠️ Câu này ĐÃ ĐỔI ở §1.10. Bản cũ nói "Đăng nhập bằng mật khẩu bạn
+             * vừa đặt để vào hệ thống" — từ khi `/login` chặn tài khoản chưa xác
+             * minh thì câu đó dẫn người dùng thẳng vào một thông báo lỗi ngay sau
+             * khi vừa đăng ký xong. Việc tiếp theo của họ là mở hộp thư, nên màn
+             * hình phải nói đúng việc đó.
+             */
             <div
               role="status"
               className="mb-5 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800"
             >
-              Tạo tài khoản thành công. Đăng nhập bằng mật khẩu bạn vừa đặt để vào hệ thống.
+              Tạo tài khoản thành công. Chúng tôi vừa gửi một thư xác minh tới email của bạn — mở
+              liên kết trong thư đó rồi quay lại đây đăng nhập.
             </div>
           )}
 
@@ -160,6 +204,15 @@ export default function LoginPage(): React.ReactElement {
             </div>
           )}
 
+          {daGuiLai !== null && !formError && (
+            <div
+              role="status"
+              className="mb-5 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800"
+            >
+              {daGuiLai}
+            </div>
+          )}
+
           {formError && (
             // role="alert" để trình đọc màn hình đọc ngay khi thông báo xuất
             // hiện, không cần người dùng tự đi tìm.
@@ -168,6 +221,16 @@ export default function LoginPage(): React.ReactElement {
               className="mb-5 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
             >
               {formError}
+              {chuaXacMinh && (
+                <button
+                  type="button"
+                  onClick={() => void guiLaiThu()}
+                  disabled={dangGuiLai}
+                  className="mt-2 block font-semibold underline underline-offset-2 hover:no-underline disabled:opacity-60"
+                >
+                  {dangGuiLai ? 'Đang gửi…' : 'Gửi lại thư xác minh'}
+                </button>
+              )}
             </div>
           )}
 

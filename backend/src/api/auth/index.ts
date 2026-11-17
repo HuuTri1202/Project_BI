@@ -19,14 +19,22 @@ import {
   yeuCauDatLai,
 } from '../../services/auth/passwordReset';
 import {
+  DA_GUI_NEU_CAN,
+  guiVeXacMinh,
+  xacMinhBangVe,
+  yeuCauGuiLai,
+} from '../../services/auth/emailVerification';
+import {
   changePasswordSchema,
   forgotPasswordSchema,
   googleLoginSchema,
   loginSchema,
   registerSchema,
+  resendVerificationSchema,
   resetPasswordSchema,
   switchTenantSchema,
   updateProfileSchema,
+  verifyEmailSchema,
   verifyResetTokenSchema,
 } from './schemas';
 
@@ -86,6 +94,31 @@ authRouter.post(
       jobTitle: input.jobTitle,
     });
 
+    /*
+     * Thư xác minh (§1.10) — và vì sao lỗi gửi thư KHÔNG làm hỏng cả request.
+     *
+     * Tài khoản + tổ chức + workspace đã COMMIT xong. Ném lỗi ở đây sẽ trả về
+     * 500 cho một người mà tài khoản của họ THẬT SỰ đã được tạo: lần sau họ bấm
+     * Đăng ký lại và nhận "email đã được đăng ký", không hiểu gì cả.
+     *
+     * Đường thoát khi SMTP hỏng: `POST /auth/resend-verification`, mà trang đăng
+     * nhập chỉ đúng tới khi gặp `EmailNotVerified`. Nên lỗi ở đây chỉ cần ghi
+     * log để người vận hành thấy, không cần dội lên người dùng.
+     *
+     * ⚠️ `console.error` chứ không im lặng: SMTP sai cấu hình nghĩa là KHÔNG AI
+     * đăng ký được nữa (không ai xác minh được email), và đó là loại sự cố phải
+     * nhìn thấy trong log ngay từ lần đầu.
+     */
+    try {
+      await guiVeXacMinh(created.user, input.companyName);
+    } catch (err) {
+      console.error(
+        '[auth] Không gửi được thư xác minh cho',
+        created.user.email,
+        err instanceof Error ? err.message : err,
+      );
+    }
+
     res.status(201).json(created);
   }),
 );
@@ -124,6 +157,32 @@ authRouter.post(
     // trước khi xác thực mật khẩu cũng là một cách để lộ email có tồn tại.
     if (!found.user.isActive) {
       throw new HttpError(403, 'AccountDisabled', 'Tài khoản đã bị khoá. Liên hệ quản trị viên.');
+    }
+
+    /*
+     * Chưa xác minh email -> không vào được (§1.10).
+     *
+     * ═══ Vì sao chốt này đứng ĐÂY, sau `verifyPassword` ═══════════════════════
+     *
+     * Cùng lý lẽ với chốt `isActive` ngay trên: ai tới được dòng này đã chứng
+     * minh biết mật khẩu, nên nói thật với họ không tiết lộ gì. Đưa chốt lên
+     * trước `verifyPassword` là biến `/login` thành máy dò "email nào đã đăng ký
+     * mà chưa xác minh" — đúng thứ `INVALID_CREDENTIALS` đang cẩn thận che.
+     *
+     * ═══ Vì sao CHẶN chứ không chỉ cảnh báo ══════════════════════════════════
+     *
+     * Đây là thứ làm cho một tài khoản squat trở nên VÔ DỤNG. Kẻ đăng ký bằng
+     * email của người khác không bao giờ nhận được lá thư, nên không bao giờ
+     * xác minh được, nên không bao giờ đăng nhập được. Cho vào kèm một dải băng
+     * vàng "bạn chưa xác minh email" thì tài khoản đó vẫn dùng được bình thường
+     * và cả chốt này thành vô nghĩa. Xem migration 42.
+     */
+    if (found.user.emailVerifiedAt === null) {
+      throw new HttpError(
+        403,
+        'EmailNotVerified',
+        'Email chưa được xác minh. Hãy mở liên kết trong thư chúng tôi đã gửi, hoặc bấm "Gửi lại thư xác minh".',
+      );
     }
 
     res.json(await moPhien(found.user));
@@ -247,6 +306,27 @@ authRouter.post(
         throw new HttpError(403, 'AccountDisabled', 'Tài khoản đã bị khoá. Liên hệ quản trị viên.');
       }
 
+      /*
+       * ⚠️ KHÔNG tự liên kết vào một tài khoản chưa xác minh email (§1.10).
+       *
+       * Đây là nửa còn lại của lỗ hổng pre-hijacking mà migration 42 mô tả. Nửa
+       * kia là `/login` chặn tài khoản chưa xác minh — nhưng nếu đường này vẫn
+       * liên kết, thì kẻ squat vẫn thắng: nạn nhân vào được bằng Google, tin đó
+       * là workspace của mình, nạp dữ liệu lên, và mật khẩu của kẻ squat vẫn
+       * dùng được. Chặn cả hai đường thì tài khoản squat vô dụng hoàn toàn.
+       *
+       * Chốt đứng TRƯỚC `linkIdentity`, không phải sau: xếp sau thì dòng liên
+       * kết đã được ghi rồi mới bị từ chối, và hệ thống để lại một lối vào cho
+       * một tài khoản mà chính nó vừa nói là không dùng được.
+       */
+      if (theoEmail.user.emailVerifiedAt === null) {
+        throw new HttpError(
+          403,
+          'EmailNotVerified',
+          `Tài khoản dùng email ${danhTinh.email} chưa xác minh email. Hãy mở liên kết trong thư xác minh trước khi đăng nhập bằng Google.`,
+        );
+      }
+
       const lienKetDuoc = await identitiesRepo.linkIdentity({
         userId: theoEmail.user.id,
         provider: 'google',
@@ -271,6 +351,16 @@ authRouter.post(
     if (!user) throw unauthorized('Tài khoản không còn tồn tại.');
     if (!user.isActive) {
       throw new HttpError(403, 'AccountDisabled', 'Tài khoản đã bị khoá. Liên hệ quản trị viên.');
+    }
+    // Chốt xác minh lặp lại ở đây để phủ CẢ đường "đã liên kết từ trước" — đường
+    // đó không đi qua khối trên. Một liên kết lập trước §1.10 có thể trỏ tới
+    // tài khoản chưa xác minh, và nó phải chịu đúng luật như mọi tài khoản khác.
+    if (user.emailVerifiedAt === null) {
+      throw new HttpError(
+        403,
+        'EmailNotVerified',
+        'Email của tài khoản này chưa được xác minh. Hãy mở liên kết trong thư xác minh trước khi đăng nhập.',
+      );
     }
 
     await identitiesRepo.touchIdentityLogin('google', danhTinh.sub);
@@ -466,6 +556,51 @@ authRouter.post(
     // 202 chứ không phải 200: ta đã NHẬN yêu cầu, còn thư có tới hộp thư hay
     // không thì ở đây chưa biết và cố ý không nói.
     res.status(202).json({ message: DA_GUI_NEU_CO });
+  }),
+);
+
+/**
+ * POST /api/auth/verify-email — xác minh email bằng vé trong thư (§1.10)
+ *
+ * POST chứ không phải GET dù liên kết trong thư là một URL mà người dùng bấm:
+ * trang `/xac-minh-email` của frontend đọc vé từ query string rồi gọi endpoint
+ * này. Để vé đi vào một GET của API nghĩa là nó nằm trong access log của
+ * `morgan` — cùng lý lẽ với `/reset-password/verify` ngay dưới.
+ *
+ * Hạn mức dùng bucket RIÊNG: một người mở lại liên kết vài lần vì tưởng chưa
+ * được không được phép khoá luôn đường đăng nhập của họ.
+ */
+authRouter.post(
+  '/verify-email',
+  authRateLimit('verify-email'),
+  asyncHandler(async (req, res) => {
+    const { token } = verifyEmailSchema.parse(req.body);
+    await xacMinhBangVe(token);
+
+    // 204 và KHÔNG tự đăng nhập: cùng lập luận với `/register`. Người vừa xác
+    // minh sang trang đăng nhập và tự gõ mật khẩu họ đã đặt — đó là bước duy
+    // nhất chứng minh mật khẩu ấy đúng như họ nghĩ.
+    res.status(204).end();
+  }),
+);
+
+/**
+ * POST /api/auth/resend-verification — gửi lại thư xác minh (§1.10)
+ *
+ * LUÔN trả 202 với cùng một câu, kể cả khi email không tồn tại hoặc đã xác minh
+ * rồi. Lý lẽ đầy đủ ở `services/auth/emailVerification.ts`; tóm tắt: phân biệt
+ * được ở đây là biến endpoint này thành máy dò email — y như `/forgot-password`.
+ *
+ * Bucket riêng, không dùng chung với `login`: người đang mắc ở đúng chỗ này cần
+ * bấm được nút gửi lại, và họ tới đây CHÍNH VÌ không đăng nhập được.
+ */
+authRouter.post(
+  '/resend-verification',
+  authRateLimit('resend-verification'),
+  asyncHandler(async (req, res) => {
+    const { email } = resendVerificationSchema.parse(req.body);
+    await yeuCauGuiLai(email);
+    res.status(202).json({ message: DA_GUI_NEU_CAN });
   }),
 );
 

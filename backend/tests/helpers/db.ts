@@ -50,10 +50,6 @@ export async function resetDatabase(): Promise<void> {
     // CASCADE). Bỏ sót nó thì vé của ca trước vẫn nằm lại, trỏ vào một user_id
     // mà AUTO_INCREMENT vừa cấp lại cho người khác.
     'password_reset_tokens',
-    // Liên kết đăng nhập ngoài — migration 41. Phải đứng TRƯỚC `users`: khoá
-    // ngoại đang tắt nên TRUNCATE `users` KHÔNG cascade, và dòng liên kết của
-    // ca trước nằm lại sẽ làm ca sau đụng `uq_identity_subject`.
-    'user_identities',
     'users',
     'tenants',
   ]) {
@@ -87,6 +83,31 @@ export async function resetDatabase(): Promise<void> {
    * đó đi thì DELETE sai thứ tự sẽ đâm vào `fk_..._order` với RESTRICT.
    */
   for (const table of [
+    /*
+     * ─── Hai bảng của §1.9/§1.10 nằm ở ĐÂY, không nằm trong khối TRUNCATE ───
+     *
+     * Và chúng ở đây vì đã trả giá đúng một lần cho bài học ghi ở trên.
+     *
+     * `user_identities` (migration 41) được thêm vào khối TRUNCATE trước, rồi
+     * `email_verification_tokens` (migration 42) thêm tiếp. Với ~120ms mỗi
+     * TRUNCATE, cái thứ hai đẩy hook `beforeEach` vượt trần 10 giây — và triệu
+     * chứng ra đúng như đoạn trên đã tả: sáu ca đỏ ở `admin`, `datamodel`,
+     * `datasets`, `ingest`, toàn những bài không liên quan gì tới xác thực, kèm
+     * một ca "không token -> 401" nghe như lỗi phân quyền.
+     *
+     * Không bài nào khẳng định một id cụ thể của hai bảng này: vé tra theo băm,
+     * danh tính tra theo `(provider, provider_user_id)`. Nên AUTO_INCREMENT
+     * không cần đặt lại, và DELETE là đủ.
+     *
+     * ⚠️ Cả hai là CON của `users`, mà `users` bị TRUNCATE ở khối trên — tức
+     * trước khối này. Khoá ngoại đang tắt nên TRUNCATE đó không cascade, và hai
+     * câu DELETE dưới đây mới là thứ dọn chúng. Hết hàm thì cả ba bảng đều rỗng.
+     * Đây cùng hạng với `subscriptions` -> `tenants` ngay dưới, nên không phải
+     * một loại rủi ro mới; nhưng ai bỏ `SET FOREIGN_KEY_CHECKS = 0` đi thì phải
+     * dọn mấy bảng này TRƯỚC khối TRUNCATE.
+     */
+    'email_verification_tokens',
+    'user_identities',
     // Hai bảng này KHÔNG có khoá ngoại nào (cố ý — xem migration 30), nên vị
     // trí tự do; đặt đầu khối cho khớp cách đọc "con trước".
     'audit_logs',

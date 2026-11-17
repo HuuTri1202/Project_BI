@@ -120,6 +120,22 @@ export const verifyResetTokenSchema = z.object({
 });
 
 /**
+ * Xác minh email bằng vé trong thư — §1.10.
+ *
+ * Tách khỏi `verifyResetTokenSchema` dù hình dạng y hệt: hai vé trao hai quyền
+ * khác nhau, và dùng chung một schema là mời gọi lần refactor nào đó dùng chung
+ * luôn cả endpoint.
+ */
+export const verifyEmailSchema = z.object({
+  token: z.string().min(1, 'Thiếu mã xác minh email').max(200),
+});
+
+/** Gửi lại thư xác minh — §1.10. Chỉ cần email. */
+export const resendVerificationSchema = z.object({
+  email: emailInput(sharedLoginSchema.shape.email),
+});
+
+/**
  * Sửa hồ sơ cá nhân — §4.4.
  *
  * Dùng lại đúng `registerFields` để luật họ tên, điện thoại, chức danh chỉ có

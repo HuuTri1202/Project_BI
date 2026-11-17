@@ -298,6 +298,20 @@ const envSchema = z.object({
    */
   PASSWORD_RESET_TTL_MINUTES: z.coerce.number().int().positive().max(1440).default(60),
 
+  /**
+   * Vé xác minh email sống bao lâu (§1.10).
+   *
+   * 24 GIỜ, không phải 60 phút như vé đặt lại mật khẩu, và chênh lệch đó là có
+   * chủ ý. Vé đặt lại mật khẩu được người dùng xin ngay lúc họ đang ngồi trước
+   * máy; vé xác minh thì tới trong lá thư chào mừng mà rất nhiều người chỉ mở
+   * vào buổi tối, hoặc hôm sau. Để 60 phút thì phần lớn người dùng thật phải đi
+   * qua bước "gửi lại thư" ngay lần đầu dùng hệ thống.
+   *
+   * Rủi ro của vé dài hơn cũng nhỏ hơn: cầm được vé này chỉ xác minh được một
+   * email, không đổi được mật khẩu của ai.
+   */
+  EMAIL_VERIFICATION_TTL_HOURS: z.coerce.number().int().positive().max(168).default(24),
+
   // --- Seed tài khoản quản trị đầu tiên (§2.7) ---
   // Đều có giá trị mặc định nên KHÔNG bắt buộc khai trong .env; chỉ script
   // seed đọc tới.

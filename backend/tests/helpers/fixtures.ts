@@ -40,11 +40,36 @@ export async function makeUser(
     isActive?: boolean;
     /** Trục NỀN TẢNG. Mặc định 'user' — chỉ tài khoản seed mới là superadmin. */
     platformRole?: 'superadmin' | 'user';
+    /**
+     * Mặc định ĐÃ XÁC MINH (§1.10) — xem khối chú thích dưới.
+     *
+     * Đặt `false` để dựng một tài khoản vừa đăng ký mà chưa bấm liên kết trong
+     * thư. Chỉ bộ test về chính luồng xác minh cần tới nó.
+     */
+    emailVerified?: boolean;
+    /**
+     * Mặc định `false`. Đặt `true` để dựng một tài khoản đang cầm mật khẩu TẠM,
+     * như người vừa được Admin tạo bằng `createMember`.
+     */
+    mustChangePassword?: boolean;
   } = {},
 ): Promise<number> {
+  /*
+   * ─── Vì sao fixture mặc định là email ĐÃ xác minh ──────────────────────────
+   *
+   * Từ §1.10, `/auth/login` chặn tài khoản chưa xác minh email. Fixture ở đây
+   * đại diện cho những tài khoản ĐÃ TỒN TẠI và đang hoạt động — y như các dòng
+   * `users` mà migration 42 "ân xá" khi thêm luật này. Để NULL thì mọi bài test
+   * trong suite tích hợp đỏ cùng một lúc vì một lý do không liên quan tới thứ
+   * chúng đang canh.
+   *
+   * ⚠️ Mặc định này che mất luật mới, nên luật đó phải có bộ test RIÊNG đi
+   * đường người dùng thật: `emailVerification.integration.test.ts`.
+   */
   const [result] = await mysqlPool.query<ResultSetHeader>(
-    `INSERT INTO users (email, password_hash, full_name, role, is_active)
-     VALUES (?, ?, ?, ?, ?)`,
+    `INSERT INTO users (email, password_hash, full_name, role, is_active,
+                        must_change_password, email_verified_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
     [
       email,
       // Cost thấp do vitest.config.ts đặt BCRYPT_COST=4 — cost 12 nhân với vài
@@ -53,9 +78,33 @@ export async function makeUser(
       fullName,
       options.platformRole ?? 'user',
       options.isActive === false ? 0 : 1,
+      options.mustChangePassword === true ? 1 : 0,
+      options.emailVerified === false ? null : new Date(),
     ],
   );
   return result.insertId;
+}
+
+/**
+ * Giả lập "người vừa được mời ĐÃ đổi mật khẩu tạm" — §1.10.
+ *
+ * ═══ Vì sao hàm này phải tồn tại ═══════════════════════════════════════════
+ *
+ * `createMember` tạo tài khoản với `must_change_password = 1`, và từ §1.10
+ * `requireFreshMembership` trả 403 `PasswordChangeRequired` cho mọi request của
+ * `/api/v1` khi cờ ấy còn bật. Trước đó không có gì cản, nên nhiều bài test mời
+ * một người rồi ký token gọi API luôn — tức chúng NHẢY QUA một bước mà người
+ * dùng thật buộc phải đi.
+ *
+ * Trong app thật luồng vẫn trọn vẹn: đăng nhập -> frontend đẩy sang
+ * `/change-password` -> đổi -> cờ hạ. Hàm này đại diện cho đúng khúc giữa đó.
+ *
+ * ⚠️ Gọi nó ở bài test nào thì bài đó đang nói "người này đã qua bước đổi mật
+ * khẩu". Bài nào canh CHÍNH cái chốt ấy thì KHÔNG được gọi — xem
+ * `emailVerification.integration.test.ts`.
+ */
+export async function daDoiMatKhauTam(userId: number): Promise<void> {
+  await mysqlPool.query('UPDATE users SET must_change_password = 0 WHERE id = ?', [userId]);
 }
 
 export async function makeMembership(
