@@ -848,6 +848,35 @@ describe('quản lý người dùng toàn hệ thống', () => {
     const alpha = list.body.items.find((t: { id: number }) => t.id === f.tenantA);
     expect(alpha.userCount).toBe(1);
   });
+
+  /**
+   * Tổ chức CÁ NHÂN phải chết theo chủ của nó.
+   *
+   * Khoá ngoại khai `ON DELETE SET NULL`, nhưng ta xoá MỀM nên không có DELETE
+   * nào chạy: thiếu lần UPDATE thứ hai trong `softDeleteUser`, tổ chức ở lại
+   * `is_active = 1` với 0 thành viên còn sống và không một ai đăng nhập được
+   * vào. Trên database dev, tổ chức 13 đã ở trạng thái đó ba tháng.
+   *
+   * Khẳng định luôn chiều NGƯỢC LẠI — công ty thật mà người này làm admin phải
+   * còn nguyên. Một lần sửa quá tay ở đây là xoá cả công ty của người khác.
+   */
+  it('xoá người dùng thì xoá luôn tổ chức cá nhân, nhưng không chạm công ty thật', async () => {
+    const caNhan = await makeTenant('Không gian của Bob', 'bob-ca-nhan', f.bob);
+    await makeMembership(f.bob, caNhan, 'admin');
+
+    await request(app).delete(`/api/admin/users/${f.bob}`).set(bearer(f.tokenRoot));
+
+    const [rows] = await mysqlPool.query<RowDataPacket[]>(
+      'SELECT id, is_active, deleted_at FROM tenants WHERE id IN (?, ?) ORDER BY id',
+      [caNhan, f.tenantA],
+    );
+    const sauKhiXoa = new Map(rows.map((r) => [Number(r['id']), r]));
+
+    expect(sauKhiXoa.get(caNhan)?.['deleted_at']).not.toBeNull();
+    expect(sauKhiXoa.get(caNhan)?.['is_active']).toBe(0);
+    expect(sauKhiXoa.get(f.tenantA)?.['deleted_at']).toBeNull();
+    expect(sauKhiXoa.get(f.tenantA)?.['is_active']).toBe(1);
+  });
 });
 
 describe('luật superadmin cuối cùng', () => {

@@ -633,6 +633,32 @@ export async function softDeleteUser(db: Db, id: number): Promise<number> {
       WHERE id = ? AND deleted_at IS NULL`,
     [id],
   );
+
+  /*
+   * Xoá luôn TỔ CHỨC CÁ NHÂN của người này — nếu không, nó sống mãi và không ai
+   * vào được.
+   *
+   * `owner_user_id IS NOT NULL` chính là định nghĩa "tổ chức cá nhân" ở khắp
+   * repo này (công ty thật luôn có owner NULL), và `uq_tenants_owner` là UNIQUE
+   * nên nhiều nhất một dòng. Khoá ngoại khai `ON DELETE SET NULL`, nhưng ở đây
+   * không có lệnh DELETE nào chạy: ta xoá MỀM, nên `owner_user_id` giữ nguyên
+   * và tổ chức ở lại trạng thái `is_active = 1` trỏ tới một tài khoản đã chết.
+   * Đo trên database dev: tổ chức 13 "TENLUA" ở trạng thái đó từ 19/08/2026 —
+   * 0 thành viên còn sống, vẫn hiện "đang hoạt động" trong console.
+   *
+   * CỐ Ý nằm trong repo chứ không trong route: nó phải cùng transaction với lần
+   * ghi ở trên, và mọi đường xoá người dùng về sau đều đi qua đây.
+   *
+   * Workspace bên trong KHÔNG xoá theo. Mọi truy vấn workspace đều lọc theo tổ
+   * chức, nên chúng đã không với tới được; và giữ lại thì một lần khôi phục
+   * tài khoản vẫn trả về đủ nội dung cũ.
+   */
+  await db.query<ResultSetHeader>(
+    `UPDATE tenants SET deleted_at = CURRENT_TIMESTAMP(3), is_active = 0
+      WHERE owner_user_id = ? AND deleted_at IS NULL`,
+    [id],
+  );
+
   return result.affectedRows;
 }
 
