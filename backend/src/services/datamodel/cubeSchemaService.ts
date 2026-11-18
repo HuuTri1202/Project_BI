@@ -14,7 +14,12 @@ import {
 import { cubeTypeOf } from './classifyColumn';
 import { hamNongNguCanh } from './cubeClient';
 import { cubeFileNameFor, cubeNameFor } from './cubeName';
-import { removeTenantSchema, writeTenantSchema, type GeneratedCubeFile } from './cubeSchemaStore';
+import {
+  pruneUnknownTenants,
+  removeTenantSchema,
+  writeTenantSchema,
+  type GeneratedCubeFile,
+} from './cubeSchemaStore';
 
 /**
  * Sinh lại toàn bộ cube schema của một tổ chức — §10.
@@ -320,6 +325,16 @@ async function hamNongSauKhiGhi(tenantId: number): Promise<void> {
 export async function regenerateAllTenants(): Promise<void> {
   try {
     const tenantIds = await datamodelsRepo.listTenantsWithModels(mysqlPool);
+
+    /*
+     * Dọn TRƯỚC khi ghi. Đây là chỗ duy nhất biết tập tổ chức đúng, nên cũng là
+     * chỗ duy nhất xoá được thư mục mồ côi: tổ chức đã xoá, hay database được
+     * khôi phục từ một bản sao lưu cũ hơn đĩa. Không ghi log số lượng — lần đầu
+     * sau khi sửa sẽ dọn hàng trăm thư mục, còn những lần sau là 0, và một con
+     * số 0 in ra mỗi lần boot thì không nói thêm điều gì.
+     */
+    await pruneUnknownTenants(tenantIds);
+
     for (const tenantId of tenantIds) {
       /*
        * `hamNong: false` — và đây KHÔNG phải cho gọn.

@@ -59,6 +59,21 @@ export default defineConfig({
       // Hạ trần xuống 100 để ca kiểm "file bị cắt" không phải dựng một file nửa
       // triệu dòng. Chính con số này là thứ ca đó khẳng định.
       DATASET_MAX_ROWS: '100',
+
+      // Thư mục file cube RIÊNG của test — §10. `vitest.integration.options.ts`
+      // thừa hưởng dòng này qua `...base.env`, nên cả hai lane đều đã tách.
+      //
+      // Mặc định là `../infrastructure/cube/model/tenants`: đúng thư mục Cube
+      // của máy dev bind mount vào. Test tích hợp ghi file cube cho tổ chức của
+      // NÓ (id trong `bi_platform_test`) vào đó rồi không dọn — đo lúc phát
+      // hiện: 234 thư mục cho 21 tổ chức thật. Tệ hơn số lượng: Cube theo dõi
+      // cả cây, nên chu kỳ làm mới cứ thử biên dịch lại schema trỏ tới bảng đã
+      // bị DROP, lặp vô hạn trong log:
+      //   Unknown table expression identifier 'bi_analytics_test.raw_t3330_d701'
+      //
+      // Nằm trong `tmp/` nên `.gitignore` đã bắt. Đường dẫn tương đối, giải
+      // theo `process.cwd()` như bản thường → `backend/tmp/cube-schema-test`.
+      CUBE_SCHEMA_DIR: 'tmp/cube-schema-test',
     },
   },
 });

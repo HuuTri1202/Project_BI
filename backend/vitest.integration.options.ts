@@ -25,6 +25,7 @@ export const integrationTestOptions: InlineConfig = {
   ...base,
   include: ['tests/**/*.integration.test.ts'],
   exclude: ['node_modules/**', 'dist/**'],
+  /** `CUBE_SCHEMA_DIR` thừa hưởng từ `base.env` — xem ghi chú ở `vitest.config.ts`. */
   env: { ...base.env, INTEGRATION_DB: '1' },
   /** Các test này cùng TRUNCATE chung một bộ bảng; chạy song song thì xoá dữ liệu của nhau. */
   fileParallelism: false,

@@ -103,6 +103,28 @@ export async function removeTenantSchema(tenantId: number): Promise<void> {
 }
 
 /**
+ * Xoá thư mục của những tổ chức KHÔNG còn trong danh sách — gọi một lần lúc boot.
+ *
+ * Thư mục mồ côi không vô hại. `repositoryFactory` không đọc nó, nên không truy
+ * vấn nào sai; nhưng Cube theo dõi cả cây `model/`, và chu kỳ làm mới của nó cứ
+ * thế thử biên dịch lại một schema trỏ tới bảng đã bị DROP — lặp vô hạn trong
+ * log và đốt CPU cho tới khi ai đó xoá tay.
+ *
+ * Chỉ xoá thư mục có tên là SỐ NGUYÊN. Thứ gì người ta đặt tay vào đây thì để
+ * nguyên — một lần `rm -rf` chạy theo tên lạ là chuyện không sửa lại được.
+ */
+export async function pruneUnknownTenants(tenantIds: readonly number[]): Promise<void> {
+  const root = path.resolve(process.cwd(), env.CUBE_SCHEMA_DIR);
+  const keep = new Set(tenantIds.map(String));
+
+  for (const entry of await readdir(root, { withFileTypes: true })) {
+    if (entry.isDirectory() && /^\d+$/.test(entry.name) && !keep.has(entry.name)) {
+      await rm(path.join(root, entry.name), { recursive: true, force: true });
+    }
+  }
+}
+
+/**
  * Kiểm thư mục ghi được, gọi một lần lúc boot.
  *
  * Cùng lý do với `pingClickhouse`: khi hạ tầng phía sau sai, thứ người dùng
