@@ -1128,6 +1128,13 @@ function baoCao(part: Partial<ReportDto> = {}): ReportDto {
     config: null,
     modelConfig: null,
     canvas: null,
+    // Ba trường của lý lịch báo cáo — `duKienNguonBaoCao` khai chúng từ §1 khung
+    // hỏi đáp. Thiếu chúng ở đây thì bài test đi qua một hợp đồng NHỎ HƠN hợp
+    // đồng thật, và mấy dữ kiện đó không bao giờ được canh.
+    creatorName: 'Trần Thu Hà',
+    createdAt: '2026-01-15T03:00:00.000Z',
+    updatedAt: '2026-09-30T03:00:00.000Z',
+    folderName: null,
     ...part,
   } as ReportDto;
 }
@@ -1136,9 +1143,26 @@ describe('Trang xem báo cáo khai được số liệu lấy từ đâu', () =>
   it('báo cáo trên mô hình: KHÔNG hứa một nguồn cho cả mô hình nhiều bảng', () => {
     const dk = duKienNguonBaoCao(baoCao());
 
-    expect(dk).toHaveLength(1);
     expect(dk[0]?.nhan).toBe('Nguồn số liệu của báo cáo Doanh thu 2026');
     expect(dk[0]?.gia).toBe('Mô hình dữ liệu Bán hàng');
+    // KHÔNG có "Nguồn của bộ dữ liệu …": mô hình gộp nhiều bảng, mỗi bảng một
+    // nguồn, nên một câu "từ file" cho cả mô hình là một câu nói sai.
+    expect(dk.map((d) => d.nhan)).not.toContain('Nguồn của bộ dữ liệu Bán hàng');
+
+    /*
+     * ⚠️ Khẳng định ĐỦ danh sách nhãn, không chỉ nhãn đầu.
+     *
+     * Chính phép khẳng định chặt này đã bắt được một lỗi thật: dữ kiện "Ngày tạo
+     * của báo cáo X" thêm vào đây hoà điểm {tạo, báo, cáo} với "Người tạo báo
+     * cáo X", làm MẤT câu trả lời cho "ai tạo báo cáo này". Mỗi nhãn ở trang này
+     * gắn vào MỌI ô, nên thêm một nhãn là thêm một đường khớp nhầm cho cả trang.
+     */
+    expect(dk.map((d) => d.nhan)).toEqual([
+      'Nguồn số liệu của báo cáo Doanh thu 2026',
+      'Người tạo báo cáo Doanh thu 2026',
+      'Báo cáo Doanh thu 2026 sửa lần cuối lúc nào',
+      'Thư mục của báo cáo Doanh thu 2026',
+    ]);
   });
 
   it('báo cáo trên bộ dữ liệu: nói thêm bộ đó nạp từ tệp hay từ CSDL', () => {
@@ -1152,7 +1176,10 @@ describe('Trang xem báo cáo khai được số liệu lấy từ đâu', () =>
       }),
     );
 
-    expect(dk.map((d) => d.gia)).toEqual(['Bộ dữ liệu Đơn hàng Q4', 'Từ file']);
+    // Hai dữ kiện đầu là phần ca này canh; `slice(0, 2)` chứ không `toEqual` cả
+    // mảng vì giá trị ngày phụ thuộc MÚI GIỜ của máy chạy test.
+    expect(dk.slice(0, 2).map((d) => d.gia)).toEqual(['Bộ dữ liệu Đơn hàng Q4', 'Từ file']);
+    expect(dk.find((d) => d.nhan.startsWith('Người tạo'))?.gia).toBe('Trần Thu Hà');
   });
 
   /*

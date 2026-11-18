@@ -66,10 +66,12 @@ interface DatasetRow extends RowDataPacket {
   loaded_at: Date | null;
   datamodel_count: number | null;
   datamodel_id: number | null;
+  created_at: Date;
 }
 
 const SELECT_LIST = `
   SELECT d.id, d.source, d.workspace_id, d.folder_id, f.name AS folder_name,
+         d.created_at,
          d.name, d.column_count,
          d.source_schema, d.source_table, d.synced_at, d.connection_id,
          c.name AS connection_name, c.kind AS connection_kind,
@@ -126,6 +128,8 @@ function toDto(row: DatasetRow): DatasetDto {
     loadStatus: row.load_status,
     loadedRowCount: Number(row.loaded_row_count),
     loadedAt: row.loaded_at?.toISOString() ?? null,
+
+    createdAt: row.created_at.toISOString(),
   };
 }
 

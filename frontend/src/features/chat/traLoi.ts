@@ -1,6 +1,7 @@
 import { chieuSoSanh, tuDoSoSanh, type ReportDataDto } from '@bi/shared';
 
 import { formatValue } from '../reports/nhanO';
+import { traLoiHuongDan } from './huongDan';
 import type { BangTho, DuKien, Nguon } from './nguCanh';
 
 export type YDinh =
@@ -2826,7 +2827,32 @@ export function traLoiKhung(
   const motLuot = (hoi: string): TraLoi | null => {
     const tren = traLoiTrang(tatCa, chon, hoi);
     if (tren !== null && tren.chung !== true) return tren;
-    return traLoiHeThong(heThong, hoi) ?? tren;
+    /*
+     * Lớp HƯỚNG DẪN đứng SAU số liệu của trang và của hệ thống — có chủ ý.
+     *
+     * "Làm sao biết bộ nào nhiều dòng nhất" là một câu hỏi SỐ LIỆU dù nó mở
+     * đầu bằng "làm sao", và khung trả lời được nó từ lâu. Đặt hướng dẫn lên
+     * trước là thay một con số đúng bằng một câu chỉ đường lạc đề.
+     *
+     * `traLoiHuongDan` còn tự gác thêm hai lớp nữa (phải có từ HÀNH ĐỘNG, và
+     * phải KHÔNG có từ hỏi số liệu), nên mấy chốt này nói cùng một luật từ nhiều
+     * phía — xem `huongDan.ts`.
+     *
+     * ⚠️ THỨ TỰ NÀY KHÔNG CÓ CA NÀO PHÂN BIỆT ĐƯỢC — đã thử bằng đột biến: đảo
+     * hai lớp thì bảng điểm không nhúc nhích. Nguyên nhân đo được: thêm một cụm
+     * hỏi-cách-làm vào câu làm LOÃNG điểm khớp của lớp số liệu và nó trượt, nên
+     * hai lớp gần như rời nhau — câu nào lớp này ăn thì lớp kia vốn đã trượt.
+     *
+     * Giữ thứ tự có chủ ý, cùng lý do như chốt "câu tự đủ nghĩa" ở dưới: nó nói
+     * một luật ĐÚNG ("số liệu thắng trợ giúp") mà hôm nay chưa đo được, và ngày
+     * phép chấm điểm của lớp số liệu bớt loãng thì nó là thứ duy nhất đứng giữa
+     * một con số đúng và một câu chỉ đường.
+     *
+     * Đứng TRƯỚC `tren` khi `tren.chung === true`: một phép đếm chung chung
+     * không đọc câu hỏi thì nó không phải câu trả lời cho "làm sao xoá bộ dữ
+     * liệu", trong khi hướng dẫn thì đúng là câu trả lời.
+     */
+    return traLoiHeThong(heThong, hoi) ?? traLoiHuongDan(chuanHoa(hoi)) ?? tren;
   };
 
   const mot = motLuot(cauHoi);

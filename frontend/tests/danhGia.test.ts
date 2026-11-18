@@ -20,6 +20,7 @@ import {
   tomTatThuMuc,
   duKienBangGia,
   duKienDanhSachBaoCao,
+  duKienNguonBaoCao,
   duKienDanhSachNguoiDung,
   duKienDanhSachToChuc,
   duKienDonHang,
@@ -256,6 +257,23 @@ const NGAY_NAP: Record<number, string> = {
   4: '2026-01-20T08:00:00.000Z',
 };
 
+/**
+ * Ngày TẠO của từng bộ dữ liệu — §1 khung hỏi đáp, lớp dữ kiện.
+ *
+ * Cố ý KHÔNG trùng thứ tự với `NGAY_NAP`: bộ CŨ NHẤT theo ngày tạo là **Orders**
+ * (01/02), còn bộ CẬP NHẬT gần nhất theo ngày nạp là **Products** (05/03). Hai
+ * câu hỏi, hai câu trả lời, cả hai đúng.
+ *
+ * Nếu hai thứ tự trùng nhau thì một bản sửa nhầm lẫn "cũ nhất" với "cập nhật
+ * gần nhất" vẫn xanh, và bài test không canh được gì cả.
+ */
+const NGAY_TAO: Record<number, string> = {
+  1: '2026-02-01T08:00:00.000Z',
+  2: '2026-03-15T08:00:00.000Z',
+  3: '2026-04-20T08:00:00.000Z',
+  4: '2026-05-10T08:00:00.000Z',
+};
+
 const BO_DU_LIEU: DatasetDto[] = [
   {
     id: 1,
@@ -325,6 +343,10 @@ const BO_DU_LIEU: DatasetDto[] = [
       connectionName: null,
       syncedAt: null,
       loadedAt: NGAY_NAP[d.id] ?? null,
+      // Ngày TẠO, tách hẳn khỏi ngày nạp — xem `mocTao` trong duKienTrang.ts.
+      // Orders là bộ CŨ NHẤT (01/02/2026) nhưng KHÔNG phải bộ cập nhật gần nhất:
+      // đúng tình huống mà hai câu hỏi cho hai câu trả lời khác nhau, cả hai đúng.
+      createdAt: NGAY_TAO[d.id] ?? '2026-06-01T00:00:00.000Z',
     }) as unknown as DatasetDto,
 );
 // Orders 51.290 dòng / 24 cột · Returns 1.173 dòng (ĐÃ CẮT) / 3 cột
@@ -532,10 +554,45 @@ interface NguCanhThu {
   heThong: Nguon[];
 }
 
+/**
+ * Báo cáo đang MỞ trên trang biểu đồ — nguồn của `duKienNguonBaoCao`.
+ *
+ * `createdAt` khác `updatedAt` cố ý: hai dữ kiện, hai câu hỏi. Trùng nhau thì
+ * một bản sửa đọc nhầm trường vẫn xanh.
+ */
+const BAO_CAO_XEM = {
+  id: 9,
+  name: 'Quantity theo Product Name',
+  source: 'datamodel',
+  sourceName: 'Global-Superstore',
+  chartType: 'bar',
+  canvas: null,
+  folderName: null,
+  datasetSource: null,
+  creatorName: 'Trần Thu Hà',
+  createdAt: '2026-01-15T03:00:00.000Z',
+  updatedAt: '2026-09-30T03:00:00.000Z',
+} as unknown as Parameters<typeof duKienNguonBaoCao>[0];
+
 const TRANG = {
   bieuDo1: {
     ten: 'Báo cáo — biểu đồ một chiều',
-    nguon: [{ ten: 'Quantity theo Product Name', duKien: [], bang: bangMotChieu() }],
+    /*
+     * Dữ kiện gắn vào ô đi qua ĐÚNG hàm thật `duKienNguonBaoCao`, không phải
+     * `duKien: []` như bản trước.
+     *
+     * Bản trước để trống, nên trang biểu đồ của bộ đo không có MỘT dữ kiện cấp
+     * báo cáo nào — và ca "ai là người tạo báo cáo này" bế tắc vì fixture,
+     * không vì khung. Một bộ đo nói "khung không trả lời được" trong khi app
+     * thật trả lời được thì nó đang đo chính nó.
+     */
+    nguon: [
+      {
+        ten: 'Quantity theo Product Name',
+        duKien: duKienNguonBaoCao(BAO_CAO_XEM),
+        bang: bangMotChieu(),
+      },
+    ],
     chon: 0,
     heThong: HE_THONG,
   },
@@ -1216,6 +1273,10 @@ const CA: Ca[] = [
     trang: 'khoDuLieu',
     hoi: 'bộ dữ liệu nào cập nhật gần đây nhất',
     can: ['Products'],
+    // `khong` thêm cùng lúc với dữ kiện "Bộ dữ liệu cũ nhất": từ đó trên trang
+    // có HAI nhãn xếp hạng theo ngày, và Orders là đáp án của nhãn kia. Không
+    // có dòng này thì một bản sửa lẫn hai mốc vẫn xanh ở cả hai ca.
+    khong: ['Orders'],
     vi: 'Products nạp 05/03, mới hơn Orders 10/02 — và nó KHÔNG đứng đầu danh sách',
   },
   { trang: 'khoDuLieu', hoi: 'Orders cập nhật lần cuối khi nào', can: ['2026'] },
@@ -1518,12 +1579,74 @@ const CA: Ca[] = [
     vi: 'CÓ khai kiểu của từng cột, nhưng không cột nào tên Margin',
   },
   { trang: 'bieuDo1', hoi: 'hôm nay trời thế nào', can: 'chua-hieu' },
-  { trang: 'bieuDo1', hoi: 'ai là người tạo báo cáo này', can: 'chua-hieu' },
+  /*
+   * TỪNG bế tắc, và KHÔNG phải vì thiếu dữ liệu: `ReportDto` mang sẵn
+   * `creatorName`, `ReportViewer` giữ cả object, và trang DANH SÁCH báo cáo trả
+   * lời được từ lâu. Chỉ `duKienNguonBaoCao` quên khai ra.
+   */
+  { trang: 'bieuDo1', hoi: 'ai là người tạo báo cáo này', can: ['Trần Thu Hà'] },
+  /*
+   * ⚠️ Ca này giữ cho THỨ TỰ "số liệu trước, hướng dẫn sau" còn sống.
+   *
+   * Không có nó, đảo thứ tự hai lớp thì KHÔNG bài nào đỏ — đã thử bằng đột
+   * biến. Ca đối chứng ở trang Kho dữ liệu không đủ: nó không có từ HÀNH ĐỘNG
+   * nào nên chốt bên trong `traLoiHuongDan` đã chặn trước, và thứ tự chẳng còn
+   * việc gì làm.
+   *
+   * Câu này thì có cả ba điều kiện của lớp hướng dẫn — "làm sao", "tạo", "báo
+   * cáo" — nên lớp đó SẴN SÀNG trả lời nó bằng hướng dẫn tạo báo cáo mới. Mà
+   * người hỏi đang muốn biết AI tạo báo cáo đang mở. Đặt hướng dẫn lên trước là
+   * thay một câu trả lời đúng bằng một câu chỉ đường lạc đề.
+   */
+  /*
+   * ═══ GIỚI HẠN ĐÃ BIẾT, ghi lại chứ không che ════════════════════════════
+   *
+   * "Ai tạo báo cáo này" trả lời được (ca ngay trên). Thêm tiền tố "làm sao
+   * biết" vào thì KHÔNG: mấy chữ ấy làm loãng điểm khớp của lớp số liệu và nó
+   * trượt, trong khi lớp hướng dẫn thì bị `TU_HOI_SO_LIEU` gạt vì câu có chữ
+   * "ai". Kết cục là "chưa hiểu".
+   *
+   * Và đó là kết cục ĐÚNG trong hai kết cục còn lại: bỏ chốt `TU_HOI_SO_LIEU`
+   * đi thì câu này nhận về hướng dẫn TẠO MỘT BÁO CÁO MỚI — một câu chỉ đường
+   * lạc đề, tự tin, cho người đang hỏi ai đã tạo báo cáo đang mở.
+   *
+   * Sửa cho đúng cần lớp số liệu bỏ qua được cụm hỏi-cách-làm khi tính điểm —
+   * một thay đổi trong phép chấm, không phải thêm một dữ kiện. Để ngoài phạm vi.
+   *
+   * ponytail: nhận "chưa hiểu" thay cho sửa phép chấm điểm; nâng lên nếu nhóm
+   * câu "làm sao biết <dữ kiện>" hoá ra phổ biến.
+   */
+  { trang: 'bieuDo1', hoi: 'làm sao biết ai tạo báo cáo này', can: 'chua-hieu' },
   {
     trang: 'khoDuLieu',
     hoi: 'Orders được tạo ngày nào',
-    can: 'chua-hieu',
-    vi: 'DatasetDto KHÔNG có createdAt — một trong ba điều khung không được hứa',
+    /*
+     * ⚠️ KHÔNG khẳng định chuỗi ngày "1/2/2026" — nó phụ thuộc MÚI GIỜ của máy
+     * chạy test. `2026-02-01T08:00:00Z` thành 31/01 ở bất cứ múi giờ âm quá 8
+     * tiếng, và bài test đỏ ở nơi khác vì một lý do không liên quan tới code.
+     * Cùng cái bẫy mà ca "cập nhật gần đây nhất" ở trên đã ghi.
+     *
+     * Thay vào đó pin bằng NHÃN: câu trả lời dựng từ nhãn dữ kiện, nên "Ngày
+     * tạo" có mặt khi và chỉ khi khung đọc đúng dữ kiện mới. `khong: ['Cập
+     * nhật']` bắt đúng cái lỗi dễ xảy ra nhất — trả lời bằng mốc NẠP, một ngày
+     * thật cho một câu hỏi khác.
+     */
+    can: ['Ngày tạo', '2026'],
+    khong: ['Cập nhật'],
+    vi: 'TỪNG bế tắc vì DatasetDto thiếu createdAt — trần của khung là bề mặt DTO',
+  },
+  /*
+   * Ca ĐỐI CHỨNG, và nó quan trọng hơn ca trên.
+   *
+   * "Cũ nhất" xếp theo ngày TẠO (Orders, 01/02), "cập nhật gần nhất" xếp theo
+   * ngày NẠP (Products, 05/03) — xem `NGAY_TAO`. Một bản sửa gộp hai mốc làm
+   * một sẽ trả lời Products cho cả hai câu, và chỉ ca này bắt được.
+   */
+  {
+    trang: 'khoDuLieu',
+    hoi: 'bộ dữ liệu nào cũ nhất',
+    can: ['Orders'],
+    khong: ['Products'],
   },
   {
     trang: 'bieuDo1',
@@ -1949,7 +2072,28 @@ const CA: Ca[] = [
    * thật cho một câu hỏi không hỏi số nào. Ba trên tám chữ của nhãn — chưa tới
    * một nửa — nên ngưỡng phủ nhãn ở `traLoiHeThong` chặn nó.
    */
-  { trang: 'khoDuLieu', hoi: 'làm sao để xoá một bộ dữ liệu', can: 'chua-hieu' },
+  /*
+   * ═══ HỎI CÁCH LÀM — lớp dữ kiện thứ hai, không phải dữ liệu ═════════════
+   *
+   * Ca này TỪNG mong đợi khung từ chối, và từ chối là đúng lúc đó: mọi nguồn
+   * dữ kiện của khung đều là DỮ LIỆU, nên không nguồn nào trả lời được "làm
+   * sao để…". Đó không phải giới hạn của phép so từ khoá — đó là một LOẠI câu
+   * hỏi chưa có nguồn nào.
+   *
+   * `huongDan.ts` là nguồn đó: nội dung ĐÓNG, viết tay, không con số nào — nên
+   * nó không sinh ra được kết cục SAI. Chốt chống nó chiếm câu hỏi SỐ LIỆU nằm
+   * ở `huongDan.test.ts` ("làm sao biết bộ nào nhiều dòng nhất" phải về lớp số).
+   */
+  { trang: 'khoDuLieu', hoi: 'làm sao để xoá một bộ dữ liệu', can: ['Kho dữ liệu', 'xoá'] },
+  { trang: 'khoDuLieu', hoi: 'làm thế nào để tải dữ liệu lên', can: ['Kho dữ liệu'] },
+  /*
+   * ⚠️ ĐỐI CHỨNG, và nó quan trọng hơn hai ca trên.
+   *
+   * Câu này mở đầu y hệt bằng "làm sao" nhưng là một câu hỏi SỐ LIỆU — khung
+   * trả lời được nó từ lâu. Nếu lớp hướng dẫn leo lên trước lớp số liệu, ca này
+   * đỏ ngay, và nó đỏ với một câu chỉ đường lạc đề thay cho một con số đúng.
+   */
+  { trang: 'khoDuLieu', hoi: 'làm sao biết bộ nào nhiều dòng nhất', can: ['Orders'] },
   /*
    * ═══ HỎI VỀ HAI THỨ, VÀ "N … NHẤT" ═════════════════════════════
    *
@@ -2105,7 +2249,6 @@ const CA: Ca[] = [
    * "Thấp nhất là People — Số mô hình dữ liệu dùng: 0". Một cái tên thật, một
    * con số thật, cho một câu hỏi về NGÀY.
    */
-  { trang: 'khoDuLieu', hoi: 'bộ dữ liệu nào cũ nhất', can: 'chua-hieu' },
 
   /*
    * ═══ TỈ TRỌNG trên CỘT CHỒNG ═══════════════════════════════════════
@@ -2266,7 +2409,7 @@ describe('Bộ đánh giá khung hỏi đáp', () => {
    * nghĩa là thay đổi đó đang đánh đổi câu này lấy câu kia mà không nói ra.
    */
   it('số câu ĐÚNG không được tụt', () => {
-    expect(dem('dung')).toBeGreaterThanOrEqual(276);
+    expect(dem('dung')).toBeGreaterThanOrEqual(279);
   });
 
   /*

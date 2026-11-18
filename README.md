@@ -3310,6 +3310,60 @@ việc, và **không việc nào cho phép nó tạo ra nội dung**:
    thứ chặn không nằm ở câu chữ. Mấy kiểu hỏng khác (mất mạng, hết lượt, chưa
    cấu hình) thì vẫn là "chưa hiểu", vì chúng tạm thời.
 
+**Trần của khung là bề mặt DTO, không phải khả năng hiểu tiếng Việt.** Khung trả
+lời bằng dữ kiện dựng từ DTO mà trang **đã** tải về, nên một trường không ra tới
+client là một lớp câu hỏi bế tắc — kể cả khi cột đó có trong database từ đầu.
+Đo được: _"Orders được tạo ngày nào"_ và _"bộ dữ liệu nào cũ nhất"_ bế tắc chỉ vì
+`DatasetDto` thiếu `createdAt`, trong khi `datasets.created_at` có từ migration 1.
+Thêm một trường vào DTO mở ra cả lớp câu hỏi đó mà **không sửa một dòng xử lý
+ngôn ngữ nào**.
+
+Cùng hạng, nhưng còn rẻ hơn: _"ai là người tạo báo cáo này"_ bế tắc trên trang xem
+báo cáo trong khi `ReportDto` **đã mang sẵn** `creatorName` và trang danh sách báo
+cáo trả lời được từ lâu — chỉ `duKienNguonBaoCao` quên khai. Cùng một DTO, hai
+hàm, một hàm quên.
+
+⚠️ Thêm dữ kiện **không** miễn phí: mỗi nhãn là một đường khớp nhầm mới. Dữ kiện
+_"Ngày tạo của báo cáo X"_ đã được thêm rồi **gỡ**, vì nó hoà điểm {tạo, báo, cáo}
+với _"Người tạo báo cáo X"_ và làm **mất** câu trả lời cho _"ai tạo báo cáo này"_ —
+luật "phải hơn hẳn ứng viên nhì" bỏ cả hai khi hoà. Nên mọi dữ kiện thêm vào đều
+phải đi qua bộ đánh giá, và `traLoi.test.ts` khẳng định **đủ** danh sách nhãn của
+trang xem báo cáo chứ không chỉ nhãn đầu.
+
+**Hỏi cách làm — lớp dữ kiện thứ hai, và nó không phải dữ liệu.** Mọi nguồn dữ
+kiện khác đều là dữ liệu, nên _"làm sao để xoá một bộ dữ liệu"_ bế tắc ở mọi lớp.
+Đó không phải giới hạn của phép so từ khoá; đó là một **loại** câu hỏi chưa có
+nguồn nào. `huongDan.ts` là nguồn đó: nội dung **đóng, viết tay, không con số
+nào** — nên nó không sinh ra được kết cục SAI.
+
+Cái giá là một kiểu hỏng khác: hướng dẫn **mục rữa**, chỉ người ta tới một chỗ
+không còn tồn tại. Hai thứ bịt nó: câu chữ nói tới **trang và hành động**, không
+nói nhãn nút (nhãn nút mục rữa trước nhất); và mỗi mục khai `duong`, với một bài
+test đọc thẳng `App.tsx` để khẳng định route đó còn.
+
+Ba chốt giữ cho lớp này không ăn vào lớp số liệu, và cả ba đều có bài test bẻ
+được:
+
+1. Phải có một từ **hành động**. Thiếu nó, _"làm sao biết bộ nào nhiều dòng
+   nhất"_ — một câu hỏi **số liệu** — nhận về hướng dẫn tải tệp.
+2. Phải **không** có từ hỏi số liệu (`ai`, `bao nhiêu`, `mấy`). Thiếu nó, _"làm
+   sao biết **ai** tạo báo cáo này"_ nhận về hướng dẫn tạo một báo cáo mới.
+3. Phải **hơn hẳn** ứng viên nhì. Thiếu nó, một câu hoà điểm nhận về mục đứng
+   trước trong mảng — một câu trả lời quyết định bởi thứ tự khai báo.
+
+⚠️ Từ khoá trong cùng một vế **không được lồng nhau**, và một bài test canh điều
+đó. Lý do đo được: mục "tạo mô hình" từng khai cả `mo hinh` lẫn `mo hinh du lieu`,
+nên mọi câu nhắc "mô hình dữ liệu" cộng cho nó **2 điểm thay vì 1** — và _"làm sao
+tạo **báo cáo** từ mô hình dữ liệu"_ nhận về hướng dẫn tạo **mô hình**, thắng 3–2
+bằng một điểm không có thật. Năm trong mười một mục mắc lỗi này khi mới viết.
+
+**Giới hạn đã biết, ghi lại chứ không che.** _"Ai tạo báo cáo này"_ trả lời được;
+thêm tiền tố _"làm sao biết"_ thì không — mấy chữ ấy làm **loãng** điểm khớp của
+lớp số liệu và nó trượt, còn lớp hướng dẫn thì bị chốt (2) gạt. Kết cục là "chưa
+hiểu", và đó là kết cục đúng trong hai kết cục còn lại. Sửa cho đúng cần lớp số
+liệu bỏ qua được cụm hỏi-cách-làm khi tính điểm — một thay đổi trong **phép chấm**,
+không phải thêm một dữ kiện.
+
 **Hỏi tiếp được.** _"Doanh thu Miền Bắc"_ → _"còn tháng 4 thì sao"_. Thứ được
 nhớ là **cái form của lượt trước**, không phải đoạn chat: một lượt hỏi tiếp gần
 như luôn là "form cũ, sửa một ô", nên bộ nhớ có kích thước **không đổi** và mô

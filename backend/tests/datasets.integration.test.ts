@@ -1014,6 +1014,22 @@ describe('đồng bộ (§8.6, §8.7)', () => {
     expect(detail.body.columnCount).toBe(detail.body.columns.length);
     // Thứ tự cột phải giữ đúng như trong CSDL nguồn.
     expect(detail.body.columns[0].ordinal).toBe(1);
+
+    /*
+     * `createdAt` phải ra tới client — ở CẢ danh sách và chi tiết.
+     *
+     * ⚠️ Trường này không hiện trên màn hình nào, nên không một bài test giao
+     * diện nào bắt được khi nó biến mất. Người đọc duy nhất của nó là khung hỏi
+     * đáp (`duKienTrang.ts` dựng dữ kiện "Ngày tạo của X" và "Bộ dữ liệu cũ
+     * nhất" từ đây), và ở đó nó mất đi trong im lặng: dữ kiện chỉ đơn giản
+     * không được phát ra, rồi khung nói "chưa hiểu" cho một câu nó từng trả lời.
+     *
+     * `datasets.created_at` có từ migration 1 nhưng tới §1 khung hỏi đáp mới
+     * được đưa vào DTO; một câu SELECT thiếu `d.created_at` là đủ để mất nó.
+     */
+    expect(typeof detail.body.createdAt).toBe('string');
+    expect(Number.isNaN(Date.parse(detail.body.createdAt as string))).toBe(false);
+    expect(typeof list.body.items[0].createdAt).toBe('string');
   });
 
   it('đồng bộ LẦN HAI không nhân đôi, và báo "không đổi"', async () => {

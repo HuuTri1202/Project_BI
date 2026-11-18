@@ -319,6 +319,28 @@ export interface DatasetDto {
   /** Số dòng thật sự nằm trong kho sau lần nạp gần nhất. */
   loadedRowCount: number;
   loadedAt: string | null;
+
+  /**
+   * Lúc bộ dữ liệu được TẠO, dạng ISO.
+   *
+   * ═══ Vì sao nó cần có mặt, dù không ô nào trên màn hình hiện nó ═══════════
+   *
+   * `datasets.created_at` có từ migration 1 nhưng chưa bao giờ ra tới client.
+   * Hệ quả đo được ở khung hỏi đáp: _"Orders được tạo ngày nào"_ và _"bộ dữ liệu
+   * nào cũ nhất"_ đều bế tắc, và bộ đánh giá ghi thẳng lý do —
+   * `vi: 'DatasetDto KHÔNG có createdAt'`.
+   *
+   * Khung trả lời bằng dữ kiện dựng từ DTO mà trang ĐÃ tải về, nên trần của nó
+   * là bề mặt DTO này, không phải khả năng hiểu tiếng Việt. Thêm một trường ở
+   * đây mở ra cả một lớp câu hỏi mà không sửa một dòng xử lý ngôn ngữ nào.
+   *
+   * ⚠️ KHÁC `loadedAt`/`syncedAt`, và khác biệt đó quan trọng: hai cái kia nói
+   * "lần cuối con số đổi", trường này nói "có từ bao giờ". `mocCapNhat` của
+   * `duKienTrang.ts` cố ý KHÔNG dùng trường này — một bộ dữ liệu tạo hôm qua mà
+   * nạp lại sáng nay thì "cũ nhất" và "cập nhật gần nhất" là hai câu trả lời
+   * khác nhau, cả hai đều đúng.
+   */
+  createdAt: string;
 }
 
 export interface DatasetDetailDto extends DatasetDto {
