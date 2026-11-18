@@ -2089,6 +2089,70 @@ describe('§10.7 hâm nóng ngữ cảnh Cube', () => {
     expect(Object.keys(payload).sort()).toEqual(['exp', 'iat', 'schemaVersion', 'tenantId']);
   });
 
+  /**
+   * ⚠️ CA NÀY RA ĐỜI TỪ MỘT LỖI THẬT DO CHÍNH VIỆC HÂM NÓNG GÂY RA.
+   *
+   * Bản đầu bắn một lượt `/meta` sau MỖI lần ghi schema. Người sửa mô hình ghi
+   * 5–10 lần liên tiếp (thêm bảng, đặt khoá chính, nối quan hệ, thêm thước đo…),
+   * mỗi lượt là một lần biên dịch 2,7–4,5 giây, và chúng xếp hàng trong Cube —
+   * nên truy vấn THẬT đứng chờ sau cả hàng rồi đụng trần 30 giây của
+   * `cubeClient` và trả 503.
+   *
+   * Đo được bằng bộ kịch bản gọi API thật (`docs/kiem-thu/kich-ban/mod-thuocdo.mjs`):
+   *
+   *     bắn mỗi lần ghi   17/19 đạt
+   *     gộp lượt          19/19 đạt
+   *
+   * Và triệu chứng KHÔNG giống nguyên nhân: hai ca đỏ báo `NaN` và
+   * `mota = undefined` — cả hai chỉ vì `rows`/`columns` rỗng trong một phản hồi
+   * 503. Nhìn vào đó người ta sẽ đi tìm lỗi ở phép gộp biểu thức dòng, đúng chỗ
+   * không có lỗi nào.
+   *
+   * Bài này giữ cho việc gộp còn sống. Gỡ nó đi thì con số dưới đây thành 5.
+   */
+  it('năm lần ghi liên tiếp -> TỐI ĐA hai lượt hâm, không phải năm', async () => {
+    const { refId } = await attachDataset(f.tenantA, f.modelA, f.datasetA);
+
+    // Giữ lượt hâm nóng đầu tiên lại, để bốn lần ghi sau chắc chắn xảy ra TRONG
+    // lúc nó đang chạy — đó là đúng tình huống luật gộp nói về.
+    let thaRa: () => void = () => {};
+    const cho = new Promise<void>((res) => {
+      thaRa = res;
+    });
+    const goi: string[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        goi.push(String(url));
+        await cho;
+        return new Response(JSON.stringify({ cubes: [] }), { status: 200 });
+      }),
+    );
+
+    for (let i = 0; i < 5; i++) {
+      const r = await request(app)
+        .post(`/api/v1/datamodels/${f.modelA}/measures`)
+        .set(bearer(f.tokenAdminA))
+        .send({ datamodelDatasetId: refId, name: `Do ${i}`, agg: 'count' });
+      expect(r.status, `lan ghi ${i}`).toBe(201);
+    }
+
+    await vi.waitFor(() => {
+      expect(goi.length).toBeGreaterThanOrEqual(1);
+    });
+    // Bốn lượt sau bị gộp vào dấu "có bản mới hơn", không xếp thêm lần biên dịch.
+    expect(goi.length).toBe(1);
+
+    thaRa();
+
+    // Một lượt NỐI THEO cho phiên bản sau lần ghi cuối — đây là lượt bắt buộc
+    // phải có, vì đó mới là phiên bản người dùng thật sự sẽ hỏi tới.
+    await vi.waitFor(() => {
+      expect(goi.length).toBe(2);
+    });
+    expect(goi.every((u) => u.includes('/cubejs-api/v1/meta'))).toBe(true);
+  });
+
   it('Cube đang TẮT thì route Lưu vẫn 201, và tiến trình không chết', async () => {
     /*
      * Hai thứ cùng bị kiểm ở đây, và cái thứ hai mới là cái khó thấy:

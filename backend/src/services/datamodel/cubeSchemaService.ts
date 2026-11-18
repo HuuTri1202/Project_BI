@@ -231,11 +231,40 @@ export async function regenerateTenant(
 }
 
 /**
+ * Tổ chức nào đang có một lượt hâm nóng chạy, và trong lúc đó có ghi thêm không.
+ *
+ * `false` = đang chạy, chưa có gì mới. `true` = đang chạy VÀ đã có lần ghi mới
+ * hơn, nên phải chạy thêm một lượt nữa khi lượt này xong. Vắng mặt = không chạy.
+ */
+const dangHamNong = new Map<number, boolean>();
+
+/**
  * Cố hết sức hâm nóng Cube, và KHÔNG BAO GIỜ reject.
  *
- * Đây là chỗ DUY NHẤT của đường này nuốt lỗi, và nó nuốt cả hai nguồn: truy vấn
- * `schemaVersion` xuống MySQL, và lời gọi sang Cube. `hamNongNguCanh` thì ném
- * bình thường — xem ghi chú ở đó để biết vì sao gom về một chỗ.
+ * ⚠️ GỘP LƯỢT, và đây là chuyện ĐO ĐƯỢC chứ không phải đề phòng.
+ *
+ * Bản đầu bắn một lượt `/meta` sau MỖI lần ghi schema. Một người sửa mô hình
+ * ghi 5–10 lần liên tiếp (thêm bảng, đặt khoá chính, nối quan hệ, thêm thước
+ * đo…), và bộ kịch bản `mod-thuocdo.mjs` ghi khoảng 40 lần. Mỗi lượt là một lần
+ * biên dịch 2,7–4,5 giây, và chúng xếp hàng trong Cube — nên truy vấn THẬT đứng
+ * chờ sau cả hàng đó rồi đụng trần 30 giây của `cubeClient` và trả 503
+ * "Chưa kết nối được tới tầng ngữ nghĩa".
+ *
+ * Đo được, chạy `node docs/kiem-thu/kich-ban/mod-thuocdo.mjs`:
+ *
+ *     bắn mỗi lần ghi   17/19 đạt   (TD-18 và TD-19 chết vì 503)
+ *     tắt hẳn hâm nóng  19/19 đạt
+ *     gộp lượt          19/19 đạt   (bản này)
+ *
+ * Và triệu chứng KHÔNG giống nguyên nhân: TD-18 báo `NaN`, TD-19 báo
+ * `mota = undefined`. Cả hai chỉ vì `rows`/`columns` rỗng trong một phản hồi
+ * 503 mà kịch bản không kiểm mã trạng thái. Nhìn vào đó người ta sẽ đi tìm lỗi
+ * ở phép gộp biểu thức dòng — đúng chỗ không có lỗi nào.
+ *
+ * Luật gộp: tối đa MỘT lượt đang chạy cho mỗi tổ chức, cộng tối đa MỘT lượt nối
+ * theo cho phiên bản mới nhất. Nên một chuỗi N lần ghi tốn 2 lần biên dịch thay
+ * vì N — và lượt nối theo là thứ bắt buộc phải có, vì phiên bản người dùng thật
+ * sự sẽ hỏi là phiên bản SAU lần ghi cuối.
  *
  * ⚠️ Không ghi log, và đó là lựa chọn chứ không phải bỏ sót. Hỏng ở đây có đúng
  * một hậu quả: biểu đồ đầu tiên chậm lại như trước khi có hàm này. Còn Cube
@@ -254,11 +283,26 @@ export async function regenerateTenant(
  * kết sẽ tưởng là xanh.
  */
 async function hamNongSauKhiGhi(tenantId: number): Promise<void> {
+  // Đã có lượt đang chạy -> chỉ đánh dấu "có bản mới hơn", KHÔNG xếp thêm lượt.
+  if (dangHamNong.has(tenantId)) {
+    dangHamNong.set(tenantId, true);
+    return;
+  }
+
+  dangHamNong.set(tenantId, false);
   try {
-    const schemaVersion = await datamodelsRepo.schemaVersion(mysqlPool, tenantId);
-    await hamNongNguCanh({ tenantId, schemaVersion });
+    do {
+      // Xoá dấu TRƯỚC khi đọc phiên bản: lần ghi nào xảy ra trong lúc đang hâm
+      // sẽ đặt lại dấu, và vòng sau sẽ đọc được phiên bản của chính nó. Xoá sau
+      // thì lần ghi đó bị mất và người dùng trả lại giá 2,7–4,5 giây.
+      dangHamNong.set(tenantId, false);
+      const schemaVersion = await datamodelsRepo.schemaVersion(mysqlPool, tenantId);
+      await hamNongNguCanh({ tenantId, schemaVersion });
+    } while (dangHamNong.get(tenantId) === true);
   } catch {
     /* Xem ghi chú ở trên. */
+  } finally {
+    dangHamNong.delete(tenantId);
   }
 }
 
