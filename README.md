@@ -3536,6 +3536,128 @@ riêng câu trả lời — không gửi bảng số liệu, không gửi số t
 
 ---
 
+## Hiệu suất — ba chỗ chậm, và hai giả thuyết đã bị số đo loại
+
+Mục này ghi **số đo**, không ghi cảm giác. Mọi con số dưới đây đo trên máy phát
+triển (Windows + Docker Desktop), và điều đáng nói nhất không phải chúng nhanh
+hơn bao nhiêu, mà là **cả ba chỗ chậm đều không nằm ở nơi ai cũng đoán**.
+
+Chỗ ai cũng đoán — Vega và ClickHouse — hoá ra đã nhanh:
+
+| Đo gì                                           | Kết quả    |
+| ----------------------------------------------- | ---------- |
+| ClickHouse gộp 51.290 dòng, 1 chiều, trả 100 dòng | **~45ms**  |
+| Vega cập nhật view tại chỗ (`view.data()`)       | 7 – 22ms   |
+| `vega-embed` trong chunk riêng, nạp động         | 297 kB gzip |
+
+### 1. Dọn database trong test: 96% thời gian nằm ở `TRUNCATE`
+
+Triệu chứng KHÔNG giống nguyên nhân, và đó là phần đáng học: một lần chạy cho
+**20 ca đỏ** ở `admin` và `tenant` — gồm cả `không token -> 401` và
+`chỉ superadmin -> 403`, nghe như lỗi phân quyền — nhưng trong cả tệp log
+**không có một `AssertionError` nào**. Cả 20 là hệ quả của đúng hai dòng
+`Hook timed out in 10000ms` ở `beforeEach`.
+
+Đo tại chỗ, 114 lượt `resetDatabase()` thật trong `admin.integration.test.ts`:
+
+| Phase                   | Trung bình | Max      |
+| ----------------------- | ---------- | -------- |
+| khối `TRUNCATE` (20 bảng) | **941ms**  | 1681ms   |
+| khối `DELETE` (9 bảng)  | 21ms       | 37ms     |
+| gieo lại bảng giá       | 11ms       | 21ms     |
+| dọn khoá Redis          | 2ms        | 5ms      |
+
+`TRUNCATE` của InnoDB là DDL: nó dựng lại tablespace trên đĩa, và qua Docker
+trên Windows mỗi lần là một vòng ra filesystem thật. Khi đĩa host đứng một nhịp,
+941ms thành hơn 10 giây và hook chết — mỗi lần ở một bài khác.
+
+Đổi hết sang `DELETE` (29 bảng: 1447ms → 31ms) không nén cái đỏ đó lại, nó làm
+cái đỏ **hết chỗ xảy ra**: trần 10 giây giờ dư hai bậc độ lớn. Thứ `TRUNCATE`
+cho mà `DELETE` không cho là đặt lại `AUTO_INCREMENT`, và không bài nào cần —
+mọi id thật đều lấy từ bộ cố định hoặc từ body phản hồi.
+
+**Toàn bộ bộ tích hợp: 2301s → 224s.** Thứ tự xoá con → cha được kiểm bằng
+`information_schema` chứ không đọc bằng mắt, và nó lộ ra `tenants` là **con** của
+`users` (`fk_tenants_owner`) — bản cũ dọn `users` ở giữa, chỉ không nổ vì khoá
+ngoại đang tắt.
+
+### 2. "Load biểu đồ chậm" là Cube BIÊN DỊCH SCHEMA, không phải truy vấn
+
+Cube nhớ schema đã biên dịch theo cặp (tổ chức, `schemaVersion`), và
+`schemaVersion` là `MAX(updated_at)` của mọi mô hình còn sống — nên truy vấn đầu
+tiên sau **mỗi** lần sửa mô hình phải chờ biên dịch xong.
+
+| Schema                | Mỗi `schemaVersion` mới |
+| --------------------- | ----------------------- |
+| rỗng (0 cube)         | 36 – 244ms              |
+| 1 file, 1 cube        | **2746 – 3016ms**       |
+| 3 file, 11 cube       | 3165 – 4515ms           |
+
+Cách sửa là đổi **ai phải chờ**: `regenerateTenant` kết thúc bằng một lời gọi
+`/cubejs-api/v1/meta` **không `await`** — `/meta` làm đúng phần việc đắt (biên
+dịch) mà không chạy truy vấn nào xuống ClickHouse.
+
+| `/load` đầu tiên của một phiên bản schema mới | |
+| --------------------------------------------- | ------------------- |
+| không hâm nóng                                | 4555 / 5193 / 10283ms |
+| sau khi `/meta` đã hâm                        | **216 / 658 / 635ms** |
+
+Người vừa bấm Lưu đang chờ sẵn; người mở báo cáo thì không — và với khung 12 ô
+thì cả 12 ô xếp hàng sau đúng một lần biên dịch đó.
+
+### 3. JS lần tải đầu: 364 → 174 kB gzip
+
+Cả 43 trang từng nằm trong một chunk, nên trang **đăng nhập** cũng kéo về console
+vận hành, khung mô hình, wizard tải tệp và trang thanh toán. Trong đó có `exifr`
+(28 kB) đọc EXIF của **ảnh** — hệ thống này nhận Excel và CSV, nên nó không bao
+giờ chạy một dòng nào.
+
+| Bước                                        | Chunk vào cổng  |
+| ------------------------------------------- | --------------- |
+| trước                                       | 364,44 kB gzip  |
+| `lazy()` 31 trang trong `App.tsx`           | 233,01 kB       |
+| + `UploadWizard` nạp lười sau lần mở đầu    | **173,88 kB**   |
+
+Việc thứ hai là việc quyết định, và sourcemap chỉ ra vì sao: `HomePage` giữ nạp
+sẵn (nó là trang đầu tiên người đã đăng nhập thấy) → dùng `CreateReportMenu` →
+`import` tĩnh `UploadWizard` → toàn bộ Uppy ở lại, để phục vụ một hộp thoại chỉ
+mở khi bấm.
+
+### Hai giả thuyết đã bị số đo LOẠI
+
+Ghi lại vì chúng nghe hợp lý, và vì cái giá của việc tin chúng là code tệ hơn mà
+không nhanh hơn:
+
+1. **Chia nhỏ ngữ cảnh Cube theo từng mô hình** — để sửa mô hình A không bắt B
+   biên dịch lại. Bảng ở §2 loại nó: 1 cube mất 2746ms, 11 cube mất 3165ms. Chi
+   phí là của mỗi **lần** biên dịch, gần như không tỉ lệ với số cube — nên chia
+   nhỏ chỉ tạo ra **nhiều lần** biên dịch hơn.
+
+2. **Nạp lười khung hỏi đáp** — provider gắn nó ở mọi trang đã đăng nhập, nhìn
+   từ ngoài là ứng viên đẹp nhất. Đã làm thật, đo được 20,8 kB gzip, rồi **trả
+   lại**: nó làm đỏ 82 ca trong `hoiDapPanel.test.tsx`, và 82 ca đó không đỏ vì
+   viết dở — helper `dung()` của chúng `render` rồi query ngay trong cùng một
+   nhịp đồng bộ. Lý do ghi thẳng trong `NguCanhProvider.tsx`.
+
+### Đo lại bằng gì
+
+| Muốn đo gì                      | Làm thế nào                                                                 |
+| ------------------------------- | --------------------------------------------------------------------------- |
+| Thời gian từng request          | `morgan('dev')` đã bật sẵn ở mọi môi trường khác production (`app.ts`)       |
+| Kích thước chunk                | `npm run build` — Vite in cả bản thô và bản gzip                            |
+| Cái gì nằm trong một chunk      | Đọc `dist/assets/*.js.map`, nhóm `sources` theo gói — xem cảnh báo dưới      |
+| Chi phí biên dịch của Cube      | `GET /cubejs-api/v1/meta` với một `schemaVersion` chưa từng dùng            |
+| Thời gian dọn database          | Đặt đồng hồ tạm quanh từng khối trong `resetDatabase`, ghi ra một tệp        |
+
+⚠️ Sourcemap đếm **byte nguồn, kể cả chú thích**. File trong repo này chú thích
+rất dày, nên những dòng `app: src/...` bị thổi lên nhiều lần so với byte thật ra
+chunk — `traLoi.ts` 145 kB nguồn nhưng chunk của panel chỉ 21 kB thô. Dùng nó để
+biết *cái gì* đang nằm trong chunk; còn *bao nhiêu* thì đọc con số gzip của
+`npm run build`.
+
+
+---
+
 ## Sự cố thường gặp
 
 | Triệu chứng                                                                                  | Nguyên nhân & cách xử lý                                                                                                                                                                                                                                                                       |
