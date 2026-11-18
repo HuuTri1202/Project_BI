@@ -1,10 +1,24 @@
-import { useEffect, useRef, useState } from 'react';
+import { Suspense, lazy, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 
 import { useDatDoc } from '../../components/ui/viTriNoi';
 import { usePermissions } from '../../auth/usePermissions';
 import { useHetHanMuc } from '../billing/hooks';
-import { UploadWizard } from '../datasets/wizard/UploadWizard';
+/**
+ * Wizard tải tệp nạp LƯỜI — đây là thứ kéo Uppy ra khỏi lần tải đầu.
+ *
+ * `HomePage` nạp SẴN (nó là trang đầu tiên người đã đăng nhập thấy), và nó
+ * dùng nút này, nên một `import` tĩnh ở đây đủ để giữ cả Uppy trong chunk vào
+ * cổng. Đo bằng sourcemap của chunk đó: `@uppy/dashboard` 163 kB nguồn,
+ * `@uppy/core` 80 kB, `@uppy/aws-s3` 50 kB, `@uppy/utils` 39 kB, cùng `exifr`
+ * 28 kB mà Uppy kéo theo để đọc EXIF của ẢNH — hệ thống này tải lên Excel và
+ * CSV, nên 28 kB đó không bao giờ chạy một dòng nào.
+ *
+ * Tất cả để phục vụ một hộp thoại chỉ mở khi người ta BẤM vào.
+ */
+const UploadWizard = lazy(() =>
+  import('../datasets/wizard/UploadWizard').then((m) => ({ default: m.UploadWizard })),
+);
 
 /**
  * Nút "Tạo báo cáo" — §4.9, nay chọn theo NGUỒN SỐ LIỆU (§10.8).
@@ -87,6 +101,14 @@ export function CreateReportMenu({
   const duoiThuMuc = folder === '' ? '' : `?folder=${encodeURIComponent(folder)}`;
   const [open, setOpen] = useState(false);
   const [wizardOpen, setWizardOpen] = useState(false);
+  /** Đã bấm mở wizard lần nào chưa — cổng nạp lười, xem chỗ gắn ở dưới. */
+  const [daMoWizard, setDaMoWizard] = useState(false);
+
+  /** Một chỗ duy nhất bật cả hai cờ — hai chỗ gọi sẽ lệch nhau một ngày nào đó. */
+  const moWizard = (): void => {
+    setDaMoWizard(true);
+    setWizardOpen(true);
+  };
   const rootRef = useRef<HTMLDivElement>(null);
   /*
    * Hộp bung ra mở XUỐNG hay LÊN — xem `viTriNoi.ts`.
@@ -184,7 +206,7 @@ export function CreateReportMenu({
               role="menuitem"
               onClick={() => {
                 setOpen(false);
-                if (item.key === 'file') setWizardOpen(true);
+                if (item.key === 'file') moWizard();
                 else void navigate(`/reports/new${duoiThuMuc}`);
               }}
               className="flex w-full items-start gap-3 rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-slate-50"
@@ -213,12 +235,21 @@ export function CreateReportMenu({
       {/* `goal="report"` là toàn bộ điểm khác của nhánh này: wizard nạp file
           như thường, rồi dựng hộ một mô hình ẩn trên đúng các sheet vừa tích và
           đi thẳng vào trình dựng. Xem `UploadWizard`. */}
-      <UploadWizard
-        open={wizardOpen}
-        onClose={() => setWizardOpen(false)}
-        goal="report"
-        folder={folder}
-      />
+      {/* Gắn sau lần mở ĐẦU TIÊN, rồi giữ gắn — chứ không gỡ mỗi lần đóng.
+          `daMoWizard` không bao giờ về false, nên từ lần thứ hai trở đi hộp
+          thoại hành xử đúng như trước bản này: vẫn nhận `open={false}` và vẫn
+          chạy effect dọn trạng thái của nó. Gỡ hẳn khi đóng sẽ bỏ qua effect ấy
+          và đổi hành vi, chứ không chỉ đổi lúc nào tải code. */}
+      {daMoWizard && (
+        <Suspense fallback={null}>
+          <UploadWizard
+            open={wizardOpen}
+            onClose={() => setWizardOpen(false)}
+            goal="report"
+            folder={folder}
+          />
+        </Suspense>
+      )}
     </div>
   );
 }

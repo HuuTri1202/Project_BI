@@ -1,50 +1,83 @@
+import { Suspense, lazy } from 'react';
 import { Navigate, Outlet, Route, Routes } from 'react-router-dom';
 import { useAuth } from './auth/useAuth';
+import { FullPageLoader } from './components/FullPageLoader';
 import { RegisterPage } from './features/auth/RegisterPage';
 import { AdminLayout } from './layouts/AdminLayout';
 import { UserLayout } from './layouts/UserLayout';
 import ChangePasswordPage from './pages/ChangePasswordPage';
 import ForbiddenPage from './pages/ForbiddenPage';
-import HealthPage from './pages/HealthPage';
 import HomePage from './pages/HomePage';
 import ForgotPasswordPage from './pages/ForgotPasswordPage';
 import LoginPage from './pages/LoginPage';
 import ResetPasswordPage from './pages/ResetPasswordPage';
 import VerifyEmailPage from './pages/VerifyEmailPage';
 import NotFoundPage from './pages/NotFoundPage';
-import ProfilePage from './pages/ProfilePage';
-import ReportBuilderPage from './pages/tenant/ReportBuilderPage';
-import ReportsPage from './pages/tenant/ReportsPage';
-import ReportViewPage from './pages/tenant/ReportViewPage';
-import AdminBillingMethodsPage from './pages/admin/BillingMethodsPage';
-import AdminBillingOrdersPage from './pages/admin/BillingOrdersPage';
-import AdminBillingPlansPage from './pages/admin/BillingPlansPage';
-import OverviewPage from './pages/admin/OverviewPage';
-import TenantsPage from './pages/admin/TenantsPage';
-import UsersPage from './pages/admin/UsersPage';
-import WorkspacesPage from './pages/admin/WorkspacesPage';
-import ConnectionFormPage from './pages/tenant/ConnectionFormPage';
-import DataModelPage from './pages/tenant/DataModelPage';
-import DataModelsPage from './pages/tenant/DataModelsPage';
-import ExplorerTab from './pages/tenant/datamodel/ExplorerTab';
-import RelationshipTab from './pages/tenant/datamodel/RelationshipTab';
-import SchemasTab from './pages/tenant/datamodel/SchemasTab';
-import BillingPage from './pages/tenant/BillingPage';
-import BillingOverviewPage from './pages/tenant/billing/BillingOverviewPage';
-import { CheckoutPage, OrderDetailPage } from './pages/tenant/billing/CheckoutPage';
-import OrdersPage from './pages/tenant/billing/OrdersPage';
-import PlansPage from './pages/tenant/billing/PlansPage';
-import ConnectionsPage from './pages/tenant/ConnectionsPage';
-import DatasetDetailPage from './pages/tenant/DatasetDetailPage';
-import DatasetsPage from './pages/tenant/DatasetsPage';
-import MembersPage from './pages/tenant/MembersPage';
-import OrganizationPage from './pages/tenant/OrganizationPage';
-import OrganizationProfilePage from './pages/tenant/OrganizationProfilePage';
-import TenantWorkspacesPage from './pages/tenant/WorkspacesPage';
 import { AdminRoute } from './routes/AdminRoute';
 import { ProtectedRoute } from './routes/ProtectedRoute';
 import { TenantAdminRoute } from './routes/TenantAdminRoute';
 import { WorkspaceProvider } from './workspace/WorkspaceProvider';
+
+/**
+ * Trang nạp LƯỜI — và đây là chuyện đo được, không phải thói quen.
+ *
+ * Trước bản này mọi trang nằm trong MỘT chunk, nên lần tải đầu — kể cả ở trang
+ * đăng nhập — kéo về toàn bộ console vận hành, khung mô hình dữ liệu, wizard
+ * tải tệp và trang thanh toán. Đo bằng sourcemap của chunk đó:
+ *
+ *     Uppy (widget tải tệp, 7 gói)   374 kB nguồn   11,0% chunk
+ *     exifr (Uppy kéo theo)           28 kB         0,8%
+ *     qrcode (chỉ trang VietQR dùng)  71 kB         2,1%
+ *     src/features/reports           329 kB         9,6%
+ *     src/pages/admin                 92 kB         2,7%
+ *
+ * `exifr` đọc EXIF của ẢNH. Hệ thống này tải lên Excel và CSV, nên nó là 28 kB
+ * không bao giờ chạy một dòng nào — và nó vẫn nằm trong gói mà người dùng phải
+ * tải xong mới thấy được ô nhập mật khẩu.
+ *
+ * ─── Trang nào KHÔNG nạp lười, và vì sao ────────────────────────────────────
+ *
+ * Năm trang công khai (đăng nhập, đăng ký, hai trang quên-mật-khẩu, xác minh
+ * email), trang 403, trang đổi mật khẩu bắt buộc và trang chủ đều giữ nạp sẵn.
+ * Chúng là thứ hiện ra ĐẦU TIÊN: nạp lười chúng chỉ đổi một lần tải lớn thành
+ * một lần tải nhỏ cộng thêm một vòng khứ hồi trước khi thấy gì — nhanh hơn trên
+ * giấy, chậm hơn với người đang chờ.
+ */
+const HealthPage = lazy(() => import('./pages/HealthPage'));
+const ProfilePage = lazy(() => import('./pages/ProfilePage'));
+const ReportBuilderPage = lazy(() => import('./pages/tenant/ReportBuilderPage'));
+const ReportsPage = lazy(() => import('./pages/tenant/ReportsPage'));
+const ReportViewPage = lazy(() => import('./pages/tenant/ReportViewPage'));
+const AdminBillingMethodsPage = lazy(() => import('./pages/admin/BillingMethodsPage'));
+const AdminBillingOrdersPage = lazy(() => import('./pages/admin/BillingOrdersPage'));
+const AdminBillingPlansPage = lazy(() => import('./pages/admin/BillingPlansPage'));
+const OverviewPage = lazy(() => import('./pages/admin/OverviewPage'));
+const TenantsPage = lazy(() => import('./pages/admin/TenantsPage'));
+const UsersPage = lazy(() => import('./pages/admin/UsersPage'));
+const WorkspacesPage = lazy(() => import('./pages/admin/WorkspacesPage'));
+const ConnectionFormPage = lazy(() => import('./pages/tenant/ConnectionFormPage'));
+const DataModelPage = lazy(() => import('./pages/tenant/DataModelPage'));
+const DataModelsPage = lazy(() => import('./pages/tenant/DataModelsPage'));
+const ExplorerTab = lazy(() => import('./pages/tenant/datamodel/ExplorerTab'));
+const RelationshipTab = lazy(() => import('./pages/tenant/datamodel/RelationshipTab'));
+const SchemasTab = lazy(() => import('./pages/tenant/datamodel/SchemasTab'));
+const BillingPage = lazy(() => import('./pages/tenant/BillingPage'));
+const BillingOverviewPage = lazy(() => import('./pages/tenant/billing/BillingOverviewPage'));
+const CheckoutPage = lazy(() =>
+  import('./pages/tenant/billing/CheckoutPage').then((m) => ({ default: m.CheckoutPage })),
+);
+const OrderDetailPage = lazy(() =>
+  import('./pages/tenant/billing/CheckoutPage').then((m) => ({ default: m.OrderDetailPage })),
+);
+const OrdersPage = lazy(() => import('./pages/tenant/billing/OrdersPage'));
+const PlansPage = lazy(() => import('./pages/tenant/billing/PlansPage'));
+const ConnectionsPage = lazy(() => import('./pages/tenant/ConnectionsPage'));
+const DatasetDetailPage = lazy(() => import('./pages/tenant/DatasetDetailPage'));
+const DatasetsPage = lazy(() => import('./pages/tenant/DatasetsPage'));
+const MembersPage = lazy(() => import('./pages/tenant/MembersPage'));
+const OrganizationPage = lazy(() => import('./pages/tenant/OrganizationPage'));
+const OrganizationProfilePage = lazy(() => import('./pages/tenant/OrganizationProfilePage'));
+const TenantWorkspacesPage = lazy(() => import('./pages/tenant/WorkspacesPage'));
 
 /**
  * Bảng route.
@@ -89,31 +122,36 @@ function HomeOrConsole(): React.ReactElement {
 
 export default function App(): React.ReactElement {
   return (
-    <Routes>
-      <Route path="/login" element={<LoginPage />} />
-      {/* Đăng ký cố ý KHÔNG tự đăng nhập: xong thì điều hướng sang /login kèm
+    /* MỘT ranh giới Suspense cho cả bảng route: mỗi trang lười là một chunk
+       riêng, và thứ người dùng thấy trong lúc chờ là đúng cái vòng tròn quay mà
+       `ProtectedRoute` vẫn dùng khi khôi phục phiên — không thêm một kiểu "đang
+       tải" thứ hai cho cùng một việc. */
+    <Suspense fallback={<FullPageLoader />}>
+      <Routes>
+        <Route path="/login" element={<LoginPage />} />
+        {/* Đăng ký cố ý KHÔNG tự đăng nhập: xong thì điều hướng sang /login kèm
           state để trang đó chào đúng người và điền sẵn email (§1.5). */}
-      <Route path="/register" element={<RegisterPage />} />
-      {/* Quên mật khẩu: hai trang CÔNG KHAI — người dùng tới đây chính vì không
+        <Route path="/register" element={<RegisterPage />} />
+        {/* Quên mật khẩu: hai trang CÔNG KHAI — người dùng tới đây chính vì không
           đăng nhập được. Đường dẫn tiếng Việt vì nó hiện trong email gửi đi. */}
-      <Route path="/quen-mat-khau" element={<ForgotPasswordPage />} />
-      <Route path="/dat-lai-mat-khau" element={<ResetPasswordPage />} />
-      {/* Xác minh email (§1.10): CÔNG KHAI, vì người mở nó chính là người chưa
+        <Route path="/quen-mat-khau" element={<ForgotPasswordPage />} />
+        <Route path="/dat-lai-mat-khau" element={<ResetPasswordPage />} />
+        {/* Xác minh email (§1.10): CÔNG KHAI, vì người mở nó chính là người chưa
           đăng nhập được. Đường dẫn tiếng Việt vì nó hiện trong email gửi đi —
           cùng luật với hai đường quên-mật-khẩu ngay trên. */}
-      <Route path="/xac-minh-email" element={<VerifyEmailPage />} />
-      <Route path="/403" element={<ForbiddenPage />} />
+        <Route path="/xac-minh-email" element={<VerifyEmailPage />} />
+        <Route path="/403" element={<ForbiddenPage />} />
 
-      {/* Đã đăng nhập, nhưng ĐƯỢC PHÉP ở lại khi còn cờ mustChangePassword */}
-      <Route element={<ProtectedRoute allowWhenMustChangePassword />}>
-        <Route path="/change-password" element={<ChangePasswordPage />} />
-      </Route>
+        {/* Đã đăng nhập, nhưng ĐƯỢC PHÉP ở lại khi còn cờ mustChangePassword */}
+        <Route element={<ProtectedRoute allowWhenMustChangePassword />}>
+          <Route path="/change-password" element={<ChangePasswordPage />} />
+        </Route>
 
-      {/* Đã đăng nhập và mật khẩu tạm đã được thay */}
-      <Route element={<ProtectedRoute />}>
-        <Route path="/system-health" element={<HealthPage />} />
+        {/* Đã đăng nhập và mật khẩu tạm đã được thay */}
+        <Route element={<ProtectedRoute />}>
+          <Route path="/system-health" element={<HealthPage />} />
 
-        {/* ─── Trang báo cáo: TOÀN MÀN HÌNH, ngoài `UserLayout` ───────────
+          {/* ─── Trang báo cáo: TOÀN MÀN HÌNH, ngoài `UserLayout` ───────────
             Đây là khối route DUY NHẤT trong khu người dùng đứng ngoài khung
             sidebar, nên nói rõ vì sao:
 
@@ -147,49 +185,49 @@ export default function App(): React.ReactElement {
             `/reports/new` KHÔNG bị `/reports/:id` nuốt mất: react-router v6
             xếp hạng theo độ cụ thể của cả cây route chứ không theo thứ tự khai
             báo, và đoạn tĩnh luôn thắng đoạn động. */}
-        <Route
-          element={
-            <WorkspaceProvider>
-              <Outlet />
-            </WorkspaceProvider>
-          }
-        >
-          {/* XEM: cố ý KHÔNG gác quyền. `report:read` là quyền của MỌI vai trò,
+          <Route
+            element={
+              <WorkspaceProvider>
+                <Outlet />
+              </WorkspaceProvider>
+            }
+          >
+            {/* XEM: cố ý KHÔNG gác quyền. `report:read` là quyền của MỌI vai trò,
               và `ReportViewer` cố ý không gọi endpoint nào của mô hình dữ liệu —
               nên viewer, người chỉ có mục Báo cáo, mở được mọi báo cáo ở đây. */}
-          <Route path="/reports/:reportId" element={<ReportViewPage />} />
+            <Route path="/reports/:reportId" element={<ReportViewPage />} />
 
-          {/* SỬA: cũng KHÔNG gác quyền, nhưng vì lý do ngược lại — ai không sửa
+            {/* SỬA: cũng KHÔNG gác quyền, nhưng vì lý do ngược lại — ai không sửa
               được thì trang tự ĐẨY về `/reports/:id` thay vì cho họ ăn /403.
               Link `/edit` đã được dán cho nhau suốt từ §10.10, và một cái link cũ
               nên dẫn tới thứ người ta định xem. Xem đầu `ReportBuilderPage`.
 
               Chặn thật vẫn ở backend — mỗi lần ghi đi qua
               `authorize('report', 'modify')`. */}
-          <Route path="/reports/:reportId/edit" element={<ReportBuilderPage />} />
+            <Route path="/reports/:reportId/edit" element={<ReportBuilderPage />} />
 
-          {/* Dựng MỚI thì khác: chưa có gì để xem, nên không có bản chỉ đọc
+            {/* Dựng MỚI thì khác: chưa có gì để xem, nên không có bản chỉ đọc
               nào để rơi về. Hai ô quyền gác lồng nhau vì trang cần cả hai —
               `readDataModels` để đọc chiều/thước đo, `editContent` để ghi. */}
-          <Route element={<TenantAdminRoute needs="readDataModels" />}>
-            <Route element={<TenantAdminRoute needs="editContent" />}>
-              <Route path="/reports/new" element={<ReportBuilderPage />} />
-              {/* Lối tắt từ trong một mô hình — điền sẵn mô hình, không còn là
+            <Route element={<TenantAdminRoute needs="readDataModels" />}>
+              <Route element={<TenantAdminRoute needs="editContent" />}>
+                <Route path="/reports/new" element={<ReportBuilderPage />} />
+                {/* Lối tắt từ trong một mô hình — điền sẵn mô hình, không còn là
                   lối duy nhất. Xem đầu `ReportBuilderPage`. */}
-              <Route path="/datamodels/:datamodelId/report/new" element={<ReportBuilderPage />} />
+                <Route path="/datamodels/:datamodelId/report/new" element={<ReportBuilderPage />} />
+              </Route>
             </Route>
           </Route>
-        </Route>
 
-        {/* ─── Khu người dùng (Section 04) ─────────────────────────────── */}
-        <Route
-          element={
-            <WorkspaceProvider>
-              <UserLayout />
-            </WorkspaceProvider>
-          }
-        >
-          {/* `/` là điểm rẽ, không phải trang nội dung: giữ nó là một trang thật
+          {/* ─── Khu người dùng (Section 04) ─────────────────────────────── */}
+          <Route
+            element={
+              <WorkspaceProvider>
+                <UserLayout />
+              </WorkspaceProvider>
+            }
+          >
+            {/* `/` là điểm rẽ, không phải trang nội dung: giữ nó là một trang thật
               nghĩa là có hai đường dẫn cùng hiện trang chủ, và mọi link nội bộ
               phải chọn một trong hai.
 
@@ -197,11 +235,11 @@ export default function App(): React.ReactElement {
               điều hướng sau đăng nhập mà bỏ chỗ này thì người vận hành gõ thẳng
               địa chỉ gốc hoặc bấm logo vẫn rơi vào khu người dùng — đúng thứ vừa
               bỏ đi, chỉ qua một cửa khác. */}
-          <Route path="/" element={<HomeOrConsole />} />
-          <Route path="/home" element={<HomePage />} />
-          <Route path="/profile" element={<ProfilePage />} />
+            <Route path="/" element={<HomeOrConsole />} />
+            <Route path="/home" element={<HomePage />} />
+            <Route path="/profile" element={<ProfilePage />} />
 
-          {/* §7 + §8 — kho dữ liệu.
+            {/* §7 + §8 — kho dữ liệu.
               CÓ cổng quyền từ migration 26. Trước đó khối này cố ý để trần, với
               lý do "mọi vai trò kể cả viewer đều có `dataset:read`". Viewer nay
               không có nữa, nên để trần là để họ mở được một trang chỉ hiện lỗi
@@ -214,15 +252,15 @@ export default function App(): React.ReactElement {
               MỘT trang `/datasets` cho cả hai nguồn. Trước khi gộp có hai khai
               báo cùng đường dẫn này, và react-router chỉ dùng cái đầu — nên bộ
               dữ liệu từ CSDL không có cách nào hiện ra. */}
-          <Route element={<TenantAdminRoute needs="readDatasets" />}>
-            <Route path="/datasets" element={<DatasetsPage />} />
-            {/* Chi tiết là TRANG chứ không phải hộp thoại: một bảng thật có 40–80
+            <Route element={<TenantAdminRoute needs="readDatasets" />}>
+              <Route path="/datasets" element={<DatasetsPage />} />
+              {/* Chi tiết là TRANG chứ không phải hộp thoại: một bảng thật có 40–80
                 cột, và cột "Kiểu dữ liệu" bị cắt cụt trong khung 32rem thì trang
                 xem schema mất đúng thứ nó sinh ra để hiện. */}
-            <Route path="/datasets/:id" element={<DatasetDetailPage />} />
-          </Route>
+              <Route path="/datasets/:id" element={<DatasetDetailPage />} />
+            </Route>
 
-          {/* §10 — mô hình dữ liệu. Cùng cổng, khác ô: `readDataModels`.
+            {/* §10 — mô hình dữ liệu. Cùng cổng, khác ô: `readDataModels`.
               Nút ghi vẫn ẩn theo `permissions.can('datamodel','modify')`, vì
               creator qua được cổng này nhưng không phải creator làm được mọi
               thứ bên trong.
@@ -235,16 +273,16 @@ export default function App(): React.ReactElement {
               Trước đây `/datamodels` mở thẳng mô hình cập nhật gần nhất và
               KHÔNG có trang danh sách; xem chú thích ở `DataModelsPage` để biết
               vì sao quyết định đó bị đảo. */}
-          <Route element={<TenantAdminRoute needs="readDataModels" />}>
-            <Route path="/datamodels" element={<DataModelsPage />} />
-            <Route path="/datamodels/:id" element={<DataModelPage />}>
-              <Route index element={<SchemasTab />} />
-              <Route path="relationship" element={<RelationshipTab />} />
-              <Route path="explorer" element={<ExplorerTab />} />
+            <Route element={<TenantAdminRoute needs="readDataModels" />}>
+              <Route path="/datamodels" element={<DataModelsPage />} />
+              <Route path="/datamodels/:id" element={<DataModelPage />}>
+                <Route index element={<SchemasTab />} />
+                <Route path="relationship" element={<RelationshipTab />} />
+                <Route path="explorer" element={<ExplorerTab />} />
+              </Route>
             </Route>
-          </Route>
 
-          {/* ─── §10.10 Khu Báo cáo ────────────────────────────────────────
+            {/* ─── §10.10 Khu Báo cáo ────────────────────────────────────────
               Tới §10.9, báo cáo không có nhà: tạo thì tạo từ trong tab Mô hình
               dữ liệu, xem thì xem qua một khối bị cắt cụt trên trang chủ. Giờ
               nó là một khu riêng, có mục sidebar riêng.
@@ -258,9 +296,9 @@ export default function App(): React.ReactElement {
               Chỉ DANH SÁCH nằm ở đây. Mở một báo cáo ra là rời khỏi khung
               sidebar — trang báo cáo chiếm trọn màn hình, xem khối route
               phía trên. */}
-          <Route path="/reports" element={<ReportsPage />} />
+            <Route path="/reports" element={<ReportsPage />} />
 
-          {/* ─── §8 Kết nối CSDL: HAI đường, một trang ──────────────────────
+            {/* ─── §8 Kết nối CSDL: HAI đường, một trang ──────────────────────
               Cùng `ConnectionsPage` và `ConnectionFormPage`, khác chỗ đứng —
               vì với hai vai trò thì nó là hai thứ khác nhau:
 
@@ -277,47 +315,50 @@ export default function App(): React.ReactElement {
 
               Wizard là ROUTE ANH EM chứ không phải hộp thoại: nó chiếm trọn khu
               nội dung và có ba bước riêng — xem `ConnectionFormPage`. */}
-          <Route element={<TenantAdminRoute needs="managePersonalConnections" />}>
-            <Route path="/connections" element={<ConnectionsPage />} />
-            <Route path="/connections/new" element={<ConnectionFormPage />} />
-            <Route path="/connections/:id/edit" element={<ConnectionFormPage />} />
-          </Route>
+            <Route element={<TenantAdminRoute needs="managePersonalConnections" />}>
+              <Route path="/connections" element={<ConnectionsPage />} />
+              <Route path="/connections/new" element={<ConnectionFormPage />} />
+              <Route path="/connections/:id/edit" element={<ConnectionFormPage />} />
+            </Route>
 
-          {/* ─── Quản lý tổ chức: một trang, ba tab ─────────────────────────
+            {/* ─── Quản lý tổ chức: một trang, ba tab ─────────────────────────
               Tab là ROUTE THẬT chứ không phải state — xem `OrganizationPage`.
               Khung `element` KHÔNG gác quyền: mỗi tab khai đúng ô quyền nó cần,
               cùng ô mà thanh tab dùng để ẩn/hiện, nên tab hiện lên không bao giờ
               dẫn tới 403. Người không có ô nào sẽ đụng cổng của route con và bị
               đẩy sang /403 như trước. */}
-          <Route path="/organization" element={<OrganizationPage />}>
-            <Route element={<TenantAdminRoute needs="manageTenant" />}>
-              <Route index element={<OrganizationProfilePage />} />
+            <Route path="/organization" element={<OrganizationPage />}>
+              <Route element={<TenantAdminRoute needs="manageTenant" />}>
+                <Route index element={<OrganizationProfilePage />} />
+              </Route>
+              <Route element={<TenantAdminRoute needs="manageOrgConnections" />}>
+                <Route path="connections" element={<ConnectionsPage />} />
+              </Route>
+              <Route element={<TenantAdminRoute needs="manageWorkspaces" />}>
+                <Route path="workspaces" element={<TenantWorkspacesPage />} />
+              </Route>
+              <Route element={<TenantAdminRoute needs="manageMembers" />}>
+                <Route path="members" element={<MembersPage />} />
+              </Route>
             </Route>
-            <Route element={<TenantAdminRoute needs="manageOrgConnections" />}>
-              <Route path="connections" element={<ConnectionsPage />} />
-            </Route>
-            <Route element={<TenantAdminRoute needs="manageWorkspaces" />}>
-              <Route path="workspaces" element={<TenantWorkspacesPage />} />
-            </Route>
-            <Route element={<TenantAdminRoute needs="manageMembers" />}>
-              <Route path="members" element={<MembersPage />} />
-            </Route>
-          </Route>
 
-          {/* Đường dẫn cũ vẫn sống. Người dùng đã lưu bookmark hoặc dán link cho
+            {/* Đường dẫn cũ vẫn sống. Người dùng đã lưu bookmark hoặc dán link cho
               đồng nghiệp trước khi gộp trang; để chúng rơi vào trang 404 là bắt
               họ trả giá cho một thay đổi trong nhà. `replace` để nút Back không
               kẹt trong vòng lặp chuyển hướng. */}
-          {/* Wizard của admin là ANH EM của `/organization`, không phải con: nó
+            {/* Wizard của admin là ANH EM của `/organization`, không phải con: nó
               chiếm trọn khu nội dung thay vì nằm dưới tiêu đề và thanh tab. */}
-          <Route element={<TenantAdminRoute needs="manageOrgConnections" />}>
-            <Route path="/organization/connections/new" element={<ConnectionFormPage />} />
-            <Route path="/organization/connections/:id/edit" element={<ConnectionFormPage />} />
-          </Route>
-          <Route path="/workspaces" element={<Navigate to="/organization/workspaces" replace />} />
-          <Route path="/members" element={<Navigate to="/organization/members" replace />} />
+            <Route element={<TenantAdminRoute needs="manageOrgConnections" />}>
+              <Route path="/organization/connections/new" element={<ConnectionFormPage />} />
+              <Route path="/organization/connections/:id/edit" element={<ConnectionFormPage />} />
+            </Route>
+            <Route
+              path="/workspaces"
+              element={<Navigate to="/organization/workspaces" replace />}
+            />
+            <Route path="/members" element={<Navigate to="/organization/members" replace />} />
 
-          {/* ─── §11 Gói dịch vụ & Thanh toán ──────────────────────────────
+            {/* ─── §11 Gói dịch vụ & Thanh toán ──────────────────────────────
               Cả năm route dùng CHUNG một ô quyền, nên gác một lần ở ngoài thay
               vì lặp `TenantAdminRoute` năm lần — khác `/organization`, nơi mỗi
               tab có một ô riêng.
@@ -325,35 +366,36 @@ export default function App(): React.ReactElement {
               Màn thanh toán và chi tiết đơn là ANH EM của khung tab, không phải
               con: chúng chiếm trọn khu nội dung thay vì nằm dưới thanh tab —
               cùng khuôn với wizard kết nối ở ngay trên. */}
-          <Route element={<TenantAdminRoute needs="manageBilling" />}>
-            <Route path="/billing" element={<BillingPage />}>
-              <Route index element={<BillingOverviewPage />} />
-              <Route path="plans" element={<PlansPage />} />
-              <Route path="orders" element={<OrdersPage />} />
+            <Route element={<TenantAdminRoute needs="manageBilling" />}>
+              <Route path="/billing" element={<BillingPage />}>
+                <Route index element={<BillingOverviewPage />} />
+                <Route path="plans" element={<PlansPage />} />
+                <Route path="orders" element={<OrdersPage />} />
+              </Route>
+              <Route path="/billing/checkout/:planId" element={<CheckoutPage />} />
+              <Route path="/billing/orders/:code" element={<OrderDetailPage />} />
             </Route>
-            <Route path="/billing/checkout/:planId" element={<CheckoutPage />} />
-            <Route path="/billing/orders/:code" element={<OrderDetailPage />} />
           </Route>
-        </Route>
 
-        {/* ─── Console vận hành hệ thống ───────────────────────────────── */}
-        <Route element={<AdminRoute />}>
-          <Route path="/admin" element={<AdminLayout />}>
-            <Route index element={<OverviewPage />} />
-            <Route path="tenants" element={<TenantsPage />} />
-            <Route path="users" element={<UsersPage />} />
-            <Route path="workspaces" element={<WorkspacesPage />} />
-            {/* §11 — quản trị thanh toán. Không có cổng quyền riêng: cả khu
+          {/* ─── Console vận hành hệ thống ───────────────────────────────── */}
+          <Route element={<AdminRoute />}>
+            <Route path="/admin" element={<AdminLayout />}>
+              <Route index element={<OverviewPage />} />
+              <Route path="tenants" element={<TenantsPage />} />
+              <Route path="users" element={<UsersPage />} />
+              <Route path="workspaces" element={<WorkspacesPage />} />
+              {/* §11 — quản trị thanh toán. Không có cổng quyền riêng: cả khu
                 `/admin` đã gác bằng `AdminRoute` ở ngoài, và ba lớp guard ở
                 backend là chỗ chặn thật. */}
-            <Route path="billing/orders" element={<AdminBillingOrdersPage />} />
-            <Route path="billing/plans" element={<AdminBillingPlansPage />} />
-            <Route path="billing/methods" element={<AdminBillingMethodsPage />} />
+              <Route path="billing/orders" element={<AdminBillingOrdersPage />} />
+              <Route path="billing/plans" element={<AdminBillingPlansPage />} />
+              <Route path="billing/methods" element={<AdminBillingMethodsPage />} />
+            </Route>
           </Route>
         </Route>
-      </Route>
 
-      <Route path="*" element={<NotFoundPage />} />
-    </Routes>
+        <Route path="*" element={<NotFoundPage />} />
+      </Routes>
+    </Suspense>
   );
 }
