@@ -8,11 +8,49 @@ import { memoryStorage } from '../../src/storage/memoryStorage';
  * Tắt kiểm tra khoá ngoại để không phải xoá đúng thứ tự phụ thuộc — CHỈ làm
  * được vì đây là database dùng riêng cho test (`bi_platform_test`), không bao
  * giờ chạy trên dữ liệu thật.
+ *
+ * ─── Vì sao DELETE chứ KHÔNG phải TRUNCATE — và đây là chuyện đo được ───────
+ *
+ * Bản trước TRUNCATE 20 bảng đầu rồi DELETE 9 bảng còn lại. Hậu quả không phải
+ * "hơi chậm" mà là ĐỎ NGẪU NHIÊN: hook `beforeEach` vượt trần 10 giây của
+ * vitest, và mỗi lần chạy lại một bài KHÁC đỏ — ở `admin`, rồi `tenant`, rồi
+ * `datamodel` — với thông báo chẳng nói gì về nguyên nhân. Một lần chạy đo được
+ * 20 ca đỏ mà trong cả tệp log KHÔNG có một `AssertionError` nào: cả 20 đều là
+ * hệ quả của đúng hai hook timeout.
+ *
+ * Đo trên chính máy này, 10 vòng mỗi bảng, đúng 29 bảng dưới đây:
+ *
+ *     TRUNCATE   tổng 1447ms
+ *     DELETE     tổng   31ms
+ *
+ * Và đo TẠI CHỖ trong `admin.integration.test.ts`, 114 lượt reset thật:
+ *
+ *     khối TRUNCATE (20 bảng)   trung bình 941ms   max 1681ms
+ *     khối DELETE   ( 9 bảng)   trung bình  21ms   max   37ms
+ *     cả hàm                    trung bình 978ms   max 1730ms
+ *
+ * Tức 96% thời gian dọn nằm ở TRUNCATE. Lý do: TRUNCATE của InnoDB là DDL — nó
+ * xoá rồi dựng lại tablespace trên đĩa, và trên Docker chạy Windows thì mỗi lần
+ * như vậy là một vòng ra hệ thống file thật. Khi đĩa host đứng một nhịp, 941ms
+ * thành hơn 10 giây và hook chết. DELETE trên bảng gần như rỗng chỉ là một lần
+ * quét chỉ mục, nên trần 10 giây còn dư hai bậc độ lớn — đỏ ngẫu nhiên không
+ * phải được nén lại, nó hết chỗ để xảy ra.
+ *
+ * Cái TRUNCATE cho mà DELETE không cho là đặt lại AUTO_INCREMENT. Không bài nào
+ * trong suite cần: mọi id thật đều lấy từ bộ cố định hoặc từ body phản hồi, và
+ * mọi `toBe(1)` trong suite là một con ĐẾM chứ không phải một id. Ngược lại,
+ * AUTO_INCREMENT KHÔNG đặt lại còn xoá hẳn một cái bẫy — xem đoạn Redis ở cuối
+ * hàm.
+ *
+ * ⚠️ Thứ tự CON -> CHA dưới đây được kiểm bằng `information_schema` chứ không
+ * đọc bằng mắt: đúng cho 28/29 bảng, và chỗ còn lại là một VÒNG thật —
+ * `datamodel_columns` trỏ vào `datamodel_datasets` (`fk_dmc_dataset`) còn
+ * `datamodel_datasets` trỏ ngược lại (`fk_dmd_primary_column`, migration 12).
+ * Không thứ tự thẳng nào thoả được vòng đó. Đó mới là lý do
+ * `SET FOREIGN_KEY_CHECKS = 0` là BẮT BUỘC, không phải cho tiện tay.
  */
 export async function resetDatabase(): Promise<void> {
   await mysqlPool.query('SET FOREIGN_KEY_CHECKS = 0');
-  // Thứ tự từ CON tới CHA. Khoá ngoại đã tắt nên không bắt buộc, nhưng giữ đúng
-  // thứ tự để ai đọc còn thấy được cây phụ thuộc.
   for (const table of [
     'reports',
     // Thư mục báo cáo — migration 37. Sau `reports` (khoá ngoại SET NULL): bỏ
@@ -21,7 +59,7 @@ export async function resetDatabase(): Promise<void> {
     'report_folders',
     // §10 — tầng ngữ nghĩa. Quan hệ trỏ vào cột, cột trỏ vào thành phần, thành
     // phần trỏ vào cả mô hình lẫn bộ dữ liệu — nên khối này phải nằm trước
-    // `datasets`.
+    // `datasets`. Hai dòng giữa là cái vòng đã nói ở trên.
     'datamodel_relationships',
     'datamodel_measures',
     'datamodel_columns',
@@ -29,7 +67,7 @@ export async function resetDatabase(): Promise<void> {
     'datamodels',
     // Sổ ghi chép của §9. `dataset_load_errors` trỏ vào `dataset_load_runs`, nên
     // nó phải đứng trước — dữ liệu THẬT của §9 nằm bên ClickHouse, không có gì
-    // để TRUNCATE ở đây.
+    // để dọn ở đây.
     'dataset_load_errors',
     'dataset_load_runs',
     // MỘT bộ `datasets` cho cả hai nguồn — file tải lên (§7) và bảng đồng bộ từ
@@ -46,70 +84,13 @@ export async function resetDatabase(): Promise<void> {
     'workspace_members',
     'workspaces',
     'memberships',
-    // Vé đặt lại mật khẩu — migration 36. Phải đứng TRƯỚC `users` (khoá ngoại
-    // CASCADE). Bỏ sót nó thì vé của ca trước vẫn nằm lại, trỏ vào một user_id
-    // mà AUTO_INCREMENT vừa cấp lại cho người khác.
+    // Vé đặt lại mật khẩu — migration 36, vé xác minh email — migration 42,
+    // danh tính Google — migration 41. Cả ba là CON của `users`.
     'password_reset_tokens',
-    'users',
-    'tenants',
-  ]) {
-    await mysqlPool.query(`TRUNCATE TABLE ${table}`);
-  }
-
-  /*
-   * ─── §11 dùng DELETE, KHÔNG dùng TRUNCATE — và đây là chuyện đo được ─────
-   *
-   * Bản đầu nhét bảy bảng này vào danh sách TRUNCATE ở trên. Hậu quả không phải
-   * "hơi chậm" mà là đỏ ngẫu nhiên: hook `beforeEach` vượt trần 10 giây của
-   * vitest, và mỗi lần chạy lại một bài KHÁC đỏ — ở `datamodel`, rồi `dataset`,
-   * rồi `ingest` — với thông báo chẳng nói gì về nguyên nhân.
-   *
-   * Đo trên chính máy này, 30 vòng, đúng bảy bảng đó:
-   *
-   *     TRUNCATE   trung bình 854ms   (max 1594ms)
-   *     DELETE     trung bình 4,4ms   (max 13ms)
-   *
-   * Gần 200 lần. Lý do: TRUNCATE của InnoDB là DDL — nó xoá rồi dựng lại
-   * tablespace trên đĩa, và trên Docker chạy Windows thì mỗi lần như vậy là một
-   * vòng ra hệ thống file thật. DELETE trên bảng gần như rỗng thì chỉ là một
-   * lần quét chỉ mục.
-   *
-   * Cái TRUNCATE cho mà DELETE không cho là đặt lại AUTO_INCREMENT. §11 không
-   * cần: mã đơn sinh ngẫu nhiên, gói tra theo `code`, và không bài nào khẳng
-   * định một id cụ thể.
-   *
-   * ⚠️ Thứ tự CON -> CHA ở đây là BẮT BUỘC chứ không phải cho dễ đọc như khối
-   * trên: `SET FOREIGN_KEY_CHECKS = 0` vẫn đang bật, nhưng khi ai đó bỏ dòng
-   * đó đi thì DELETE sai thứ tự sẽ đâm vào `fk_..._order` với RESTRICT.
-   */
-  for (const table of [
-    /*
-     * ─── Hai bảng của §1.9/§1.10 nằm ở ĐÂY, không nằm trong khối TRUNCATE ───
-     *
-     * Và chúng ở đây vì đã trả giá đúng một lần cho bài học ghi ở trên.
-     *
-     * `user_identities` (migration 41) được thêm vào khối TRUNCATE trước, rồi
-     * `email_verification_tokens` (migration 42) thêm tiếp. Với ~120ms mỗi
-     * TRUNCATE, cái thứ hai đẩy hook `beforeEach` vượt trần 10 giây — và triệu
-     * chứng ra đúng như đoạn trên đã tả: sáu ca đỏ ở `admin`, `datamodel`,
-     * `datasets`, `ingest`, toàn những bài không liên quan gì tới xác thực, kèm
-     * một ca "không token -> 401" nghe như lỗi phân quyền.
-     *
-     * Không bài nào khẳng định một id cụ thể của hai bảng này: vé tra theo băm,
-     * danh tính tra theo `(provider, provider_user_id)`. Nên AUTO_INCREMENT
-     * không cần đặt lại, và DELETE là đủ.
-     *
-     * ⚠️ Cả hai là CON của `users`, mà `users` bị TRUNCATE ở khối trên — tức
-     * trước khối này. Khoá ngoại đang tắt nên TRUNCATE đó không cascade, và hai
-     * câu DELETE dưới đây mới là thứ dọn chúng. Hết hàm thì cả ba bảng đều rỗng.
-     * Đây cùng hạng với `subscriptions` -> `tenants` ngay dưới, nên không phải
-     * một loại rủi ro mới; nhưng ai bỏ `SET FOREIGN_KEY_CHECKS = 0` đi thì phải
-     * dọn mấy bảng này TRƯỚC khối TRUNCATE.
-     */
     'email_verification_tokens',
     'user_identities',
     // Hai bảng này KHÔNG có khoá ngoại nào (cố ý — xem migration 30), nên vị
-    // trí tự do; đặt đầu khối cho khớp cách đọc "con trước".
+    // trí tự do; đặt ở đây cho khớp cách đọc "con trước".
     'audit_logs',
     'payment_webhook_events',
     'payment_transactions',
@@ -126,6 +107,18 @@ export async function resetDatabase(): Promise<void> {
      */
     'payment_methods',
     'plans',
+    /*
+     * ⚠️ `tenants` rồi `users` ở CUỐI, và thứ tự đó do khoá ngoại quyết định
+     * chứ không do trực giác "công ty là gốc".
+     *
+     * `tenants` là CON của `users` (`fk_tenants_owner` — chủ sở hữu công ty), và
+     * ba bảng thanh toán ở trên trỏ vào `users` bằng ON DELETE **RESTRICT**
+     * (`fk_payment_txn_confirmer`, `fk_subscriptions_granter`). Nên `users` phải
+     * là bảng cuối cùng: dọn nó sớm là tự đâm vào RESTRICT ngay khi ai đó bỏ
+     * dòng `SET FOREIGN_KEY_CHECKS = 0` đi.
+     */
+    'tenants',
+    'users',
   ]) {
     await mysqlPool.query(`DELETE FROM ${table}`);
   }
@@ -146,11 +139,14 @@ export async function resetDatabase(): Promise<void> {
   //                      hàng chục lần từ cùng một IP nên tự đâm vào giới hạn
   //                      của chính nó, và mọi ca sau nhận 429.
   //
-  //   dataset:analyze:*  cache kết quả phân tích file, khoá theo id. TRUNCATE
-  //                      đặt lại AUTO_INCREMENT về 1, nên bộ dữ liệu số 1 của ca
-  //                      này TRÙNG khoá với số 1 của ca trước — và ca này sẽ thấy
-  //                      schema của một file nó chưa từng tải lên. Kiểu đỏ tệ
-  //                      nhất: nó có thể XANH nhầm.
+  //   dataset:analyze:*  cache kết quả phân tích file, khoá theo id. Hồi còn
+  //                      TRUNCATE, AUTO_INCREMENT về 1 làm bộ dữ liệu số 1 của
+  //                      ca này TRÙNG khoá với số 1 của ca trước — ca này thấy
+  //                      schema của một file nó chưa từng tải lên, và đó là kiểu
+  //                      đỏ tệ nhất vì nó XANH nhầm. DELETE không đặt lại
+  //                      AUTO_INCREMENT nên id không bao giờ lặp và cái bẫy đó
+  //                      hết tồn tại; vẫn dọn, vì cache của ca này rò sang ca
+  //                      sau là một đường xanh-nhầm khác, và `keys` đo được 2ms.
   const keys = await redis.keys('ratelimit:*');
   const analyzeKeys = await redis.keys('dataset:analyze:*');
   const all = [...keys, ...analyzeKeys];
