@@ -1,5 +1,6 @@
 ﻿import type { PlatformTenantDto } from '@bi/shared';
 import { useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import { Page, PageBody, PageHeader } from '../../components/ui/Page';
@@ -271,7 +272,27 @@ export default function TenantsPage(): React.ReactElement {
             <>
               Tổ chức này còn <strong>{deleteTarget?.workspaceCount} workspace</strong>. Hãy xoá
               chúng trước — hệ thống không xoá lan xuống workspace và dữ liệu bên trong để tránh mất dữ liệu
-              ngoài ý muốn.
+              ngoài ý muốn.{' '}
+              {/*
+               * Đường đi, không chỉ lời khuyên.
+               *
+               * Mọi tổ chức tự đăng ký đều được cấp một workspace mặc định, nên
+               * nhánh này là nhánh LUÔN chạy với tổ chức thật: thử xoá 6 tổ chức
+               * thì cả 6 lần dừng ở đây. Câu "hãy xoá chúng trước" mà không nói
+               * xoá ở đâu thì người vận hành phải tự mò sang trang khác rồi tự
+               * lọc lại đúng tổ chức này.
+               *
+               * CHỈ `tenantId`, không kèm `kind`: `workspaceWhere` bỏ bộ lọc
+               * loại khi đã hỏi đích danh một tổ chức, nên link này đúng cho cả
+               * tổ chức cá nhân. Đo thật trên tổ chức 13 (cá nhân): có hay không
+               * `kind=all` đều trả về đúng 1 workspace đang chặn.
+               */}
+              <Link
+                to={`/admin/workspaces?tenantId=${String(deleteTarget?.id)}`}
+                className="font-medium text-blue-600 underline hover:text-blue-700"
+              >
+                Mở danh sách workspace của tổ chức này
+              </Link>
             </>
           ) : (
             <>
