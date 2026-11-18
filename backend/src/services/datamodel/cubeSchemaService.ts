@@ -12,6 +12,7 @@ import {
   type SchemaMeasure,
 } from './buildCubeSchema';
 import { cubeTypeOf } from './classifyColumn';
+import { hamNongNguCanh } from './cubeClient';
 import { cubeFileNameFor, cubeNameFor } from './cubeName';
 import { removeTenantSchema, writeTenantSchema, type GeneratedCubeFile } from './cubeSchemaStore';
 
@@ -200,8 +201,23 @@ function buildJoins(
   return joins;
 }
 
-/** Sinh lại schema của một tổ chức. Gọi SAU khi transaction đã commit. */
-export async function regenerateTenant(tenantId: number): Promise<void> {
+/**
+ * Sinh lại schema của một tổ chức. Gọi SAU khi transaction đã commit.
+ *
+ * Kết thúc bằng một lần HÂM NÓNG ngữ cảnh Cube — xem `hamNongNguCanh` để biết
+ * số đo. Tóm lại: biên dịch schema tốn 2,7–4,5 giây và nó phải xảy ra sau mỗi
+ * lần sửa mô hình, nên câu hỏi duy nhất là ai chờ. Ở đây nghĩa là người vừa bấm
+ * Lưu, chứ không phải người mở biểu đồ sau đó.
+ *
+ * ⚠️ KHÔNG `await`, và đó là chủ ý: hâm nóng mà chặn thì request Lưu dài thêm
+ * đúng 2,7–4,5 giây — tức là dọn cái chậm từ chỗ này sang chỗ kia chứ không bỏ
+ * được nó. `void` + `.catch` để một Cube đang tắt không thành
+ * `unhandledRejection` làm sập tiến trình.
+ */
+export async function regenerateTenant(
+  tenantId: number,
+  tuyChon: { hamNong?: boolean } = {},
+): Promise<void> {
   const files = await buildTenantFiles(tenantId);
 
   if (files.length === 0) {
@@ -210,6 +226,40 @@ export async function regenerateTenant(tenantId: number): Promise<void> {
   }
 
   await writeTenantSchema(tenantId, files);
+
+  if (tuyChon.hamNong !== false) void hamNongSauKhiGhi(tenantId);
+}
+
+/**
+ * Cố hết sức hâm nóng Cube, và KHÔNG BAO GIỜ reject.
+ *
+ * Đây là chỗ DUY NHẤT của đường này nuốt lỗi, và nó nuốt cả hai nguồn: truy vấn
+ * `schemaVersion` xuống MySQL, và lời gọi sang Cube. `hamNongNguCanh` thì ném
+ * bình thường — xem ghi chú ở đó để biết vì sao gom về một chỗ.
+ *
+ * ⚠️ Không ghi log, và đó là lựa chọn chứ không phải bỏ sót. Hỏng ở đây có đúng
+ * một hậu quả: biểu đồ đầu tiên chậm lại như trước khi có hàm này. Còn Cube
+ * chết thật thì `loadFromCube` đã nói to — kèm đúng lệnh `npm run infra:up:bi`
+ * phải chạy. Báo lần nữa ở đây là báo hai lần một việc, trên một đường người
+ * dùng KHÔNG bấm vào, nên nó chỉ dạy người ta bỏ qua log.
+ *
+ * ⚠️ `catch` này LÀ thứ giữ cho backend không tự tắt: hàm được gọi bằng `void`,
+ * nên một promise bị từ chối mà không ai bắt sẽ thành `unhandledRejection` —
+ * mặc định của Node là giết tiến trình. Triệu chứng sẽ là "backend tắt sau khi
+ * bấm Lưu", không phải một thông báo lỗi.
+ *
+ * Đã kiểm bằng đột biến, và cách nó đỏ thì đáng nói rõ: gỡ `catch` đi thì ba ca
+ * `§10.7 hâm nóng` vẫn báo "passed", nhưng vitest in một khối `Unhandled Errors`
+ * và THOÁT 1 — tức CI đỏ, dù không ca nào mang dấu đỏ. Ai đọc riêng dòng tổng
+ * kết sẽ tưởng là xanh.
+ */
+async function hamNongSauKhiGhi(tenantId: number): Promise<void> {
+  try {
+    const schemaVersion = await datamodelsRepo.schemaVersion(mysqlPool, tenantId);
+    await hamNongNguCanh({ tenantId, schemaVersion });
+  } catch {
+    /* Xem ghi chú ở trên. */
+  }
 }
 
 /**
@@ -227,7 +277,17 @@ export async function regenerateAllTenants(): Promise<void> {
   try {
     const tenantIds = await datamodelsRepo.listTenantsWithModels(mysqlPool);
     for (const tenantId of tenantIds) {
-      await regenerateTenant(tenantId);
+      /*
+       * `hamNong: false` — và đây KHÔNG phải cho gọn.
+       *
+       * Vòng này chạy cho MỌI tổ chức lúc boot (đo trên máy này: 63 tổ chức có
+       * file cube). Hâm nóng tất cả nghĩa là bắn 63 lần biên dịch, mỗi lần
+       * 2,7–4,5 giây, vào một Cube vừa khởi động — tự tạo ra đúng cái chậm mà
+       * việc hâm nóng sinh ra để tránh. Tổ chức nào được dùng thật sẽ được hâm
+       * ở lần Lưu đầu tiên; còn lần mở biểu đồ đầu tiên sau khi khởi động lại
+       * hạ tầng thì vẫn phải trả giá, và đó là đánh đổi có chủ ý.
+       */
+      await regenerateTenant(tenantId, { hamNong: false });
     }
     if (tenantIds.length > 0) {
       console.log(`[datamodel] đã sinh lại cube schema cho ${tenantIds.length} tổ chức`);

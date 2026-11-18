@@ -1985,3 +1985,136 @@ describe('số báo cáo đang dùng mô hình', () => {
     expect((await docModel(modelKhac))['reportCount']).toBe(1);
   });
 });
+
+/**
+ * HÂM NÓNG ngữ cảnh Cube sau mỗi lần sinh lại schema — §10.7.
+ *
+ * ═══ Vì sao mấy bài này tồn tại ════════════════════════════════════════════
+ *
+ * Việc hâm nóng là một TỐI ƯU, nên nó hỏng trong im lặng một cách hoàn hảo: gỡ
+ * nó đi thì mọi bài test khác vẫn xanh, mọi route vẫn trả đúng, và thứ duy nhất
+ * đổi là lần mở biểu đồ đầu tiên sau mỗi lần sửa mô hình lại chậm 2,7–4,5 giây.
+ * Không bài nào bẻ được thì nó sẽ bị gỡ trong một lần dọn dẹp nào đó, và không
+ * ai biết mình vừa mất gì.
+ *
+ * Ba bài, ba kiểu hỏng khác nhau:
+ *   1. không hâm gì cả;
+ *   2. hâm với phiên bản schema SAI (hâm một ngữ cảnh không ai dùng tới — còn
+ *      tệ hơn không hâm, vì nó tốn công mà vẫn chậm);
+ *   3. hâm mà CHẶN, hoặc để một Cube đang tắt làm hỏng chính request Lưu.
+ */
+describe('§10.7 hâm nóng ngữ cảnh Cube', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  /** Bắt mọi lời gọi `fetch`, trả 200 rỗng, và ghi lại URL + token. */
+  function batFetch(ketQua: () => Promise<Response>): { goi: { url: string; token: string }[] } {
+    const goi: { url: string; token: string }[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string, init?: { headers?: Record<string, string> }) => {
+        goi.push({ url: String(url), token: init?.headers?.['Authorization'] ?? '' });
+        return ketQua();
+      }),
+    );
+    return { goi };
+  }
+
+  const okRong = (): Promise<Response> =>
+    Promise.resolve(new Response(JSON.stringify({ cubes: [] }), { status: 200 }));
+
+  /** `MAX(updated_at)` của mọi mô hình còn sống — đúng công thức `schemaVersion`. */
+  async function phienBanSchema(tenantId: number): Promise<string> {
+    const [rows] = await mysqlPool.query<RowDataPacket[]>(
+      `SELECT COALESCE(MAX(UNIX_TIMESTAMP(updated_at)), 0) AS v
+         FROM datamodels WHERE tenant_id = ? AND deleted_at IS NULL`,
+      [tenantId],
+    );
+    return String(rows[0]?.['v'] ?? 0);
+  }
+
+  /** Giải mã phần payload của JWT — không cần kiểm chữ ký, ta vừa tự ký nó. */
+  function doc(token: string): Record<string, unknown> {
+    const phan = token.split('.')[1] ?? '';
+    return JSON.parse(Buffer.from(phan, 'base64url').toString('utf8')) as Record<string, unknown>;
+  }
+
+  it('sửa mô hình xong thì Cube được gọi /meta, với ĐÚNG phiên bản schema', async () => {
+    const { refId } = await attachDataset(f.tenantA, f.modelA, f.datasetA);
+    const { goi } = batFetch(okRong);
+
+    const res = await request(app)
+      .post(`/api/v1/datamodels/${f.modelA}/measures`)
+      .set(bearer(f.tokenAdminA))
+      .send({ datamodelDatasetId: refId, name: 'Số dòng', agg: 'count' });
+    expect(res.status).toBe(201);
+
+    // Hâm nóng KHÔNG được await, nên nó tới sau khi request đã trả về.
+    await vi.waitFor(() => {
+      expect(goi.some((g) => g.url.includes('/cubejs-api/v1/meta'))).toBe(true);
+    });
+
+    const meta = goi.find((g) => g.url.includes('/cubejs-api/v1/meta'));
+    const payload = doc(meta?.token ?? '');
+    expect(payload['tenantId']).toBe(f.tenantA);
+    /*
+     * ⚠️ Bài quan trọng nhất của khối này.
+     *
+     * Hâm sai phiên bản thì Cube biên dịch một ngữ cảnh KHÔNG ai hỏi tới, và
+     * lần mở biểu đồ kế tiếp vẫn chờ đủ 2,7–4,5 giây — tốn công mà vẫn chậm,
+     * tức là tệ hơn không hâm. Và không có dấu hiệu nào: cả hai trường hợp đều
+     * trả đúng số liệu.
+     */
+    expect(payload['schemaVersion']).toBe(await phienBanSchema(f.tenantA));
+  });
+
+  it('token hâm nóng mang ĐÚNG hai trường, không mang quyền chạy truy vấn', async () => {
+    // `cube.js` chỉ đọc `tenantId` và `schemaVersion`. Token hâm nóng đi qua
+    // cùng một `checkAuth` với token truy vấn, nên cho nó thêm trường là cho nó
+    // thêm thứ để dùng sai — mà nó không cần gì ngoài hai trường đó.
+    const { refId } = await attachDataset(f.tenantA, f.modelA, f.datasetA);
+    const { goi } = batFetch(okRong);
+
+    await request(app)
+      .post(`/api/v1/datamodels/${f.modelA}/measures`)
+      .set(bearer(f.tokenAdminA))
+      .send({ datamodelDatasetId: refId, name: 'Số dòng', agg: 'count' });
+
+    await vi.waitFor(() => {
+      expect(goi.some((g) => g.url.includes('/cubejs-api/v1/meta'))).toBe(true);
+    });
+
+    const payload = doc(goi.find((g) => g.url.includes('/cubejs-api/v1/meta'))?.token ?? '');
+    expect(Object.keys(payload).sort()).toEqual(['exp', 'iat', 'schemaVersion', 'tenantId']);
+  });
+
+  it('Cube đang TẮT thì route Lưu vẫn 201, và tiến trình không chết', async () => {
+    /*
+     * Hai thứ cùng bị kiểm ở đây, và cái thứ hai mới là cái khó thấy:
+     *
+     *   - route không được 500 chỉ vì hạ tầng phân tích chưa bật. Lưu một thước
+     *     đo là việc của MySQL; Cube không có mặt là chuyện của lần vẽ sau.
+     *   - lời gọi hâm nóng KHÔNG được await, nên một promise bị từ chối mà
+     *     không có `.catch` sẽ thành `unhandledRejection` — và Node mặc định
+     *     giết tiến trình vì nó. Triệu chứng sẽ là backend tự tắt sau một lần
+     *     Lưu, không phải một thông báo lỗi.
+     */
+    const { refId } = await attachDataset(f.tenantA, f.modelA, f.datasetA);
+    const { goi } = batFetch(() => Promise.reject(new Error('ECONNREFUSED 4100')));
+
+    const res = await request(app)
+      .post(`/api/v1/datamodels/${f.modelA}/measures`)
+      .set(bearer(f.tokenAdminA))
+      .send({ datamodelDatasetId: refId, name: 'Số dòng', agg: 'count' });
+    expect(res.status).toBe(201);
+
+    await vi.waitFor(() => {
+      expect(goi.some((g) => g.url.includes('/cubejs-api/v1/meta'))).toBe(true);
+    });
+
+    // Còn sống và còn trả lời được sau cú từ chối đó.
+    const sau = await request(app).get(`/api/v1/datamodels/${f.modelA}`).set(bearer(f.tokenAdminA));
+    expect(sau.status).toBe(200);
+  });
+});

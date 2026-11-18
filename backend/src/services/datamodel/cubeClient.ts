@@ -220,6 +220,76 @@ export async function sqlFromCube(
   }
 }
 
+/**
+ * Ngữ cảnh của một lần HÂM NÓNG — hẹp hơn hẳn `CubeSecurityContext`.
+ *
+ * `cube.js` chỉ đọc hai trường này để chọn ngữ cảnh biên dịch (`contextToAppId`
+ * dùng `tenantId`, `schemaVersion` dùng `schemaVersion`); `userId` và
+ * `dataModelId` không được đọc ở bất cứ đâu trong đó. Nên token hâm nóng mang
+ * ĐÚNG hai trường đó: nó không cần quyền chạy truy vấn, và một token mang ít
+ * hơn là một token hỏng được ít hơn.
+ */
+export interface CubeWarmContext {
+  tenantId: number;
+  schemaVersion: string;
+}
+
+/**
+ * Hâm nóng ngữ cảnh biên dịch của Cube — ĐO ĐƯỢC, không phải phỏng đoán.
+ *
+ * ─── Vì sao cái này tồn tại ─────────────────────────────────────────────────
+ *
+ * Cube nhớ schema đã biên dịch theo cặp (tổ chức, `schemaVersion`), và
+ * `schemaVersion` là `MAX(updated_at)` của mọi mô hình còn sống. Nên truy vấn
+ * ĐẦU TIÊN sau mỗi lần sửa mô hình phải chờ biên dịch xong — và cái chờ đó đo
+ * được:
+ *
+ *     /load đầu tiên của một phiên bản mới, KHÔNG hâm:   4555 / 5193 / 10283ms
+ *     /load đầu tiên sau khi /meta đã hâm:                216 /  658 /   635ms
+ *
+ * Biên dịch không biến mất, nó chỉ đổi người trả: `regenerateTenant` chạy ngay
+ * sau một lần LƯU, còn cái giá cũ rơi vào lần MỞ BIỂU ĐỒ kế tiếp. Người vừa bấm
+ * Lưu đang chờ sẵn; người mở báo cáo thì không, và với khung nhiều ô thì cả
+ * khung xếp hàng sau đúng một lần biên dịch đó.
+ *
+ * Chi phí này KHÔNG tỉ lệ với schema, nên không gỡ được bằng cách chia nhỏ
+ * ngữ cảnh — đo trên chính máy này, mỗi phiên bản mới:
+ *
+ *     schema rỗng (0 cube)     36 – 244ms
+ *     1 file,  1 cube        2746 – 3016ms
+ *     3 file, 11 cube        3165 – 4515ms
+ *
+ * Cube đầu tiên tốn ~2,7 giây; cube thứ hai trở đi gần như miễn phí. Vì vậy thu
+ * hẹp `repositoryFactory` xuống một mô hình một ngữ cảnh KHÔNG cứu được gì — đó
+ * là giả thuyết đầu tiên và bảng số trên là thứ đã loại nó.
+ *
+ * ─── Hàm này NÉM, và đó là chủ ý ───────────────────────────────────────────
+ *
+ * Bản đầu tự nuốt mọi lỗi ngay tại đây. Nghe hợp lý — hâm nóng là tối ưu, hỏng
+ * thì chỉ chậm lại như cũ — và nó SAI vì một lý do đo được: chỗ gọi cũng phải
+ * nuốt lỗi (nó `void` một promise), nên thành HAI chỗ nuốt cho MỘT chính sách,
+ * và chỗ thứ hai không bài test nào bẻ được — đã thử bằng đột biến: gỡ `.catch`
+ * của nó đi thì cả ba bài vẫn xanh.
+ *
+ * Nên chính sách "cố hết sức, hỏng thì thôi" nằm ĐÚNG MỘT chỗ: `regenerateTenant`,
+ * nơi quyết định không chờ. Hàm này chỉ làm việc của nó và ném như mọi hàm khác.
+ */
+export async function hamNongNguCanh(context: CubeWarmContext): Promise<void> {
+  const token = jwt.sign(context, env.CUBEJS_API_SECRET, { expiresIn: TOKEN_TTL_SECONDS });
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    // `/meta` biên dịch schema rồi trả danh sách cube — nó làm đúng phần việc
+    // đắt mà không chạy một truy vấn nào xuống ClickHouse.
+    await fetch(`${env.CUBEJS_URL}/cubejs-api/v1/meta`, {
+      headers: { Authorization: token },
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /** Cube có sống không — dùng cho `/health` và cho tab Explorer hỏi trước. */
 export async function pingCube(): Promise<boolean> {
   const controller = new AbortController();
