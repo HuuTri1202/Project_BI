@@ -257,9 +257,38 @@ export async function confirmPayment(input: ConfirmInput): Promise<ConfirmResult
      * sẽ tự đổi ngay khi admin xác nhận — họ không phải tải lại trang.
      */
     if (thieuTien) {
-      await conn.query("UPDATE orders SET status = 'awaiting_confirmation' WHERE id = ?", [
-        order.id,
-      ]);
+      /*
+       * Ghi SỰ VIỆC vào `orders.note` — con số, không phải lời buộc tội.
+       *
+       * Màn hình khách (`CheckoutPage`) cố ý không tự suy ra "bạn chuyển thiếu
+       * X" và lý lẽ đó vẫn đúng: khách chuyển làm hai lần, hay ngân hàng trừ
+       * phí, thì câu đó đổ lỗi sai cho người vừa trả tiền. Nhưng cái họ KHÔNG
+       * có là hai con số mà hệ thống đang giữ — đã ghi nhận bao nhiêu, đơn bao
+       * nhiêu. Thiếu chúng, "số tiền chưa khớp" không dẫn tới hành động nào.
+       *
+       * CỘNG mọi lần chuyển, không lấy riêng lần này. `thieuTien` được tính cho
+       * TỪNG giao dịch (`input.amountVnd < soTienDon`), nên chuyển 100 rồi 50
+       * cho đơn 200 sẽ vào nhánh này hai lượt; viết số của lần sau là nói đơn
+       * mới nhận 50đ, đúng kiểu sai mà ghi chú ở `CheckoutPage` cảnh báo.
+       *
+       * Lấy cả `pending` lẫn `succeeded`: dòng vừa INSERT ở trên là `pending`
+       * (đúng — nó chưa đủ để bật gói), nên bỏ nó ra là cộng thiếu chính khoản
+       * tiền vừa về. `direction = 'inbound'` loại các lần hoàn tiền.
+       */
+      const [daNhanRows] = await conn.query<(RowDataPacket & { tong: string | null })[]>(
+        `SELECT SUM(amount_vnd) AS tong FROM payment_transactions
+          WHERE order_id = ? AND direction = 'inbound' AND status IN ('pending', 'succeeded')`,
+        [order.id],
+      );
+      const daNhan = Number(daNhanRows[0]?.tong ?? 0);
+
+      await conn.query(
+        "UPDATE orders SET status = 'awaiting_confirmation', note = ? WHERE id = ?",
+        [
+          `Đã ghi nhận ${daNhan.toLocaleString('vi-VN')}đ trên tổng ${soTienDon.toLocaleString('vi-VN')}đ của đơn.`,
+          order.id,
+        ],
+      );
 
       await writeAudit(conn, {
         ...input.actor,

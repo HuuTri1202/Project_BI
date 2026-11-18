@@ -334,6 +334,58 @@ describe('§11 webhook', () => {
     expect(events[0]?.['error']).toBeNull();
   });
 
+  /**
+   * Chuyển THIẾU: đơn chờ đối chiếu, và đơn phải NÓI RA hai con số.
+   *
+   * Trước khi có `note`, khách thấy đúng một câu "số tiền chưa khớp" — không
+   * biết hệ thống ghi nhận được bao nhiêu, nên không biết nên chuyển bù hay
+   * nên đi hỏi. `note` là chỗ duy nhất hai con số đó tới được màn hình của họ.
+   *
+   * Lần chuyển THỨ HAI là phần quan trọng nhất của ca này. `thieuTien` tính cho
+   * TỪNG giao dịch, nên cả hai lần đều vào nhánh thiếu; nếu `note` viết số của
+   * riêng lần sau, đơn sẽ khai "đã ghi nhận 50.000đ" trong khi tài khoản đã
+   * nhận 150.000đ — một con số sai về phía bất lợi cho khách.
+   */
+  it('chuyển THIẾU -> chờ đối chiếu, và ghi chú CỘNG mọi lần chuyển', async () => {
+    const don = await taoDon();
+
+    await guiWebhook({
+      id: 'evt_thieu_1',
+      orderCode: don.code,
+      amount: 100_000,
+      referenceCode: 'ref-thieu-1',
+    }).expect(200);
+
+    const lan1 = await request(app)
+      .get(`/api/v1/orders/${don.code}`)
+      .set(bearer(f.tokenUser))
+      .expect(200);
+    expect(lan1.body.status).toBe('awaiting_confirmation');
+    expect(lan1.body.note).toContain('100.000đ');
+    expect(lan1.body.note).toContain('299.000đ');
+
+    await guiWebhook({
+      id: 'evt_thieu_2',
+      orderCode: don.code,
+      amount: 50_000,
+      referenceCode: 'ref-thieu-2',
+    }).expect(200);
+
+    const lan2 = await request(app)
+      .get(`/api/v1/orders/${don.code}`)
+      .set(bearer(f.tokenUser))
+      .expect(200);
+    expect(lan2.body.status).toBe('awaiting_confirmation');
+    expect(lan2.body.note).toContain('150.000đ');
+
+    // Và gói vẫn CHƯA bật — tiền thiếu không mua được gì.
+    const capGoi = await request(app)
+      .get('/api/v1/billing/me')
+      .set(bearer(f.tokenUser))
+      .expect(200);
+    expect(capGoi.body.plan.code).not.toBe('pro');
+  });
+
   it('chữ ký SAI -> 401, KHÔNG ghi nhận tiền, nhưng VẪN lưu sự kiện', async () => {
     /*
      * Lưu lại là điểm của ca này. Một webhook chữ ký sai là dấu hiệu duy nhất
