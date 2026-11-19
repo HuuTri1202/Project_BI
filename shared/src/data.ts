@@ -609,15 +609,18 @@ export interface SheetColumnDto {
  *   `hoa-thuong`   biểu đồ "doanh thu theo khu vực" hiện NĂM cột cho BA khu
  *                  vực, vì `MIỀN NAM` và `Miền Nam` là hai nhóm riêng;
  *   `so-mo-ho`     cột có ô `750.000` mà hệ thống sắp đọc thành 750, vì dấu
- *                  chấm ở đó có thể là dấu thập phân (xem `doanQuyUocSo`).
+ *                  chấm ở đó có thể là dấu thập phân (xem `doanQuyUocSo`);
+ *   `gan-giong`    hai nhóm chỉ khác nhau ở DẤU (`Miền Nam` / `Mien Nam`).
+ *                  Loại này CHỈ cảnh báo, không gộp: bỏ dấu là mất thông tin,
+ *                  và "Miền" với "Miên" có thể là hai thứ khác nhau thật.
  */
 export interface CanhBaoCotDto {
   columnIndex: number;
   sourceName: string;
-  loai: 'hoa-thuong' | 'so-mo-ho';
+  loai: 'hoa-thuong' | 'so-mo-ho' | 'gan-giong';
   /** Cách viết THẬT lấy từ tệp của người dùng — không phải ví dụ bịa. */
   viDu: string[];
-  /** Số nhóm sẽ gộp lại. Chỉ có ở `hoa-thuong`. */
+  /** `hoa-thuong`: số nhóm sẽ gộp. `gan-giong`: số cặp phát hiện được. */
   soNhom?: number;
   /**
    * `viDu[0]` sẽ vào kho dưới dạng con số này. Chỉ có ở `so-mo-ho`.

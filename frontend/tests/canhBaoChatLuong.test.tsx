@@ -104,6 +104,30 @@ describe('cảnh báo số mơ hồ', () => {
   });
 });
 
+describe('cảnh báo gần giống (chỉ khác dấu)', () => {
+  const GAN_GIONG: CanhBaoCotDto = {
+    columnIndex: 0,
+    sourceName: 'Khu vực',
+    loai: 'gan-giong',
+    soNhom: 1,
+    viDu: ['Miền Nam', 'Mien Nam'],
+  };
+
+  it('nói rõ là hệ thống KHÔNG tự gộp, và việc cần làm', () => {
+    dung([GAN_GIONG]);
+    const canhBao = screen.getByRole('status');
+    expect(canhBao.textContent).toContain('Mien Nam');
+    expect(canhBao.textContent).toContain('khác nhau ở DẤU');
+    // Phải nói việc cần làm: hệ thống không có cơ sở nào để chọn hộ một dạng.
+    expect(canhBao.textContent).toContain('sửa cho thống nhất trong tệp');
+  });
+
+  it('KHÔNG hiện ô tích gộp — ô tích chỉ gộp hoa/thường', () => {
+    dung([GAN_GIONG]);
+    expect(screen.queryByRole('checkbox', { name: /Gộp các nhóm/ })).toBeNull();
+  });
+});
+
 describe('tệp sạch', () => {
   it('không có cảnh báo nào và không có ô tích nào', () => {
     dung([]);

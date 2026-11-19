@@ -245,6 +245,17 @@ function cauCanhBao(c: CanhBaoCotDto): string {
   if (c.loai === 'hoa-thuong') {
     return `Cột “${ten}” có ${String(c.soNhom ?? 0)} nhóm chỉ khác nhau chữ hoa/thường hoặc khoảng trắng: ${nhayKep(c.viDu)}. Không gộp thì biểu đồ vẽ chúng thành những cột riêng.`;
   }
+  if (c.loai === 'gan-giong') {
+    /*
+     * Loại này CHỈ cảnh báo — ô tích gộp không chạm tới nó, và câu chữ phải nói
+     * rõ việc cần làm là sửa trong tệp.
+     *
+     * Bỏ dấu là phép biến đổi MẤT thông tin: "Miền" với "Miên", "Hoà" với
+     * "Hóa" có thể là hai thứ khác nhau thật, nên hệ thống không có cơ sở nào
+     * để chọn hộ một dạng.
+     */
+    return `Cột “${ten}” có ${String(c.soNhom ?? 0)} cặp giá trị chỉ khác nhau ở DẤU: ${nhayKep(c.viDu)}. Nếu là cùng một thứ, hãy sửa cho thống nhất trong tệp rồi tải lại — hệ thống không tự gộp, vì bỏ dấu thì “Miền” và “Miên” thành một.`;
+  }
   return `Cột “${ten}” có ô ${nhayKep(c.viDu)} sẽ vào hệ thống thành ${c.docThanh ?? ''} — dấu chấm ở đây được hiểu là dấu thập phân. Nếu bạn muốn nó là ${c.viDu[0] ?? ''} thì hãy viết một giá trị không thể hiểu lẫn trong cột, ví dụ 1.250.000, rồi tải lại.`;
 }
 

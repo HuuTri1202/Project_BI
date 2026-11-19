@@ -130,6 +130,58 @@ function diemHinhThuc(s: string): number {
   return (hoaDau ? 2 : 0) + (toanHoa ? 0 : 1);
 }
 
+/**
+ * Khoá SO SÁNH GẦN: khoá nhóm, bỏ hết dấu tiếng Việt.
+ *
+ * `normalize('NFD')` tách chữ thành ký tự gốc + dấu kết hợp, rồi xoá dải dấu
+ * kết hợp (U+0300–U+036F). Thêm `đ` -> `d` bằng tay, vì `đ` là một chữ CÁI
+ * riêng trong Unicode chứ không phải `d` cộng dấu — không có dòng đó thì
+ * "Đà Nẵng" và "Da Nang" vẫn là hai khoá khác nhau.
+ */
+function khoaBoDau(raw: string): string {
+  return khoaNhom(raw)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/đ/g, 'd');
+}
+
+/**
+ * Những nhóm GẦN GIỐNG nhau — chỉ khác nhau ở DẤU — vá một phần mong muốn D1.
+ *
+ * ═══ Vì sao CHỈ cảnh báo, không gộp ════════════════════════════════════════
+ *
+ * `MIỀN NAM` và `Miền Nam` khác nhau ở chữ hoa thường, và đó là một phép biến
+ * đổi KHÔNG MẤT THÔNG TIN: hạ cả hai về chữ thường vẫn cho ra cùng một từ, nên
+ * gộp được (xem `banDoGop`).
+ *
+ * `Miền Nam` và `Mien Nam` thì khác: bỏ dấu là MẤT thông tin, và không có cách
+ * nào biết dạng nào mới là dạng người dùng muốn. Tệ hơn, hai chuỗi khác dấu có
+ * thể là hai thứ khác nhau thật — "Miền" với "Miên", "Hoà" với "Hóa". Nên ở đây
+ * hệ thống chỉ NÓI RA, và để người dùng sửa trong tệp của họ.
+ *
+ * Trả về từng cặp nhóm trùng khoá-bỏ-dấu, mỗi cặp là các cách viết tiêu biểu.
+ */
+export function nhomGanGiong(values: Iterable<string>): string[][] {
+  // Đại diện của mỗi nhóm CHÍNH XÁC trước, rồi mới gom theo khoá bỏ dấu: so
+  // sánh trên giá trị thô sẽ coi `MIỀN NAM` và `Miền Nam` là "gần giống", trong
+  // khi chúng là cùng một nhóm và đã có đường xử lý riêng.
+  const daiDien = new Map<string, string>();
+  for (const raw of values) {
+    const s = raw.trim().replace(/\s+/g, ' ');
+    if (s === '') continue;
+    const khoa = khoaNhom(s);
+    if (!daiDien.has(khoa)) daiDien.set(khoa, s);
+  }
+
+  const theoBoDau = new Map<string, string[]>();
+  for (const [khoa, viet] of daiDien) {
+    const k = khoaBoDau(khoa);
+    theoBoDau.set(k, [...(theoBoDau.get(k) ?? []), viet]);
+  }
+
+  return [...theoBoDau.values()].filter((nhom) => nhom.length > 1);
+}
+
 /** Bao nhiêu cách viết được nêu trong câu cảnh báo — đủ để nhận ra, không tràn dòng. */
 const SO_VI_DU = 4;
 
@@ -155,6 +207,18 @@ export function canhBaoCot(
         loai: 'hoa-thuong',
         soNhom: nhom.size,
         viDu: [...nhom.values()].flat().slice(0, SO_VI_DU),
+      });
+    }
+
+    const ganGiong = nhomGanGiong(values);
+    if (ganGiong.length > 0) {
+      ra.push({
+        columnIndex,
+        sourceName,
+        loai: 'gan-giong',
+        soNhom: ganGiong.length,
+        // Một cặp là đủ để người dùng hiểu loại vấn đề và đi tìm phần còn lại.
+        viDu: (ganGiong[0] ?? []).slice(0, SO_VI_DU),
       });
     }
   }

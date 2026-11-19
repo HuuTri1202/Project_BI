@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
-import { banDoGop, canhBaoCot, khoaNhom, nhomCachViet } from '../src/services/dataset/chatLuong';
+import {
+  banDoGop,
+  canhBaoCot,
+  khoaNhom,
+  nhomCachViet,
+  nhomGanGiong,
+} from '../src/services/dataset/chatLuong';
 import { normalizeCell } from '../src/services/dataset/normalizeCell';
 
 /**
@@ -148,6 +154,45 @@ describe('canhBaoCot', () => {
     // `number_format`, và trả lời ở hai nơi là hai câu trả lời khác nhau.
     expect(canhBaoCot('So', 0, ['1', '1'], 'number')).toEqual([]);
     expect(canhBaoCot('Ngay', 0, ['01/02/2026', '01/02/2026'], 'date')).toEqual([]);
+  });
+});
+
+describe('nhomGanGiong — chỉ khác DẤU', () => {
+  /*
+   * Phần còn lại của mong muốn D1. Chỉ CẢNH BÁO, không gộp: bỏ dấu là phép biến
+   * đổi MẤT thông tin, nên không có cách nào biết dạng nào mới là dạng người
+   * dùng muốn — và "Miền" với "Miên" có thể là hai thứ khác nhau thật.
+   */
+  it('nhận ra hai nhóm chỉ khác dấu', () => {
+    const nhom = nhomGanGiong(['Miền Nam', 'Mien Nam', 'Miền Bắc']);
+    expect(nhom).toHaveLength(1);
+    expect(nhom[0]?.slice().sort()).toEqual(['Mien Nam', 'Miền Nam']);
+  });
+
+  it('đọc được cả chữ Đ — nó là chữ CÁI riêng trong Unicode, không phải d + dấu', () => {
+    // Thiếu dòng `đ -> d` thì ca này đỏ: hai chuỗi vẫn khác khoá nên không cặp
+    // nào được báo.
+    expect(nhomGanGiong(['Đà Nẵng', 'Da Nang'])).toHaveLength(1);
+  });
+
+  it('khác chữ hoa thường thì KHÔNG tính là gần giống', () => {
+    // `MIỀN NAM` và `Miền Nam` là CÙNG một nhóm và đã có đường xử lý riêng
+    // (`banDoGop`). Báo thêm ở đây là hai cảnh báo cho một chuyện.
+    expect(nhomGanGiong(['MIỀN NAM', 'Miền Nam'])).toEqual([]);
+  });
+
+  it('cột sạch thì im lặng', () => {
+    expect(nhomGanGiong(['Hà Nội', 'Đà Nẵng', 'Cần Thơ'])).toEqual([]);
+  });
+
+  it('canhBaoCot trả CẢ HAI loại khi cột vướng cả hai', () => {
+    const ra = canhBaoCot('Khu vực', 0, ['Miền Nam', 'MIỀN NAM', 'Mien Nam'], 'text');
+    expect(
+      ra
+        .map((c) => c.loai)
+        .slice()
+        .sort(),
+    ).toEqual(['gan-giong', 'hoa-thuong']);
   });
 });
 
