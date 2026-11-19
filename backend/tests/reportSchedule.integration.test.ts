@@ -346,3 +346,47 @@ describe('chayMotLich — một lượt gửi thật', () => {
     expect(String(sau['last_error'])).toContain(fx.emailAlice);
   });
 });
+
+describe('lịch của một báo cáo đã xoá', () => {
+  it('TỰ DỪNG, không lỗi mỗi tuần mãi mãi', async () => {
+    /*
+     * Hệ thống không có đường phục hồi báo cáo đã xoá — không route nào đặt
+     * `deleted_at = NULL`. Nên một lịch trỏ vào đó mà vẫn `is_active = 1` là
+     * một lượt chạy mỗi tuần để ghi một dòng lỗi không ai đọc.
+     *
+     * Ca này đến từ rác thật: ba lượt chạy e2e để lại ba lịch trỏ vào báo cáo
+     * đã xoá mềm trong database dev, một trong đó còn BẬT.
+     */
+    const tao = await taoLich({ tanSuat: 'hang-tuan', gio: 8, thu: 1, nguoiNhan: [fx.emailAlice] });
+    const id = tao.body.id as number;
+
+    await mysqlPool.query('UPDATE reports SET deleted_at = CURRENT_TIMESTAMP(3) WHERE id = ?', [
+      fx.baoCao,
+    ]);
+
+    await chayMotLich({
+      id,
+      tenantId: fx.tenantA,
+      reportId: fx.baoCao,
+      createdBy: 1,
+      tanSuat: 'hang-tuan',
+      gio: 8,
+      thu: 1,
+      ngay: null,
+      nguoiNhan: [fx.emailAlice],
+      isActive: true,
+      nextRunAt: new Date(),
+      lastSentAt: null,
+      lastError: null,
+    });
+
+    const [rows] = await mysqlPool.query<RowDataPacket[]>(
+      'SELECT is_active, last_error FROM report_schedules WHERE id = ?',
+      [id],
+    );
+    expect(Number(rows[0]?.['is_active']), 'lịch phải TỰ TẮT').toBe(0);
+    expect(String(rows[0]?.['last_error'])).toContain('tự dừng');
+    // Và không gửi thư nào cho một báo cáo không còn tồn tại.
+    expect(hopThu.thu).toHaveLength(0);
+  });
+});

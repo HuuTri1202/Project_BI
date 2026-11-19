@@ -156,6 +156,17 @@ export async function datLanKeTiep(db: Db, id: number, nextRunAt: Date): Promise
   await db.query('UPDATE report_schedules SET next_run_at = ? WHERE id = ?', [nextRunAt, id]);
 }
 
+/**
+ * Tắt một lịch TỪ PHÍA HỆ THỐNG, không qua tổ chức nào.
+ *
+ * Khác `doiTrangThai` (có `tenant_id`, là thao tác của người dùng): đây là vòng
+ * lặp nền tự tắt một lịch đã chết — báo cáo của nó bị xoá mềm, và hệ thống
+ * không có đường phục hồi báo cáo, nên lịch ấy sẽ lỗi mỗi tuần mãi mãi.
+ */
+export async function tuTat(db: Db, id: number): Promise<void> {
+  await db.query('UPDATE report_schedules SET is_active = 0 WHERE id = ?', [id]);
+}
+
 export async function ghiKetQua(db: Db, id: number, loi: string | null): Promise<void> {
   await db.query(
     `UPDATE report_schedules

@@ -109,9 +109,23 @@ export async function chayMotLich(lich: schedulesRepo.ScheduleRow): Promise<void
       lich.reportId,
     );
     if (report === null) {
-      // Báo cáo bị xoá mềm. Không xoá lịch: `ON DELETE CASCADE` lo trường hợp
-      // xoá cứng, còn xoá mềm thì người dùng có thể đang phục hồi.
-      await schedulesRepo.ghiKetQua(mysqlPool, lich.id, 'Báo cáo không còn tồn tại.');
+      /*
+       * Báo cáo đã bị xoá mềm -> TẮT lịch, không chỉ ghi lỗi.
+       *
+       * Hệ thống không có đường phục hồi một báo cáo đã xoá (không có route
+       * nào đặt `deleted_at = NULL`), nên một lịch trỏ vào đó sẽ lỗi mỗi tuần
+       * mãi mãi: một dòng `last_error` không ai đọc, một lượt chạy không ai cần.
+       *
+       * KHÔNG xoá dòng: người dùng mở hộp "Gửi định kỳ" của một báo cáo khác
+       * vẫn nên thấy được lịch này đã dừng vì sao. `ON DELETE CASCADE` của
+       * migration 46 lo trường hợp xoá CỨNG.
+       */
+      await schedulesRepo.tuTat(mysqlPool, lich.id);
+      await schedulesRepo.ghiKetQua(
+        mysqlPool,
+        lich.id,
+        'Báo cáo không còn tồn tại nên lịch đã tự dừng.',
+      );
       return;
     }
     if (report.canvas === null) {
