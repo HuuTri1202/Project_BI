@@ -61,8 +61,25 @@ export function StepProgress({
             ? `Đã tạo ${progress.total} bộ dữ liệu thành công!`
             : 'Đã tạo bộ dữ liệu thành công!'}
         </h3>
+        {/*
+         * ⚠️ Câu này từng nói "Dữ liệu đã được nhập vào hệ thống", và nó KHÔNG
+         * đúng ở thời điểm nó xuất hiện — đo được khi dùng hệ thống như người
+         * thật: danh sách ngay sau đó ghi "Đang chờ".
+         *
+         * Lúc màn này hiện, `commit` vừa xong (bản ghi + mẫu xem trước đã nằm
+         * trong MySQL) nhưng việc nạp vào kho phân tích chỉ mới được XẾP HÀNG —
+         * `queueAutoLoad` chạy sau transaction, và vòng lặp nạp là một tiến
+         * trình nền. Nên hai màn hình nói hai chuyện khác nhau về cùng một thứ,
+         * và người dùng không có cách nào biết màn nào đúng.
+         *
+         * Cách sửa không phải là chờ nạp xong rồi mới hiện màn này — nạp 50.000
+         * dòng mất nhiều phút, và giữ người dùng trong một hộp thoại suốt thời
+         * gian đó thì tệ hơn. Cách sửa là NÓI THẬT, và nói trước cái nhãn họ sắp
+         * nhìn thấy.
+         */}
         <p className="mx-auto mt-1 max-w-sm text-sm text-slate-500">
-          Dữ liệu đã được nhập vào hệ thống. Mở bộ dữ liệu để bắt đầu dựng báo cáo.
+          Bộ dữ liệu đã có trong Kho dữ liệu. Việc nạp vào kho phân tích đang chạy nền, nên danh
+          sách còn ghi “Đang chờ” hoặc “Đang nạp” một lúc — biểu đồ vẽ được sau khi nạp xong.
         </p>
 
         <ProgressBar percent={100} done />
