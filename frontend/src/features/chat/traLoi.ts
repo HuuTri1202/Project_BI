@@ -2971,6 +2971,31 @@ export function moHinhTheoTen(tatCa: Nguon[], cauHoi: string): number | null {
   return nhat.every((n) => n.moHinhId === id) ? id : null;
 }
 
+/**
+ * Mọi mô hình dữ liệu mà ngữ cảnh xuyên hệ thống đang mang — vá B4.
+ *
+ * ═══ Lỗ đã đo khi dùng hệ thống như người thật ═════════════════════════════
+ *
+ * Ở Kho dữ liệu, hỏi "Doanh thu tháng 3 theo khu vực là bao nhiêu?" nhận về
+ * "không có mục nào trả lời được câu này" — trong khi trên trang báo cáo thì
+ * khung trả lời rất tốt. Tức là cửa vào tự nhiên nhất lại là cửa vô dụng nhất.
+ *
+ * Nguyên nhân KHÔNG phải thiếu khả năng: `hoiTrenMoHinh` đặt được một truy vấn
+ * mới trên kho từ bất kỳ trang nào. Nó chỉ cần biết hỏi trên MÔ HÌNH NÀO, và
+ * `moHinhTheoTen` đòi câu hỏi phải gọi đúng tên mô hình — một điều kiện người
+ * dùng không có cách nào biết.
+ *
+ * Hàm này cho nơi gọi hai đường thoát: tổ chức chỉ có MỘT mô hình thì không có
+ * gì để nhập nhằng, còn nhiều hơn thì HỎI LẠI kèm tên để chọn.
+ */
+export function moHinhTrongHeThong(heThong: Nguon[]): { id: number; ten: string }[] {
+  const theoId = new Map<number, string>();
+  for (const n of heThong) {
+    if (n.moHinhId !== undefined && !theoId.has(n.moHinhId)) theoId.set(n.moHinhId, n.ten);
+  }
+  return [...theoId].map(([id, ten]) => ({ id, ten }));
+}
+
 export function traLoiHeThong(heThong: Nguon[], cauHoi: string): TraLoi | null {
   const dau = heThong[0];
   if (dau === undefined) return null;

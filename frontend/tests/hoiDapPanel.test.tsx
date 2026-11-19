@@ -2145,3 +2145,104 @@ describe('Quãng chờ nói ra nó đang làm gì', () => {
     expect(screen.queryByLabelText('Đang soạn câu trả lời')).toBeNull();
   });
 });
+
+/**
+ * Câu hỏi KINH DOANH hỏi từ một trang không phải trang báo cáo — vá B4.
+ *
+ * ⚠️ Lỗ đã đo khi dùng hệ thống như người thật: ở Kho dữ liệu, hỏi "Doanh thu
+ * tháng 3 theo khu vực là bao nhiêu?" nhận về "không có mục nào trả lời được
+ * câu này", trong khi trên trang báo cáo thì khung trả lời rất tốt — tức là cửa
+ * vào tự nhiên nhất lại là cửa vô dụng nhất.
+ *
+ * Nguyên nhân KHÔNG phải thiếu khả năng: `hoiTrenMoHinh` đặt được một truy vấn
+ * mới trên kho từ bất kỳ trang nào. Nó chỉ cần biết hỏi trên MÔ HÌNH NÀO, và
+ * luật cũ đòi câu hỏi phải gọi đúng tên mô hình — một điều kiện người dùng
+ * không có cách nào biết.
+ */
+describe('hỏi số liệu từ trang không có mô hình nào trong ngữ cảnh', () => {
+  const TRANG: Nguon[] = [
+    { ten: 'Kho dữ liệu', duKien: [{ nhan: 'Số bộ dữ liệu đang hiện', gia: '3' }] },
+  ];
+
+  const moHinh = (ten: string, id: number): Nguon => ({
+    ten,
+    moHinhId: id,
+    duKien: [{ nhan: `Số bảng trong mô hình ${ten}`, gia: '5' }],
+  });
+
+  beforeEach(() => {
+    // Khung đã đọc hết số liệu trên trang mà không khớp — đúng tình huống của
+    // lỗi: đây là lúc trước bản vá nó bế tắc.
+    hieuCauHoi.mockReset();
+    hieuCauHoi.mockResolvedValue({ chon: null, trangThai: 'da-doc' });
+  });
+
+  it('tổ chức có ĐÚNG MỘT mô hình -> tự chạy truy vấn trên nó', async () => {
+    hoiTrenMoHinh.mockReset();
+    hoiTrenMoHinh.mockResolvedValue({
+      cau: 'Khu vực bán nhiều nhất là Miền Trung, doanh thu 15.980.000.',
+      so: ['15.980.000'],
+      hieuLa: 'Doanh thu theo Khu vực',
+      daHoi: true,
+      lyDo: null,
+      goiY: [],
+      truyVan: { dimensionIds: [11], measureIds: [21] } as never,
+    });
+    useNguCanhHeThong.mockReturnValue([
+      { ten: 'Tổng quan toàn tổ chức', duKien: [{ nhan: 'Số bộ dữ liệu', gia: '12' }] },
+      moHinh('Bán hàng', 7),
+    ]);
+
+    await dung(TRANG);
+    fireEvent.click(nutMo());
+    hoi('doanh thu tháng 3 theo khu vực là bao nhiêu');
+
+    await screen.findByText(/Miền Trung, doanh thu 15\.980\.000/);
+    // Không đòi người dùng gọi tên mô hình: cả tổ chức chỉ có một cái.
+    expect(hoiTrenMoHinh).toHaveBeenCalledWith(
+      7,
+      'doanh thu tháng 3 theo khu vực là bao nhiêu',
+      undefined,
+    );
+  });
+
+  it('NHIỀU mô hình -> hỏi lại kèm tên, không bế tắc', async () => {
+    useNguCanhHeThong.mockReturnValue([
+      { ten: 'Tổng quan toàn tổ chức', duKien: [{ nhan: 'Số bộ dữ liệu', gia: '12' }] },
+      moHinh('Bán hàng', 7),
+      moHinh('Kho vận', 9),
+    ]);
+
+    await dung(TRANG);
+    fireEvent.click(nutMo());
+    hoi('doanh thu tháng 3 theo khu vực là bao nhiêu');
+
+    // Không đoán bừa một mô hình: đoán sai là trả về một con số THẬT cho một
+    // câu hỏi khác, không dấu hiệu nào.
+    await screen.findByText(/tổ chức đang có 2 mô hình nên tôi chưa biết hỏi trên cái nào/);
+    expect(hoiTrenMoHinh).not.toHaveBeenCalled();
+
+    /*
+     * Gợi ý là CHÍNH câu vừa gõ, thêm tên mô hình ở đầu — bấm một cái là
+     * `moHinhTheoTen` khớp được và truy vấn chạy, không phải gõ lại gì.
+     */
+    const goiY = screen.getAllByRole('button', { name: /doanh thu tháng 3 theo khu vực/ });
+    expect(goiY.map((b) => b.textContent)).toEqual([
+      'Bán hàng — doanh thu tháng 3 theo khu vực là bao nhiêu',
+      'Kho vận — doanh thu tháng 3 theo khu vực là bao nhiêu',
+    ]);
+  });
+
+  it('không có mô hình nào -> vẫn là câu bế tắc cũ, không hứa hẹn gì', async () => {
+    // Tổ chức chưa khai mô hình nào thì không có kho nào để truy vấn. Mời chọn
+    // mô hình ở đây là mời vào một danh sách rỗng.
+    useNguCanhHeThong.mockReturnValue([]);
+
+    await dung(TRANG);
+    fireEvent.click(nutMo());
+    hoi('doanh thu tháng 3 theo khu vực là bao nhiêu');
+
+    await screen.findByText(/không có mục nào trả lời được câu này/);
+    expect(hoiTrenMoHinh).not.toHaveBeenCalled();
+  });
+});
