@@ -1,35 +1,35 @@
-import { useCallback, useMemo, useState } from 'react';
+import { Suspense, lazy, useCallback, useMemo, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 
-import { HoiDapPanel } from './HoiDapPanel';
+const HoiDapPanel = lazy(() => import('./HoiDapPanel').then((m) => ({ default: m.HoiDapPanel })));
 import { NGU_CANH_RONG, NguCanhContext, type NguCanh } from './nguCanh';
 
 /**
- * ⚠️ `HoiDapPanel` nạp SẴN, và đã có người thử nạp lười nó rồi — đừng thử lại
- * mà không đọc hết đoạn này.
+ * `HoiDapPanel` nạp LƯỜI — và lần trước việc này đã bị trả lại, nên đọc hết
+ * đoạn này trước khi đổi lại.
  *
- * Provider gắn panel ở MỌI trang đã đăng nhập, nên nhìn từ ngoài nó là ứng viên
- * nạp lười đẹp nhất của cả app. Đã làm thật, đã đo, rồi trả lại:
+ * Provider gắn panel ở MỌI trang đã đăng nhập, nên nó nằm trong chunk vào cổng
+ * dù người dùng chưa bao giờ bấm con robot. Tách ra, đo bằng `npm run build`:
  *
- *     tách được:  HoiDapPanel 7,41 kB + goiYBieuDo 13,38 kB = 20,8 kB gzip
- *     giá phải trả: 82 ca trong `hoiDapPanel.test.tsx` đỏ
+ *     HoiDapPanel 7,41 kB + goiYBieuDo 13,38 kB = 20,8 kB gzip
  *
- * Và 82 ca đó KHÔNG đỏ vì chúng viết dở. Helper `dung()` của chúng `render` rồi
- * query ngay trong cùng một nhịp đồng bộ — đúng cách một bài test nên viết. Với
- * `lazy`, component chưa có mặt ở lần render đầu dù promise đã xong, nên mọi
- * `getBy*` ngay sau `render` đều trượt. Chữa nó nghĩa là `await dung(...)` ở 82
- * chỗ và biến gần như toàn bộ tệp thành `async` — tức biến bài test canh HÀNH VI
- * của panel thành một tệp nói về thời điểm tải code.
+ * ─── Lần trước trả lại vì cái gì, và vì sao giờ thì được ────────────────────
  *
- * 20,8 kB không mua được chỗ đó. Chunk vào cổng đã từ 364 kB xuống 154 kB gzip
- * bằng hai việc khác (nạp lười trang trong `App.tsx`, nạp lười wizard tải tệp
- * trong `CreateReportMenu`), và cả hai không làm đỏ một ca nào.
+ * `lazy` chỉ dựng component ở lần render SAU khi promise xong, nên mọi `getBy*`
+ * gọi ngay trong cùng nhịp đồng bộ với `render` đều trượt — kể cả khi module đã
+ * nằm sẵn trong bộ nhớ. Helper `dung()` của `hoiDapPanel.test.tsx` render rồi
+ * query ngay, đúng cách một bài test nên viết, nên 82 ca đỏ cùng lúc.
  *
- * Đường nạp lười được panel mà KHÔNG phá 82 ca đó là tách cái nút mở thành một
- * component riêng nạp sẵn, rồi nạp lười phần thân — nhưng các ca kia bấm nút
- * xong cũng query đồng bộ phần thân, nên nó cũng không đủ. Việc thật sự cần làm
- * trước là cho `dung()` một đường chờ, và đó là một thay đổi của tệp test chứ
- * không phải của tệp này.
+ * Chỗ phải sửa là HELPER, không phải 82 ca: `dung()` giờ `await` đúng cái nút
+ * thu gọn của panel, một lần, ở một chỗ. Mỗi ca vẫn render-rồi-query-đồng-bộ y
+ * như trước; khác duy nhất là chữ `await` ở lời gọi. Bài test vẫn canh HÀNH VI
+ * của panel, không biến thành tệp nói về thời điểm tải code.
+ *
+ * ─── `fallback={null}`, có chủ đích ─────────────────────────────────────────
+ *
+ * Panel là một cái nút nổi ở góc phải dưới. Một ô xám nhảy vào đó rồi biến
+ * thành con robot thì ồn hơn là việc con robot xuất hiện muộn vài chục ms —
+ * và không ai đang CHỜ nó để làm việc gì.
  */
 
 export function NguCanhProvider({ children }: { children: React.ReactNode }): React.ReactElement {
@@ -48,7 +48,9 @@ export function NguCanhProvider({ children }: { children: React.ReactNode }): Re
   return (
     <NguCanhContext.Provider value={value}>
       {children}
-      <HoiDapPanel />
+      <Suspense fallback={null}>
+        <HoiDapPanel />
+      </Suspense>
     </NguCanhContext.Provider>
   );
 }

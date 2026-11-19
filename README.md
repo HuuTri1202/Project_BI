@@ -3605,7 +3605,7 @@ dịch) mà không chạy truy vấn nào xuống ClickHouse.
 Người vừa bấm Lưu đang chờ sẵn; người mở báo cáo thì không — và với khung 12 ô
 thì cả 12 ô xếp hàng sau đúng một lần biên dịch đó.
 
-### 3. JS lần tải đầu: 364 → 174 kB gzip
+### 3. JS lần tải đầu: 364 → 154 kB gzip
 
 Cả 43 trang từng nằm trong một chunk, nên trang **đăng nhập** cũng kéo về console
 vận hành, khung mô hình, wizard tải tệp và trang thanh toán. Trong đó có `exifr`
@@ -3616,14 +3616,17 @@ giờ chạy một dòng nào.
 | ------------------------------------------- | --------------- |
 | trước                                       | 364,44 kB gzip  |
 | `lazy()` 31 trang trong `App.tsx`           | 233,01 kB       |
-| + `UploadWizard` nạp lười sau lần mở đầu    | **173,88 kB**   |
+| + `UploadWizard` nạp lười sau lần mở đầu    | 173,88 kB       |
+| + khung hỏi đáp nạp lười                    | **153,95 kB**   |
 
 Việc thứ hai là việc quyết định, và sourcemap chỉ ra vì sao: `HomePage` giữ nạp
 sẵn (nó là trang đầu tiên người đã đăng nhập thấy) → dùng `CreateReportMenu` →
 `import` tĩnh `UploadWizard` → toàn bộ Uppy ở lại, để phục vụ một hộp thoại chỉ
 mở khi bấm.
 
-### Hai giả thuyết đã bị số đo LOẠI
+Việc thứ ba từng bị **trả lại một lần** — xem mục dưới.
+
+### Một giả thuyết bị số đo loại, và một lần trả lại rồi làm được
 
 Ghi lại vì chúng nghe hợp lý, và vì cái giá của việc tin chúng là code tệ hơn mà
 không nhanh hơn:
@@ -3633,11 +3636,20 @@ không nhanh hơn:
    phí là của mỗi **lần** biên dịch, gần như không tỉ lệ với số cube — nên chia
    nhỏ chỉ tạo ra **nhiều lần** biên dịch hơn.
 
-2. **Nạp lười khung hỏi đáp** — provider gắn nó ở mọi trang đã đăng nhập, nhìn
-   từ ngoài là ứng viên đẹp nhất. Đã làm thật, đo được 20,8 kB gzip, rồi **trả
-   lại**: nó làm đỏ 82 ca trong `hoiDapPanel.test.tsx`, và 82 ca đó không đỏ vì
-   viết dở — helper `dung()` của chúng `render` rồi query ngay trong cùng một
-   nhịp đồng bộ. Lý do ghi thẳng trong `NguCanhProvider.tsx`.
+2. **Nạp lười khung hỏi đáp** — KHÔNG bị loại, nhưng đáng ghi vì nó bị trả lại
+   một lần. Lần đầu: đo được 20,8 kB gzip, rồi trả lại vì nó làm đỏ 82 ca trong
+   `hoiDapPanel.test.tsx` — và 82 ca đó không đỏ vì viết dở, helper `dung()` của
+   chúng `render` rồi query ngay trong cùng một nhịp đồng bộ, đúng cách một bài
+   test nên viết.
+
+   Lần sau làm được, và chỗ sửa **không phải 82 ca**: cho `dung()` một đường
+   chờ, đúng một dòng `await import(...)`, rồi thêm chữ `await` ở lời gọi. Mỗi ca
+   vẫn render-rồi-query-đồng-bộ y như trước. Bài học là chẩn đoán đầu tiên —
+   "phải sửa 82 chỗ" — đã đếm đúng số lời gọi mà nhìn sai chỗ phải sửa.
+
+   Một dòng `await act(async () => {})` cũng từng có trong helper; bỏ ra rồi
+   chạy lại thì 84/84 vẫn xanh, không cảnh báo `act` nào, nên nó bị xoá. Giữ
+   một dòng không làm gì sẽ dạy người đọc sau rằng nó cần thiết.
 
 ### Đo lại bằng gì
 
