@@ -113,9 +113,35 @@ một lỗi mà cả 873 ca jsdom lẫn 777 ca backend đều không thấy: khu
 nó trả 400 và nó trả lời như thể tổ chức chưa có dữ liệu gì. Test frontend mock
 API nên không thấy; test backend không mở màn hình nên cũng không thấy.
 
+**Bốn hành trình hiện có.**
+
+| Tệp | Thứ chỉ trình duyệt thật trả lời được |
+| --- | --- |
+| `dang-nhap.spec.ts` | `React.lazy` có tách chunk và tải được qua HTTP không |
+| `tai-tep.spec.ts` | Uppy có PUT thật lên MinIO bằng vé đã ký không (test backend mô phỏng bước này bằng `putForTest`, tức là kiểm chính đoạn mã giả) |
+| `bieu-do.spec.ts` | Vega có VẼ không — đếm đúng 3 cột và đòi nhãn trục là dữ liệu thật (`chartSpec.test.ts` chỉ kiểm *đặc tả*, một object JavaScript) |
+| `thanh-toan.spec.ts` | Mã QR có vẽ ra ma trận thật không; đồng hồ `setInterval` có chạy không; và **server đổi trạng thái đơn thì màn hình có tự bắt không** — hai tiến trình, một đổi dữ liệu một đang xem, thứ không ca jsdom nào dựng được |
+
+Ca thanh toán HUỶ đơn chứ không trả tiền: một đơn `paid` bật subscription thật và
+ghi vào sổ cái tiền, mà sổ cái là append-only có chủ đích nên không lùi được. Huỷ
+đi qua đúng vòng thăm dò đó bằng cùng cơ chế. Muốn kiểm thật nhánh `paid` thì
+phải cho e2e một API chạy trên `bi_platform_test`.
+
 **Chạy trên database dev.** `webServer` khởi động chính `npm run dev:api`, nên nó
 đọc `backend/.env`. Ca nào GHI dữ liệu thì phải tự dọn, đúng như bộ kịch bản ở
 mục 2. `workers: 1` vì các ca dùng chung một database.
+
+⚠️ **Đừng chạy bộ này song song với lane tích hợp.** Hai bộ dùng chung container
+MySQL, và chạy cùng lúc làm `resetDatabase()` của lane tích hợp hết giờ — ra đỏ
+giả không kèm một AssertionError nào.
+
+**Trần thời gian là số ĐO, không phải số đoán.** Mỗi lượt chạy khởi động Vite
+LẠNH (`reuseExistingServer` không có gì dùng lại khi 5173 chưa listening), nên
+lần đầu vào một trang Vite phải biên dịch tại chỗ cả cây phụ thuộc của trang đó —
+với trang báo cáo là cả vega/vega-lite. Vì vậy ba khẳng định chờ hình của
+`bieu-do.spec.ts` mang trần 20 giây thay cho 5 giây mặc định của Playwright: với
+trần mặc định nó đỏ ở 2 trong 7 lượt, và ảnh snapshot lúc đỏ cho thấy biểu đồ đã
+vẽ đúng — trạng thái tới muộn hơn trần, không phải không tới.
 
 **Quan sát cần biết:** trên `http://localhost:5173`, nút đăng nhập Google (§1.9)
 trả 403 kèm `[GSI_LOGGER]: The given origin is not allowed for the given client
