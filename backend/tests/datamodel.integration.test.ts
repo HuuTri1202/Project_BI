@@ -81,6 +81,41 @@ async function makeModel(tenantId: number, workspaceId: number, name: string): P
 }
 
 /**
+ * Mỗi ô của `canvas-data` phải mang ĐÚNG MỘT trong hai: `data` hoặc `error`.
+ *
+ * ─── Vì sao phép kiểm này phải có mặt ───────────────────────────────────────
+ *
+ * `canvas-data` CỐ Ý trả 200 kèm `data: null, error: ...` cho từng ô khi truy
+ * vấn chết — một ô hỏng không được làm trắng cả trang. Đúng, nhưng nó có một
+ * hệ quả: các ca ở đây chỉ khẳng định `status` và danh sách `visualId`, nên
+ * chúng XANH kể cả khi MỌI ô đều hỏng. Đo thật lúc viết dòng này: mỗi lượt
+ * chạy tệp này sinh 6 dòng `Cube '...' not found` trong log container mà vẫn
+ * 104/104 đạt.
+ *
+ * Hàm này KHÔNG đòi ô phải có số. Bộ test này cố ý chạy khi chưa có kho dữ
+ * liệu (xem `makeLoadedDataset`), nên trong lane mặc định mọi ô mang `error` —
+ * và đó là trạng thái đúng của lane đó. Thứ nó ghim là HỢP ĐỒNG: không ô nào
+ * được trả về rỗng cả hai trường, vì một ô như thế hiện ra trên giao diện dưới
+ * dạng một biểu đồ trắng không kèm lời giải thích nào.
+ *
+ * Còn "Cube trả về ĐÚNG SỐ hay không" thì được chứng minh ở
+ * `cubeQuery.integration.test.ts` — lane ClickHouse, dữ liệu thật.
+ */
+function moiOCoKetCuc(body: unknown): void {
+  const visuals = (body as { visuals: { visualId: string; data: unknown; error?: unknown }[] })
+    .visuals;
+
+  for (const o of visuals) {
+    const coSo = o.data !== null && o.data !== undefined;
+    const coLoi = typeof o.error === 'string' && o.error.length > 0;
+    expect(
+      coSo !== coLoi,
+      `ô ${o.visualId} phải có đúng một trong hai: data=${JSON.stringify(o.data)} error=${String(o.error)}`,
+    ).toBe(true);
+  }
+}
+
+/**
  * Gắn một bảng kèm hai cột vào mô hình — cũng bằng SQL thô.
  *
  * Đi qua `POST /datamodels/:id/datasets` sẽ kéo theo một vòng đọc ClickHouse
@@ -1327,12 +1362,14 @@ describe('§10.10 khung nhiều biểu đồ', () => {
       .set(bearer(f.tokenAdminA));
     expect(dau.status).toBe(200);
     expect(dau.body.visuals.map((v: { visualId: string }) => v.visualId)).toEqual(['a']);
+    moiOCoKetCuc(dau.body);
 
     const hai = await request(app)
       .get(`/api/v1/reports/${created.body.id}/canvas-data?pageId=p2`)
       .set(bearer(f.tokenAdminA));
     expect(hai.status).toBe(200);
     expect(hai.body.visuals.map((v: { visualId: string }) => v.visualId)).toEqual(['b', 'c']);
+    moiOCoKetCuc(hai.body);
 
     // Mã trang LẠ rơi về trang đầu chứ không phải 404: nó xảy ra thật khi hai
     // người mở cùng một báo cáo và một người xoá một trang.
@@ -1427,6 +1464,7 @@ describe('§10.10 khung nhiều biểu đồ', () => {
       .set(bearer(f.tokenAdminA));
     expect(data.status).toBe(200);
     expect(data.body.visuals.map((v: { visualId: string }) => v.visualId)).toEqual(['a']);
+    moiOCoKetCuc(data.body);
   });
 
   it('client CŨ không gửi `annotations` vẫn lưu được, và đọc ra mảng rỗng', async () => {
