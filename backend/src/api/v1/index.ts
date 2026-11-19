@@ -29,6 +29,7 @@ import {
   type ReportConfigDto,
   type ReportDataDto,
   type ReportShareCreatedDto,
+  type ReportScheduleDto,
   type ReportShareDto,
   type TenantRole,
   type WorkspaceOptionDto,
@@ -55,6 +56,7 @@ import type { Db } from '../../repositories/db';
 import * as membershipsRepo from '../../repositories/memberships';
 import * as reportFoldersRepo from '../../repositories/reportFolders';
 import * as reportsRepo from '../../repositories/reports';
+import * as schedulesRepo from '../../repositories/reportSchedules';
 import * as sharesRepo from '../../repositories/reportShares';
 import * as usersRepo from '../../repositories/users';
 import * as tenantsRepo from '../../repositories/tenants';
@@ -114,6 +116,8 @@ import {
 import { aggregateFromModel } from '../../services/datamodel/modelReportData';
 import { soLieuTrangKhung } from '../../services/report/canvasData';
 import { taoLienKet } from '../../services/report/chiaSe';
+import { locNguoiNhan } from '../../services/report/emailDinhKy';
+import { tinhLanKeTiep } from '../../services/report/lanKeTiep';
 import { aggregateInWarehouse } from '../../services/dataset/aggregateWarehouse';
 import { analyzeDataset, clearAnalyzeCache } from '../../services/dataset/analyze';
 import { commitDatasets } from '../../services/dataset/commit';
@@ -134,7 +138,10 @@ import {
   hieuYBodySchema,
   addDatasetsBodySchema,
   commitDatasetsBodySchema,
+  createScheduleBodySchema,
   createShareBodySchema,
+  scheduleActiveBodySchema,
+  scheduleIdParamSchema,
   shareIdParamSchema,
   createDatasetFolderBodySchema,
   moveDatasetBodySchema,
@@ -1333,6 +1340,115 @@ v1Router.delete(
     // 404 khi không có dòng nào đổi: id của tổ chức khác, hoặc liên kết đã thu
     // hồi rồi. Cả hai đều không phải chuyện người dùng cần phân biệt.
     if (doi === 0) throw notFound('Không tìm thấy liên kết này.');
+    res.status(204).end();
+  }),
+);
+
+/* ─── Gửi báo cáo định kỳ — mong muốn D6 ───────────────────────────────── */
+
+/**
+ * Cùng luật quyền với `/shares`: `report:modify`, không phải `report:read`.
+ *
+ * Đặt một lịch gửi thư là một quyết định VỀ báo cáo — nó sẽ chạy mỗi tuần, gửi
+ * cho nhiều người, và người tạo nó không cần có mặt. Viewer đọc báo cáo được
+ * nhưng không được tự đặt một việc như thế.
+ */
+function dtoLich(r: schedulesRepo.ScheduleRow): ReportScheduleDto {
+  return {
+    id: r.id,
+    tanSuat: r.tanSuat,
+    gio: r.gio,
+    thu: r.thu,
+    ngay: r.ngay,
+    nguoiNhan: r.nguoiNhan,
+    isActive: r.isActive,
+    nextRunAt: r.nextRunAt.toISOString(),
+    lastSentAt: r.lastSentAt === null ? null : r.lastSentAt.toISOString(),
+    lastError: r.lastError,
+  };
+}
+
+v1Router.get(
+  '/reports/:id/schedules',
+  authorize('report', 'modify'),
+  asyncHandler(async (req, res) => {
+    const auth = requireAuth(req);
+    const { id } = idParamSchema.parse(req.params);
+    await baoCaoCuaToi(req, id);
+
+    const rows = await schedulesRepo.theoBaoCao(mysqlPool, auth.tenantId, id);
+    res.json({ items: rows.map(dtoLich) });
+  }),
+);
+
+v1Router.post(
+  '/reports/:id/schedules',
+  authorize('report', 'modify'),
+  rateLimit({ bucket: 'report-schedule', max: 20, windowSeconds: 600 }),
+  asyncHandler(async (req, res) => {
+    const auth = requireAuth(req);
+    const { id } = idParamSchema.parse(req.params);
+    const body = createScheduleBodySchema.parse(req.body);
+    await baoCaoCuaToi(req, id);
+
+    // Luật "chỉ gửi cho thành viên" cưỡng chế ở service, một chỗ — xem
+    // `emailDinhKy.locNguoiNhan` để biết vì sao nó quan trọng hơn vẻ ngoài.
+    const nguoiNhan = await locNguoiNhan(auth.tenantId, body.nguoiNhan);
+
+    const lichId = await schedulesRepo.tao(mysqlPool, {
+      tenantId: auth.tenantId,
+      reportId: id,
+      createdBy: auth.userId,
+      tanSuat: body.tanSuat,
+      gio: body.gio,
+      thu: body.thu,
+      ngay: body.ngay,
+      nguoiNhan,
+      nextRunAt: tinhLanKeTiep(new Date(), {
+        tanSuat: body.tanSuat,
+        gio: body.gio,
+        thu: body.thu,
+        ngay: body.ngay,
+      }),
+    });
+
+    const rows = await schedulesRepo.theoBaoCao(mysqlPool, auth.tenantId, id);
+    const vua = rows.find((r) => r.id === lichId);
+    if (vua === undefined) throw notFound('Không tìm thấy lịch vừa tạo.');
+    res.status(201).json(dtoLich(vua));
+  }),
+);
+
+v1Router.patch(
+  '/reports/:id/schedules/:scheduleId',
+  authorize('report', 'modify'),
+  asyncHandler(async (req, res) => {
+    const auth = requireAuth(req);
+    const { id, scheduleId } = scheduleIdParamSchema.parse(req.params);
+    const body = scheduleActiveBodySchema.parse(req.body);
+    await baoCaoCuaToi(req, id);
+
+    const doi = await schedulesRepo.doiTrangThai(
+      mysqlPool,
+      auth.tenantId,
+      scheduleId,
+      body.isActive,
+    );
+    if (doi === 0) throw notFound('Không tìm thấy lịch này.');
+    res.status(204).end();
+  }),
+);
+
+v1Router.delete(
+  '/reports/:id/schedules/:scheduleId',
+  authorize('report', 'modify'),
+  asyncHandler(async (req, res) => {
+    const auth = requireAuth(req);
+    const { id, scheduleId } = scheduleIdParamSchema.parse(req.params);
+    await baoCaoCuaToi(req, id);
+
+    const doi = await schedulesRepo.xoa(mysqlPool, auth.tenantId, scheduleId);
+    if (doi === 0) throw notFound('Không tìm thấy lịch này.');
     res.status(204).end();
   }),
 );

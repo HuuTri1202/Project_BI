@@ -10,6 +10,7 @@ import { regenerateAllTenants } from './services/datamodel/cubeSchemaService';
 import { checkSchemaDir } from './services/datamodel/cubeSchemaStore';
 import { startBillingRunner, stopBillingRunner } from './services/billing/runner';
 import { startIngestRunner, stopIngestRunner } from './services/ingest/runner';
+import { startScheduleRunner, stopScheduleRunner } from './services/report/lichGui';
 
 let server: Server | undefined;
 
@@ -38,6 +39,16 @@ async function start(): Promise<void> {
   // nên đặt trước hay sau `listen` đều được; đặt cạnh runner kia để hai vòng
   // lặp nền nằm chung một chỗ trong file này.
   startBillingRunner();
+
+  /*
+   * Vòng lặp gửi báo cáo định kỳ — mong muốn D6, một phút một lượt.
+   *
+   * Nó chạm cả MySQL, ClickHouse (qua `soLieuTrangKhung`) và SMTP, nhưng chỉ
+   * khi CÓ lịch tới hạn: nhịp rỗng là đúng một câu SELECT theo chỉ mục. Nên đặt
+   * được cạnh hai runner kia mà không làm máy thiếu ClickHouse mở không nổi
+   * cổng 4000.
+   */
+  startScheduleRunner();
 
   // Sửa `.env` lúc đang chạy thì tự khởi động lại — chỉ khi dev. Không có nó,
   // thêm `SEPAY_API_TOKEN` rồi quét mã trả tiền là tiền về mà đơn đứng `pending`
@@ -93,9 +104,9 @@ async function shutdown(signal: NodeJS.Signals): Promise<void> {
     console.log('[server] HTTP server closed');
   });
 
-  // TRƯỚC `closeMysql`, không phải sau: hai vòng lặp nền đang giữ connection từ
+  // TRƯỚC `closeMysql`, không phải sau: ba vòng lặp nền đang giữ connection từ
   // chính pool đó. Xem `stopIngestRunner`.
-  await Promise.all([stopIngestRunner(), stopBillingRunner()]);
+  await Promise.all([stopIngestRunner(), stopBillingRunner(), stopScheduleRunner()]);
 
   const results = await Promise.allSettled([closeMysql(), closeRedis(), closeClickhouse()]);
   for (const result of results) {

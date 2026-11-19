@@ -1,4 +1,7 @@
 import {
+  NGAY_TRONG_THANG_MAX,
+  NGUOI_NHAN_MAX,
+  TAN_SUAT,
   AGGREGATES,
   BILLING_CYCLES,
   CANVAS_COLUMNS,
@@ -235,6 +238,45 @@ export const shareIdParamSchema = z.object({
   id: z.coerce.number().int().positive(),
   shareId: z.coerce.number().int().positive(),
 });
+
+/* ─── Gửi báo cáo định kỳ — mong muốn D6 ───────────────────────────────── */
+
+/**
+ * `thu` và `ngay` là HAI trường chỉ có nghĩa với một `tanSuat`, nên luật chéo
+ * kiểm ở đây chứ không ở route: thiếu nó thì một lịch "hằng tuần" không có
+ * `thu` sẽ im lặng rơi về Thứ Hai, và người dùng chọn Thứ Sáu rồi nhận thư vào
+ * thứ Hai mà không hiểu vì sao.
+ */
+export const createScheduleBodySchema = z
+  .object({
+    tanSuat: z.enum(TAN_SUAT),
+    gio: z.number().int().min(0).max(23),
+    thu: z.number().int().min(1).max(7).nullable().optional().default(null),
+    ngay: z.number().int().min(1).max(NGAY_TRONG_THANG_MAX).nullable().optional().default(null),
+    nguoiNhan: z
+      .array(z.string().email('Địa chỉ email không hợp lệ'))
+      .min(1, 'Hãy chọn ít nhất một người nhận')
+      .max(NGUOI_NHAN_MAX, `Tối đa ${String(NGUOI_NHAN_MAX)} người nhận cho một lịch`),
+  })
+  .superRefine((v, ctx) => {
+    if (v.tanSuat === 'hang-tuan' && v.thu === null) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['thu'], message: 'Hãy chọn thứ' });
+    }
+    if (v.tanSuat === 'hang-thang' && v.ngay === null) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['ngay'],
+        message: 'Hãy chọn ngày trong tháng',
+      });
+    }
+  });
+
+export const scheduleIdParamSchema = z.object({
+  id: z.coerce.number().int().positive(),
+  scheduleId: z.coerce.number().int().positive(),
+});
+
+export const scheduleActiveBodySchema = z.object({ isActive: z.boolean() });
 
 // ─── Báo cáo (§7.6) ──────────────────────────────────────────────────────────
 

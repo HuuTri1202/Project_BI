@@ -9,6 +9,7 @@ import { useReport, useReportCanvasData } from '../../features/datasets/hooks';
 import { ReportShell } from '../../features/reports/ReportShell';
 import { XuatBaoCao } from '../../features/reports/export/XuatBaoCao';
 import { ChiaSeBaoCao } from '../../features/reports/share/ChiaSeBaoCao';
+import { GuiDinhKy } from '../../features/reports/share/GuiDinhKy';
 import { ReportViewer } from '../../features/reports/ReportViewer';
 import { getApiError } from '../../services/apiClient';
 
@@ -170,7 +171,15 @@ export default function ReportViewPage(): React.ReactElement {
            * `api/public/index.ts`. Báo cáo dựng trên bộ dữ liệu không có nút
            * này, thay vì có một nút tạo ra liên kết mở lên thành lỗi 409.
            */}
-          {canEdit && loaded.canvas !== null && <ChiaSeBaoCao reportId={loaded.id} />}
+          {canEdit && loaded.canvas !== null && (
+            <>
+              <ChiaSeBaoCao reportId={loaded.id} />
+              {/* Gửi định kỳ — mong muốn D6. Cùng điều kiện với Chia sẻ: cùng
+                  quyền (`report:modify`), và thư cũng dựng từ số liệu của khung
+                  nên báo cáo dựng trên bộ dữ liệu chưa gửi được. */}
+              <GuiDinhKy reportId={loaded.id} />
+            </>
+          )}
           {editable ? (
             <Button variant="primary" onClick={() => void navigate('edit')}>
               Chỉnh sửa

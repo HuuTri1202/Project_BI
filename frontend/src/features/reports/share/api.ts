@@ -1,4 +1,10 @@
-import type { BaoCaoChiaSeDto, ReportShareCreatedDto, ReportShareDto } from '@bi/shared';
+import type {
+  BaoCaoChiaSeDto,
+  CreateReportScheduleInput,
+  ReportScheduleDto,
+  ReportShareCreatedDto,
+  ReportShareDto,
+} from '@bi/shared';
 import axios from 'axios';
 
 import { apiClient } from '../../../services/apiClient';
@@ -59,4 +65,38 @@ export async function docBaoCaoChiaSe(chuoi: string, trang?: string): Promise<Ba
     { params: trang === undefined ? undefined : { trang } },
   );
   return data;
+}
+
+/* ─── Gửi định kỳ — mong muốn D6 ────────────────────────────────────────── */
+
+export async function docLich(reportId: number): Promise<ReportScheduleDto[]> {
+  const { data } = await apiClient.get<{ items: ReportScheduleDto[] }>(
+    `/v1/reports/${String(reportId)}/schedules`,
+  );
+  return data.items;
+}
+
+export async function taoLich(
+  reportId: number,
+  input: CreateReportScheduleInput,
+): Promise<ReportScheduleDto> {
+  const { data } = await apiClient.post<ReportScheduleDto>(
+    `/v1/reports/${String(reportId)}/schedules`,
+    input,
+  );
+  return data;
+}
+
+export async function doiTrangThaiLich(
+  reportId: number,
+  scheduleId: number,
+  isActive: boolean,
+): Promise<void> {
+  await apiClient.patch(`/v1/reports/${String(reportId)}/schedules/${String(scheduleId)}`, {
+    isActive,
+  });
+}
+
+export async function xoaLich(reportId: number, scheduleId: number): Promise<void> {
+  await apiClient.delete(`/v1/reports/${String(reportId)}/schedules/${String(scheduleId)}`);
 }
