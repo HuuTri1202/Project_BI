@@ -122,6 +122,7 @@ API nên không thấy; test backend không mở màn hình nên cũng không th
 | `bieu-do.spec.ts` | Vega có VẼ không — đếm đúng 3 cột và đòi nhãn trục là dữ liệu thật (`chartSpec.test.ts` chỉ kiểm *đặc tả*, một object JavaScript) |
 | `thanh-toan.spec.ts` | Mã QR có vẽ ra ma trận thật không; đồng hồ `setInterval` có chạy không; và **server đổi trạng thái đơn thì màn hình có tự bắt không** — hai tiến trình, một đổi dữ liệu một đang xem, thứ không ca jsdom nào dựng được |
 | `xuat-tep.spec.ts` | Bấm Xuất thì một TỆP THẬT có rơi xuống đĩa không. `modern-screenshot` cần layout engine và canvas vẽ được; `taiXuong()` tạo `<a download>` rồi click — trong jsdom cả hai là lời gọi không làm gì. Kiểm PNG bằng cách **đếm điểm ảnh mang màu cột**, và kiểm Excel bằng cách **đọc ngược tệp bằng `exceljs`** rồi so từng con số |
+| `keo-tha.spec.ts` | KÉO một ô trên khung bằng con trỏ thật. `CanvasBoard` dùng Pointer Events + `setPointerCapture`, đọc toạ độ ở từng khung hình và ghi `el.style` trong `requestAnimationFrame` — trong jsdom không có layout nên `getBoundingClientRect` trả 0 và bước quy về ô lưới chia cho 0. Cả §10.20 là mã chưa từng chạy trong ca test nào trước ca này |
 
 Bệ đỡ của hai ca báo cáo (`dungBaoCaoMau`, `xoaBaoCaoVaBoTheoTen`) nằm ở
 `e2e/helpers.ts`, dùng chung — mỗi ca truyền TÊN RIÊNG, vì hai ca chạy nối nhau
@@ -140,6 +141,14 @@ mục 2. `workers: 1` vì các ca dùng chung một database.
 ⚠️ **Đừng chạy bộ này song song với lane tích hợp.** Hai bộ dùng chung container
 MySQL, và chạy cùng lúc làm `resetDatabase()` của lane tích hợp hết giờ — ra đỏ
 giả không kèm một AssertionError nào.
+
+⚠️ **Hạn nhịp đăng nhập là một trần cứng của bộ e2e.** `LOGIN_MAX_ATTEMPTS = 10`
+trong `LOGIN_LOCKOUT_MINUTES = 15` phút, theo IP. `layToken` NHỚ LẠI token nên cả
+lượt chạy chỉ gọi 1 lời gọi API, cộng 6 lần đăng nhập qua giao diện (mỗi ca một
+lần, và đó là phần của hành trình) — tức 7 trên 10, còn chỗ cho ba ca nữa. Bản
+đầu gọi lại mỗi lần và khi bộ lên 6 ca thì hai trong ba lượt đỏ với "đăng nhập để
+lấy token dọn dẹp", một câu không nói gì về nguyên nhân. Vượt 10 thì cách đúng là
+một `storageState` dựng một lần ở `globalSetup`, KHÔNG phải nới hạn nhịp.
 
 **Trần thời gian là số ĐO, không phải số đoán.** Mỗi lượt chạy khởi động Vite
 LẠNH (`reuseExistingServer` không có gì dùng lại khi 5173 chưa listening), nên

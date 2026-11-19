@@ -108,17 +108,34 @@ export async function dangNhap(page: Page): Promise<void> {
 }
 
 /**
- * Token cho các lời gọi API dọn dẹp.
+ * Token cho các lời gọi API dọn dẹp. NHỚ LẠI, một lần cho cả tiến trình.
  *
  * Dọn bằng API chứ không bằng giao diện: ca test phải dọn được cả khi nó đỏ ở
  * giữa đường, và lúc đó giao diện có thể đang ở một trạng thái bất kỳ.
+ *
+ * ⚠️ Nhớ lại là BẮT BUỘC, không phải tối ưu. Đăng nhập bị bó nhịp
+ * `LOGIN_MAX_ATTEMPTS = 10` trong `LOGIN_LOCKOUT_MINUTES = 15` phút, theo IP.
+ * Bản đầu gọi lại mỗi lần, và khi bộ e2e lên 6 ca thì một lượt chạy gọi khoảng
+ * 20 lần — hai trong ba lượt đỏ với "đăng nhập để lấy token dọn dẹp", một câu
+ * không nói gì về nguyên nhân. Mười bốn lần trong số đó là lãng phí thuần: cùng
+ * một tài khoản, cùng một tiến trình.
+ *
+ * Còn lại 1 lời gọi API + 6 lần đăng nhập QUA GIAO DIỆN (mỗi ca một lần, và đó
+ * là phần của hành trình). Tức 7 trên 10 — còn chỗ cho ba ca nữa. Vượt quá thì
+ * cách đúng là một `storageState` dựng một lần ở `globalSetup`, không phải nới
+ * hạn nhịp.
  */
+let tokenDaCo: string | null = null;
+
 export async function layToken(request: APIRequestContext): Promise<string> {
+  if (tokenDaCo !== null) return tokenDaCo;
+
   const res = await request.post('http://127.0.0.1:4000/api/auth/login', {
     data: { email: TAI_KHOAN.email, password: TAI_KHOAN.matKhau },
   });
   expect(res.status(), 'đăng nhập để lấy token dọn dẹp').toBe(200);
-  return (await res.json()).token as string;
+  tokenDaCo = (await res.json()).token as string;
+  return tokenDaCo;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -168,6 +185,35 @@ export async function dungBaoCaoMau(
   ten: { bo: string; baoCao: string },
 ): Promise<BaoCaoMau> {
   const auth = { Authorization: `Bearer ${token}` };
+  const { workspaceId, datasetId } = await dungBoDuLieu(request, token, ten.bo);
+
+  const tao = await request.post(`${API}/v1/reports`, {
+    headers: auth,
+    data: { datasetId, name: ten.baoCao },
+  });
+  expect(tao.status(), await tao.text()).toBe(201);
+  const reportId = ((await tao.json()) as { id: number }).id;
+
+  const cauHinh = await request.patch(`${API}/v1/reports/${String(reportId)}`, {
+    headers: auth,
+    data: {
+      name: ten.baoCao,
+      chartType: 'bar',
+      config: { dimension: 'Khu vực', measure: 'Doanh thu', aggregate: 'sum', limit: 20 },
+    },
+  });
+  expect(cauHinh.status(), await cauHinh.text()).toBe(200);
+
+  return { workspaceId, datasetId, reportId };
+}
+
+/** Tải `TEP_MAU` lên, chốt, và chờ nó nạp xong vào Kho dữ liệu. */
+export async function dungBoDuLieu(
+  request: APIRequestContext,
+  token: string,
+  tenBo: string,
+): Promise<{ workspaceId: number; datasetId: number }> {
+  const auth = { Authorization: `Bearer ${token}` };
 
   const ws = await request.get(`${API}/v1/workspaces`, { headers: auth });
   expect(ws.status()).toBe(200);
@@ -178,7 +224,7 @@ export async function dungBaoCaoMau(
 
   const xin = await request.post(`${API}/v1/datasets/uploads`, {
     headers: auth,
-    data: { workspaceId, filename: `${ten.bo}.csv` },
+    data: { workspaceId, filename: `${tenBo}.csv` },
   });
   expect(xin.status(), await xin.text()).toBe(201);
   const { datasetId, uploadUrl } = (await xin.json()) as { datasetId: number; uploadUrl: string };
@@ -197,7 +243,7 @@ export async function dungBaoCaoMau(
 
   const chot = await request.post(`${API}/v1/datasets/${String(datasetId)}/commit`, {
     headers: auth,
-    data: { name: ten.bo, sheets: [sheet] },
+    data: { name: tenBo, sheets: [sheet] },
   });
   expect(chot.status(), await chot.text()).toBe(200);
 
@@ -218,24 +264,156 @@ export async function dungBaoCaoMau(
     )
     .toBe('loaded');
 
-  const tao = await request.post(`${API}/v1/reports`, {
-    headers: auth,
-    data: { datasetId, name: ten.baoCao },
-  });
-  expect(tao.status(), await tao.text()).toBe(201);
-  const reportId = ((await tao.json()) as { id: number }).id;
+  return { workspaceId: workspaceId as number, datasetId };
+}
 
-  const cauHinh = await request.patch(`${API}/v1/reports/${String(reportId)}`, {
+export interface KhungMau {
+  workspaceId: number;
+  datasetId: number;
+  datamodelId: number;
+  reportId: number;
+  /** Mã hai ô, đúng thứ tự đã đặt: trái rồi phải. */
+  o: { trai: string; phai: string };
+  /** Tiêu đề hai ô — dùng để khoanh `aria-label` của `<section>` trong trình dựng. */
+  tieuDe: { trai: string; phai: string };
+}
+
+/** Toạ độ ban đầu của hai ô, để ca test biết nó đang kéo từ đâu. */
+export const O_BAN_DAU = {
+  trai: { x: 0, y: 0, w: 6, h: 7 },
+  phai: { x: 6, y: 0, w: 6, h: 7 },
+} as const;
+
+/**
+ * Dựng một báo cáo KHUNG NHIỀU Ô trên một mô hình dữ liệu — §10.10.
+ *
+ * ═══ Vì sao phải có mô hình, không dùng lại `dungBaoCaoMau` ════════════════
+ *
+ * Báo cáo dựng trên BỘ DỮ LIỆU là báo cáo chỉ xem (§7.6) — thanh trên của nó
+ * ghi hẳn "Dựng trên bộ dữ liệu — chỉ xem", và không có trình dựng. Trình dựng
+ * (`/reports/:id/edit`, `CanvasBoard`) chỉ mở cho báo cáo trên MÔ HÌNH, vì mỗi ô
+ * là một truy vấn Cube trên chiều và thước đo của mô hình.
+ *
+ * Nên bệ đỡ này dài hơn: bộ dữ liệu -> mô hình -> thước đo -> đọc bảng trường ->
+ * báo cáo khung. Năm lời gọi, và không bước nào mô phỏng được.
+ *
+ * ═══ Cube tự nhận schema ở môi trường dev ══════════════════════════════════
+ *
+ * `cubeQuery.integration.test.ts` phải tự sao file schema sang thư mục Cube đọc,
+ * vì lane test ghi vào `CUBE_SCHEMA_DIR` RIÊNG (`tmp/cube-schema-test`) để không
+ * đụng thư mục mà container đang bind-mount. Ở đây là server dev thật, nên
+ * `CUBE_SCHEMA_DIR` chính là `./cube` — container thấy file ngay, không cần sao.
+ */
+export async function dungKhungMau(
+  request: APIRequestContext,
+  token: string,
+  ten: { bo: string; baoCao: string },
+): Promise<KhungMau> {
+  const auth = { Authorization: `Bearer ${token}` };
+  const { workspaceId, datasetId } = await dungBoDuLieu(request, token, ten.bo);
+
+  const mh = await request.post(`${API}/v1/datamodels`, {
+    headers: auth,
+    data: { workspaceId, name: ten.bo, datasetIds: [datasetId] },
+  });
+  expect(mh.status(), await mh.text()).toBe(201);
+  const datamodelId = ((await mh.json()) as { id: number }).id;
+
+  const sc = await request.get(`${API}/v1/datamodels/${String(datamodelId)}/schema`, {
+    headers: auth,
+  });
+  expect(sc.status(), await sc.text()).toBe(200);
+  const bang = (
+    (await sc.json()) as {
+      datasets: { id: number; columns: { id: number; columnName: string }[] }[];
+    }
+  ).datasets[0];
+  const cot = bang?.columns.find((c) => c.columnName === 'Doanh thu');
+  expect(
+    cot,
+    `cột "Doanh thu" không thấy; có: ${(bang?.columns ?? []).map((c) => c.columnName).join(', ')}`,
+  ).toBeDefined();
+
+  const td = await request.post(`${API}/v1/datamodels/${String(datamodelId)}/measures`, {
     headers: auth,
     data: {
-      name: ten.baoCao,
-      chartType: 'bar',
-      config: { dimension: 'Khu vực', measure: 'Doanh thu', aggregate: 'sum', limit: 20 },
+      datamodelDatasetId: bang?.id,
+      name: 'Tổng doanh thu',
+      agg: 'sum',
+      columnId: cot?.id,
     },
   });
-  expect(cauHinh.status(), await cauHinh.text()).toBe(200);
+  expect(td.status(), await td.text()).toBe(201);
+  const measureId = ((await td.json()) as { id: number }).id;
 
-  return { workspaceId: workspaceId as number, datasetId, reportId };
+  /*
+   * Bảng trường là nguồn DUY NHẤT cho `dimensionId`.
+   *
+   * Không suy id của chiều từ id của cột: chúng là hai không gian số khác nhau,
+   * và `POST /reports/canvas` kiểm từng ô bằng chính bảng trường này — đoán sai
+   * thì nhận 400 nói về một ô, không nói về chỗ sai.
+   */
+  const fields = await request.get(`${API}/v1/datamodels/${String(datamodelId)}/fields`, {
+    headers: auth,
+  });
+  expect(fields.status(), await fields.text()).toBe(200);
+  const dims = (await fields.json()) as { dimensions: { id: number; label: string }[] };
+  const chieu = dims.dimensions.find((d) => d.label.includes('Khu v'));
+  expect(
+    chieu,
+    `chiều "Khu vực" không thấy; có: ${dims.dimensions.map((d) => d.label).join(', ')}`,
+  ).toBeDefined();
+
+  const config = { dimensionId: chieu?.id, measureId, limit: 20 };
+  const tieuDe = { trai: 'Ô bên trái', phai: 'Ô bên phải' };
+
+  const bc = await request.post(`${API}/v1/reports/canvas`, {
+    headers: auth,
+    data: {
+      datamodelId,
+      name: ten.baoCao,
+      canvas: {
+        pages: [
+          {
+            id: 'p1',
+            name: 'Trang 1',
+            visuals: [
+              { id: 'o-trai', chartType: 'bar', config, title: tieuDe.trai, ...O_BAN_DAU.trai },
+              { id: 'o-phai', chartType: 'bar', config, title: tieuDe.phai, ...O_BAN_DAU.phai },
+            ],
+          },
+        ],
+      },
+    },
+  });
+  expect(bc.status(), await bc.text()).toBe(201);
+  const reportId = ((await bc.json()) as { id: number }).id;
+
+  return {
+    workspaceId,
+    datasetId,
+    datamodelId,
+    reportId,
+    o: { trai: 'o-trai', phai: 'o-phai' },
+    tieuDe,
+  };
+}
+
+/** Đọc lại toạ độ các ô của trang đầu — nguồn sự thật để khẳng định sau khi lưu. */
+export async function docToaDoO(
+  request: APIRequestContext,
+  token: string,
+  reportId: number,
+): Promise<Map<string, { x: number; y: number; w: number; h: number }>> {
+  const res = await request.get(`${API}/v1/reports/${String(reportId)}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  expect(res.status(), await res.text()).toBe(200);
+  const r = (await res.json()) as {
+    canvas: { pages: { visuals: { id: string; x: number; y: number; w: number; h: number }[] }[] };
+  };
+  const visuals = r.canvas.pages[0]?.visuals ?? [];
+  return new Map(visuals.map((v) => [v.id, { x: v.x, y: v.y, w: v.w, h: v.h }]));
 }
 
 /**
@@ -272,6 +450,25 @@ export async function xoaBaoCaoVaBoTheoTen(
     const { items } = (await bc.json()) as { items: { id: number; name: string }[] };
     for (const r of items.filter((x) => x.name === ten.baoCao)) {
       await request.delete(`${API}/v1/reports/${String(r.id)}`, { headers: auth });
+    }
+  }
+
+  /*
+   * MÔ HÌNH trước BỘ DỮ LIỆU, cùng một luật với báo cáo trước mô hình.
+   *
+   * Ca khung (`dungKhungMau`) tạo thêm một mô hình mang CÙNG tên với bộ dữ liệu.
+   * Bỏ bước này thì lần xoá bộ dữ liệu bị từ chối vì còn mô hình tham chiếu, và
+   * lần chạy sau tải lên một bộ nữa — rò dữ liệu đúng kiểu `tai-tep.spec.ts`
+   * từng mắc, chỉ là ở một bảng khác.
+   */
+  const mh = await request.get(
+    `${API}/v1/datamodels?page=1&pageSize=100&q=${encodeURIComponent(ten.bo)}`,
+    { headers: auth },
+  );
+  if (mh.status() === 200) {
+    const { items } = (await mh.json()) as { items: { id: number; name: string }[] };
+    for (const m of items.filter((x) => x.name === ten.bo)) {
+      await request.delete(`${API}/v1/datamodels/${String(m.id)}`, { headers: auth });
     }
   }
 
