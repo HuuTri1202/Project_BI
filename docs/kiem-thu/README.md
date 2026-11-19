@@ -143,23 +143,31 @@ mục 2. `workers: 1` vì các ca dùng chung một database.
 MySQL, và chạy cùng lúc làm `resetDatabase()` của lane tích hợp hết giờ — ra đỏ
 giả không kèm một AssertionError nào.
 
-⚠️ **Hạn nhịp đăng nhập là một trần cứng của bộ e2e.** `LOGIN_MAX_ATTEMPTS = 10`
-trong `LOGIN_LOCKOUT_MINUTES = 15` phút, theo IP. `layToken` NHỚ LẠI token nên cả
-lượt chạy chỉ gọi 1 lời gọi API, cộng 7 lần đăng nhập qua giao diện (mỗi ca một
-lần, và đó là phần của hành trình) — tức 8 trên 10, chỉ còn chỗ cho HAI ca nữa. Bản
-đầu gọi lại mỗi lần và khi bộ lên 6 ca thì hai trong ba lượt đỏ với "đăng nhập để
-lấy token dọn dẹp", một câu không nói gì về nguyên nhân. Vượt 10 thì cách đúng là
-một `storageState` dựng một lần ở `globalSetup`, KHÔNG phải nới hạn nhịp.
+**Hạn nhịp đăng nhập KHÔNG còn là trần của bộ e2e** — và chính bộ này là thứ chỉ
+ra tại sao nó từng là. `LOGIN_MAX_ATTEMPTS = 10` trong `LOGIN_LOCKOUT_MINUTES = 15`
+phút, theo IP, nhưng từ bản vá A4 thì `/auth/login` chỉ đếm lần ĐOÁN SAI mật khẩu
+(xem `middleware/rateLimit.ts`, tham số `demMaLoi`), nên đăng nhập đúng không tiêu
+lượt nào.
 
-**Bộ này đã tìm ra ba lỗi thật của sản phẩm, không phải của chính nó:**
+Trước bản vá: `layToken` NHỚ LẠI token nên cả lượt chạy chỉ gọi 1 lời gọi API, cộng
+7 lần đăng nhập qua giao diện — tức 8 trên 10, chỉ còn chỗ cho HAI ca nữa. Bản đầu
+gọi lại mỗi lần và khi bộ lên 6 ca thì hai trong ba lượt đỏ với "đăng nhập để lấy
+token dọn dẹp", một câu không nói gì về nguyên nhân. Cái trần đó là một LỖI THẬT của
+sản phẩm đội lốt giới hạn của bộ test: người dùng thật cũng bị khoá y như vậy. Cache
+token ở `layToken` thì vẫn giữ — nó tiết kiệm ~300 ms bcrypt mỗi ca — nhưng không
+còn là thứ chống đỡ cái trần nữa.
+
+**Bộ này đã tìm ra bốn lỗi thật của sản phẩm, không phải của chính nó:**
 
 1. khung hỏi đáp xin `pageSize=200` trong khi máy chủ chặn ở 100 — cả ba truy vấn
    ngữ cảnh trả 400 và nó trả lời như thể tổ chức chưa có dữ liệu gì;
 2. `rename` của cube schema thất bại `EPERM` trên Windows khi container Cube đang
    theo dõi thư mục — 503 kèm một câu chỉ sai hẳn chỗ cần sửa (xem
    `cubeSchemaStore.doiTenCoThuLai`);
-3. và khi dựng ca `sua-bieu-do`, đo được rằng xoá `preventDefault()` trong
-   `Shelf.onDragOver` đi qua được cả 873 ca jsdom mà không ca nào kêu.
+3. khi dựng ca `sua-bieu-do`, đo được rằng xoá `preventDefault()` trong
+   `Shelf.onDragOver` đi qua được cả 873 ca jsdom mà không ca nào kêu;
+4. và cái trần 8-trên-10 ở trên: hạn nhịp đếm cả lần đăng nhập THÀNH CÔNG, nên
+   người dùng thật cũng bị khoá đúng như bộ test (A4, đã vá).
 
 **Trần thời gian là số ĐO, không phải số đoán.** Mỗi lượt chạy khởi động Vite
 LẠNH (`reuseExistingServer` không có gì dùng lại khi 5173 chưa listening), nên

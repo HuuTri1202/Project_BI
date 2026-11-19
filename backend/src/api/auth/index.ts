@@ -51,12 +51,24 @@ export const authRouter = Router();
  * Đếm theo IP và theo từng bucket riêng, nên người dùng bị chặn ở màn đăng ký
  * vẫn đăng nhập được bình thường.
  */
-const authRateLimit = (bucket: string) =>
+const authRateLimit = (bucket: string, demMaLoi?: readonly number[]) =>
   rateLimit({
     bucket,
+    demMaLoi,
     max: env.LOGIN_MAX_ATTEMPTS,
     windowSeconds: env.LOGIN_LOCKOUT_MINUTES * 60,
   });
+
+/**
+ * Hai đường đăng nhập chỉ đếm lần ĐOÁN SAI mật khẩu (401).
+ *
+ * Mọi mã khác KHÔNG tiêu lượt, và từng mã đều có lý do riêng: 200 nghĩa là
+ * người này biết mật khẩu, 403 (`EmailNotVerified`, `AccountDisabled`,
+ * `NoMembership`) cũng vậy — họ đã qua `verifyPassword` rồi, nên khoá họ chỉ
+ * khiến người dùng thật mắc kẹt mà không chặn được kẻ dò thêm một lượt nào. 400
+ * của zod thì không học được gì về mật khẩu.
+ */
+const DOAN_SAI_MAT_KHAU = [401] as const;
 
 /**
  * POST /api/auth/register — §1.4
@@ -134,7 +146,7 @@ const INVALID_CREDENTIALS = 'Email hoặc mật khẩu không đúng.';
 /** POST /api/auth/login — §2.3, §2.4 */
 authRouter.post(
   '/login',
-  authRateLimit('login'),
+  authRateLimit('login', DOAN_SAI_MAT_KHAU),
   asyncHandler(async (req, res) => {
     const { email, password } = loginSchema.parse(req.body);
 
@@ -275,7 +287,7 @@ async function moPhien(user: usersRepo.PublicUser): Promise<Record<string, unkno
  */
 authRouter.post(
   '/google',
-  authRateLimit('google'),
+  authRateLimit('google', DOAN_SAI_MAT_KHAU),
   asyncHandler(async (req, res) => {
     const { credential } = googleLoginSchema.parse(req.body);
     const danhTinh = await xacMinhGoogle(credential);
