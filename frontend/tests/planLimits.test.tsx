@@ -95,13 +95,15 @@ describe('huy hiệu gói trên sidebar', () => {
 });
 
 describe('nút Tạo báo cáo khi đã hết lượt', () => {
-  it('còn chỗ thì mở hai lối tạo như thường', async () => {
+  it('còn chỗ thì mở BA lối tạo như thường', async () => {
     vi.mocked(api.fetchTenantPlan).mockResolvedValue(goi({ used: 2, limit: 3 }));
     ve(<CreateReportMenu />);
     await vi.waitFor(() => expect(api.fetchTenantPlan).toHaveBeenCalled());
 
     fireEvent.click(screen.getByRole('button', { name: 'Tạo báo cáo' }));
-    expect(await screen.findAllByRole('menuitem')).toHaveLength(2);
+    // Ba, không phải hai: vá B2 thêm lối "từ bộ dữ liệu đã có trong kho" —
+    // trước đó người đã tải dữ liệu lên hôm trước không có mục nào dành cho họ.
+    expect(await screen.findAllByRole('menuitem')).toHaveLength(3);
     expect(screen.queryByText('Đã hết lượt tạo báo cáo')).toBeNull();
   });
 
@@ -149,6 +151,6 @@ describe('nút Tạo báo cáo khi đã hết lượt', () => {
     await vi.waitFor(() => expect(api.fetchTenantPlan).toHaveBeenCalled());
 
     fireEvent.click(screen.getByRole('button', { name: 'Tạo báo cáo' }));
-    expect(await screen.findAllByRole('menuitem')).toHaveLength(2);
+    expect(await screen.findAllByRole('menuitem')).toHaveLength(3);
   });
 });

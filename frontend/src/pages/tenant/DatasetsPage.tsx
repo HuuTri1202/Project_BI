@@ -51,6 +51,7 @@ import {
   useMoveDatasets,
   useRenameDatasetFolder,
 } from '../../features/tenant/hooks';
+import { useTaoBaoCaoNhanh } from '../../features/datasets/taoBaoCaoNhanh';
 import { useListQueryState } from '../../hooks/useListQueryState';
 import { getApiError } from '../../services/apiClient';
 
@@ -118,6 +119,8 @@ const SOURCE_OPTIONS = DATASET_SOURCES.map((value) => ({
 export default function DatasetsPage(): React.ReactElement {
   const permissions = usePermissions();
   const navigate = useNavigate();
+  /** Vá B2 — xem `useTaoBaoCaoNhanh`. */
+  const taoBaoCao = useTaoBaoCaoNhanh();
   const { query, update } = useListQueryState<DatasetListQuery>({ ...DEFAULTS }, ALLOWED);
 
   /*
@@ -394,6 +397,25 @@ export default function DatasetsPage(): React.ReactElement {
            */}
           <div className="flex min-h-0 min-w-0 flex-1 flex-col border-l border-slate-200 pl-4">
             {isError && <ErrorState message={getApiError(error).message} />}
+
+            {/* Lỗi của "Tạo báo cáo" hiện ở ĐẦU bảng, không phải trong menu
+                dòng: menu đã đóng lại ngay khi bấm, và một câu lỗi nằm trong
+                một hộp vừa biến mất thì không ai đọc được. */}
+            {taoBaoCao.loi !== null && (
+              <div
+                role="alert"
+                className="mb-3 flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 px-3.5 py-2.5 text-sm text-amber-900"
+              >
+                <span className="min-w-0 flex-1">{taoBaoCao.loi}</span>
+                <button
+                  type="button"
+                  onClick={taoBaoCao.xoaLoi}
+                  className="shrink-0 font-semibold underline underline-offset-2"
+                >
+                  Đóng
+                </button>
+              </div>
+            )}
             {isPending && <TableSkeleton />}
 
             {data && data.items.length === 0 && (
@@ -766,6 +788,22 @@ export default function DatasetsPage(): React.ReactElement {
                                   >
                                     Xem cột
                                   </RowMenuItem>
+                                  {/* Vá B2 — mục ĐẦU TIÊN có ích sau "Xem cột",
+                                      vì vẽ biểu đồ là lý do người ta tải dữ
+                                      liệu lên. Gác bằng `datamodel:modify`, đúng
+                                      quyền mà `POST /datamodels` đòi: nó dựng
+                                      một mô hình thật, không phải mô hình ẩn. */}
+                                  {permissions.can('datamodel', 'modify') && (
+                                    <RowMenuItem
+                                      icon={ROW_MENU_ICONS.chart}
+                                      onClick={() => {
+                                        close();
+                                        taoBaoCao.chay(dataset);
+                                      }}
+                                    >
+                                      Tạo báo cáo
+                                    </RowMenuItem>
+                                  )}
                                   {permissions.can('dataset', 'modify') && (
                                     <RowMenuItem
                                       icon={ROW_MENU_ICONS.edit}

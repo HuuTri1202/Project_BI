@@ -342,4 +342,5 @@ export const ROW_MENU_ICONS = {
   sheet: 'M4 6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6Zm0 4h16M10 10v10',
   export: 'M12 4v11m0 0-4-4m4 4 4-4M5 19h14',
   folder: 'M4 7a2 2 0 0 1 2-2h3l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7Z',
+  chart: 'M4 20V10m5 10V4m5 16v-7m5 7V8',
 } as const;

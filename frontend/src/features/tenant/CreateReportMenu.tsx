@@ -60,6 +60,18 @@ const UploadWizard = lazy(() =>
  * `UploadWizard` để biết vì sao việc này KHÔNG phải là mang cơ chế tự sinh mô
  * hình (migration 19/20) trở lại.
  *
+ * ═══ Mục thứ ba: bộ dữ liệu ĐÃ CÓ trong kho (vá B2) ════════════════════════
+ *
+ * Đo khi dùng hệ thống như người thật: người vừa tải dữ liệu lên hôm trước đứng
+ * trước menu này và không có mục nào dành cho họ. "Dùng file Excel/CSV" mở lại
+ * wizard tải lên — tức là bảo họ tải tệp đó lên lần nữa — còn "từ mô hình có
+ * sẵn" thì đòi một mô hình mà họ chưa từng tạo.
+ *
+ * Mục mới chỉ ĐIỀU HƯỚNG tới Kho dữ liệu, nơi menu dòng có "Tạo báo cáo" thật.
+ * Không dựng một bộ chọn bộ dữ liệu ở đây: hai chỗ chọn cho cùng một việc là
+ * hai bộ luật sẽ lệch nhau ngay lần thêm một lựa chọn — đúng lý lẽ đã xoá
+ * `PickDataModelModal` ở §10.10.
+ *
  * ═══ Không còn hộp thoại hỏi cấu hình ══════════════════════════════════════
  *
  * Tới §10.8, nút này mở một hộp thoại hỏi chiều, thước đo, loại biểu đồ và tên,
@@ -74,6 +86,12 @@ const ITEMS = [
     label: 'Tạo nhanh với file Excel/CSV',
     hint: 'Tải file lên rồi vào thẳng trình dựng — không phải cấu hình mô hình',
     icon: 'M13 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9l-6-6Zm0 0v6h6',
+  },
+  {
+    key: 'dataset' as const,
+    label: 'Từ bộ dữ liệu đã có trong kho',
+    hint: 'Mở Kho dữ liệu rồi bấm "Tạo báo cáo" trên dòng của bộ cần dùng',
+    icon: 'M4 20V10m5 10V4m5 16v-7m5 7V8',
   },
   {
     key: 'model' as const,
@@ -207,6 +225,14 @@ export function CreateReportMenu({
               onClick={() => {
                 setOpen(false);
                 if (item.key === 'file') moWizard();
+                // Vá B2 — KHÔNG mở hộp thoại chọn bộ dữ liệu ở đây. Trước bản
+                // này mục "dùng file" là đường duy nhất cho người đã có dữ liệu
+                // trong kho, và nó bảo họ tải tệp đó lên lần nữa. Mục mới đưa
+                // họ tới chỗ có hành động thật (menu dòng của Kho dữ liệu) thay
+                // vì dựng một bộ chọn thứ hai cho cùng một việc — hai chỗ chọn
+                // là hai bộ luật sẽ lệch nhau, đúng lý lẽ đã xoá
+                // `PickDataModelModal` ở §10.10.
+                else if (item.key === 'dataset') void navigate('/datasets');
                 else void navigate(`/reports/new${duoiThuMuc}`);
               }}
               className="flex w-full items-start gap-3 rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-slate-50"

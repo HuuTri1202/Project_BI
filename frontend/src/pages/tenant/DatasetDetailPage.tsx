@@ -26,6 +26,7 @@ import {
   useDeleteDataset,
   useWarehouseSchema,
 } from '../../features/tenant/hooks';
+import { useTaoBaoCaoNhanh } from '../../features/datasets/taoBaoCaoNhanh';
 import { getApiError } from '../../services/apiClient';
 
 const LIST_PATH = '/datasets';
@@ -71,6 +72,8 @@ export default function DatasetDetailPage(): React.ReactElement {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const permissions = usePermissions();
+  /** Vá B2 — xem `useTaoBaoCaoNhanh`. */
+  const taoBaoCao = useTaoBaoCaoNhanh();
 
   // `Number('abc')` ra NaN, và `useDataset(null)` thì query không chạy — nên id
   // gõ sai trong URL sẽ kẹt ở `isPending` mãi mãi và người dùng nhìn khung xám
@@ -191,6 +194,24 @@ export default function DatasetDetailPage(): React.ReactElement {
         actions={
           data && (
             <>
+              {/*
+               * Vá B2 — và đây là chỗ QUAN TRỌNG nhất của bản vá đó, vì nút "Xem
+               * bộ dữ liệu" ở cuối wizard dẫn thẳng tới trang này. Trước bản vá,
+               * người vừa tải tệp lên đứng đúng ở đây và không có đường nào vẽ
+               * biểu đồ: họ phải tự biết rằng cần sang Mô hình dữ liệu trước.
+               *
+               * `variant="primary"`: trong số các nút ở đầu trang này, đây là
+               * việc người dùng tới đây để làm. Đổi tên và Xoá thì không.
+               */}
+              {permissions.can('datamodel', 'modify') && (
+                <Button
+                  variant="primary"
+                  disabled={taoBaoCao.dangChay}
+                  onClick={() => taoBaoCao.chay(data)}
+                >
+                  {taoBaoCao.dangChay ? 'Đang mở trình dựng…' : 'Tạo báo cáo'}
+                </Button>
+              )}
               {permissions.can('dataset', 'modify') && (
                 <Button onClick={() => setRenaming(true)}>Đổi tên</Button>
               )}
@@ -225,6 +246,24 @@ export default function DatasetDetailPage(): React.ReactElement {
       </PageHeader>
 
       <PageBody scroll={false}>
+        {/* Bộ dữ liệu chưa nạp vào kho phân tích thì nói việc cần làm, kèm chỉ
+            đúng tab có cái nút đó — xem `useTaoBaoCaoNhanh`. */}
+        {taoBaoCao.loi !== null && (
+          <div
+            role="alert"
+            className="mb-4 flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 px-3.5 py-2.5 text-sm text-amber-900"
+          >
+            <span className="min-w-0 flex-1">{taoBaoCao.loi}</span>
+            <button
+              type="button"
+              onClick={taoBaoCao.xoaLoi}
+              className="shrink-0 font-semibold underline underline-offset-2"
+            >
+              Đóng
+            </button>
+          </div>
+        )}
+
         {validId === null && (
           <ErrorState message="Địa chỉ không hợp lệ — không có tập dữ liệu nào ứng với đường dẫn này." />
         )}
