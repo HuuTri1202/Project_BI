@@ -6,7 +6,7 @@ import { kiemHanMuc } from '../billing/limits';
 import { queueAutoLoad } from '../ingest/autoLoad';
 import { HttpError } from '../../utils/httpError';
 import { analyzeDataset } from './analyze';
-import { defaultFieldName, defaultFieldRole, inferColumnType } from './inferType';
+import { defaultFieldName, defaultFieldRole, doanQuyUocSo, inferColumnType } from './inferType';
 import { normalizeCell } from './normalizeCell';
 import type { ParsedSheet } from './parseFile';
 
@@ -197,6 +197,8 @@ function buildColumns(sheet: ParsedSheet): datasetsRepo.ColumnInput[] {
   return sheet.header.map((sourceName, columnIndex) => {
     const values = sheet.rows.slice(0, SAMPLE_ROWS).map((row) => row[columnIndex] ?? '');
     const semanticType = inferColumnType(values);
+    // Chỉ cột SỐ mới có quy ước phân cách để mà suy — xem `doanQuyUocSo`.
+    const numberFormat = semanticType === 'number' ? doanQuyUocSo(values) : null;
 
     let fieldName = defaultFieldName(sourceName, columnIndex);
     if (used.has(fieldName)) {
@@ -213,6 +215,7 @@ function buildColumns(sheet: ParsedSheet): datasetsRepo.ColumnInput[] {
       name: sourceName,
       ordinal: columnIndex,
       dataType: semanticType,
+      numberFormat,
       // Ô trống trong file là chuyện thường, nên mọi cột đều cho phép null.
       isNullable: true,
       fieldName,
@@ -248,6 +251,7 @@ function buildRows(
       doc[column.fieldName ?? column.name] = normalizeCell(
         row[column.ordinal] ?? '',
         column.semanticType ?? 'text',
+        column.numberFormat ?? null,
       );
     }
     return doc;

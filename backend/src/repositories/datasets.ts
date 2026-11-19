@@ -7,6 +7,7 @@ import type {
   DatasetStatus,
   FieldRole,
   FileExt,
+  NumberFormat,
   SemanticType,
 } from '@bi/shared';
 import type { ResultSetHeader, RowDataPacket } from 'mysql2';
@@ -369,7 +370,8 @@ export async function findOneAnyWorkspace(
 
 export async function listColumns(db: Db, datasetId: number): Promise<DatasetColumnDto[]> {
   const [rows] = await db.query<RowDataPacket[]>(
-    `SELECT name, data_type, is_nullable, ordinal, field_name, semantic_type, field_role, included
+    `SELECT name, data_type, is_nullable, ordinal, field_name, semantic_type, field_role,
+            included, number_format
        FROM dataset_columns WHERE dataset_id = ? ORDER BY ordinal ASC`,
     [datasetId],
   );
@@ -382,6 +384,7 @@ export async function listColumns(db: Db, datasetId: number): Promise<DatasetCol
     semanticType: (r['semantic_type'] as SemanticType | null) ?? null,
     fieldRole: (r['field_role'] as FieldRole | null) ?? null,
     included: Number(r['included']) === 1,
+    numberFormat: (r['number_format'] as NumberFormat | null) ?? null,
   }));
 }
 
@@ -521,6 +524,7 @@ export interface ColumnInput {
   semanticType?: SemanticType | null;
   fieldRole?: FieldRole | null;
   included?: boolean;
+  numberFormat?: NumberFormat | null;
 }
 
 export async function replaceColumns(
@@ -534,7 +538,7 @@ export async function replaceColumns(
   await db.query<ResultSetHeader>(
     `INSERT INTO dataset_columns
        (dataset_id, name, data_type, is_nullable, ordinal,
-        field_name, semantic_type, field_role, included)
+        field_name, semantic_type, field_role, included, number_format)
      VALUES ?`,
     [
       columns.map((c) => [
@@ -547,6 +551,7 @@ export async function replaceColumns(
         c.semanticType ?? null,
         c.fieldRole ?? null,
         c.included === false ? 0 : 1,
+        c.numberFormat ?? null,
       ]),
     ],
   );

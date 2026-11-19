@@ -10,6 +10,7 @@ import { closeMysql, mysqlPool } from '../src/config/mysql';
 import { closeRedis } from '../src/config/redis';
 import * as loadsRepo from '../src/repositories/datasetLoads';
 import * as datasetsRepo from '../src/repositories/datasets';
+import { doanQuyUocSo, inferColumnType } from '../src/services/dataset/inferType';
 import { deleteDataset } from '../src/services/connections/deleteDataset';
 import { queueAutoLoad } from '../src/services/ingest/autoLoad';
 import { memoryStorage } from '../src/storage/memoryStorage';
@@ -495,6 +496,120 @@ describe('dọn kho: xoá dataset KHÔNG đụng tới ClickHouse', () => {
     expect(rows[0]?.['deleted_at']).not.toBeNull();
     expect(rows[0]).toMatchObject({ load_status: 'loaded', ch_table: 'raw_t1_d1' });
     expect(Number(rows[0]?.['loaded_row_count'])).toBe(50_000);
+  });
+});
+
+describe('quy ước phân cách số đi trọn từ lúc CHỐT tới lúc NẠP', () => {
+  /**
+   * Lỗi đã đo trên hệ thống đang chạy: tải lên một tệp bán hàng kiểu Việt Nam
+   * có ô `750.000`, vào ClickHouse thành `750` — sai 1000 lần, im lặng. Bảng
+   * xem trước vẫn hiện nguyên văn `750.000` nên không có cách nào thấy.
+   *
+   * ⚠️ Ca này kiểm PHẦN NỐI, không kiểm phép tính: `doanQuyUocSo` và
+   * `parseNumber` đã có đủ ca đơn vị ở `inferType.test.ts`. Thứ chỉ chỗ này mới
+   * thấy là quy ước có ĐI TRỌN đường hay không — §7 suy ra một lần lúc chốt,
+   * lưu vào `dataset_columns.number_format`, và §9 phải đọc lại đúng cột đó khi
+   * nạp. Đứt ở bất kỳ mắt nào (quên cột trong câu SELECT, quên truyền xuống
+   * `readFileRows`) thì bảng xem trước và kho phân tích nói hai điều khác nhau
+   * về cùng một ô — đúng lớp lỗi mà `normalizeCell` sinh ra để chặn.
+   */
+  it('cột tiền kiểu Việt Nam: chốt ra `vn`, và nạp ra đúng số', async () => {
+    const csv = [
+      'Mã ĐH,Doanh thu',
+      'DH001,1.250.000',
+      // Ô MƠ HỒ — một mình nó thì `parseNumber` đọc là 750, và đó vẫn là lựa
+      // chọn đúng cho một ô đơn độc. Ô bên trên mới là thứ phân xử.
+      'DH002,750.000',
+      'DH003,15.000',
+    ].join('\n');
+
+    const key = 'test/tien-kieu-viet.csv';
+    memoryStorage.putForTest(key, Buffer.from(csv, 'utf8'));
+
+    // §7: chốt cột đúng như `buildColumns` làm, rồi LƯU xuống database.
+    const giaTri = ['1.250.000', '750.000', '15.000'];
+    expect(inferColumnType(giaTri)).toBe('number');
+    await datasetsRepo.replaceColumns(mysqlPool, f.datasetA, [
+      { name: 'Mã ĐH', dataType: 'text', isNullable: true, ordinal: 0, semanticType: 'text' },
+      {
+        name: 'Doanh thu',
+        dataType: 'number',
+        isNullable: true,
+        ordinal: 1,
+        semanticType: 'number',
+        numberFormat: doanQuyUocSo(giaTri),
+      },
+    ]);
+
+    // Đọc NGƯỢC từ database, không dùng lại biến trong bộ nhớ: mắt xích hay
+    // đứt nhất là câu SELECT quên cột mới.
+    const daLuu = await datasetsRepo.listColumns(mysqlPool, f.datasetA);
+    expect(daLuu[1]?.numberFormat, 'quy ước phải được LƯU, không chỉ tính rồi quên').toBe('vn');
+
+    // §9: nạp bằng đúng bản ghi cột vừa đọc lên.
+    const batches: unknown[][][] = [];
+    for await (const batch of readFileRows(key, 'csv', {
+      sheetName: null,
+      columns: daLuu.map((c) => ({
+        ordinal: c.ordinal,
+        semanticType: c.semanticType ?? 'text',
+        numberFormat: c.numberFormat,
+      })),
+      batchSize: 100,
+      maxRows: 100,
+    })) {
+      batches.push(batch);
+    }
+
+    const cot = batches[0]?.map((r) => r[1]);
+    // `750` và `15` là giá trị SAI mà lỗi cũ tạo ra — nêu đích danh để khi ca
+    // này đỏ, người đọc thấy ngay đây là hồi quy nào.
+    expect(cot).not.toContain(750);
+    expect(cot).toEqual([1250000, 750000, 15000]);
+  });
+
+  /**
+   * Chiều ngược lại, và nó quan trọng ngang chiều trên: kết quả đã đo trên
+   * `Global-Superstore` phải GIỮ NGUYÊN. Cột `Discount` có `0.402` — phần
+   * nguyên bằng 0 nên không có cách đọc "nghìn" nào — và nó phân xử cho cả cột
+   * theo hướng thập phân.
+   */
+  it('cột tỉ lệ kiểu Anh Mỹ: không bị bẻ thành hàng nghìn', async () => {
+    const csv = ['Mã,Discount', 'A,-288.765', 'B,0.402'].join('\n');
+    const key = 'test/ti-le-kieu-anh.csv';
+    memoryStorage.putForTest(key, Buffer.from(csv, 'utf8'));
+
+    const giaTri = ['-288.765', '0.402'];
+    await datasetsRepo.replaceColumns(mysqlPool, f.datasetA, [
+      { name: 'Mã', dataType: 'text', isNullable: true, ordinal: 0, semanticType: 'text' },
+      {
+        name: 'Discount',
+        dataType: 'number',
+        isNullable: true,
+        ordinal: 1,
+        semanticType: 'number',
+        numberFormat: doanQuyUocSo(giaTri),
+      },
+    ]);
+
+    const daLuu = await datasetsRepo.listColumns(mysqlPool, f.datasetA);
+    expect(daLuu[1]?.numberFormat).toBe('en');
+
+    const batches: unknown[][][] = [];
+    for await (const batch of readFileRows(key, 'csv', {
+      sheetName: null,
+      columns: daLuu.map((c) => ({
+        ordinal: c.ordinal,
+        semanticType: c.semanticType ?? 'text',
+        numberFormat: c.numberFormat,
+      })),
+      batchSize: 100,
+      maxRows: 100,
+    })) {
+      batches.push(batch);
+    }
+
+    expect(batches[0]?.map((r) => r[1])).toEqual([-288.765, 0.402]);
   });
 });
 

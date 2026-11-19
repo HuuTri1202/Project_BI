@@ -282,6 +282,10 @@ async function openSource(
         columns: columns.map((c) => ({
           ordinal: c.sourceOrdinal,
           semanticType: c.semanticType ?? 'text',
+          // Quy ước phân cách lấy từ bản ghi cột, KHÔNG suy lại ở đây: §7 quyết
+          // định một lần trên mẫu của nó, và mọi nơi đọc file phải dùng đúng
+          // kết luận đó — xem docblock của `normalizeCell`.
+          numberFormat: c.numberFormat,
         })),
         batchSize: BATCH_ROWS,
         maxRows,

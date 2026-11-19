@@ -205,6 +205,13 @@ export type SemanticType = (typeof SEMANTIC_TYPES)[number];
 export const FIELD_ROLES = ['dimension', 'measure'] as const;
 export type FieldRole = (typeof FIELD_ROLES)[number];
 
+/**
+ * Dấu phân cách của một cột số: `vn` là `1.234.567,89`, `en` là `1,234,567.89`.
+ *
+ * Suy từ cả cột chứ không từ một ô — xem `inferType.doanQuyUocSo`.
+ */
+export type NumberFormat = 'vn' | 'en';
+
 export interface DatasetColumnDto {
   name: string;
   /**
@@ -224,6 +231,15 @@ export interface DatasetColumnDto {
   fieldRole: FieldRole | null;
   /** Người dùng có chọn nhập cột này không. */
   included: boolean;
+  /**
+   * Quy ước phân cách số của CỘT — `null` khi cột không đủ bằng chứng.
+   *
+   * Quyết định ở §7 lúc chốt sheet và LƯU LẠI, chứ không suy lại ở §9: hai
+   * đường cùng đọc một file (`commit` ghi mẫu xem trước, `readFileRows` nạp vào
+   * ClickHouse) và chúng lấy mẫu khác nhau, nên suy lại ở mỗi nơi là mở đường
+   * cho bảng xem trước và kho phân tích nói hai điều khác nhau về cùng một ô.
+   */
+  numberFormat: NumberFormat | null;
 }
 
 /**

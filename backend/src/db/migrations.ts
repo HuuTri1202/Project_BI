@@ -3321,4 +3321,29 @@ export const migrations: readonly Migration[] = [
         WHERE email_verified_at IS NULL`,
     ],
   },
+  /**
+   * Quy ước phân cách số, lưu THEO CỘT — §7.
+   *
+   * Lỗi nó sửa đã đo trên hệ thống đang chạy: một tệp bán hàng có ô `750.000`
+   * vào ClickHouse thành `750`, và biểu đồ doanh thu hiện một cột 750 cạnh một
+   * cột 15.980.000. `parseNumber` xét từng ô nên `750.000` đứng một mình là ca
+   * 50/50 thật; nhìn cả cột thì ô `1.250.000` bên cạnh đã phân xử xong.
+   *
+   * Vì sao LƯU chứ không suy lại mỗi lần đọc: hai đường cùng đọc một file —
+   * `commit` ghi mẫu xem trước, `readFileRows` nạp vào ClickHouse — và chúng
+   * lấy mẫu khác nhau (200 dòng đầu so với cả file). Suy lại ở mỗi nơi là mở
+   * đường cho bảng xem trước và kho phân tích nói hai điều khác nhau về cùng
+   * một ô, đúng lớp lỗi mà `normalizeCell` đã sinh ra để chặn.
+   *
+   * NULL cho mọi cột cũ, và `parseNumber(raw, null)` chạy ĐÚNG như trước khi có
+   * migration này — nên bộ dữ liệu đã nạp không đổi giá trị, kể cả khi nạp lại.
+   */
+  {
+    id: 43,
+    name: 'dataset_columns_number_format',
+    statements: [
+      `ALTER TABLE dataset_columns
+         ADD COLUMN number_format ENUM('vn','en') NULL AFTER included`,
+    ],
+  },
 ];

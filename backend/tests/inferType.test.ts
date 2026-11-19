@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  doanQuyUocSo,
   defaultFieldName,
   defaultFieldRole,
   inferColumnType,
@@ -181,5 +182,81 @@ describe('vai trò và tên field mặc định', () => {
     // Để trống thì bước 2 hiện một hàng ô nhập không nhãn.
     expect(defaultFieldName('', 0)).toBe('Cột 1');
     expect(defaultFieldName('   ', 4)).toBe('Cột 5');
+  });
+});
+
+/**
+ * Quy ước phân cách suy theo CỘT — lỗi đo được trên dữ liệu người dùng Việt.
+ *
+ * `750.000` đứng một mình là ca 50/50 thật, và `parseNumber` một ô cố ý chọn
+ * phía không nhân lên 1000 lần (xem ca `1.234` trơ trọi ở trên). Nhưng khi NHÌN
+ * CẢ CỘT thì phần lớn trường hợp hết mơ hồ: một cột tiền xuất từ Excel máy Việt
+ * có cả `1.250.000` — chuỗi không đọc thành thập phân được — và chính nó phân
+ * xử cho mọi ô còn lại.
+ *
+ * Triệu chứng đã đo trên hệ thống đang chạy: tải lên một tệp bán hàng có ô
+ * `750.000`, vào ClickHouse thành `750`. Biểu đồ "doanh thu theo khu vực" hiện
+ * một cột 750 bên cạnh một cột 15.980.000 — sai 1000 lần, im lặng.
+ */
+describe('doanQuyUocSo — quy ước phân cách của cả một cột', () => {
+  it('một ô KHÔNG mơ hồ phân xử cho cả cột', () => {
+    // `1.250.000` hai nhóm -> chắc chắn kiểu Việt -> `750.000` cũng vậy.
+    expect(doanQuyUocSo(['1.250.000', '750.000', '15.000'])).toBe('vn');
+  });
+
+  it('dấu phẩy nhóm nghìn là bằng chứng kiểu Anh Mỹ', () => {
+    expect(doanQuyUocSo(['1,250,000', '980000'])).toBe('en');
+  });
+
+  it('phần nguyên bắt đầu bằng 0 là bằng chứng THẬP PHÂN, không phải nghìn', () => {
+    // Không ai viết `0.402` để nói "402". Đây là cột tỉ lệ của Global-Superstore.
+    expect(doanQuyUocSo(['-288.765', '763.155', '0.402'])).toBe('en');
+  });
+
+  it('phần lẻ khác ba chữ số cũng là bằng chứng thập phân', () => {
+    expect(doanQuyUocSo(['1.5', '2.75'])).toBe('en');
+  });
+
+  it('cột toàn ô mơ hồ thì KHÔNG kết luận — giữ nguyên cách đọc an toàn', () => {
+    expect(doanQuyUocSo(['750.000', '123.456'])).toBeNull();
+  });
+
+  it('cột MÂU THUẪN thì cũng không kết luận', () => {
+    // Vừa có `1.250.000` (nghìn) vừa có `0.5` (thập phân): dữ liệu tự nó đã
+    // trái nhau, và đoán bừa ở đây là nhân sai 1000 lần cho một nửa số ô.
+    expect(doanQuyUocSo(['1.250.000', '0.5'])).toBeNull();
+  });
+
+  it('ô trống và ô không phải số không tính là bằng chứng', () => {
+    expect(doanQuyUocSo(['', '-', 'n/a', '750.000'])).toBeNull();
+  });
+});
+
+describe('parseNumber theo quy ước của cột', () => {
+  it('biết cột là kiểu Việt thì `750.000` là bảy trăm năm mươi nghìn', () => {
+    expect(parseNumber('750.000', 'vn')).toBe(750000);
+    expect(parseNumber('15.000', 'vn')).toBe(15000);
+    expect(parseNumber('1.500', 'vn')).toBe(1500);
+  });
+
+  it('KHÔNG biết quy ước thì giữ nguyên cách đọc cũ, từng ô một', () => {
+    expect(parseNumber('750.000')).toBe(750);
+    expect(parseNumber('750.000', null)).toBe(750);
+  });
+
+  it('quy ước kiểu Anh Mỹ không đổi gì so với trước', () => {
+    expect(parseNumber('-288.765', 'en')).toBe(-288.765);
+    expect(parseNumber('0.402', 'en')).toBe(0.402);
+    expect(parseNumber('1,250,000', 'en')).toBe(1250000);
+  });
+
+  it('ô KHÔNG mơ hồ thì quy ước của cột không được phép bẻ lại', () => {
+    // `0.402` giữ nguyên là 0,402 kể cả khi cột bị kết luận nhầm là 'vn':
+    // phần nguyên bằng 0 thì không có cách đọc "nghìn" nào.
+    expect(parseNumber('0.402', 'vn')).toBe(0.402);
+    // Hai nhóm vẫn là nghìn dù cột được bảo là 'en'.
+    expect(parseNumber('1.234.567', 'en')).toBe(1234567);
+    // Phần lẻ khác ba chữ số vẫn là thập phân.
+    expect(parseNumber('1.5', 'vn')).toBe(1.5);
   });
 });

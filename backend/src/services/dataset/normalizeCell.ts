@@ -1,4 +1,4 @@
-import type { SemanticType } from '@bi/shared';
+import type { NumberFormat, SemanticType } from '@bi/shared';
 
 import { parseNumber } from './inferType';
 
@@ -20,7 +20,15 @@ import { parseNumber } from './inferType';
  * kiểu Việt Nam sẽ thành `NULL` kèm một dòng "Không đọc được thành số" — hồi quy
  * im lặng đúng ở dữ liệu của người dùng Việt.
  */
-export function normalizeCell(raw: string, semanticType: SemanticType): unknown {
+export function normalizeCell(
+  raw: string,
+  semanticType: SemanticType,
+  /**
+   * Quy ước phân cách của CỘT, do §7 suy ra và lưu lại. `null` = không đủ bằng
+   * chứng, và khi đó `parseNumber` đọc từng ô đúng như trước khi có tham số này.
+   */
+  numberFormat: NumberFormat | null = null,
+): unknown {
   const trimmed = raw.trim();
   // Ô trống lưu thành `null` chứ không phải chuỗi rỗng: `null` phân biệt được với
   // "giá trị là chuỗi rỗng", và cả `aggregate` lẫn ClickHouse đều bỏ qua nó đúng
@@ -29,7 +37,7 @@ export function normalizeCell(raw: string, semanticType: SemanticType): unknown 
 
   switch (semanticType) {
     case 'number':
-      return parseNumber(trimmed);
+      return parseNumber(trimmed, numberFormat);
     case 'boolean':
       return ['true', 'yes', 'có', 'x'].includes(trimmed.toLowerCase());
     case 'date':

@@ -1,4 +1,4 @@
-import type { DatasetColumnDto, DatasetSource, SemanticType } from '@bi/shared';
+import type { DatasetColumnDto, DatasetSource, NumberFormat, SemanticType } from '@bi/shared';
 import { chTypeFromMysql, chTypeFromSemantic, quoteIdent } from './typeMap';
 
 /**
@@ -85,6 +85,8 @@ export interface IngestColumn {
   sourceOrdinal: number;
   /** Kiểu suy ra ở §7. `null` với nguồn `connection`. */
   semanticType: SemanticType | null;
+  /** Quy ước phân cách số của cột, do §7 suy ra và LƯU — xem `doanQuyUocSo`. */
+  numberFormat: NumberFormat | null;
   /** Cần parse lại chuỗi thành mốc thời gian trước khi gửi đi. */
   isDateTime: boolean;
   isNumber: boolean;
@@ -109,6 +111,7 @@ export function buildIngestColumns(
         chType,
         sourceOrdinal: c.ordinal,
         semanticType: c.semanticType,
+        numberFormat: c.numberFormat,
         isDateTime: chType.includes('DateTime64'),
         isNumber: /Float|Int|Decimal/.test(chType),
         isBoolean: source === 'file' && c.semanticType === 'boolean',
