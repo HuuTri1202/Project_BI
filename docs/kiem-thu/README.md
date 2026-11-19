@@ -121,6 +121,12 @@ API nên không thấy; test backend không mở màn hình nên cũng không th
 | `tai-tep.spec.ts` | Uppy có PUT thật lên MinIO bằng vé đã ký không (test backend mô phỏng bước này bằng `putForTest`, tức là kiểm chính đoạn mã giả) |
 | `bieu-do.spec.ts` | Vega có VẼ không — đếm đúng 3 cột và đòi nhãn trục là dữ liệu thật (`chartSpec.test.ts` chỉ kiểm *đặc tả*, một object JavaScript) |
 | `thanh-toan.spec.ts` | Mã QR có vẽ ra ma trận thật không; đồng hồ `setInterval` có chạy không; và **server đổi trạng thái đơn thì màn hình có tự bắt không** — hai tiến trình, một đổi dữ liệu một đang xem, thứ không ca jsdom nào dựng được |
+| `xuat-tep.spec.ts` | Bấm Xuất thì một TỆP THẬT có rơi xuống đĩa không. `modern-screenshot` cần layout engine và canvas vẽ được; `taiXuong()` tạo `<a download>` rồi click — trong jsdom cả hai là lời gọi không làm gì. Kiểm PNG bằng cách **đếm điểm ảnh mang màu cột**, và kiểm Excel bằng cách **đọc ngược tệp bằng `exceljs`** rồi so từng con số |
+
+Bệ đỡ của hai ca báo cáo (`dungBaoCaoMau`, `xoaBaoCaoVaBoTheoTen`) nằm ở
+`e2e/helpers.ts`, dùng chung — mỗi ca truyền TÊN RIÊNG, vì hai ca chạy nối nhau
+trên cùng database dev và dùng chung một tên thì phần dọn của ca này xoá dữ liệu
+đang dùng của ca kia.
 
 Ca thanh toán HUỶ đơn chứ không trả tiền: một đơn `paid` bật subscription thật và
 ghi vào sổ cái tiền, mà sổ cái là append-only có chủ đích nên không lùi được. Huỷ

@@ -1,9 +1,14 @@
-import { readFileSync } from 'node:fs';
-import path from 'node:path';
+import { expect, test } from '@playwright/test';
 
-import { expect, test, type APIRequestContext } from '@playwright/test';
-
-import { dangNhap, khongLoiNao, layToken, theoDoiLoi } from './helpers';
+import {
+  CANVAS_DATA_409_CHU_DICH,
+  dangNhap,
+  dungBaoCaoMau,
+  khongLoiNao,
+  layToken,
+  theoDoiLoi,
+  xoaBaoCaoVaBoTheoTen,
+} from './helpers';
 
 /**
  * Hành trình xương sống #3: báo cáo đã lưu MỞ RA LÀ VẼ ĐƯỢC.
@@ -28,62 +33,15 @@ import { dangNhap, khongLoiNao, layToken, theoDoiLoi } from './helpers';
  * không mô phỏng chỗ nào.
  */
 
-const TEP = path.resolve(__dirname, '../docs/kiem-thu/du-lieu-thu/kiem-thu-ban-hang.csv');
-const TEN_BO = 'e2e-bieu-do';
-const TEN_BAO_CAO = 'e2e Doanh thu theo Khu vực';
+/** Tên RIÊNG của ca này: hai ca e2e chạy nối nhau trên cùng database dev. */
+const TEN = { bo: 'e2e-bieu-do', baoCao: 'e2e Doanh thu theo Khu vực' };
 
 /** `kiem-thu-ban-hang.csv` có 3 khu vực: Miền Bắc, Miền Trung, Miền Nam. */
 const SO_KHU_VUC = 3;
 
-const API = 'http://127.0.0.1:4000/api';
-
-async function xoaTheoTen(request: APIRequestContext, token: string): Promise<void> {
-  const auth = { Authorization: `Bearer ${token}` };
-
-  /*
-   * ⚠️ `/v1/reports` ĐÒI `workspaceId`, và thiếu nó thì phần dọn chết âm thầm.
-   *
-   * Bản đầu gọi `?page=1&pageSize=100` rồi `if (status !== 200) return`. Lời gọi
-   * đó trả 400 `{"workspaceId":"Expected number, received nan"}`, nên nhánh
-   * `return` chạy và KHÔNG xoá gì. Ba lần chạy đỏ để lại ba báo cáo, và lần thứ
-   * tư đụng hạn mức gói Miễn phí (tối đa 3 báo cáo) — ca đỏ vì một lý do hoàn
-   * toàn khác với thứ nó đang kiểm.
-   *
-   * Hai danh sách có hợp đồng KHÁC nhau: báo cáo lọc theo workspace, bộ dữ liệu
-   * thì không. Nên duyệt mọi workspace cho báo cáo, và gọi một lần cho bộ dữ
-   * liệu.
-   */
-  const ws = await request.get(`${API}/v1/workspaces`, { headers: auth });
-  if (ws.status() !== 200) return;
-
-  // Báo cáo TRƯỚC bộ dữ liệu: xoá bộ dữ liệu còn báo cáo dùng nó thì bị từ chối.
-  for (const w of (await ws.json()) as { id: number }[]) {
-    const bc = await request.get(
-      `${API}/v1/reports?page=1&pageSize=100&workspaceId=${String(w.id)}`,
-      { headers: auth },
-    );
-    if (bc.status() !== 200) continue;
-    const { items } = (await bc.json()) as { items: { id: number; name: string }[] };
-    for (const r of items.filter((x) => x.name === TEN_BAO_CAO)) {
-      await request.delete(`${API}/v1/reports/${String(r.id)}`, { headers: auth });
-    }
-  }
-
-  const ds = await request.get(
-    `${API}/v1/datasets?page=1&pageSize=100&q=${encodeURIComponent(TEN_BO)}`,
-    { headers: auth },
-  );
-  if (ds.status() === 200) {
-    const { items } = (await ds.json()) as { items: { id: number; name: string }[] };
-    for (const d of items.filter((x) => x.name === TEN_BO)) {
-      await request.delete(`${API}/v1/datasets/${String(d.id)}`, { headers: auth });
-    }
-  }
-}
-
 /** Dọn theo TÊN, nên nó chạy đúng cả khi ca đỏ ở giữa đường. */
 test.afterEach(async ({ request }) => {
-  await xoaTheoTen(request, await layToken(request));
+  await xoaBaoCaoVaBoTheoTen(request, await layToken(request), TEN);
 });
 
 test('báo cáo đã lưu mở ra là Vega vẽ thật, đúng số nhóm', async ({ page, request }) => {
@@ -91,82 +49,8 @@ test('báo cáo đã lưu mở ra là Vega vẽ thật, đúng số nhóm', asyn
   test.setTimeout(90_000);
 
   const token = await layToken(request);
-  const auth = { Authorization: `Bearer ${token}` };
-  await xoaTheoTen(request, token);
-
-  // ─── Bệ đỡ: tệp thật -> MinIO thật -> ClickHouse thật ─────────────────────
-
-  const ws = await request.get(`${API}/v1/workspaces`, { headers: auth });
-  expect(ws.status()).toBe(200);
-  // Endpoint này trả MẢNG THUẦN, không bọc `{items}` như các danh sách phân
-  // trang khác — đã kiểm bằng một lời gọi thật, không suy từ tên.
-  const workspaceId = ((await ws.json()) as { id: number }[])[0]?.id;
-  expect(workspaceId, 'tổ chức phải có ít nhất một workspace').toBeDefined();
-
-  const xin = await request.post(`${API}/v1/datasets/uploads`, {
-    headers: auth,
-    data: { workspaceId, filename: 'e2e-bieu-do.csv' },
-  });
-  expect(xin.status(), await xin.text()).toBe(201);
-  const { datasetId, uploadUrl } = (await xin.json()) as {
-    datasetId: number;
-    uploadUrl: string;
-  };
-
-  // PUT THẬT vào vé đã ký — không `putForTest`, không mock.
-  const put = await request.put(uploadUrl, {
-    data: readFileSync(TEP),
-    headers: { 'content-type': 'text/csv' },
-  });
-  expect(put.status(), 'PUT lên MinIO').toBeLessThan(300);
-
-  const phanTich = await request.post(`${API}/v1/datasets/${String(datasetId)}/analyze`, {
-    headers: auth,
-  });
-  expect(phanTich.status(), await phanTich.text()).toBe(200);
-  const sheet = ((await phanTich.json()) as { sheets: { name: string }[] }).sheets[0]?.name;
-
-  const chot = await request.post(`${API}/v1/datasets/${String(datasetId)}/commit`, {
-    headers: auth,
-    data: { name: TEN_BO, sheets: [sheet] },
-  });
-  expect(chot.status(), await chot.text()).toBe(200);
-
-  /*
-   * Chờ nạp xong bằng cách HỎI trạng thái, không bằng `waitForTimeout`.
-   *
-   * Nạp chạy nền (§9 ingest runner), nên không có mốc nào khác để chờ. Nếu một
-   * ngày nó thôi chạy, `expect.poll` hết giờ và nói rõ trạng thái cuối nó thấy
-   * — còn một lần sleep thì chỉ làm ca đỏ ở bước sau, xa nguyên nhân.
-   */
-  await expect
-    .poll(
-      async () => {
-        const r = await request.get(`${API}/v1/datasets/${String(datasetId)}`, { headers: auth });
-        return r.status() === 200 ? ((await r.json()) as { loadStatus: string }).loadStatus : 'lỗi';
-      },
-      { timeout: 45_000, intervals: [500, 1000, 2000] },
-    )
-    .toBe('loaded');
-
-  // ─── Báo cáo: tạo rồi cấu hình, đúng hai lời gọi người dùng vẫn gọi ───────
-
-  const tao = await request.post(`${API}/v1/reports`, {
-    headers: auth,
-    data: { datasetId, name: TEN_BAO_CAO },
-  });
-  expect(tao.status(), await tao.text()).toBe(201);
-  const reportId = ((await tao.json()) as { id: number }).id;
-
-  const cauHinh = await request.patch(`${API}/v1/reports/${String(reportId)}`, {
-    headers: auth,
-    data: {
-      name: TEN_BAO_CAO,
-      chartType: 'bar',
-      config: { dimension: 'Khu vực', measure: 'Doanh thu', aggregate: 'sum', limit: 20 },
-    },
-  });
-  expect(cauHinh.status(), await cauHinh.text()).toBe(200);
+  await xoaBaoCaoVaBoTheoTen(request, token, TEN);
+  const { reportId } = await dungBaoCaoMau(request, token, TEN);
 
   // ─── Và giờ mới là phần của trình duyệt ───────────────────────────────────
 
@@ -180,7 +64,7 @@ test('báo cáo đã lưu mở ra là Vega vẽ thật, đúng số nhóm', asyn
   // 20 giây, không phải 5 giây mặc định — xem khối "ba khẳng định này đều chờ
   // hình" ở dưới.
   await expect(page.getByRole('banner'), 'thanh trên phải mang tên báo cáo').toContainText(
-    TEN_BAO_CAO,
+    TEN.baoCao,
     { timeout: 20_000 },
   );
 
@@ -230,20 +114,6 @@ test('báo cáo đã lưu mở ra là Vega vẽ thật, đúng số nhóm', asyn
     timeout: 20_000,
   });
 
-  /*
-   * `canvas-data` ăn 409 ở đây là CHỦ ĐÍCH của sản phẩm, không phải lỗi.
-   *
-   * `ReportViewPage` cố ý bắn `useReportCanvasData(id, null)` NGAY khi vào
-   * trang, trước khi biết báo cáo thuộc nhánh nào, để hai request không xếp
-   * hàng sau nhau. Ghi chú ở đó đo được: `GET /reports/:id` xong ở 360ms,
-   * `canvas-data` xong ở 1109ms nhưng chỉ bắt đầu lúc 360ms — nổ cùng lúc thì
-   * phần chờ chỉ còn cái dài hơn. Báo cáo MỘT biểu đồ (§7.6) như ca này không
-   * có khung, nên lời gọi đó bị từ chối; 4xx không được thử lại và không ai đọc
-   * kết quả.
-   *
-   * Ca này tìm ra nó rồi tui đi đọc mã: nó đã được ghi chú hẳn một đoạn. Nên
-   * chỗ đúng để sửa là KHẲNG ĐỊNH, không phải sản phẩm. Mẫu hẹp đúng một
-   * endpoint — không mở rộng thành "bỏ qua mọi 409".
-   */
-  khongLoiNao(theoDoi, [/409 GET \S+\/reports\/\d+\/canvas-data/]);
+  // Lý do của mẫu này nằm ở docblock của chính nó trong `helpers.ts`.
+  khongLoiNao(theoDoi, [CANVAS_DATA_409_CHU_DICH]);
 });
