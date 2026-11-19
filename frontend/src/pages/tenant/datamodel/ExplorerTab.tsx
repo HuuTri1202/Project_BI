@@ -666,8 +666,8 @@ export default function ExplorerTab(): React.ReactElement {
         onRetry={() => void status.refetch()}
         retrying={status.isFetching}
       >
-        Hai tab <strong>Schemas</strong> và <strong>Relationship</strong> vẫn dùng được bình thường
-        — chúng không cần Cube.
+        Hai tab <strong>Cấu trúc</strong> và <strong>Quan hệ</strong> vẫn dùng được bình thường —
+        chúng không cần Cube.
       </CubeOfflineNotice>
     );
   }
@@ -770,7 +770,7 @@ export default function ExplorerTab(): React.ReactElement {
             </div>
             <p className="mt-2 text-xs text-slate-500">
               Chỉ áp cho truy vấn này. Muốn đổi cho cả mô hình thì sửa ở tab{' '}
-              <strong>Schemas</strong>.
+              <strong>Cấu trúc</strong>.
             </p>
           </div>
         )}

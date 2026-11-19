@@ -29,7 +29,7 @@ import { useCreateFormulaMeasure, useCreateRowExprMeasure, useDeleteMeasure } fr
  * ─── Vì sao là hộp thoại, không phải một tab hay một khối trên trang ────────
  *
  * Tab Measures đã bị bỏ vì nó là cả một tab dành cho một thứ ít khi đụng tới.
- * Đặt danh sách này thành một khối dưới bảng Schemas cũng không được: bảng đó
+ * Đặt danh sách này thành một khối dưới bảng Cấu trúc cũng không được: bảng đó
  * đang chiếm hết chiều cao còn lại, và thêm một khối bên dưới sẽ lặp lại đúng
  * cuộc tranh chiều cao mà tab Quan hệ vừa phải sửa.
  *

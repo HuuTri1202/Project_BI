@@ -101,7 +101,7 @@ export function useDataModel(id: number | null): UseQueryResult<DataModelDetailD
   });
 }
 
-/** Tab Schemas — đọc lại ClickHouse, nên đắt hơn `useDataModel`. */
+/** Tab Cấu trúc — đọc lại ClickHouse, nên đắt hơn `useDataModel`. */
 export function useModelSchema(id: number | null): UseQueryResult<DataModelDetailDto> {
   return useQuery({
     queryKey: dataModelKeys.schema(id ?? 0),
@@ -355,7 +355,7 @@ export function useRemoveDataset(id: number): UseMutationResult<void, unknown, n
 /*
  * Không có `useCreateMeasure`/`useUpdateMeasure` ở đây, và đó là có chủ đích.
  *
- * Thước đo dựng-trên-cột được khai ở tab Schemas, đi chung nút "Lưu thay đổi"
+ * Thước đo dựng-trên-cột được khai ở tab Cấu trúc, đi chung nút "Lưu thay đổi"
  * với tên hiển thị và vai trò — tức là qua `useSaveSchema`, một lần ghi cho cả
  * bảng. Hai hook tạo/sửa từng thước đo là tàn dư của tab Measures đã bỏ; giữ
  * lại thì lần sau có người gọi chúng và ghi đè mất phần cột trong cùng lần lưu.

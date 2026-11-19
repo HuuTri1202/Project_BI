@@ -277,7 +277,7 @@
 
 <div class="canhbao">
   <p><b>Kiểm đồng hồ trước khi làm §6.</b> Máy Windows hay chạy chậm giờ, và
-  lệch quá sáu phút so với container là <em>toàn bộ</em> tab Explorer chết —
+  lệch quá sáu phút so với container là <em>toàn bộ</em> tab Khám phá chết —
   triệu chứng không hề giống nguyên nhân.</p>
   <p>So bằng <code>date -u</code> và <code>docker exec bi-cube date -u</code>.
   Lệch nhiều thì mở PowerShell quyền quản trị rồi chạy
@@ -713,7 +713,7 @@
   </div>
 </div>
 
-<h2><span class="num">§6</span>Mô hình dữ liệu và Explorer</h2>
+<h2><span class="num">§6</span>Mô hình dữ liệu và Khám phá</h2>
 
 <div class="kb" data-ma="F1">
   <div class="kb-head"><span class="ma">F1</span><span class="tt"><b>Mô hình KHÔNG tự sinh — người dùng chọn bộ dữ liệu</b><span>Ca này từng khẳng định điều ngược lại</span></span></div>
@@ -740,10 +740,10 @@
 </div>
 
 <div class="kb" data-ma="F2">
-  <div class="kb-head"><span class="ma">F2</span><span class="tt"><b>Tab Schemas — vai trò và phép gộp của từng cột</b><span></span></span></div>
+  <div class="kb-head"><span class="ma">F2</span><span class="tt"><b>Tab Cấu trúc — vai trò và phép gộp của từng cột</b><span></span></span></div>
   <div class="kb-body">
     <ol>
-      <li>Mở mô hình vừa tạo ở F1, tab <b>Schemas</b></li>
+      <li>Mở mô hình vừa tạo ở F1, tab <b>Cấu trúc</b></li>
       <li>Xem vai trò hệ thống gán cho từng cột</li>
     </ol>
     <div class="mongdoi"><b>Phải thấy</b><ul>
@@ -755,10 +755,10 @@
 </div>
 
 <div class="kb" data-ma="F3">
-  <div class="kb-head"><span class="ma">F3</span><span class="tt"><b>Explorer trả đúng con số đã biết trước</b><span>Đây là chỗ đối chiếu quan trọng nhất</span></span></div>
+  <div class="kb-head"><span class="ma">F3</span><span class="tt"><b>Khám phá trả đúng con số đã biết trước</b><span>Đây là chỗ đối chiếu quan trọng nhất</span></span></div>
   <div class="kb-body">
     <ol>
-      <li>Sang tab <b>Explorer</b></li>
+      <li>Sang tab <b>Khám phá</b></li>
       <li>Chọn thước đo <b>Doanh thu</b>, không chọn chiều nào</li>
       <li>Chạy truy vấn</li>
       <li>Thêm chiều <b>Khu vực</b>, chạy lại</li>
@@ -768,7 +768,7 @@
       <li>Theo Khu vực: Miền Trung <b>9.482.000</b> · Miền Nam <b>8.462.000</b> · Miền Bắc <b>7.102.000</b></li>
       <li>Cộng ba số đó lại đúng bằng tổng ở trên</li>
     </ul></div>
-    <div class="canhbao"><p>Nếu hiện lỗi nhắc tới <b>đồng hồ lệch</b> — quay lại §0 phần chuẩn bị. Đây là lỗi môi trường, không phải lỗi mô hình, và nó làm chết cả tab Explorer trong khi Schemas với Relationship vẫn chạy bình thường.</p></div>
+    <div class="canhbao"><p>Nếu hiện lỗi nhắc tới <b>đồng hồ lệch</b> — quay lại §0 phần chuẩn bị. Đây là lỗi môi trường, không phải lỗi mô hình, và nó làm chết cả tab Khám phá trong khi Cấu trúc với Quan hệ vẫn chạy bình thường.</p></div>
   </div>
 </div>
 
@@ -778,7 +778,7 @@
     <ol>
       <li><b>Mô hình dữ liệu</b> → <b>+ Tạo mô hình</b></li>
       <li>Đặt tên, chọn <b>hai bộ dữ liệu trở lên</b> đã nạp</li>
-      <li>Mở mô hình vừa tạo, sang tab <b>Relationship</b></li>
+      <li>Mở mô hình vừa tạo, sang tab <b>Quan hệ</b></li>
     </ol>
     <div class="mongdoi"><b>Phải thấy</b><ul>
       <li>Sơ đồ hiện đủ số bảng đã chọn</li>
@@ -806,10 +806,10 @@
   <div class="kb-body">
     <dl class="kb-meta"><dt>Tiền điều kiện</dt><dd>Mô hình dựng trên <code>kiem-thu-ban-hang.csv</code> (36 dòng)</dd></dl>
     <ol>
-      <li>Mở mô hình, tab <b>Schemas</b></li>
+      <li>Mở mô hình, tab <b>Cấu trúc</b></li>
       <li>Dòng cột <b>Khu vực</b>, ô <b>Thước đo</b> — chọn <b>Đếm giá trị khác nhau</b></li>
       <li>Dòng cột <b>Ngày bán</b> — chọn <b>Nhỏ nhất</b></li>
-      <li><b>Lưu thay đổi</b>, sang tab <b>Explorer</b></li>
+      <li><b>Lưu thay đổi</b>, sang tab <b>Khám phá</b></li>
       <li>Chọn thước đo <b>Khu vực</b>, chạy; rồi đổi sang <b>Ngày bán</b>, chạy lại</li>
     </ol>
     <div class="mongdoi"><b>Phải thấy</b><ul>
@@ -823,15 +823,15 @@
 </div>
 
 <div class="kb" data-ma="F7">
-  <div class="kb-head"><span class="ma">F7</span><span class="tt"><b>Đổi cách tính ngay trong Explorer</b><span>Không phải quay về Schemas và Lưu</span></span></div>
+  <div class="kb-head"><span class="ma">F7</span><span class="tt"><b>Đổi cách tính ngay trong tab Khám phá</b><span>Không phải quay về tab Cấu trúc và Lưu</span></span></div>
   <div class="kb-body">
     <dl class="kb-meta"><dt>Tiền điều kiện</dt><dd>Mô hình dựng trên <code>kiem-thu-ban-hang.csv</code> — tổng Doanh thu <b>25.046.000</b> trên <b>36</b> dòng</dd></dl>
     <ol>
-      <li>Tab <b>Explorer</b>, tích thước đo <b>Doanh thu</b>, không chọn chiều nào</li>
+      <li>Tab <b>Khám phá</b>, tích thước đo <b>Doanh thu</b>, không chọn chiều nào</li>
       <li>Nhìn khối <b>Cách tính</b> hiện ra phía trên bảng kết quả</li>
       <li>Bấm <b>Chạy truy vấn</b> — ghi lại con số</li>
       <li>Bấm nút <b>Trung bình</b> trong khối Cách tính, rồi <b>Chạy truy vấn</b> lại</li>
-      <li>Sang tab <b>Schemas</b> xem lại dòng cột <b>Doanh thu</b></li>
+      <li>Sang tab <b>Cấu trúc</b> xem lại dòng cột <b>Doanh thu</b></li>
     </ol>
     <div class="mongdoi"><b>Phải thấy</b><ul>
       <li>Khối <b>Cách tính</b> bày sẵn <b>tất cả</b> phép hợp với cột này — bảy nút cho một cột số — nhìn thấy hết mà không phải mở gì</li>
@@ -839,7 +839,7 @@
       <li>Nút <b>Tổng</b> sáng sẵn từ đầu, vì đó là phép mô hình đang khai</li>
       <li>Lần chạy đầu: <b>25.046.000</b></li>
       <li>Sau khi đổi: <b>≈ 695.722,22</b> (= 25.046.000 / 36), và tiêu đề cột đổi thành <b>Doanh thu (Trung bình)</b></li>
-      <li>Ở tab Schemas, cột Doanh thu <b>vẫn là Tổng</b> — bấm ở Explorer <b>không</b> sửa mô hình</li>
+      <li>Ở tab Cấu trúc, cột Doanh thu <b>vẫn là Tổng</b> — bấm ở tab Khám phá <b>không</b> sửa mô hình</li>
       <li>Thước đo <b>Số dòng</b> nếu tích vào thì <b>không</b> có hàng nút, vì nó không đo cột nào</li>
     </ul></div>
   </div>
@@ -850,7 +850,7 @@
   <div class="kb-body">
     <dl class="kb-meta"><dt>Tiền điều kiện</dt><dd>Mô hình dựng trên <code>Global-Superstore</code> — 51.290 dòng, tổ chức 4</dd></dl>
     <ol>
-      <li>Tab <b>Explorer</b>, tích thước đo <b>Số dòng</b>, không chọn chiều nào → <b>Chạy truy vấn</b></li>
+      <li>Tab <b>Khám phá</b>, tích thước đo <b>Số dòng</b>, không chọn chiều nào → <b>Chạy truy vấn</b></li>
       <li>Bỏ tích, tích thước đo <code>Postal Code</code>, chọn <b>Đếm ô có dữ liệu</b> → <b>Chạy truy vấn</b></li>
       <li>Đổi sang <b>Đếm giá trị khác nhau</b> → <b>Chạy truy vấn</b></li>
       <li>Rê chuột lên nút <b>Đếm ô có dữ liệu</b></li>
@@ -884,7 +884,7 @@
       <li>Bước 3: thanh xanh hiện lên trên bảng — <b>Đã chọn 2 bộ dữ liệu</b>, kèm nút <b>Bỏ chọn</b></li>
       <li>Bước 4: thanh <b>vẫn ghi 2</b> dù bảng chỉ còn một dòng, và có thêm dòng chữ <b>(có bộ nằm ở trang hoặc bộ lọc khác)</b></li>
       <li>Bước 5: hộp thoại mở ra với <b>cả hai bộ đã tích sẵn</b> — không phải tích lại</li>
-      <li>Bước 6: nhảy thẳng vào mô hình vừa tạo, tab Schemas có cột của <b>cả hai</b> bảng</li>
+      <li>Bước 6: nhảy thẳng vào mô hình vừa tạo, tab Cấu trúc có cột của <b>cả hai</b> bảng</li>
       <li>Bước 7: hộp thoại mở ra với <b>đúng một</b> bộ đã tích — bộ ở dòng vừa bấm</li>
       <li>Ô tích ở hàng tiêu đề chỉ tích những dòng <b>đã nạp của trang đang xem</b>, không đụng lựa chọn ở trang khác</li>
     </ul></div>
@@ -901,7 +901,7 @@
       <li>Đặt tên <code>Doanh thu</code></li>
       <li>Bấm phép <b>×</b> và nhìn khối <b>Cách tính</b> ở trên</li>
       <li>Chọn cột thứ nhất <b>số lượng</b>, cột thứ hai <b>đơn giá</b>, phép gộp <b>Tổng</b> → <b>Thêm thước đo</b></li>
-      <li>Sang tab <b>Explorer</b>, tích <code>Doanh thu</code> → <b>Chạy truy vấn</b></li>
+      <li>Sang tab <b>Khám phá</b>, tích <code>Doanh thu</code> → <b>Chạy truy vấn</b></li>
       <li>Đối chiếu bằng ClickHouse: <code>SELECT sum("số lượng" * "đơn giá") FROM bi_analytics."raw_t…"</code></li>
       <li>Quay lại hộp thoại, đổi phép sang <b>÷</b> và nhìn lại khối <b>Cách tính</b></li>
     </ol>
@@ -921,7 +921,7 @@
   <div class="kb-body">
     <dl class="kb-meta"><dt>Tiền điều kiện</dt><dd>Một mô hình có bảng chứa cột tiền — ví dụ <code>Total amount</code> trên bảng đơn hàng</dd></dl>
     <ol>
-      <li>Mở mô hình → tab <b>Explorer</b></li>
+      <li>Mở mô hình → tab <b>Khám phá</b></li>
       <li>Nhìn cột trái, nhóm <b>Thước đo (Measure)</b>, KHÔNG tích gì cả</li>
       <li>Tích <code>Total amount</code> → <b>Chạy truy vấn</b></li>
       <li>Rê chuột lên <b>tiêu đề cột</b> trong bảng kết quả</li>
@@ -934,9 +934,9 @@
       <li>Thước đo tính từng dòng ghi <code>Tổng của (Quantity × Unit price)</code> — <b>có ngoặc</b></li>
       <li>Bước 4: chú thích của tiêu đề cột nói đúng phép tính đã chạy</li>
       <li>Bước 5: dòng chữ nhỏ <b>đổi theo</b> thành <code>Trung bình của Total amount</code> ngay, không cần chạy lại</li>
-      <li>Cuối nhóm có một câu nói rõ thước đo <b>từ đâu ra</b>: tạo sẵn lúc thêm bảng, sửa ở tab Schemas</li>
+      <li>Cuối nhóm có một câu nói rõ thước đo <b>từ đâu ra</b>: tạo sẵn lúc thêm bảng, sửa ở tab Cấu trúc</li>
     </ul></div>
-    <div class="canhbao"><p>Đây là chỗ chữa một hiểu nhầm khó thấy: trong dữ liệu, <code>Total amount</code> là số tiền của <b>một đơn</b>; trong Explorer, <code>Total amount</code> là <b>tổng tiền của cả nhóm</b>. Hai thứ mang y hệt một cái tên. Người dùng nhìn thấy con số hàng tỉ ở chỗ họ chờ hàng trăm nghìn, và trước bản này không có gì trên màn hình giải thích khoảng cách đó — con số vẫn đúng, chỉ nghĩa của nó bị đọc sai.</p></div>
+    <div class="canhbao"><p>Đây là chỗ chữa một hiểu nhầm khó thấy: trong dữ liệu, <code>Total amount</code> là số tiền của <b>một đơn</b>; ở tab Khám phá, <code>Total amount</code> là <b>tổng tiền của cả nhóm</b>. Hai thứ mang y hệt một cái tên. Người dùng nhìn thấy con số hàng tỉ ở chỗ họ chờ hàng trăm nghìn, và trước bản này không có gì trên màn hình giải thích khoảng cách đó — con số vẫn đúng, chỉ nghĩa của nó bị đọc sai.</p></div>
   </div>
 </div>
 
@@ -945,14 +945,14 @@
   <div class="kb-body">
     <dl class="kb-meta"><dt>Tiền điều kiện</dt><dd>Một mô hình bất kỳ đã có bảng</dd></dl>
     <ol>
-      <li>Tab <b>Explorer</b> → nhìn hai tiêu đề nhóm ở cột trái</li>
-      <li>Tab <b>Schemas</b> → mở một bảng → nhìn hai tiêu đề cột cuối và ô sổ xuống <b>Vai trò</b></li>
+      <li>Tab <b>Khám phá</b> → nhìn hai tiêu đề nhóm ở cột trái</li>
+      <li>Tab <b>Cấu trúc</b> → mở một bảng → nhìn hai tiêu đề cột cuối và ô sổ xuống <b>Vai trò</b></li>
       <li><b>Tạo báo cáo</b> từ mô hình → nhìn nhãn hai ô chọn</li>
     </ol>
     <div class="mongdoi"><b>Phải thấy</b><ul>
       <li>Cả ba màn hình dùng <b>đúng một</b> cặp chữ: <code>Chiều (Dimension)</code> và <code>Thước đo (Measure)</code></li>
-      <li>Explorer: dưới mỗi tiêu đề nhóm có một câu nói nhóm đó là gì — <i>"Cột để chia nhóm — theo khu vực, theo tháng, theo sản phẩm."</i></li>
-      <li>Schemas: cột cuối tên <b>Phép gộp (Aggregation)</b>, KHÔNG còn tên "Thước đo"</li>
+      <li>Tab Khám phá: dưới mỗi tiêu đề nhóm có một câu nói nhóm đó là gì — <i>"Cột để chia nhóm — theo khu vực, theo tháng, theo sản phẩm."</i></li>
+      <li>Tab Cấu trúc: cột cuối tên <b>Phép gộp (Aggregation)</b>, KHÔNG còn tên "Thước đo"</li>
       <li>Ô sổ xuống <b>Vai trò</b> có ba lựa chọn, cả ba đều kèm từ tiếng Anh</li>
     </ul></div>
     <div class="canhbao"><p>Chỗ dễ sai nhất đã được sửa cùng lượt: trước đây cột <b>Vai trò</b> nhận giá trị <i>Thước đo</i>, còn cột ngay bên phải nó cũng mang tiêu đề <i>Thước đo</i> — hai thứ khác nhau, một cái tên, nằm cạnh nhau trên cùng một hàng. Cột bên phải chọn <b>phép gộp</b>, và <code>aria-label</code> của chính ô select luôn đọc là "Phép gộp của cột …", tức hai nhãn vẫn đang nói hai đằng.</p></div>
@@ -964,7 +964,7 @@
   <div class="kb-body">
     <dl class="kb-meta"><dt>Tiền điều kiện</dt><dd>Một mô hình có ít nhất một cột số và một cột chữ</dd></dl>
     <ol>
-      <li>Tab <b>Explorer</b>, tích một thước đo dựng trên <b>cột số</b> → nhìn khối <b>Cách tính</b></li>
+      <li>Tab <b>Khám phá</b>, tích một thước đo dựng trên <b>cột số</b> → nhìn khối <b>Cách tính</b></li>
       <li>Đếm số nút và đọc tên từng nút</li>
       <li>Bấm <b>Ước lượng số khác nhau</b> → <b>Chạy truy vấn</b> → nhìn tiêu đề cột</li>
       <li>Bấm <b>Đếm giá trị khác nhau</b> → <b>Chạy truy vấn</b> → so hai con số</li>

@@ -493,7 +493,7 @@ Tổng cộng **52 kịch bản**. Hai ô cuối mỗi mục để người ki�
 |  |  |
 
 
-## §6 · Mô hình dữ liệu và Explorer
+## §6 · Mô hình dữ liệu và Khám phá
 
 
 ### F1 · Mô hình KHÔNG tự sinh — người dùng chọn bộ dữ liệu
@@ -525,11 +525,11 @@ Tổng cộng **52 kịch bản**. Hai ô cuối mỗi mục để người ki�
 |  |  |
 
 
-### F2 · Tab Schemas — vai trò và phép gộp của từng cột
+### F2 · Tab Cấu trúc — vai trò và phép gộp của từng cột
 
 **Các bước:**
 
-1. Mở mô hình vừa tạo ở F1, tab Schemas
+1. Mở mô hình vừa tạo ở F1, tab Cấu trúc
 2. Xem vai trò hệ thống gán cho từng cột
 
 **Kết quả mong đợi:**
@@ -543,13 +543,13 @@ Tổng cộng **52 kịch bản**. Hai ô cuối mỗi mục để người ki�
 |  |  |
 
 
-### F3 · Explorer trả đúng con số đã biết trước
+### F3 · Khám phá trả đúng con số đã biết trước
 
 *Đây là chỗ đối chiếu quan trọng nhất*
 
 **Các bước:**
 
-1. Sang tab Explorer
+1. Sang tab Khám phá
 2. Chọn thước đo Doanh thu, không chọn chiều nào
 3. Chạy truy vấn
 4. Thêm chiều Khu vực, chạy lại
@@ -560,7 +560,7 @@ Tổng cộng **52 kịch bản**. Hai ô cuối mỗi mục để người ki�
 - Theo Khu vực: Miền Trung 9.482.000 · Miền Nam 8.462.000 · Miền Bắc 7.102.000
 - Cộng ba số đó lại đúng bằng tổng ở trên
 
-> ⚠️ Nếu hiện lỗi nhắc tới đồng hồ lệch — quay lại §0 phần chuẩn bị. Đây là lỗi môi trường, không phải lỗi mô hình, và nó làm chết cả tab Explorer trong khi Schemas với Relationship vẫn chạy bình thường.
+> ⚠️ Nếu hiện lỗi nhắc tới đồng hồ lệch — quay lại §0 phần chuẩn bị. Đây là lỗi môi trường, không phải lỗi mô hình, và nó làm chết cả tab Khám phá trong khi Cấu trúc với Quan hệ vẫn chạy bình thường.
 
 | Kết quả thực tế | Đạt / Không đạt |
 |---|---|
@@ -573,7 +573,7 @@ Tổng cộng **52 kịch bản**. Hai ô cuối mỗi mục để người ki�
 
 1. Mô hình dữ liệu → + Tạo mô hình
 2. Đặt tên, chọn hai bộ dữ liệu trở lên đã nạp
-3. Mở mô hình vừa tạo, sang tab Relationship
+3. Mở mô hình vừa tạo, sang tab Quan hệ
 
 **Kết quả mong đợi:**
 
@@ -612,10 +612,10 @@ Tổng cộng **52 kịch bản**. Hai ô cuối mỗi mục để người ki�
 
 **Các bước:**
 
-1. Mở mô hình, tab Schemas
+1. Mở mô hình, tab Cấu trúc
 2. Dòng cột Khu vực, ô Thước đo — chọn Đếm giá trị khác nhau
 3. Dòng cột Ngày bán — chọn Nhỏ nhất
-4. Lưu thay đổi, sang tab Explorer
+4. Lưu thay đổi, sang tab Khám phá
 5. Chọn thước đo Khu vực, chạy; rồi đổi sang Ngày bán, chạy lại
 
 **Kết quả mong đợi:**
@@ -631,19 +631,19 @@ Tổng cộng **52 kịch bản**. Hai ô cuối mỗi mục để người ki�
 |  |  |
 
 
-### F7 · Đổi cách tính ngay trong Explorer
+### F7 · Đổi cách tính ngay trong tab Khám phá
 
-*Không phải quay về Schemas và Lưu*
+*Không phải quay về tab Cấu trúc và Lưu*
 
 - **Tiền điều kiện:** Mô hình dựng trên kiem-thu-ban-hang.csv — tổng Doanh thu 25.046.000 trên 36 dòng
 
 **Các bước:**
 
-1. Tab Explorer, tích thước đo Doanh thu, không chọn chiều nào
+1. Tab Khám phá, tích thước đo Doanh thu, không chọn chiều nào
 2. Nhìn khối Cách tính hiện ra phía trên bảng kết quả
 3. Bấm Chạy truy vấn — ghi lại con số
 4. Bấm nút Trung bình trong khối Cách tính, rồi Chạy truy vấn lại
-5. Sang tab Schemas xem lại dòng cột Doanh thu
+5. Sang tab Cấu trúc xem lại dòng cột Doanh thu
 
 **Kết quả mong đợi:**
 
@@ -652,7 +652,7 @@ Tổng cộng **52 kịch bản**. Hai ô cuối mỗi mục để người ki�
 - Nút Tổng sáng sẵn từ đầu, vì đó là phép mô hình đang khai
 - Lần chạy đầu: 25.046.000
 - Sau khi đổi: ≈ 695.722,22 (= 25.046.000 / 36), và tiêu đề cột đổi thành Doanh thu (Trung bình)
-- Ở tab Schemas, cột Doanh thu vẫn là Tổng — bấm ở Explorer không sửa mô hình
+- Ở tab Cấu trúc, cột Doanh thu vẫn là Tổng — bấm ở tab Khám phá không sửa mô hình
 - Thước đo Số dòng nếu tích vào thì không có hàng nút, vì nó không đo cột nào
 
 | Kết quả thực tế | Đạt / Không đạt |
@@ -668,7 +668,7 @@ Tổng cộng **52 kịch bản**. Hai ô cuối mỗi mục để người ki�
 
 **Các bước:**
 
-1. Tab Explorer, tích thước đo Số dòng, không chọn chiều nào → Chạy truy vấn
+1. Tab Khám phá, tích thước đo Số dòng, không chọn chiều nào → Chạy truy vấn
 2. Bỏ tích, tích thước đo Postal Code, chọn Đếm ô có dữ liệu → Chạy truy vấn
 3. Đổi sang Đếm giá trị khác nhau → Chạy truy vấn
 4. Rê chuột lên nút Đếm ô có dữ liệu
@@ -710,7 +710,7 @@ Tổng cộng **52 kịch bản**. Hai ô cuối mỗi mục để người ki�
 - Bước 3: thanh xanh hiện lên trên bảng — Đã chọn 2 bộ dữ liệu, kèm nút Bỏ chọn
 - Bước 4: thanh vẫn ghi 2 dù bảng chỉ còn một dòng, và có thêm dòng chữ (có bộ nằm ở trang hoặc bộ lọc khác)
 - Bước 5: hộp thoại mở ra với cả hai bộ đã tích sẵn — không phải tích lại
-- Bước 6: nhảy thẳng vào mô hình vừa tạo, tab Schemas có cột của cả hai bảng
+- Bước 6: nhảy thẳng vào mô hình vừa tạo, tab Cấu trúc có cột của cả hai bảng
 - Bước 7: hộp thoại mở ra với đúng một bộ đã tích — bộ ở dòng vừa bấm
 - Ô tích ở hàng tiêu đề chỉ tích những dòng đã nạp của trang đang xem, không đụng lựa chọn ở trang khác
 
@@ -733,7 +733,7 @@ Tổng cộng **52 kịch bản**. Hai ô cuối mỗi mục để người ki�
 2. Đặt tên Doanh thu
 3. Bấm phép × và nhìn khối Cách tính ở trên
 4. Chọn cột thứ nhất số lượng, cột thứ hai đơn giá, phép gộp Tổng → Thêm thước đo
-5. Sang tab Explorer, tích Doanh thu → Chạy truy vấn
+5. Sang tab Khám phá, tích Doanh thu → Chạy truy vấn
 6. Đối chiếu bằng ClickHouse: SELECT sum("số lượng" * "đơn giá") FROM bi_analytics."raw_t…"
 7. Quay lại hộp thoại, đổi phép sang ÷ và nhìn lại khối Cách tính
 
@@ -760,7 +760,7 @@ Tổng cộng **52 kịch bản**. Hai ô cuối mỗi mục để người ki�
 
 **Các bước:**
 
-1. Mở mô hình → tab Explorer
+1. Mở mô hình → tab Khám phá
 2. Nhìn cột trái, nhóm Thước đo (Measure), KHÔNG tích gì cả
 3. Tích Total amount → Chạy truy vấn
 4. Rê chuột lên tiêu đề cột trong bảng kết quả
@@ -774,9 +774,9 @@ Tổng cộng **52 kịch bản**. Hai ô cuối mỗi mục để người ki�
 - Thước đo tính từng dòng ghi Tổng của (Quantity × Unit price) — có ngoặc
 - Bước 4: chú thích của tiêu đề cột nói đúng phép tính đã chạy
 - Bước 5: dòng chữ nhỏ đổi theo thành Trung bình của Total amount ngay, không cần chạy lại
-- Cuối nhóm có một câu nói rõ thước đo từ đâu ra: tạo sẵn lúc thêm bảng, sửa ở tab Schemas
+- Cuối nhóm có một câu nói rõ thước đo từ đâu ra: tạo sẵn lúc thêm bảng, sửa ở tab Cấu trúc
 
-> ⚠️ Đây là chỗ chữa một hiểu nhầm khó thấy: trong dữ liệu, Total amount là số tiền của một đơn; trong Explorer, Total amount là tổng tiền của cả nhóm. Hai thứ mang y hệt một cái tên. Người dùng nhìn thấy con số hàng tỉ ở chỗ họ chờ hàng trăm nghìn, và trước bản này không có gì trên màn hình giải thích khoảng cách đó — con số vẫn đúng, chỉ nghĩa của nó bị đọc sai.
+> ⚠️ Đây là chỗ chữa một hiểu nhầm khó thấy: trong dữ liệu, Total amount là số tiền của một đơn; ở tab Khám phá, Total amount là tổng tiền của cả nhóm. Hai thứ mang y hệt một cái tên. Người dùng nhìn thấy con số hàng tỉ ở chỗ họ chờ hàng trăm nghìn, và trước bản này không có gì trên màn hình giải thích khoảng cách đó — con số vẫn đúng, chỉ nghĩa của nó bị đọc sai.
 
 | Kết quả thực tế | Đạt / Không đạt |
 |---|---|
@@ -791,15 +791,15 @@ Tổng cộng **52 kịch bản**. Hai ô cuối mỗi mục để người ki�
 
 **Các bước:**
 
-1. Tab Explorer → nhìn hai tiêu đề nhóm ở cột trái
-2. Tab Schemas → mở một bảng → nhìn hai tiêu đề cột cuối và ô sổ xuống Vai trò
+1. Tab Khám phá → nhìn hai tiêu đề nhóm ở cột trái
+2. Tab Cấu trúc → mở một bảng → nhìn hai tiêu đề cột cuối và ô sổ xuống Vai trò
 3. Tạo báo cáo từ mô hình → nhìn nhãn hai ô chọn
 
 **Kết quả mong đợi:**
 
 - Cả ba màn hình dùng đúng một cặp chữ: Chiều (Dimension) và Thước đo (Measure)
-- Explorer: dưới mỗi tiêu đề nhóm có một câu nói nhóm đó là gì — "Cột để chia nhóm — theo khu vực, theo tháng, theo sản phẩm."
-- Schemas: cột cuối tên Phép gộp (Aggregation), KHÔNG còn tên "Thước đo"
+- Tab Khám phá: dưới mỗi tiêu đề nhóm có một câu nói nhóm đó là gì — "Cột để chia nhóm — theo khu vực, theo tháng, theo sản phẩm."
+- Tab Cấu trúc: cột cuối tên Phép gộp (Aggregation), KHÔNG còn tên "Thước đo"
 - Ô sổ xuống Vai trò có ba lựa chọn, cả ba đều kèm từ tiếng Anh
 
 > ⚠️ Chỗ dễ sai nhất đã được sửa cùng lượt: trước đây cột Vai trò nhận giá trị Thước đo, còn cột ngay bên phải nó cũng mang tiêu đề Thước đo — hai thứ khác nhau, một cái tên, nằm cạnh nhau trên cùng một hàng. Cột bên phải chọn phép gộp, và aria-label của chính ô select luôn đọc là "Phép gộp của cột …", tức hai nhãn vẫn đang nói hai đằng.
@@ -817,7 +817,7 @@ Tổng cộng **52 kịch bản**. Hai ô cuối mỗi mục để người ki�
 
 **Các bước:**
 
-1. Tab Explorer, tích một thước đo dựng trên cột số → nhìn khối Cách tính
+1. Tab Khám phá, tích một thước đo dựng trên cột số → nhìn khối Cách tính
 2. Đếm số nút và đọc tên từng nút
 3. Bấm Ước lượng số khác nhau → Chạy truy vấn → nhìn tiêu đề cột
 4. Bấm Đếm giá trị khác nhau → Chạy truy vấn → so hai con số

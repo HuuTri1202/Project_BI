@@ -12,7 +12,7 @@ import { useUpdateDataModel } from './hooks';
  *
  * ─── Vì sao mô tả nằm ở đây chứ không ở trong mô hình ───────────────────────
  *
- * Tab Schemas đã có ô mô tả, nhưng đó là mô tả của từng BẢNG. Mô tả của cả mô
+ * Tab Cấu trúc đã có ô mô tả, nhưng đó là mô tả của từng BẢNG. Mô tả của cả mô
  * hình chưa có đường nào sửa: nó được `PATCH /datamodels/:id` nhận từ đầu, và
  * `CreateDataModelModal` không hỏi tới. Nên một mô hình sinh ra là mô tả rỗng
  * vĩnh viễn — chỉ vì thiếu đúng cái ô này.

@@ -92,7 +92,7 @@ export const LY_DO_NOI: Record<LyDoBoForm, string> = {
     'nhận phép nào, hoặc tạo một thước đo mới với phép bạn cần.',
   'thieu-cot-ngay':
     'Câu hỏi có mốc thời gian, nhưng mô hình này chưa có cột ngày nào dùng được. ' +
-    'Mở tab Schemas và đặt kiểu ngày cho cột thời gian của bảng, rồi hỏi lại.',
+    'Mở tab Cấu trúc và đặt kiểu ngày cho cột thời gian của bảng, rồi hỏi lại.',
 };
 
 export function kiemFormCoLyDo(

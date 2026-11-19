@@ -1081,7 +1081,7 @@ describe('Lý do bỏ form', () => {
     expect(LY_DO_NOI['phep-gop-la']).toContain('tab Thước đo');
   });
 
-  it('gom thời gian trên cột không phải ngày -> chỉ sang tab Schemas', () => {
+  it('gom thời gian trên cột không phải ngày -> chỉ sang tab Cấu trúc', () => {
     const { lyDo } = kiemFormCoLyDo(
       {
         dimensionIds: [],
@@ -1092,7 +1092,7 @@ describe('Lý do bỏ form', () => {
     );
 
     expect(lyDo).toBe('thieu-cot-ngay');
-    expect(LY_DO_NOI['thieu-cot-ngay']).toContain('tab Schemas');
+    expect(LY_DO_NOI['thieu-cot-ngay']).toContain('tab Cấu trúc');
   });
 
   it('mốc thời gian trên cột không phải ngày -> cùng lý do đó', () => {

@@ -121,7 +121,7 @@ function dung(kq: ExplorerResultDto | null): { lan: NguCanh[]; roiTab: () => voi
    * cha ở lại, chỉ tab đổi.
    */
   void unmount;
-  return { lan, roiTab: () => fireEvent.click(screen.getByText('Schemas')) };
+  return { lan, roiTab: () => fireEvent.click(screen.getByText('Cấu trúc')) };
 }
 
 const cuoi = (lan: NguCanh[]): NguCanh => lan[lan.length - 1] as NguCanh;

@@ -432,7 +432,7 @@ export default function RelationshipTab(): React.ReactElement {
                   hint={
                     rightDataset !== undefined && rightDataset.primaryColumnId === null ? (
                       <span className="text-amber-700">
-                        Bảng này chưa có khoá chính — đặt ở tab <strong>Schemas</strong> để lần sau
+                        Bảng này chưa có khoá chính — đặt ở tab <strong>Cấu trúc</strong> để lần sau
                         được điền sẵn.
                       </span>
                     ) : undefined

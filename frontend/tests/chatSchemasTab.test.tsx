@@ -134,7 +134,7 @@ function dung(): { lan: NguCanh[]; roiTab: () => void } {
     </QueryClientProvider>,
   );
   // Rời tab bằng cách BẤM, không `unmount`: cha phải ở lại để khai lại.
-  return { lan, roiTab: () => fireEvent.click(screen.getByText('Relationship')) };
+  return { lan, roiTab: () => fireEvent.click(screen.getByText('Quan hệ')) };
 }
 
 const cuoi = (lan: NguCanh[]): NguCanh => lan[lan.length - 1] as NguCanh;
