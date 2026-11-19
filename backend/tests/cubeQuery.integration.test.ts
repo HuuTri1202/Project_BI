@@ -246,42 +246,56 @@ describe.skipIf(process.env['INGEST_CH_TESTS'] !== '1')('§10 truy vấn Cube th
     };
   }
 
-  it('thước đo sum trả ĐÚNG tổng tính tay, qua Cube và ClickHouse thật', async () => {
-    const { datamodelId, measureId } = await moHinhCoThuocDo();
+  /*
+   * MỘT ca cho hai phép khẳng định, và đó là kết luận sau khi đo.
+   *
+   * Bản đầu tách thành hai ca, mỗi ca tự dựng lại mô hình. Chạy RIÊNG tệp này
+   * thì cả hai xanh (~10s mỗi ca), nhưng trong lane đầy đủ cả hai HẾT GIỜ ở
+   * trần 20s của `vitest.integration.options.ts`. Lý do: mỗi lượt dựng phải trả
+   * giá một lượt biên dịch Cube NGUỘI (đo được 2,7–4,5s) cho phiên bản schema
+   * mới, cộng tải tệp + nạp ClickHouse thật; chạy riêng thì Cube rỗi nên nó
+   * vừa đủ lọt.
+   *
+   * Nên gộp lại: một lần dựng, hai câu hỏi. Cách này bỏ hẳn một lượt biên dịch
+   * thay vì chỉ nới trần — và nó vẫn phủ đúng hai điều cần phủ. Trần 60s là để
+   * ca này không trở thành ca chập chờn trên một máy đang chạy việc khác.
+   */
+  it(
+    'thước đo sum trả ĐÚNG tổng tính tay, và gộp theo chiều ra đúng từng nhóm',
+    async () => {
+      const { datamodelId, measureId, chieuSanPham } = await moHinhCoThuocDo();
 
-    const q = await request(app)
-      .post(`/api/v1/datamodels/${datamodelId}/query`)
-      .set(bearer(f.token))
-      .send({ measureIds: [measureId], dimensionIds: [], limit: 10 });
+      const tong = await request(app)
+        .post(`/api/v1/datamodels/${datamodelId}/query`)
+        .set(bearer(f.token))
+        .send({ measureIds: [measureId], dimensionIds: [], limit: 10 });
 
-    // Mã trạng thái TRƯỚC, và nó nằm trong thông báo lỗi. Thiếu nó thì một 503
-    // hiện ra dưới dạng `NaN` và người đọc đi tìm lỗi ở phép gộp — chính cái
-    // bẫy mà ca TD-18 của bộ kiểm thử tay đã mắc.
-    expect(q.status, JSON.stringify(q.body)).toBe(200);
-    expect(Number(q.body.rows[0][0])).toBe(TONG_DOANH_THU);
-  });
+      // Mã trạng thái TRƯỚC, và nó nằm trong thông báo lỗi. Thiếu nó thì một 503
+      // hiện ra dưới dạng `NaN` và người đọc đi tìm lỗi ở phép gộp — chính cái
+      // bẫy mà ca TD-18 của bộ kiểm thử tay đã mắc.
+      expect(tong.status, JSON.stringify(tong.body)).toBe(200);
+      expect(Number(tong.body.rows[0][0])).toBe(TONG_DOANH_THU);
 
-  it('gộp theo chiều trả đúng từng nhóm, không phải một con số gộp chung', async () => {
-    const { datamodelId, measureId, chieuSanPham } = await moHinhCoThuocDo();
+      const nhom = await request(app)
+        .post(`/api/v1/datamodels/${datamodelId}/query`)
+        .set(bearer(f.token))
+        .send({ measureIds: [measureId], dimensionIds: [chieuSanPham], limit: 10 });
+      expect(nhom.status, JSON.stringify(nhom.body)).toBe(200);
 
-    const q = await request(app)
-      .post(`/api/v1/datamodels/${datamodelId}/query`)
-      .set(bearer(f.token))
-      .send({ measureIds: [measureId], dimensionIds: [chieuSanPham], limit: 10 });
-    expect(q.status, JSON.stringify(q.body)).toBe(200);
+      const theoSanPham = new Map(
+        (nhom.body.rows as unknown[][]).map((r) => [String(r[0]), Number(r[1])]),
+      );
+      // Bàn xuất hiện HAI dòng (Hà Nội 1000 + Đà Nẵng 700) — chỗ này ghim việc
+      // Cube thật sự gộp, chứ không trả lại từng dòng thô.
+      expect(theoSanPham.get('Bàn')).toBe(1700);
+      expect(theoSanPham.get('Ghế')).toBe(500);
+      expect(theoSanPham.get('Tủ')).toBe(1200);
 
-    const theoSanPham = new Map(
-      (q.body.rows as unknown[][]).map((r) => [String(r[0]), Number(r[1])]),
-    );
-    // Bàn xuất hiện HAI dòng (Hà Nội 1000 + Đà Nẵng 700) — ca này ghim việc
-    // Cube thật sự gộp, chứ không trả lại từng dòng thô.
-    expect(theoSanPham.get('Bàn')).toBe(1700);
-    expect(theoSanPham.get('Ghế')).toBe(500);
-    expect(theoSanPham.get('Tủ')).toBe(1200);
-
-    // Và tổng các nhóm phải khớp tổng không nhóm — một phép kiểm chéo rẻ bắt
-    // được cả lỗi nhân bản dòng lẫn lỗi mất dòng.
-    const tong = [...theoSanPham.values()].reduce((a, b) => a + b, 0);
-    expect(tong).toBe(TONG_DOANH_THU);
-  });
+      // Và tổng các nhóm phải khớp tổng không nhóm — một phép kiểm chéo rẻ bắt
+      // được cả lỗi nhân bản dòng lẫn lỗi mất dòng.
+      const congLai = [...theoSanPham.values()].reduce((a, b) => a + b, 0);
+      expect(congLai).toBe(TONG_DOANH_THU);
+    },
+    60_000,
+  );
 });
