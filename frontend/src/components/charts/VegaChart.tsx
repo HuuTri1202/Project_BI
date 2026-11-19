@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { TopLevelSpec } from 'vega-lite';
 
 import { KHONG_XUAT, THUOC_TINH_DANG_VE } from '../../services/danhDauXuat';
+import { DINH_DANG_NGAY_VIET, DINH_DANG_SO_VIET } from './localeViet';
 import { hamBieuThucVega, type DoChu } from './vegaExpr';
 import { khongKichThuoc, soDo } from './vegaSpecKey';
 
@@ -153,6 +154,12 @@ export function VegaChart<T extends object>({
             // chuỗi `oklch(...)`, và trình duyệt tự hiểu nó khi nằm trong thuộc
             // tính `fill` của SVG. Canvas thì khắt khe hơn khi phân tích màu.
             renderer: 'svg',
+            // Số và ngày trên trục theo quy ước Việt — xem `localeViet.ts`.
+            // Vega không đi qua `Intl` nên không tự theo locale của trang: thiếu
+            // hai dòng này thì trục ghi `16,000,000` ngay cạnh khung hỏi đáp ghi
+            // `15.980.000`, trên cùng một trang.
+            formatLocale: DINH_DANG_SO_VIET,
+            timeFormatLocale: DINH_DANG_NGAY_VIET,
             // Hàm riêng mà spec được gọi (đo nhãn trục — §10.22). Thiếu dòng
             // này thì spec gọi tới chúng không parse được, và ô hiện "Không vẽ
             // được biểu đồ".

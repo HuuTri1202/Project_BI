@@ -114,6 +114,36 @@ test('báo cáo đã lưu mở ra là Vega vẽ thật, đúng số nhóm', asyn
     timeout: 20_000,
   });
 
+  /*
+   * Số trên trục phải theo quy ước VIỆT — vá A5.
+   *
+   * ⚠️ Lỗi đã đo trên hệ thống đang chạy: trục ghi `16,000,000` trong khi khung
+   * hỏi đáp NGAY CẠNH, trên cùng trang đó, ghi `15.980.000`. Với người Việt thì
+   * `16,000` đọc ra là mười sáu phẩy không.
+   *
+   * Vega là ngoại lệ duy nhất trong cả ứng dụng vì nó không đi qua `Intl`: nó
+   * dùng d3-format, mặc định en-US. Nên không có chỗ nào khác kiểm hộ được, và
+   * jsdom thì không bao giờ dựng ra nhãn trục.
+   *
+   * Đo được cả hai chiều trên trình duyệt thật:
+   *   có  `formatLocale`  ->  "1.000.000"
+   *   bỏ  `formatLocale`  ->  "1,000,000"
+   */
+  const nhanTruc = marks.locator('g.role-axis-label text');
+  // `allTextContents`, KHÔNG `allInnerTexts`: `innerText` là thuộc tính của
+  // HTMLElement, còn nhãn trục là `<text>` của SVG — đo được là trả về rỗng.
+  const soTrenTruc = (await nhanTruc.allTextContents()).filter((t) => /\d/.test(t));
+  expect(soTrenTruc.length, 'trục giá trị phải có nhãn số').toBeGreaterThan(2);
+  // Mốc triệu phải là `1.000.000`, không phải `1,000,000`. Tìm dấu phẩy chứ
+  // không so cả chuỗi: số mốc do d3 tự chọn theo bề rộng ô.
+  for (const nhan of soTrenTruc) {
+    expect(nhan, `nhãn trục "${nhan}" phải dùng dấu chấm phân nhóm nghìn`).not.toMatch(/\d,\d/);
+  }
+  expect(
+    soTrenTruc.some((t) => /\d\.\d{3}/.test(t)),
+    'phải có ít nhất một mốc hàng nghìn để khẳng định trên có nghĩa',
+  ).toBe(true);
+
   // Lý do của mẫu này nằm ở docblock của chính nó trong `helpers.ts`.
   khongLoiNao(theoDoi, [CANVAS_DATA_409_CHU_DICH]);
 });
