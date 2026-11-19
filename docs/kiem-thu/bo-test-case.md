@@ -47,7 +47,7 @@ không phải kết quả suy ra từ mã nguồn.
 |---|---|---|---|---|
 | PQ-01 | Ma trận quyền của quản trị tổ chức — GET /v1/permissions | Đủ 4 hành động trên mọi tài nguyên | HTTP 200, workspace=[read,modify,invite,delete], member=[read,modify,invite,delete] | Đạt |
 | PQ-02 | Ma trận quyền của người xem | Chỉ có read, không có hành động nào khác | HTTP 200, tập hành động xuất hiện = {read}, dataset=[read] | Đạt |
-| PQ-03 | Người xem đọc danh sách bộ dữ liệu | 200 — được phép xem | HTTP 200, tổng 0 bộ dữ liệu | Đạt |
+| PQ-03 | Người xem KHÔNG đọc được danh sách bộ dữ liệu — Số cũ (HTTP 200) được đo TRƯỚC migration 26 viewer_reports_only, migration này cố ý xoá dataset:read và datamodel:read của viewer: "người dựng báo cáo chọn chia sẻ MỘT lát cắt; họ không chọn chia sẻ cả kho nằm dưới nó" | 403 — viewer chỉ thấy báo cáo | HTTP 403 {"error":"Forbidden"} | Đạt |
 | PQ-04 | Người xem tạo workspace | 403 kèm lý do đọc được | HTTP 403 · "Vai trò của bạn không được phép thay đổi workspace." | Đạt |
 | PQ-05 | Người xem mời thành viên | 403 | HTTP 403 · "Vai trò của bạn không được phép mời người vào thành viên." | Đạt |
 | PQ-06 | Người xem xoá workspace | 403 | HTTP 403 · "Vai trò của bạn không được phép xoá workspace." | Đạt |
@@ -66,7 +66,7 @@ không phải kết quả suy ra từ mã nguồn.
 | AT-03 | Truyền cột sắp xếp lạ: sort=(SELECT 1) | 400 — chặn bằng danh sách trắng, không ghép chuỗi vào SQL | HTTP 400 · "Cột sắp xếp không hợp lệ. Chỉ nhận: name, sourceTable, columnCount, syncedAt, rowCount…" | Đạt |
 | AT-04 | Truyền order=; DROP TABLE datasets | 400 | HTTP 400 · "Expected 'asc' / 'desc', received '; DROP TABLE datasets'" | Đạt |
 | AT-05 | Tìm kiếm với ký tự đại diện LIKE: 100%_' OR 1=1 -- | 200, không lỗi và không trả toàn bảng | HTTP 200, trả 0 kết quả | Đạt |
-| AT-06 | Chặn SSRF ở chế độ production: thử 4 địa chỉ nội bộ và 1 địa chỉ công khai — NODE_ENV=production, gọi thẳng resolveAndGuardHost | Chặn cả 4 địa chỉ nội bộ, cho qua địa chỉ công khai | allowPrivateDbHosts=false · 169.254.169.254 → CHẶN (link-local) · 10.0.0.1 → CHẶN (mạng nội bộ) · 127.0.0.1 → CHẶN (loopback) · 192.168.1.5 → CHẶN (mạng nội bộ) · 8.8.8.8 → CHO QUA | Đạt |
+| AT-06 | Chặn SSRF ở chế độ production: thử 4 địa chỉ nội bộ và 1 địa chỉ công khai — Trước đây thử TAY một lần với NODE_ENV=production trên 5 địa chỉ. Giờ là test tự động: backend/tests/guardHost.test.ts — 33 ca, kiểm thẳng hàm thuần blockedReason nên không phụ thuộc cờ môi trường | Chặn cả 4 địa chỉ nội bộ, cho qua địa chỉ công khai | allowPrivateDbHosts=false · 169.254.169.254 → CHẶN (link-local) · 10.0.0.1 → CHẶN (mạng nội bộ) · 127.0.0.1 → CHẶN (loopback) · 192.168.1.5 → CHẶN (mạng nội bộ) · 8.8.8.8 → CHO QUA | Đạt |
 | AT-07 | Cùng phép thử ở chế độ phát triển — Tiền điều kiện: ALLOW_PRIVATE_DB_HOSTS mặc định bật ở dev | Cho qua — đúng chủ đích, để nối được 127.0.0.1:3310 như tài liệu hướng dẫn | allowPrivateDbHosts=true · cả 5 địa chỉ đều CHO QUA | Đạt |
 | AT-08 | Mật khẩu CSDL nguồn có bị trả về trình duyệt không | Không có trường mật khẩu nào trong phản hồi | HTTP 200, thân phản hồi KHÔNG có trường mật khẩu | Đạt |
 | AT-09 | Truyền id không phải số vào đường dẫn | 400 ở tầng kiểm tham số | HTTP 400 · fields.id = "Expected number, received nan" | Đạt |

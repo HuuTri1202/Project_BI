@@ -103,8 +103,22 @@ async function resolveHost(host: string): Promise<ResolvedHost> {
   }
 }
 
-/** `null` nghĩa là địa chỉ đi được. Chuỗi trả về là lý do bị chặn, tiếng Việt. */
-function blockedReason(host: ResolvedHost): string | null {
+/**
+ * `null` nghĩa là địa chỉ đi được. Chuỗi trả về là lý do bị chặn, tiếng Việt.
+ *
+ * ─── Vì sao `export` ────────────────────────────────────────────────────────
+ *
+ * Để `tests/guardHost.test.ts` kiểm THẲNG luật chặn. Nhánh đó không kiểm được
+ * qua HTTP: `allowPrivateDbHosts` mặc định BẬT ở mọi môi trường không phải
+ * production (và cả bộ test tích hợp dựa vào đó để nối tới MySQL trên
+ * localhost), nên `resolveAndGuardHost` trả về sớm trước khi tới đây.
+ * `datasets.integration.test.ts` đã ghi thẳng chuyện này là một lỗ hổng che phủ
+ * thật; đây là cách đóng nó mà không phải dựng lại module với env khác.
+ *
+ * Hàm THUẦN — không đọc env, không gọi DNS — nên kiểm nó là kiểm đúng chỗ luật
+ * nằm, chứ không phải kiểm một bản dựng lại của luật trong bài test.
+ */
+export function blockedReason(host: ResolvedHost): string | null {
   if (host.family === 6) return blockedReasonV6(host.address);
 
   const ip = toUint32(host.address);

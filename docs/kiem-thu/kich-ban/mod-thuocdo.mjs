@@ -644,9 +644,17 @@ await tc('TD-18', 'Biểu thức dòng KHÔNG bị nhân bản khi mô hình có
   });
   const cube = Number(q.json?.rows?.[0]?.[1]);
 
+  /*
+   * Mã trạng thái nằm TRONG điều kiện đạt, và in ra đầu câu kết quả.
+   *
+   * Thiếu nó, một phản hồi 503 (Cube chết, hết giờ, chưa biên dịch xong) cho ra
+   * `cube = NaN` và câu kết quả đọc là "gop theo Kenh: NaN (dung 410)" — người
+   * đọc sẽ đi tìm lỗi ở phép gộp biểu thức dòng, đúng chỗ KHÔNG có lỗi nào.
+   * Chuyện này đã xảy ra thật một lần và mất khá lâu mới lần ra.
+   */
   return {
-    pass: Math.abs(cube - 410) < 0.001,
-    actual: `gop theo Kenh (1 nhom, 5 dong da noi): ${cube} (dung 410 · nhan dong 1010)`,
+    pass: q.status === 200 && Math.abs(cube - 410) < 0.001,
+    actual: `HTTP ${q.status}, gop theo Kenh (1 nhom, 5 dong da noi): ${cube} (dung 410 · nhan dong 1010)`,
   };
 });
 
@@ -674,14 +682,17 @@ await tc('TD-19', 'Bộ chọn nói ra phép tính, không bắt người dùng 
   const mota = q.json?.columns?.[0]?.mota;
   const motaDong = soDong.thieu ? null : (soDong.nguon ?? {}).kind;
 
+  // Cùng lý do với TD-18: `mota` đọc từ thân phản hồi, nên một 503 cho ra
+  // `undefined` và câu kết quả trông như lỗi đặt tên cột.
   return {
     pass:
+      q.status === 200 &&
       nguon.kind === 'column' &&
       nguon.expr === 'Loi nhuan' &&
       mota === 'Trung bình của Loi nhuan' &&
       motaDong === 'rows',
     actual:
-      `nguon = ${JSON.stringify(nguon)} · mota cột kết quả = "${mota}" ` +
+      `HTTP ${q.status}, nguon = ${JSON.stringify(nguon)} · mota cột kết quả = "${mota}" ` +
       `· "Số dòng" có kind = ${motaDong}`,
   };
 });

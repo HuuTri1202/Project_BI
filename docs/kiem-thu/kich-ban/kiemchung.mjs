@@ -5,6 +5,8 @@
  * ĐƯỢC, không phải bằng suy luận từ code. Mỗi ca in ra đúng cái mà server trả về.
  */
 
+import { execSync } from 'node:child_process';
+
 const API = 'http://127.0.0.1:4000/api';
 
 const ACCOUNTS = {
@@ -31,7 +33,38 @@ async function req(path, { method = 'GET', body, token, headers = {}, raw } = {}
   return { status: res.status, json, text };
 }
 
+/**
+ * Xoá bộ đếm chặn dò mật khẩu của 127.0.0.1.
+ *
+ * ─── Vì sao nó phải nằm ở ĐÂY, trong `login` ────────────────────────────────
+ *
+ * `XT-21` cố ý đăng nhập sai 13 lần để chứng minh chốt chặn dò mật khẩu có
+ * thật, và nó để lại bộ đếm ở mức 13 với TTL hàng chục phút. Ba module còn lại
+ * (`mod-phanquyen`, `mod-thuocdo`, `mod-luongdulieu`) KHÔNG dọn bộ đếm đó, nên
+ * chạy đúng thứ tự README ghi thì module thứ hai chết ngay ở lời gọi `login`
+ * đầu tiên với HTTP 429 — tức là quy trình trong tài liệu không chạy được.
+ *
+ * Đặt trong `login` chứ không thêm một dòng vào đầu từng module: `login` là
+ * phễu DUY NHẤT mọi module đi qua để lấy token, nên module viết sau này không
+ * phải nhớ gì cả.
+ *
+ * KHÔNG làm yếu `XT-21`: ca đó gọi `req('/auth/login', ...)` trực tiếp chứ
+ * không qua `login`, nên bộ đếm nó dựng lên vẫn được đo nguyên vẹn.
+ */
+function donBoDemDangNhap() {
+  try {
+    execSync(
+      'docker exec bi-redis redis-cli -a redispassword --no-auth-warning DEL "ratelimit:login:::ffff:127.0.0.1"',
+      { stdio: 'ignore' },
+    );
+  } catch {
+    // Không với tới được Redis thì vẫn cứ thử đăng nhập: nếu đó là vấn đề thật
+    // thì `login` bên dưới sẽ ném ra kèm mã trạng thái, rõ hơn một lỗi docker.
+  }
+}
+
 async function login(which) {
+  donBoDemDangNhap();
   const a = ACCOUNTS[which];
   const r = await req('/auth/login', { method: 'POST', body: a });
   if (r.status !== 200) throw new Error(`không đăng nhập được ${which}: ${r.status} ${r.text}`);

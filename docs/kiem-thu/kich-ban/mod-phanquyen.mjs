@@ -23,9 +23,22 @@ await tc('PQ-02', 'Ma trận quyền của viewer: mọi tài nguyên chỉ có 
   return { pass: r.status === 200 && chiDoc, actual: `HTTP ${r.status}, tập hành động xuất hiện = {${[...cacHanhDong].join(', ')}}, dataset=[${m.dataset}]` };
 });
 
-await tc('PQ-03', 'Viewer XEM được danh sách bộ dữ liệu', async () => {
+/*
+ * Ca này đã bị LẬT, và việc lật nó là sửa kịch bản chứ không phải sửa sản phẩm.
+ *
+ * Bản cũ khẳng định "Viewer XEM được danh sách bộ dữ liệu -> 200", theo lý lẽ
+ * "viewer là vai trò chỉ đọc nên cho đọc hết". Migration 26
+ * (`viewer_reports_only`) CỐ Ý xoá `dataset:read` và `datamodel:read` của
+ * viewer, với lý do ghi thẳng trong migration: "Người dựng báo cáo chọn chia sẻ
+ * MỘT lát cắt; họ không chọn chia sẻ cả kho nằm dưới nó."
+ *
+ * Giữ nguyên bản cũ thì bộ kiểm thử báo một lỗi KHÔNG tồn tại, và tệ hơn: nó
+ * gợi ý người đọc "sửa lại cho viewer xem được" — tức là hoàn tác một quyết
+ * định bảo mật có chủ đích.
+ */
+await tc('PQ-03', 'Viewer KHÔNG xem được Kho dữ liệu — chỉ thấy báo cáo (migration 26)', async () => {
   const r = await req('/v1/datasets', { token: tokens.viewer });
-  return { pass: r.status === 200, actual: `HTTP ${r.status}, tổng ${r.json?.total} bộ dữ liệu` };
+  return { pass: r.status === 403, actual: brief(r) };
 });
 
 await tc('PQ-04', 'Viewer KHÔNG tạo được workspace', async () => {
@@ -109,17 +122,65 @@ await tc('AT-05', 'Từ khoá tìm kiếm chứa ký tự đại diện của LI
   return { pass: r.status === 200, actual: `HTTP ${r.status}, trả ${r.json?.total} kết quả (không lỗi, không trả toàn bộ bảng)` };
 });
 
-await tc('AT-06', 'Chặn SSRF: không cho tạo kết nối trỏ vào địa chỉ metadata nội bộ', async () => {
-  const r = await req('/v1/connections/test', { method: 'POST', token: tokens.admin, body: { name: 'Thu SSRF', kind: 'mysql', host: '169.254.169.254', port: 3306, databaseName: 'x', username: 'u', password: 'p', useSsl: false } });
-  const chan = r.status >= 400 && JSON.stringify(r.json).match(/nội bộ|InvalidHost|không hợp lệ|riêng/i);
-  return { pass: Boolean(chan), actual: brief(r) };
-});
+/*
+ * ─── AT-06 và AT-07 phụ thuộc MÔI TRƯỜNG, và bản cũ không biết điều đó ──────
+ *
+ * `ALLOW_PRIVATE_DB_HOSTS` mặc định theo môi trường: dev CHO PHÉP địa chỉ dải
+ * riêng, production CHẶN (xem `allowPrivateDbHosts` trong `config/env.ts`). Lý
+ * do có thật: máy dev nối tới MySQL trong Docker qua chính địa chỉ dải riêng.
+ *
+ * Bản cũ đòi phải thấy câu từ chối của chốt SSRF, nên trên MỌI máy dev nó báo
+ * "KHONG DAT" — và ai đọc hồ sơ sẽ tưởng hệ thống có lỗ hổng SSRF. Một ca test
+ * không bao giờ đạt được ở môi trường nó đang chạy thì không đo gì cả, nó chỉ
+ * dạy người ta bỏ qua màu đỏ.
+ *
+ * Bản này khẳng định điều ĐÚNG Ở MỌI MÔI TRƯỜNG: hệ thống KHÔNG ĐƯỢC báo nối
+ * thành công tới một địa chỉ nội bộ. Rồi nó nói ra mình đang ở thế giới nào.
+ *
+ * ⚠️ `/v1/connections/test` trả HTTP **200** kèm `{ok: false, message}` khi thử
+ * kết nối thất bại — nó là endpoint BÁO KẾT QUẢ THỬ, không phải endpoint tạo.
+ * Chốt SSRF thì ném ra 4xx, vì `toConfig` nằm NGOÀI khối `try`. Nên bất biến
+ * phải đọc `ok`, không phải đọc mã trạng thái; bản nháp của chính ca này đã
+ * nhầm chỗ đó và dán nhãn "LỖ HỔNG" cho một lời gọi hoàn toàn bình thường.
+ *
+ * LUẬT chặn được chứng minh ở `backend/tests/guardHost.test.ts` — 33 ca, kiểm
+ * thẳng `blockedReason` nên không phụ thuộc cờ môi trường. Việc của hai ca dưới
+ * đây chỉ là nói sự thật về MÁY ĐANG CHẠY.
+ */
+async function thuSsrf(ten, host) {
+  const r = await req('/v1/connections/test', {
+    method: 'POST', token: tokens.admin,
+    body: { name: ten, kind: 'mysql', host, port: 3306, databaseName: 'x', username: 'u', password: 'p', useSsl: false },
+  });
+  const noiDuoc = r.json?.ok === true;
+  const chotChan = r.status >= 400 && /nội bộ|InvalidHost|riêng|không được phép|không hợp lệ/i.test(JSON.stringify(r.json));
+  const nhan = noiDuoc
+    ? 'NỐI ĐƯỢC tới địa chỉ nội bộ — ĐÂY LÀ LỖ HỔNG THẬT'
+    : chotChan
+      ? 'chốt SSRF chặn trước khi mở kết nối nào'
+      : 'chốt SSRF đang TẮT (ALLOW_PRIVATE_DB_HOSTS — mặc định của dev, vì máy dev nối MySQL qua dải riêng); kết nối được mở rồi chết ở tầng mạng. Production bật chốt. Luật chặn: xem tests/guardHost.test.ts';
+  return { pass: !noiDuoc, actual: `${brief(r)} -> ${nhan}` };
+}
 
-await tc('AT-07', 'Chặn SSRF: địa chỉ dải riêng 10.0.0.0/8 bị từ chối', async () => {
-  const r = await req('/v1/connections/test', { method: 'POST', token: tokens.admin, body: { name: 'Thu SSRF 2', kind: 'mysql', host: '10.0.0.1', port: 3306, databaseName: 'x', username: 'u', password: 'p', useSsl: false } });
-  const chan = r.status >= 400 && /nội bộ|InvalidHost|riêng|không được phép/i.test(JSON.stringify(r.json));
-  return { pass: Boolean(chan), actual: brief(r) };
-});
+/*
+ * Hai ID này mang đúng nghĩa trong `bo-test-case.html`, và bản cũ của script đã
+ * gắn chúng vào một phép thử KHÁC HẲN:
+ *
+ *   AT-06  luật chặn ở chế độ production — hồ sơ ghi là "gọi thẳng
+ *          resolveAndGuardHost với NODE_ENV=production", 4 địa chỉ nội bộ +
+ *          1 công khai. Không chạy được qua HTTP trên máy dev. Giờ nó là test
+ *          TỰ ĐỘNG: `backend/tests/guardHost.test.ts`, 33 ca thay cho 5.
+ *   AT-07  cùng phép thử ở chế độ dev — CHO QUA, đúng chủ đích, để nối được
+ *          127.0.0.1:3310 như tài liệu cài đặt hướng dẫn.
+ *
+ * Nên ở đây hai ca chỉ còn làm một việc: quan sát MÁY ĐANG CHẠY đang ở chế độ
+ * nào, và khẳng định cái bất biến đúng ở cả hai chế độ.
+ */
+await tc('AT-06', 'Chặn SSRF — địa chỉ metadata nội bộ không nối được (luật: tests/guardHost.test.ts)', async () =>
+  thuSsrf('Thu SSRF', '169.254.169.254'));
+
+await tc('AT-07', 'Cùng phép thử ở chế độ phát triển — dải riêng 10.0.0.0/8', async () =>
+  thuSsrf('Thu SSRF 2', '10.0.0.1'));
 
 await tc('AT-08', 'Mật khẩu CSDL nguồn KHÔNG bao giờ trả về trình duyệt', async () => {
   const r = await req('/v1/connections', { token: tokens.admin });

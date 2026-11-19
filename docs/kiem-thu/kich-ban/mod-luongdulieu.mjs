@@ -47,8 +47,34 @@ await tc('TF-01', 'Xin đường tải lên: server tự sinh khoá lưu trữ, 
     body: { workspaceId, filename: 'kiem-thu-loi-nhuan.csv', fileSize: CSV.length },
   });
   datasetId = r.json?.datasetId ?? null;
-  const coUrl = typeof r.json?.uploadUrl === 'string' && r.json.uploadUrl.includes('kiem-thu') === false;
-  return { pass: r.status === 201 && datasetId !== null, actual: `HTTP ${r.status}, datasetId=${datasetId}, uploadUrl do server ký (không chứa tên file người dùng đặt: ${coUrl})` };
+
+  /*
+   * Bản cũ của ca này đo SAI thứ, và đo xong thì không khẳng định gì.
+   *
+   * Nó tính `uploadUrl.includes('kiem-thu') === false` rồi in ra dưới nhãn
+   * "không chứa tên file người dùng đặt". Hai lỗi trong một dòng:
+   *
+   *   1. Khoá CÓ chứa slug của tên file, và đó là CHỦ ĐÍCH có ghi chú trong
+   *      `storageKey.ts`: "Đọc được là toàn bộ lý do đoạn này tồn tại". Ranh
+   *      giới an toàn không phải là giấu tên file, mà là DANH SÁCH TRẮNG
+   *      `[a-z0-9-]` — không ký tự nào thoát ra khỏi một đoạn đường dẫn.
+   *   2. Con số đó không nằm trong `pass`, nên nó lặng lẽ đổi từ `true` sang
+   *      `false` giữa hai lần chạy mà ca vẫn báo Đạt. Đúng kiểu "in ra mà không
+   *      kiểm" đã làm TD-18 chỉ đường sai.
+   *
+   * Bản này khẳng định điều tiêu đề nói: khoá do SERVER sinh, theo đúng khuôn
+   * tiền tố-tổ chức / workspace / slug + UUID. Client gửi gì cũng không đổi
+   * được khuôn đó. Luật slug có 9 ca riêng ở `backend/tests/storageKey.test.ts`.
+   */
+  const duongDan = typeof r.json?.uploadUrl === 'string' ? r.json.uploadUrl.split('?')[0] : '';
+  const dungKhuon = /\/t\d+\/w\d+\/[a-z0-9-]+__[0-9a-f-]{36}\.csv$/.test(duongDan);
+  const baDoan = duongDan.split('/').slice(-3).join('/');
+
+  return {
+    pass: r.status === 201 && datasetId !== null && dungKhuon,
+    // In BA ĐOẠN cuối, không in cả URL: phần query là vé ghi đã ký.
+    actual: `HTTP ${r.status}, datasetId=${datasetId}, khoá = ${baDoan} (đúng khuôn tổ chức/workspace/slug__uuid: ${dungKhuon})`,
+  };
 });
 
 await tc('TF-02', 'Từ chối đuôi file không được hỗ trợ', async () => {

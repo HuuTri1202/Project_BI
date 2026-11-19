@@ -67,6 +67,20 @@ node mod-luongdulieu.mjs  # TF + NA + MH — luồng đầu-cuối, 17 ca
 node mod-thuocdo.mjs      # TD — thước đo của mô hình dữ liệu, 19 ca
 ```
 
+Bốn lệnh trên chạy được **theo đúng thứ tự này**, và trước đây thì không: `XT-21`
+cố ý đăng nhập sai 13 lần để chứng minh chốt chặn dò mật khẩu có thật, rồi để lại
+bộ đếm ở mức 13 với TTL ~15 phút. Ba module sau không dọn bộ đếm đó nên module
+thứ hai chết ngay ở lời gọi `login` đầu tiên với HTTP 429. Giờ `login` trong
+`kiemchung.mjs` tự dọn bộ đếm trước khi lấy token — và `XT-21` vẫn đo nguyên vẹn,
+vì nó gọi `/auth/login` trực tiếp chứ không qua `login`.
+
+Hai ca `AT-06`/`AT-07` nói ra **trạng thái môi trường** chứ không phán xét:
+`ALLOW_PRIVATE_DB_HOSTS` mặc định BẬT ở dev (máy dev nối MySQL qua dải riêng),
+nên chốt SSRF không chặn ở đây và chúng chỉ khẳng định "không nối được tới địa
+chỉ nội bộ". Bản thân LUẬT chặn được chứng minh ở
+`backend/tests/guardHost.test.ts` — 33 ca, kiểm thẳng hàm thuần `blockedReason`
+nên không phụ thuộc cờ môi trường.
+
 **Không chạy song song với bộ tự động.** Hàm dọn của bộ tự động
 (`backend/tests/helpers/db.ts:63`) xoá mọi khoá `ratelimit:*` trước mỗi ca, nên
 bộ đếm chặn dò mật khẩu bị xoá liên tục và phép đo mất hết ý nghĩa. Lần chạy đầu

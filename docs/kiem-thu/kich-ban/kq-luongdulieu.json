@@ -3,7 +3,7 @@
     "id": "TF-01",
     "title": "Xin đường tải lên: server tự sinh khoá lưu trữ, client không được đặt",
     "pass": true,
-    "actual": "HTTP 201, datasetId=99, uploadUrl do server ký (không chứa tên file người dùng đặt: true)"
+    "actual": "HTTP 201, datasetId=319, khoá = t2/w2/kiem-thu-loi-nhuan__737c0b9d-fc0c-4fb4-8666-be07a323c1ab.csv (đúng khuôn tổ chức/workspace/slug__uuid: true)"
   },
   {
     "id": "TF-02",
@@ -33,7 +33,7 @@
     "id": "TF-06",
     "title": "Chốt sheet: tạo bộ dữ liệu và nạp dòng vào database",
     "pass": true,
-    "actual": "HTTP 200, tạo 1 bộ dữ liệu: [{\"id\":100,\"name\":\"Kiem thu loi nhuan\",\"rowCount\":5}]"
+    "actual": "HTTP 200, tạo 1 bộ dữ liệu: [{\"id\":320,\"name\":\"Kiem thu loi nhuan\",\"rowCount\":5}]"
   },
   {
     "id": "TF-07",
@@ -51,7 +51,7 @@
     "id": "NA-02",
     "title": "Bảng raw_* xuất hiện trong ClickHouse với đúng số dòng",
     "pass": true,
-    "actual": "bảng raw_t2_d100 có 5 dòng (mong đợi 5)"
+    "actual": "bảng raw_t2_d320 có 5 dòng (mong đợi 5)"
   },
   {
     "id": "NA-03",
@@ -81,13 +81,13 @@
     "id": "MH-02",
     "title": "Tạo mô hình BẮT BUỘC chọn bộ dữ liệu",
     "pass": true,
-    "actual": "danh sách rỗng -> HTTP 400; chọn 1 bộ -> HTTP 201, mô hình id=37 có 1 bảng"
+    "actual": "danh sách rỗng -> HTTP 400; chọn 1 bộ -> HTTP 201, mô hình id=143 có 1 bảng"
   },
   {
     "id": "MH-03",
     "title": "Sinh file schema Cube và MỌI cột đều mang tiền tố ${CUBE}.",
     "pass": true,
-    "actual": "file dm37.js có 5 dòng sql:, số dòng THIẾU tiền tố ${CUBE}. = 0"
+    "actual": "file dm143.js có 11 dòng sql:, số dòng THIẾU tiền tố ${CUBE}. = 0"
   },
   {
     "id": "MH-04",
