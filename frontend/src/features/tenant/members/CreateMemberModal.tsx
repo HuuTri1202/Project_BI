@@ -1,5 +1,6 @@
 ﻿import {
   JOB_TITLES,
+  JOB_TITLE_OPTIONS,
   TENANT_ROLE_LABELS,
   emailRule,
   fullNameRule,
@@ -146,7 +147,7 @@ export function CreateMemberModal({
         />
         <SelectField
           label="Chức danh (không bắt buộc)"
-          options={JOB_TITLES}
+          options={JOB_TITLE_OPTIONS}
           placeholder="— Không chọn —"
           error={errors.jobTitle?.message}
           registration={register('jobTitle')}

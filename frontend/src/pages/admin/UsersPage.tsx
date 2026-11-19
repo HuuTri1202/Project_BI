@@ -1,4 +1,4 @@
-﻿import type { PlatformUserDto } from '@bi/shared';
+﻿import { nhanChucDanh, type PlatformUserDto } from '@bi/shared';
 import { useMemo, useState } from 'react';
 import { useAuth } from '../../auth/useAuth';
 import { Badge } from '../../components/ui/Badge';
@@ -175,8 +175,10 @@ export default function UsersPage(): React.ReactElement {
                     <Tr key={user.id}>
                       <Td>
                         <div className="font-medium text-slate-900">{user.fullName}</div>
-                        {user.jobTitle && (
-                          <div className="text-xs text-slate-500">{user.jobTitle}</div>
+                        {nhanChucDanh(user.jobTitle) !== null && (
+                          <div className="text-xs text-slate-500">
+                            {nhanChucDanh(user.jobTitle)}
+                          </div>
                         )}
                       </Td>
                       <Td>

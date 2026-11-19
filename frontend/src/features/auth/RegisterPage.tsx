@@ -1,4 +1,4 @@
-import { JOB_TITLES, registerSchema, type JobTitle, type RegisterInput } from '@bi/shared';
+import { JOB_TITLE_OPTIONS, registerSchema, type JobTitle, type RegisterInput } from '@bi/shared';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useState } from 'react';
 import { useForm } from 'react-hook-form';
@@ -17,6 +17,26 @@ import { Field, SelectField } from '../../components/ui/Field';
  * dùng bị từ chối bởi một luật server không hề có) hay lỏng hơn (form báo hợp lệ
  * rồi server trả 400).
  */
+/**
+ * Tên NGẮN của từng ô — vá B1.
+ *
+ * Một bảng, hai nơi dùng: nhãn trên ô, và câu "Còn thiếu: …" dưới nút. Viết tay
+ * hai lần thì lần sửa đầu tiên làm chúng lệch nhau, và khi đó câu "còn thiếu"
+ * gọi tên một ô không tồn tại trên màn hình.
+ *
+ * Thứ tự các khoá là thứ tự ĐỌC của form, nên câu "còn thiếu" liệt kê theo đúng
+ * chiều mắt người dùng đang đi.
+ */
+const NHAN_O: Record<keyof RegisterInput, string> = {
+  fullName: 'Họ và tên',
+  email: 'Email',
+  password: 'Mật khẩu',
+  confirmPassword: 'Nhập lại mật khẩu',
+  phone: 'Số điện thoại',
+  companyName: 'Tên công ty',
+  jobTitle: 'Chức danh',
+};
+
 export function RegisterPage() {
   const navigate = useNavigate();
   const [formError, setFormError] = useState<string | null>(null);
@@ -112,6 +132,22 @@ export function RegisterPage() {
    * Đây thuần tuý là lớp hiển thị: `isValid` (và do đó nút Submit) vẫn do
    * resolver quyết định, và backend vẫn kiểm lại bằng chính schema đó.
    */
+  /*
+   * Những ô CÒN TRỐNG, để nói thẳng vì sao nút Đăng ký còn xám — vá B1.
+   *
+   * Lỗi đã đo khi dùng hệ thống như người thật: điền 6 trong 7 ô, nút vẫn xám,
+   * và KHÔNG có chữ nào nói vì sao. Lỗi của từng ô thì chỉ hiện sau khi ô đó
+   * được chạm vào (`touchedFields`), nên một ô chưa ai bấm vào thì im lặng hoàn
+   * toàn — người dùng không có cách nào biết mình còn thiếu cái gì.
+   *
+   * `watch()` không tham số nên component render lại mỗi lần gõ. Với một form
+   * bảy ô thì đó là cái giá đúng để trả.
+   */
+  const dangNhapLieu = watch();
+  const oConTrong = (Object.keys(NHAN_O) as (keyof RegisterInput)[]).filter(
+    (field) => (dangNhapLieu[field] ?? '') === '',
+  );
+
   const password = watch('password');
   const confirmPassword = watch('confirmPassword');
   const confirmMismatch =
@@ -152,13 +188,15 @@ export function RegisterPage() {
 
       <form onSubmit={onSubmit} noValidate className="space-y-4">
         <Field
-          label="Họ và tên"
+          label={NHAN_O.fullName}
+          required
           autoComplete="name"
           error={errorOf('fullName')}
           registration={register('fullName')}
         />
         <Field
-          label="Email"
+          label={NHAN_O.email}
+          required
           type="email"
           autoComplete="email"
           error={errorOf('email')}
@@ -172,7 +210,8 @@ export function RegisterPage() {
 
         <div className="grid gap-4 sm:grid-cols-2">
           <Field
-            label="Mật khẩu"
+            label={NHAN_O.password}
+            required
             type="password"
             autoComplete="new-password"
             revealable
@@ -180,7 +219,8 @@ export function RegisterPage() {
             registration={register('password')}
           />
           <Field
-            label="Nhập lại mật khẩu"
+            label={NHAN_O.confirmPassword}
+            required
             type="password"
             autoComplete="new-password"
             revealable
@@ -195,7 +235,8 @@ export function RegisterPage() {
         )}
 
         <Field
-          label="Số điện thoại"
+          label={NHAN_O.phone}
+          required
           type="tel"
           autoComplete="tel"
           hint="Gõ kiểu nào cũng được: 0901234567, +84 901 234 567…"
@@ -203,15 +244,17 @@ export function RegisterPage() {
           registration={register('phone')}
         />
         <Field
-          label="Tên công ty (tổ chức sẽ được tạo)"
+          label={`${NHAN_O.companyName} (tổ chức sẽ được tạo)`}
+          required
           autoComplete="organization"
           hint="Đây là tên tổ chức mới mà bạn làm quản trị viên."
           error={errorOf('companyName')}
           registration={register('companyName')}
         />
         <SelectField
-          label="Chức danh"
-          options={JOB_TITLES}
+          label={NHAN_O.jobTitle}
+          required
+          options={JOB_TITLE_OPTIONS}
           placeholder="— Chọn chức danh —"
           error={errorOf('jobTitle')}
           registration={register('jobTitle')}
@@ -224,6 +267,17 @@ export function RegisterPage() {
         >
           Đăng ký
         </SubmitButton>
+
+        {/* Nút xám thì phải nói vì sao xám. `role="status"` chứ không `alert`:
+            đây là tình trạng của form, không phải một lỗi người dùng vừa gây
+            ra — `alert` sẽ cắt ngang trình đọc màn hình ở mỗi ký tự được gõ. */}
+        {!isValid && !isSubmitting && (
+          <p role="status" className="text-center text-sm text-slate-500">
+            {oConTrong.length > 0
+              ? `Còn thiếu: ${oConTrong.map((field) => NHAN_O[field]).join(', ')}.`
+              : 'Hãy sửa những ô đang báo đỏ để tiếp tục.'}
+          </p>
+        )}
       </form>
     </AuthLayout>
   );

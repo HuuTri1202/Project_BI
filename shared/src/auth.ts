@@ -109,19 +109,83 @@ export const phoneRule = z
  * mang giá trị không còn nằm trong danh sách.
  */
 export const JOB_TITLES = [
+  // Bốn mục dưới đây THÊM MỚI cho vá B1 — xem khối chú thích ngay dưới danh sách.
+  'Business Owner',
+  'Sales / Marketing',
+  'Accounting / Finance',
+  'Operations',
+  'Department Manager / Director',
   'Data Analyst',
   'Business Analyst',
   'BI Developer',
   'Data Engineer',
   'Data Scientist',
   'Product Manager',
-  'Department Manager / Director',
   'Database Administrator',
   'IT Manager / CTO',
   'Other',
 ] as const;
 
 export type JobTitle = (typeof JOB_TITLES)[number];
+
+/**
+ * Chữ HIỂN THỊ cho người dùng — vá B1 và C4.
+ *
+ * ═══ Hai lỗi đã đo khi dùng hệ thống như người thật ════════════════════════
+ *
+ *   B1  Danh sách chức danh trong form đăng ký bằng TIẾNG ANH giữa một form
+ *       tiếng Việt, và không có mục nào cho một chủ cửa hàng chọn ngoài
+ *       "Other". Danh sách cũ giả định khách hàng là đội dữ liệu doanh nghiệp.
+ *   C4  Bảng Thành viên in thẳng giá trị đã lưu, nên dưới tên người hiện chữ
+ *       "Other".
+ *
+ * ═══ Vì sao là BẢNG NHÃN, không phải đổi chữ trong `JOB_TITLES` ════════════
+ *
+ * Chuỗi trong `JOB_TITLES` được lưu thẳng vào `users.job_title`. Đổi chữ của
+ * một mục sẽ làm mọi bản ghi cũ mang giá trị không còn nằm trong danh sách —
+ * chính cảnh báo đã viết sẵn ở trên. Nên giá trị lưu giữ nguyên từng byte, và
+ * chỉ thêm một lớp dịch khi hiển thị.
+ *
+ * THỨ TỰ thì đổi được tự do: nó không phải dữ liệu, chỉ là thứ tự dòng trong
+ * thẻ <select>. Bốn mục nghiệp vụ lên đầu vì đó là khách hàng thật của một
+ * nền tảng BI nhỏ, còn "Khác" xuống cuối đúng chỗ của nó.
+ *
+ * `Record<JobTitle, string>` chứ không phải `Partial`: thêm một chức danh mà
+ * quên nhãn là lỗi BIÊN DỊCH, không phải một ô trống trên màn hình.
+ */
+export const JOB_TITLE_LABELS: Record<JobTitle, string> = {
+  'Business Owner': 'Chủ doanh nghiệp / chủ cửa hàng',
+  'Sales / Marketing': 'Kinh doanh / marketing',
+  'Accounting / Finance': 'Kế toán / tài chính',
+  Operations: 'Vận hành / kho',
+  'Department Manager / Director': 'Trưởng phòng / giám đốc',
+  'Data Analyst': 'Chuyên viên phân tích dữ liệu',
+  'Business Analyst': 'Chuyên viên phân tích nghiệp vụ',
+  'BI Developer': 'Lập trình viên BI',
+  'Data Engineer': 'Kỹ sư dữ liệu',
+  'Data Scientist': 'Chuyên gia khoa học dữ liệu',
+  'Product Manager': 'Quản lý sản phẩm',
+  'Database Administrator': 'Quản trị cơ sở dữ liệu',
+  'IT Manager / CTO': 'Trưởng phòng IT / CTO',
+  Other: 'Khác',
+};
+
+/** Dạng sẵn dùng cho thẻ <select>, đúng thứ tự của `JOB_TITLES`. */
+export const JOB_TITLE_OPTIONS: readonly { value: JobTitle; label: string }[] = JOB_TITLES.map(
+  (value) => ({ value, label: JOB_TITLE_LABELS[value] }),
+);
+
+/**
+ * Nhãn để HIỆN, chịu được cả giá trị không còn trong danh sách.
+ *
+ * Trả về chính giá trị đã lưu khi không tra được: trong database dev có những
+ * dòng `job_title` do seed hoặc do một bản cũ ghi vào ('Trưởng phòng dữ liệu'),
+ * và hiện nguyên văn vẫn đúng hơn là hiện một ô trống hay chữ "Khác".
+ */
+export function nhanChucDanh(jobTitle: string | null): string | null {
+  if (jobTitle === null || jobTitle === '') return null;
+  return JOB_TITLE_LABELS[jobTitle as JobTitle] ?? jobTitle;
+}
 
 export const jobTitleRule = z.enum(JOB_TITLES, {
   // Không có errorMap thì zod trả "Invalid enum value. Expected 'Data Analyst' |

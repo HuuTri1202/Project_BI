@@ -1,4 +1,10 @@
-import { JOB_TITLES, normalizePhone, phoneRule, registerFields } from '@bi/shared';
+import {
+  JOB_TITLES,
+  JOB_TITLE_OPTIONS,
+  normalizePhone,
+  phoneRule,
+  registerFields,
+} from '@bi/shared';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useMemo, useState } from 'react';
 import { useForm } from 'react-hook-form';
@@ -179,7 +185,7 @@ function ProfileForm(): React.ReactElement {
         <SelectField
           label="Chức danh"
           registration={register('jobTitle')}
-          options={JOB_TITLES}
+          options={JOB_TITLE_OPTIONS}
           placeholder="Không chọn"
           allowEmpty
           error={errors.jobTitle?.message}
