@@ -40,12 +40,23 @@ thuộc chỗ nào:
 ### 1. Bộ tự động
 
 ```bash
-npm run test              # 137 ca backend + 24 ca frontend, không cần hạ tầng
-npm run test:integration  # 417 ca, cần MySQL — BỎ QUA nhánh ClickHouse
+npm run test              # 504 ca backend + 918 ca frontend, không cần hạ tầng
+npm run test:integration  # cần MySQL — BỎ QUA nhánh ClickHouse
 
 # Đầy đủ, gồm cả nhánh chạm ClickHouse thật (cần npm run infra:up):
 npm --workspace backend run test:integration:ch
 ```
+
+> ⚠️ **Database test phải được MIGRATE TAY** trước khi chạy lane tích hợp:
+>
+> ```bash
+> MYSQL_DATABASE=bi_platform_test npm --workspace backend run migrate
+> ```
+>
+> Không ai làm việc đó hộ: `vitest.integration.config.ts` chỉ ghi ra lời nhắc.
+> Quên thì triệu chứng KHÔNG nói gì về nguyên nhân — một lần quên sau migration
+> 43 cho ra 69 ca đỏ với `Unknown column 'number_format'`, trông hệt như một
+> bản vá làm hỏng mọi thứ.
 
 > ⚠️ `test:integration` **không** chạy 14 ca ClickHouse — nạp, nạp lại, hoán đổi
 > nguyên tử, janitor. Đó là lý do hai ca trong số đó đã mâu thuẫn với thiết kế
@@ -113,7 +124,8 @@ một lỗi mà cả 873 ca jsdom lẫn 777 ca backend đều không thấy: khu
 nó trả 400 và nó trả lời như thể tổ chức chưa có dữ liệu gì. Test frontend mock
 API nên không thấy; test backend không mở màn hình nên cũng không thấy.
 
-**Bốn hành trình hiện có.**
+**Mười hai hành trình hiện có.** (Tiêu đề cũ ghi "bốn" từ thời bộ này có bốn
+tệp — bảng dưới mới là nguồn sự thật.)
 
 | Tệp | Thứ chỉ trình duyệt thật trả lời được |
 | --- | --- |
@@ -124,6 +136,11 @@ API nên không thấy; test backend không mở màn hình nên cũng không th
 | `xuat-tep.spec.ts` | Bấm Xuất thì một TỆP THẬT có rơi xuống đĩa không. `modern-screenshot` cần layout engine và canvas vẽ được; `taiXuong()` tạo `<a download>` rồi click — trong jsdom cả hai là lời gọi không làm gì. Kiểm PNG bằng cách **đếm điểm ảnh mang màu cột**, và kiểm Excel bằng cách **đọc ngược tệp bằng `exceljs`** rồi so từng con số |
 | `keo-tha.spec.ts` | KÉO một ô trên khung bằng con trỏ thật. `CanvasBoard` dùng Pointer Events + `setPointerCapture`, đọc toạ độ ở từng khung hình và ghi `el.style` trong `requestAnimationFrame` — trong jsdom không có layout nên `getBoundingClientRect` trả 0 và bước quy về ô lưới chia cho 0. Cả §10.20 là mã chưa từng chạy trong ca test nào trước ca này |
 | `sua-bieu-do.spec.ts` | Kéo một TRƯỜNG vào ô Chiều dữ liệu — HTML5 drag-and-drop, API khác hẳn ca trên. **Đây là ca có bằng chứng mạnh nhất cho cả bộ:** xoá `e.preventDefault()` trong `Shelf.onDragOver` làm kéo-thả chết hẳn với mọi người dùng, và **873/873 ca jsdom vẫn xanh** — cái cổng "phần tử này nhận thả được" là của trình duyệt, jsdom không có nó. Ca này đỏ |
+| `bao-cao-tu-bo.spec.ts` | Một cú bấm từ menu dòng Kho dữ liệu có tới được trình dựng không (vá B2). Việc được kiểm là một CHUỖI CHUYỂN TRANG: `POST /datamodels` rồi điều hướng, rồi trình dựng phải mở ra với ô thả có thật — jsdom không có router thật của trang và không có ClickHouse để mô hình dựng lên |
+| `dien-thoai.spec.ts` | Bố cục trên màn 390px, ĐO BẰNG PIXEL (vá B5). jsdom không có engine bố cục: mọi `getBoundingClientRect` trả 0, nên ở đó không phân biệt được một bản vá CSS đúng với một bản vá không chạy |
+| `ghi-nho-dang-nhap.spec.ts` | Mở context THỨ HAI từ `storageState` của context đầu — mô phỏng đúng lần đóng trình duyệt, vì Playwright chỉ chép `localStorage`, không chép `sessionStorage` (mong muốn D7). Ba bản giả trong `appSession.test.ts` không chứng minh được trình duyệt thật hành xử như chúng |
+| `chia-se.spec.ts` | Liên kết chia sẻ mở được trong một trình duyệt SẠCH, không token nào (mong muốn D5). Và một khẳng định sinh ra từ một đột biến ĐI QUA: chặn request để đọc header `Authorization` khi người ĐANG đăng nhập mở liên kết của chính mình |
+| `gui-dinh-ky.spec.ts` | Ba ô chọn của hộp "Gửi định kỳ" có gửi lên đúng `tanSuat`/`thu`/`gio` không, và câu "chỉ gửi cho thành viên" có HIỆN RA không (mong muốn D6). Mốc đã lưu phải là 01:00 UTC cho lịch 8 giờ sáng — chỗ một lỗi múi giờ hiện ra |
 
 Bệ đỡ của hai ca báo cáo (`dungBaoCaoMau`, `xoaBaoCaoVaBoTheoTen`) nằm ở
 `e2e/helpers.ts`, dùng chung — mỗi ca truyền TÊN RIÊNG, vì hai ca chạy nối nhau
@@ -157,7 +174,7 @@ sản phẩm đội lốt giới hạn của bộ test: người dùng thật c�
 token ở `layToken` thì vẫn giữ — nó tiết kiệm ~300 ms bcrypt mỗi ca — nhưng không
 còn là thứ chống đỡ cái trần nữa.
 
-**Bộ này đã tìm ra bốn lỗi thật của sản phẩm, không phải của chính nó:**
+**Bộ này đã tìm ra năm lỗi thật của sản phẩm, không phải của chính nó:**
 
 1. khung hỏi đáp xin `pageSize=200` trong khi máy chủ chặn ở 100 — cả ba truy vấn
    ngữ cảnh trả 400 và nó trả lời như thể tổ chức chưa có dữ liệu gì;
@@ -166,8 +183,12 @@ còn là thứ chống đỡ cái trần nữa.
    `cubeSchemaStore.doiTenCoThuLai`);
 3. khi dựng ca `sua-bieu-do`, đo được rằng xoá `preventDefault()` trong
    `Shelf.onDragOver` đi qua được cả 873 ca jsdom mà không ca nào kêu;
-4. và cái trần 8-trên-10 ở trên: hạn nhịp đếm cả lần đăng nhập THÀNH CÔNG, nên
-   người dùng thật cũng bị khoá đúng như bộ test (A4, đã vá).
+4. cái trần 8-trên-10 ở trên: hạn nhịp đếm cả lần đăng nhập THÀNH CÔNG, nên
+   người dùng thật cũng bị khoá đúng như bộ test (A4, đã vá);
+5. và một ĐỘT BIẾN ĐI QUA, loại bằng chứng ngược: đổi `axios` thành `apiClient`
+   ở đường đọc liên kết chia sẻ không làm ca `chia-se` đỏ, vì trình duyệt sạch
+   không có token nào để gắn. Khẳng định "lời gọi công khai không mang token của
+   người đang đăng nhập" được viết ra CHÍNH VÌ chỗ trống đó.
 
 **Trần thời gian là số ĐO, không phải số đoán.** Mỗi lượt chạy khởi động Vite
 LẠNH (`reuseExistingServer` không có gì dùng lại khi 5173 chưa listening), nên
