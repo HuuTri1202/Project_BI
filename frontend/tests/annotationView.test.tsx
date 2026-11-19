@@ -155,6 +155,20 @@ describe('CanvasView với chú thích', () => {
     );
 
   /** Ô lưới của một chú thích, tìm theo nội dung chứ không theo vị trí trong DOM. */
+  /*
+   * Tìm LƯỚI bằng class, không bằng `container.firstElementChild`.
+   *
+   * `CanvasView` vẽ những dòng chữ ngắn TRƯỚC lưới khi có chuyện cần nói — số
+   * liệu đang cập nhật, và từ vá B5 là câu "màn hình hẹp nên chú thích không
+   * hiện". Bản đầu của bộ test này coi lưới là con đầu tiên, nên nó đỏ cả bốn ca
+   * ngay khi một dòng chữ như thế xuất hiện, dù không có gì về chú thích đổi.
+   */
+  const luoi = (container: HTMLElement): HTMLElement => {
+    const el = container.querySelector('.khung-xem-doc');
+    if (el === null) throw new Error('không tìm thấy lưới khung trong cây vừa dựng');
+    return el as HTMLElement;
+  };
+
   const oCua = (grid: HTMLElement) => {
     const cells = [...grid.children] as HTMLElement[];
     return {
@@ -167,7 +181,7 @@ describe('CanvasView với chú thích', () => {
 
   it('ba tầng do z-index quyết định: khung nền 1, biểu đồ 2, chú thích nổi 3', () => {
     const { container } = ve();
-    const o = oCua(container.firstElementChild as HTMLElement);
+    const o = oCua(luoi(container));
 
     expect(o.bieuDo?.style.zIndex).toBe('2');
     expect(o.chu?.style.zIndex).toBe('3');
@@ -185,7 +199,7 @@ describe('CanvasView với chú thích', () => {
         <CanvasView page={page} reportId={1} data={undefined} />
       </QueryClientProvider>,
     );
-    const truoc = oCua(container.firstElementChild as HTMLElement).nen;
+    const truoc = oCua(luoi(container)).nen;
 
     rerender(
       <QueryClientProvider client={client}>
@@ -196,7 +210,7 @@ describe('CanvasView với chú thích', () => {
         />
       </QueryClientProvider>,
     );
-    const grid = container.firstElementChild as HTMLElement;
+    const grid = luoi(container);
     const sau = [...grid.children].find(
       (el) => (el.firstElementChild as HTMLElement | null)?.style.borderRadius === '50%',
     ) as HTMLElement;
@@ -207,7 +221,7 @@ describe('CanvasView với chú thích', () => {
 
   it('đường kẻ và hình không chặn chuột của biểu đồ; hộp chữ thì chép được', () => {
     const { container } = ve();
-    const o = oCua(container.firstElementChild as HTMLElement);
+    const o = oCua(luoi(container));
 
     expect(o.nen).toHaveClass('pointer-events-none');
     expect(o.duong).toHaveClass('pointer-events-none');
@@ -221,7 +235,7 @@ describe('CanvasView với chú thích', () => {
     //
     // Từ §10.24 điều này CHỈ còn đúng nhờ `rowsNeeded` + `minHeight`: chú thích
     // định vị tuyệt đối, nó không còn là ô lưới nên không tự kéo dài khung nữa.
-    expect((container.firstElementChild as HTMLElement).style.minHeight).toBe(
+    expect(luoi(container).style.minHeight).toBe(
       `${11 * (CANVAS_ROW_HEIGHT + CANVAS_GAP) - CANVAS_GAP}px`,
     );
   });

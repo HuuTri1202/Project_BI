@@ -171,3 +171,68 @@
 .vega-embed svg {
   display: block;
 }
+
+/*
+ * Khung báo cáo trên ĐIỆN THOẠI: xếp dọc, mỗi ô một hàng — vá B5.
+ *
+ * ⚠️ Lỗi đã đo trên máy thật, màn 390px: ô biểu đồ giữ nguyên 6/12 cột của bố
+ * cục desktop, nên nó chiếm đúng nửa màn hình và nửa còn lại để trắng. Một biểu
+ * đồ rộng 195px thì không đọc được trục, và người dùng không có cách nào nới nó
+ * ra — bố cục là của báo cáo, không phải của lần xem này.
+ *
+ * ─── Vì sao bằng CSS, không bằng JavaScript ────────────────────────────────
+ *
+ * Toạ độ ô là dữ liệu (`gridColumn: x+1 / span w`), nên nó buộc phải đi qua
+ * style nội tuyến — mà style nội tuyến không mang được media query. Hai đường
+ * còn lại đều tệ hơn: một `useMediaQuery` thêm một bộ lắng nghe `resize` và một
+ * nhịp render nữa cho mỗi lần đổi cỡ, còn dựng hai cây DOM cho hai bề rộng là
+ * hai bản cài đặt của cùng một bố cục — đúng thứ `CanvasGrid` sinh ra để tránh.
+ *
+ * Luật dưới đây GHI ĐÈ đúng ba thuộc tính và chỉ dưới `lg`, nên bố cục desktop
+ * không đổi một pixel nào.
+ *
+ * ─── `order` lấy từ biến, và vì sao nó không chạm tới desktop ───────────────
+ *
+ * Thứ tự ĐỌC trên điện thoại phải là trên-xuống rồi trái-sang-phải, còn thứ tự
+ * trong DOM là thứ tự người dùng tạo ô. `--doc-thu-tu` do `cellStyle` tính sẵn,
+ * nhưng chỉ luật này đọc nó — ở desktop không có `order` nào được đặt, nên thứ
+ * tự xếp chồng của những ô ĐÈ NHAU vẫn đúng là thứ tự DOM như `CanvasGrid` đã
+ * ghi.
+ */
+@media (max-width: 1023px) {
+  .khung-xem-doc {
+    grid-template-columns: 1fr !important;
+    /* `auto` chứ không phải chiều cao hàng cố định: ô đứng một mình nên nó cao
+       theo nội dung, không theo số hàng người dựng đã kéo. */
+    grid-auto-rows: auto !important;
+    min-height: 0 !important;
+  }
+
+  .khung-xem-doc > [data-visual-id] {
+    grid-column: 1 / -1 !important;
+    grid-row: auto !important;
+    order: var(--doc-thu-tu, 0);
+    /*
+     * Trần dưới cho một biểu đồ còn đọc được trục; cao hơn thì nội dung tự nới.
+     *
+     * `!important` là BẮT BUỘC, và đo được: `cellStyle` đặt `min-height: 0` nội
+     * tuyến (nó cần thế trên desktop để nội dung rộng không làm ô phình ra), mà
+     * style nội tuyến thắng stylesheet. Thiếu nó thì ô xếp dọc cao đúng 63px —
+     * tiêu đề cộng một biểu đồ cao 0px, vì chiều cao của biểu đồ vốn lấy từ
+     * chiều cao hàng lưới mà hàng giờ là `auto`.
+     */
+    min-height: 15rem !important;
+  }
+
+  /*
+   * Chú thích tự do thì ẨN, và trang NÓI RA việc đó (xem `CanvasView`).
+   *
+   * Toạ độ của nó là số thực trên lưới 12 cột (`annotationStyle`), nên khi các ô
+   * đã xếp dọc thì một mũi tên chỉ vào "cột 7, hàng 3" không còn chỉ vào gì cả.
+   * Vẽ nó ở một chỗ sai còn tệ hơn là không vẽ: người đọc sẽ tin rằng nó đang
+   * chỉ vào con số nằm dưới nó.
+   */
+  .khung-xem-doc > [data-annotation-id] {
+    display: none;
+  }
+}

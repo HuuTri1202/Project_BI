@@ -369,7 +369,9 @@ export default function DatasetsPage(): React.ReactElement {
         {/* Cột thư mục và danh sách nằm CẠNH nhau, cùng một khung cuộn: cột bên
             trái ngắn và không cuộn riêng, nên hai thanh cuộn lồng nhau chỉ làm
             người dùng lăn chuột vào nhầm chỗ. */}
-        <div className="flex min-h-0 flex-1 gap-4">
+        {/* Dưới `lg`: XẾP DỌC — vá B5. Cạnh nhau trên màn 390px thì cột thư
+            mục ăn 224px và bảng chỉ còn ~150px để hiện một bảng rộng 52rem. */}
+        <div className="flex min-h-0 flex-1 flex-col gap-4 lg:flex-row">
           <FolderRail
             danhTu={DANH_TU}
             folders={danhSachThuMuc}
@@ -395,7 +397,12 @@ export default function DatasetsPage(): React.ReactElement {
            * Có `min-w-0` thì cột co đúng chỗ còn lại, và `overflow-auto` của
            * `TableWrap` mới có việc để làm: bảng chật thì CHÍNH NÓ cuộn ngang.
            */}
-          <div className="flex min-h-0 min-w-0 flex-1 flex-col border-l border-slate-200 pl-4">
+          <div
+            /* Mốc đo cho ca e2e trên điện thoại (vá B5): bố cục phải kiểm được
+               cả khi danh sách đang RỖNG, nên không thể đo bằng cái bảng. */
+            data-cot-danh-sach=""
+            className="flex min-h-0 min-w-0 flex-1 flex-col border-t border-slate-200 pt-4 lg:border-t-0 lg:border-l lg:pt-0 lg:pl-4"
+          >
             {isError && <ErrorState message={getApiError(error).message} />}
 
             {/* Lỗi của "Tạo báo cáo" hiện ở ĐẦU bảng, không phải trong menu

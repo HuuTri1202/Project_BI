@@ -80,7 +80,19 @@ export function CanvasView({
           Số liệu lần trước — đang cập nhật…
         </p>
       )}
-      <CanvasGrid minRows={rowsNeeded([...page.visuals, ...page.annotations])}>
+      {/* Chú thích bị ẩn khi khung xếp dọc (xem `index.css`), nên NÓI RA. Một
+          mũi tên biến mất không lời nào là một câu hỏi người đọc không trả lời
+          được: "máy mình hỏng, hay báo cáo vốn không có?" */}
+      {page.annotations.length > 0 && (
+        <p className="mb-2 text-xs text-slate-400 lg:hidden">
+          Màn hình hẹp nên các ô xếp dọc; {page.annotations.length} chú thích vẽ trên khung chỉ
+          hiện trên màn rộng.
+        </p>
+      )}
+      <CanvasGrid
+        className="khung-xem-doc"
+        minRows={rowsNeeded([...page.visuals, ...page.annotations])}
+      >
         {page.visuals.map((visual) => {
           const cell = byId.get(visual.id);
           return (
