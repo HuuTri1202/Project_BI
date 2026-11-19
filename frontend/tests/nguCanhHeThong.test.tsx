@@ -99,7 +99,7 @@ const KET_NOI = {
 
 const TRANG_CHU = {
   workspace: { id: 5, name: 'HR' },
-  stats: { reports: 7, members: 3 },
+  stats: { reports: 7, members: 3, datasets: 12, datamodels: 3 },
   reports: [],
 } as unknown as HomeDataDto;
 

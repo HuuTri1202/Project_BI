@@ -47,6 +47,17 @@ export interface HomeDataDto {
     reports: number;
     /** Thành viên còn trong tổ chức. Phạm vi TỔ CHỨC, không phải workspace. */
     members: number;
+    /**
+     * Bộ dữ liệu và mô hình — chỉ để trang chủ biết người dùng đang đứng ở ĐÂU
+     * trong ba bước đầu (vá C1), không phải để hiện thành thẻ số.
+     *
+     * Phạm vi TỔ CHỨC như hai màn Kho dữ liệu và Mô hình dữ liệu, không lọc
+     * theo workspace: lọc ở đây mà hai màn kia thì không sẽ cho ra một lời
+     * hướng dẫn nói "chưa có bộ dữ liệu nào" trong khi màn Kho dữ liệu đang
+     * hiện mười bộ.
+     */
+    datasets: number;
+    datamodels: number;
   };
 }
 

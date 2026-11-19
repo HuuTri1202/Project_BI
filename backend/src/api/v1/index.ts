@@ -373,10 +373,29 @@ v1Router.get(
       pageSize: 1,
     });
 
+    /*
+     * Hai con số cho lời hướng dẫn ba bước ở trang chủ — vá C1.
+     *
+     * Vẫn tuần tự, cùng lý do đã ghi ở trên. Hai câu `COUNT(*)` theo `tenant_id`
+     * trên bảng có chỉ mục, chỉ chạy ở lần mở trang.
+     */
+    // `sort`/`order` không ảnh hưởng `COUNT(*)` nhưng là trường bắt buộc của bộ
+    // lọc dùng chung với `list` — giữ một kiểu cho cả hai nơi thì không có đường
+    // nào để chúng lệch bộ lọc.
+    const demMotDong = { page: 1, pageSize: 1, order: 'desc' } as const;
+    const datasets = await datasetsRepo.count(mysqlPool, phamVi(req), {
+      ...demMotDong,
+      sort: 'name',
+    });
+    const datamodels = await datamodelsRepo.count(mysqlPool, phamVi(req), {
+      ...demMotDong,
+      sort: 'name',
+    });
+
     const body: HomeDataDto = {
       workspace,
       reports,
-      stats: { reports: reportTotal, members },
+      stats: { reports: reportTotal, members, datasets, datamodels },
     };
     res.json(body);
   }),

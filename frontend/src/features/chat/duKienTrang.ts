@@ -741,6 +741,17 @@ export function duKienTrangChu(home: HomeDataDto): Nguon[] {
       duKien: [
         ...dk(`Số báo cáo trong ${w}`, home.stats.reports),
         ...dk(`Số thành viên của ${w}`, home.stats.members),
+        /*
+         * ⚠️ `stats.datasets` và `stats.datamodels` CỐ Ý không khai ở đây, dù
+         * chúng về cùng lượt gọi (vá C1 cần chúng cho lời hướng dẫn ba bước).
+         *
+         * Khai rồi, và bộ đánh giá bắt được ngay: số câu ĐÚNG tụt 279 -> 278, ca
+         * mất là "có bao nhiêu mô hình dữ liệu" hỏi từ trang Hồ sơ. Lý do đúng
+         * như thiết kế: ngữ cảnh xuyên hệ thống đã mang sẵn số đếm ấy từ chính
+         * module của nó (`tomTatMoHinh`), nên thêm một dữ kiện nữa cùng nghĩa
+         * chỉ tạo ra HAI ứng viên cho một câu hỏi — và khung từ chối trả lời khi
+         * không phân xử được, đúng thứ nó phải làm.
+         */
         ...dk(`Báo cáo mở gần đây trong ${w}`, home.reports.map((r) => r.name).join('; ')),
       ],
     },

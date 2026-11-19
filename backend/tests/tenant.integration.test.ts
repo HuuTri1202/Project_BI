@@ -327,6 +327,41 @@ describe('trang Home (§4.3)', () => {
     expect(res.body.stats.reports).toBe(1);
   });
 
+  /**
+   * Hai số đếm nuôi lời hướng dẫn ba bước ở trang chủ — vá C1.
+   *
+   * Phạm vi của chúng là TỔ CHỨC, không phải workspace đang mở, và ca này canh
+   * đúng chỗ đó: lọc theo workspace ở đây trong khi màn Kho dữ liệu thì không
+   * sẽ cho ra lời hướng dẫn nói "chưa có bộ dữ liệu nào" ngay cạnh một màn đang
+   * hiện mười bộ.
+   */
+  it('đếm bộ dữ liệu theo phạm vi TỔ CHỨC, không theo workspace đang mở', async () => {
+    // Một bộ dữ liệu trong `wsA`, và CHỈ trong `wsA`.
+    await mysqlPool.query(
+      `INSERT INTO datasets
+         (tenant_id, source, workspace_id, name, original_filename, file_ext,
+          status, load_status, column_count, row_count)
+       VALUES (?, 'file', ?, 'don-hang', 'don-hang.csv', 'csv', 'ready', 'loaded', 2, 10)`,
+      [f.tenantA, f.wsA],
+    );
+
+    const res = await request(app)
+      .get(`/api/v1/home?workspaceId=${f.wsA}`)
+      .set(bearer(f.tokenAlice));
+    expect(res.status).toBe(200);
+    expect(res.body.stats.datasets).toBe(1);
+    expect(res.body.stats.datamodels).toBe(0);
+
+    // Hỏi từ workspace KHÁC của cùng tổ chức phải ra CÙNG con số — đây là thứ
+    // phân biệt "phạm vi tổ chức" với "phạm vi workspace", và là lý do câu
+    // hướng dẫn ở trang chủ không bao giờ nói "chưa có bộ dữ liệu nào" trong
+    // khi màn Kho dữ liệu đang hiện mười bộ.
+    const res2 = await request(app)
+      .get(`/api/v1/home?workspaceId=${f.wsA2}`)
+      .set(bearer(f.tokenAlice));
+    expect(res2.body.stats.datasets).toBe(1);
+  });
+
   it('workspace bị quản trị hệ thống khoá -> 403, không lặng lẽ đổi sang cái khác', async () => {
     await mysqlPool.query('UPDATE workspaces SET is_active = 0 WHERE id = ?', [f.wsA]);
 

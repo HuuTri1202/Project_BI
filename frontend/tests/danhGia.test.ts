@@ -191,7 +191,7 @@ function trangChu(): HomeDataDto {
 
   return {
     workspace: { id: 1, name: 'HR' },
-    stats: { reports: 7, members: 3 },
+    stats: { reports: 7, members: 3, datasets: 12, datamodels: 3 },
     reports: [
       bc(1, 'Quantity theo Customer Name', 'bar', 'Global-Superstore', 'dang'),
       bc(2, 'price theo name', 'bar', 'qr order', 'dang'),
