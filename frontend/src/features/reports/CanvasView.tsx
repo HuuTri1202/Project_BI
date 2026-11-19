@@ -40,6 +40,7 @@ export function CanvasView({
   data,
   refreshing = false,
   onRows,
+  congKhai = false,
 }: {
   page: ReportPageDto;
   /** Để từng ô tự hỏi trang nhóm tiếp theo của mình — xem `useReportVisualData`. */
@@ -54,6 +55,19 @@ export function CanvasView({
    * số của lúc nào trước khi kết luận gì từ nó.
    */
   refreshing?: boolean;
+  /**
+   * Đang vẽ cho người cầm LIÊN KẾT CHIA SẺ, không có phiên đăng nhập — mong
+   * muốn D5.
+   *
+   * Nó tắt đúng MỘT thứ: hai nút lật trang nhóm của từng ô. Chúng gọi
+   * `GET /v1/reports/:id/visuals/:visualId/data`, một route CÓ xác thực, nên
+   * trên trang công khai chúng sẽ 401 — một cú bấm hứa hẹn rồi không làm gì.
+   *
+   * KHÔNG dựng một bản vẽ riêng cho trang công khai: hai bản cài đặt của cùng
+   * một bố cục là thứ `CanvasGrid` sinh ra để tránh, và ở đây còn tệ hơn —
+   * người gửi liên kết sẽ không biết người nhận đang thấy cái gì.
+   */
+  congKhai?: boolean;
   /**
    * Ô khai lại bảng nó đang vẽ khi nó KHÔNG ở trang nhóm đầu — xem `trangNhom`
    * trong `ReportViewer`. `null` = ô đã về trang đầu, hoặc vừa rời màn hình.
@@ -112,6 +126,7 @@ export function CanvasView({
               cell={cell}
               loading={data === undefined}
               onRows={onRows}
+              congKhai={congKhai}
             />
           );
         })}
@@ -154,6 +169,7 @@ function ViewCard({
   cell,
   loading,
   onRows,
+  congKhai,
 }: {
   /** `${mã trang}:${mã ô}` — cùng chuỗi đang làm `key`, xem `onRows`. */
   khoa: string;
@@ -162,6 +178,8 @@ function ViewCard({
   cell: ReportCanvasDataDto['visuals'][number] | undefined;
   loading: boolean;
   onRows?: ((khoa: string, bang: ReportDataDto | null) => void) | undefined;
+  /** Xem `CanvasView.congKhai`. */
+  congKhai: boolean;
 }): React.ReactElement {
   /**
    * Trang NHÓM của riêng ô này — trạng thái của một lượt xem, không được lưu.
@@ -275,7 +293,9 @@ function ViewCard({
               chartType={visual.chartType}
               data={rows}
               options={visual.config.options}
-              onPage={setGroupPage}
+              // `undefined` = `Pager` không vẽ gì (xem `ReportChart`). Trang
+              // công khai không có token để lật trang nhóm.
+              onPage={congKhai ? undefined : setGroupPage}
               fit
             />
           </div>

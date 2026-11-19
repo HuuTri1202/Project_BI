@@ -8,6 +8,7 @@ import { adminRouter } from './api/admin';
 import { authRouter } from './api/auth';
 import { healthRouter } from './api/health';
 import { v1Router } from './api/v1';
+import { publicRouter } from './api/public';
 import { webhookRouter } from './api/webhooks';
 import { env, isProduction, isTest } from './config/env';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler';
@@ -78,6 +79,16 @@ export function createApp(): Express {
   // gọi là máy chủ của cổng, không có token và không thuộc tổ chức nào. Thứ
   // thay cho phiên đăng nhập là chữ ký HMAC trên thân request.
   app.use('/api/webhooks', webhookRouter);
+  /*
+   * Bề mặt CÔNG KHAI — mong muốn D5, liên kết xem báo cáo.
+   *
+   * NGOÀI `/api/v1` một cách có chủ ý, cùng lý lẽ đã đặt webhook ra ngoài: người
+   * gọi không có token và không thuộc tổ chức nào. `v1Router` gắn xác thực cho
+   * MỌI route của nó, và đó là một tài sản — bỏ guard cho đúng một đường ở giữa
+   * là làm câu "mọi route v1 đều được xác thực" thành một câu không còn tin
+   * được. Luật của bề mặt này nằm ở `api/public/index.ts`.
+   */
+  app.use('/api/public', publicRouter);
   // Khu quản trị tổ chức — tự gắn đủ ba lớp guard bên trong router của nó.
   app.use('/api/admin', adminRouter);
   app.use('/api/v1', v1Router);

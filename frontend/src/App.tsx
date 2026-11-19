@@ -12,6 +12,8 @@ import ForgotPasswordPage from './pages/ForgotPasswordPage';
 import LoginPage from './pages/LoginPage';
 import ResetPasswordPage from './pages/ResetPasswordPage';
 import VerifyEmailPage from './pages/VerifyEmailPage';
+
+const XemChiaSePage = lazy(() => import('./pages/XemChiaSePage'));
 import NotFoundPage from './pages/NotFoundPage';
 import { AdminRoute } from './routes/AdminRoute';
 import { ProtectedRoute } from './routes/ProtectedRoute';
@@ -140,6 +142,18 @@ export default function App(): React.ReactElement {
           đăng nhập được. Đường dẫn tiếng Việt vì nó hiện trong email gửi đi —
           cùng luật với hai đường quên-mật-khẩu ngay trên. */}
         <Route path="/xac-minh-email" element={<VerifyEmailPage />} />
+        {/*
+         * Xem báo cáo bằng LIÊN KẾT — mong muốn D5. CÔNG KHAI: người mở nó
+         * không có tài khoản và sẽ không đăng nhập.
+         *
+         * Nạp LƯỜI, khác bốn trang công khai ở trên: nó kéo theo cả cây vẽ biểu
+         * đồ (`CanvasView` -> `VegaChart` -> vega), và không có lý do gì để một
+         * người vào trang đăng nhập phải tải chừng đó byte.
+         *
+         * Đường dẫn tiếng Việt, cùng luật với `/xac-minh-email`: nó sẽ nằm
+         * trong tin nhắn gửi cho người ngoài tổ chức.
+         */}
+        <Route path="/xem/:chuoi" element={<XemChiaSePage />} />
         <Route path="/403" element={<ForbiddenPage />} />
 
         {/* Đã đăng nhập, nhưng ĐƯỢC PHÉP ở lại khi còn cờ mustChangePassword */}

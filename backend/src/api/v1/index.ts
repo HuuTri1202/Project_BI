@@ -27,10 +27,9 @@ import {
   type HomeDataDto,
   type PermissionMatrixDto,
   type ReportConfigDto,
-  type ReportCanvasDataDto,
   type ReportDataDto,
-  type ReportPageDto,
-  type ReportVisualDataDto,
+  type ReportShareCreatedDto,
+  type ReportShareDto,
   type TenantRole,
   type WorkspaceOptionDto,
 } from '@bi/shared';
@@ -56,6 +55,8 @@ import type { Db } from '../../repositories/db';
 import * as membershipsRepo from '../../repositories/memberships';
 import * as reportFoldersRepo from '../../repositories/reportFolders';
 import * as reportsRepo from '../../repositories/reports';
+import * as sharesRepo from '../../repositories/reportShares';
+import * as usersRepo from '../../repositories/users';
 import * as tenantsRepo from '../../repositories/tenants';
 import { createMember } from '../../services/admin/createMember';
 import { createWorkspace } from '../../services/admin/createWorkspace';
@@ -111,7 +112,8 @@ import {
   deleteMeasure,
 } from '../../services/datamodel/measures';
 import { aggregateFromModel } from '../../services/datamodel/modelReportData';
-import { loadModelContext } from '../../services/datamodel/explorer';
+import { soLieuTrangKhung } from '../../services/report/canvasData';
+import { taoLienKet } from '../../services/report/chiaSe';
 import { aggregateInWarehouse } from '../../services/dataset/aggregateWarehouse';
 import { analyzeDataset, clearAnalyzeCache } from '../../services/dataset/analyze';
 import { commitDatasets } from '../../services/dataset/commit';
@@ -132,6 +134,8 @@ import {
   hieuYBodySchema,
   addDatasetsBodySchema,
   commitDatasetsBodySchema,
+  createShareBodySchema,
+  shareIdParamSchema,
   createDatasetFolderBodySchema,
   moveDatasetBodySchema,
   moveDatasetsBodySchema,
@@ -1164,58 +1168,17 @@ v1Router.get(
     const report = await reportsRepo.findById(mysqlPool, phamVi(req), id);
     if (!report) throw notFound('Không tìm thấy báo cáo này.');
 
-    if (report.canvas === null || report.datamodelId === null) {
-      throw new HttpError(
-        409,
-        REPORT_ERROR_CODES.REPORT_NOT_CONFIGURED,
-        'Báo cáo này không phải khung nhiều biểu đồ.',
-      );
-    }
-
-    const datamodelId = report.datamodelId;
-    const page: ReportPageDto | undefined =
-      report.canvas.pages.find((p) => p.id === query.pageId) ?? report.canvas.pages[0];
-    const cells = page?.visuals ?? [];
-
-    /*
-     * Chỉ mục mô hình nạp MỘT lần cho cả trang — §10.14.
-     *
-     * Trước bản này mỗi ô tự nạp: `findOne` + ba truy vấn danh sách + một truy
-     * vấn `schemaVersion`. Mười hai ô là 60 vòng MySQL cho một thứ không đổi
-     * giữa chúng, và pool 10 kết nối biến chúng thành một hàng đợi.
-     *
-     * Nạp TRƯỚC `Promise.allSettled` chứ không để ô đầu tiên nạp hộ: các ô chạy
-     * song song, nên cả mười hai đều xuất phát trước khi ô nào kịp nạp xong.
-     */
-    const ctx = await loadModelContext(auth.tenantId, datamodelId);
-
-    const settled = await Promise.allSettled(
-      cells.map((visual) =>
-        aggregateFromModel(auth.tenantId, auth.userId, datamodelId, visual.config, 0, ctx),
-      ),
+    // Phép tính nằm ở `services/report/canvasData.ts`: đường công khai của mong
+    // muốn D5 gọi ĐÚNG hàm này, và hai bản cài đặt sẽ cho hai con số khác nhau
+    // trên cùng một báo cáo mà không có lỗi nào báo.
+    res.json(
+      await soLieuTrangKhung({
+        tenantId: auth.tenantId,
+        userId: auth.userId,
+        report,
+        pageId: query.pageId,
+      }),
     );
-
-    const visuals: ReportVisualDataDto[] = cells.map((visual, index) => {
-      const outcome = settled[index];
-      if (outcome !== undefined && outcome.status === 'fulfilled') {
-        return { visualId: visual.id, data: outcome.value };
-      }
-      const reason = outcome?.status === 'rejected' ? outcome.reason : undefined;
-      return {
-        visualId: visual.id,
-        data: null,
-        // Câu chữ của lỗi nghiệp vụ (`HttpError` mang câu tiếng Việt) đi thẳng
-        // ra. Lỗi không lường trước thì KHÔNG: thông điệp của nó là chi tiết nội
-        // bộ, và một ô biểu đồ không phải chỗ để rò rỉ chúng.
-        error:
-          reason instanceof HttpError
-            ? reason.message
-            : 'Không đọc được số liệu cho ô này. Thử mở lại báo cáo.',
-      };
-    });
-
-    const body: ReportCanvasDataDto = { visuals };
-    res.json(body);
   }),
 );
 
@@ -1267,6 +1230,110 @@ v1Router.get(
       page ?? 0,
     );
     res.json(body);
+  }),
+);
+
+/* ─── Chia sẻ báo cáo bằng liên kết — mong muốn D5 ─────────────────────── */
+
+/**
+ * Ba route dưới đây gác `report:modify`, KHÔNG phải `report:read`.
+ *
+ * Mở một báo cáo ra cho người ngoài tổ chức xem là một quyết định về báo cáo
+ * đó, không phải một cách xem nó. Một `viewer` đọc được báo cáo (đó là việc của
+ * họ) nhưng không được quyết định ai khác trên internet cũng đọc được.
+ *
+ * Phần CƯỠNG CHẾ thật của luật đó nằm ở đây, không ở giao diện: nút Chia sẻ có
+ * ẩn hay không chỉ là chuyện thẩm mỹ.
+ */
+async function baoCaoCuaToi(req: Request, id: number): Promise<void> {
+  // Tra qua phạm vi của người gọi: id của tổ chức khác (hoặc của workspace họ
+  // không được vào) cho ra 404, không phải 403 — 403 là một lời xác nhận rằng
+  // id đó có tồn tại.
+  const report = await reportsRepo.findById(mysqlPool, phamVi(req), id);
+  if (!report) throw notFound('Không tìm thấy báo cáo này.');
+}
+
+v1Router.get(
+  '/reports/:id/shares',
+  authorize('report', 'modify'),
+  asyncHandler(async (req, res) => {
+    const auth = requireAuth(req);
+    const { id } = idParamSchema.parse(req.params);
+    await baoCaoCuaToi(req, id);
+
+    const rows: sharesRepo.ShareRow[] = await sharesRepo.theoBaoCao(mysqlPool, auth.tenantId, id);
+    const nguoiTao = new Map<number, string>();
+    for (const r of rows) {
+      if (!nguoiTao.has(r.createdBy)) {
+        const u = await usersRepo.findById(r.createdBy);
+        nguoiTao.set(r.createdBy, u?.fullName ?? '');
+      }
+    }
+
+    const items: ReportShareDto[] = rows.map((r) => ({
+      id: r.id,
+      createdAt: r.createdAt.toISOString(),
+      createdByName: nguoiTao.get(r.createdBy) ?? null,
+      expiresAt: r.expiresAt === null ? null : r.expiresAt.toISOString(),
+      revokedAt: r.revokedAt === null ? null : r.revokedAt.toISOString(),
+      viewCount: r.viewCount,
+      lastViewedAt: r.lastViewedAt === null ? null : r.lastViewedAt.toISOString(),
+    }));
+    res.json({ items });
+  }),
+);
+
+v1Router.post(
+  '/reports/:id/shares',
+  authorize('report', 'modify'),
+  // Mỗi liên kết là một đường vào vĩnh viễn tới số liệu của tổ chức, nên tạo
+  // hàng loạt không phải một thao tác người dùng thật làm.
+  rateLimit({ bucket: 'report-share', max: 20, windowSeconds: 600 }),
+  asyncHandler(async (req, res) => {
+    const auth = requireAuth(req);
+    const { id } = idParamSchema.parse(req.params);
+    const body = createShareBodySchema.parse(req.body);
+    await baoCaoCuaToi(req, id);
+
+    const moi = await taoLienKet({
+      tenantId: auth.tenantId,
+      reportId: id,
+      createdBy: auth.userId,
+      soNgay: body.soNgay,
+    });
+
+    const u = await usersRepo.findById(auth.userId);
+    const share: ReportShareDto = {
+      id: moi.id,
+      createdAt: new Date().toISOString(),
+      createdByName: u?.fullName ?? null,
+      expiresAt:
+        body.soNgay === null
+          ? null
+          : new Date(Date.now() + body.soNgay * 24 * 60 * 60 * 1000).toISOString(),
+      revokedAt: null,
+      viewCount: 0,
+      lastViewedAt: null,
+    };
+    // `url` CHỈ có ở đây: database giữ băm, nên không đường nào đọc lại chuỗi.
+    const out: ReportShareCreatedDto = { share, url: moi.url };
+    res.status(201).json(out);
+  }),
+);
+
+v1Router.delete(
+  '/reports/:id/shares/:shareId',
+  authorize('report', 'modify'),
+  asyncHandler(async (req, res) => {
+    const auth = requireAuth(req);
+    const { id, shareId } = shareIdParamSchema.parse(req.params);
+    await baoCaoCuaToi(req, id);
+
+    const doi = await sharesRepo.thuHoi(mysqlPool, auth.tenantId, id, shareId);
+    // 404 khi không có dòng nào đổi: id của tổ chức khác, hoặc liên kết đã thu
+    // hồi rồi. Cả hai đều không phải chuyện người dùng cần phân biệt.
+    if (doi === 0) throw notFound('Không tìm thấy liên kết này.');
+    res.status(204).end();
   }),
 );
 

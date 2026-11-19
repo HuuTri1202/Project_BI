@@ -976,3 +976,49 @@ export const REPORT_ERROR_CODES = {
    */
   DATASET_NOT_LOADED: 'DatasetNotLoaded',
 } as const;
+
+/* ─── Chia sẻ báo cáo bằng liên kết — mong muốn D5 ──────────────────────── */
+
+/**
+ * Một liên kết chia sẻ, như màn quản lý nhìn thấy nó.
+ *
+ * KHÔNG có chuỗi bí mật: database chỉ giữ băm của nó (migration 45), nên sau
+ * lần tạo thì không ai — kể cả chủ báo cáo — đọc lại được. `url` chỉ có mặt
+ * trong phản hồi của chính lần TẠO.
+ */
+export interface ReportShareDto {
+  id: number;
+  createdAt: string;
+  createdByName: string | null;
+  expiresAt: string | null;
+  revokedAt: string | null;
+  /** Số lần liên kết được mở. Không lưu gì về người xem — xem migration 45. */
+  viewCount: number;
+  lastViewedAt: string | null;
+}
+
+/** Phản hồi của lần TẠO — lần duy nhất chuỗi bí mật tồn tại ngoài đường dẫn. */
+export interface ReportShareCreatedDto {
+  share: ReportShareDto;
+  url: string;
+}
+
+/**
+ * Báo cáo như người cầm LIÊN KẾT nhìn thấy — không có phiên đăng nhập nào.
+ *
+ * Cố ý KHÔNG phải `ReportDto`: DTO kia mang `datamodelId`, `workspaceId`,
+ * `folderName`, `creatorName`… Những thứ đó nói về cấu trúc nội bộ của tổ chức,
+ * và người nhận liên kết không có lý do gì để thấy chúng. Ở đây chỉ có đúng
+ * những gì cần để VẼ ra trang báo cáo.
+ */
+export interface BaoCaoChiaSeDto {
+  name: string;
+  /** Tên tổ chức, để người nhận biết đây là báo cáo của ai. */
+  tenantName: string;
+  /** Lần cuối báo cáo được sửa — người đọc cần biết mình đang xem bản nào. */
+  updatedAt: string;
+  canvas: ReportCanvasDto;
+  /** Trang đang được trả về; giao diện dùng nó để đánh dấu tab đang mở. */
+  pageId: string;
+  soLieu: ReportCanvasDataDto;
+}

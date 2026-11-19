@@ -3370,4 +3370,62 @@ export const migrations: readonly Migration[] = [
          ADD COLUMN value_map JSON NULL AFTER number_format`,
     ],
   },
+  {
+    id: 45,
+    name: 'report_shares',
+    statements: [
+      /*
+       * ═══ Liên kết xem báo cáo cho người KHÔNG có tài khoản — mong muốn D5 ══
+       *
+       * Chủ cửa hàng muốn gửi một đường dẫn cho kế toán hoặc chủ đầu tư, những
+       * người sẽ không bao giờ lập tài khoản trong hệ thống này.
+       *
+       * ─── Chỉ giữ BĂM của chuỗi, không giữ chuỗi ─────────────────────────
+       *
+       * Cùng quy ước với `password_reset_tokens` (migration 36): chuỗi 32 byte
+       * ngẫu nhiên đi vào đường dẫn, database chỉ giữ SHA-256 của nó. Một bản
+       * dump database hay một lần đọc lỏng bảng này KHÔNG cho ai mở được báo
+       * cáo nào — và đó là khác biệt duy nhất đáng kể giữa bảng này và một bảng
+       * giữ nguyên văn chuỗi.
+       *
+       * ─── `revoked_at` chứ không DELETE ───────────────────────────────────
+       *
+       * Thu hồi một liên kết là một việc người dùng cần THẤY đã xảy ra, và cần
+       * thấy nó đã xảy ra lúc nào. Xoá dòng thì màn quản lý liên kết không còn
+       * gì để nói ngoài sự im lặng.
+       *
+       * ─── `view_count` và `last_viewed_at` ───────────────────────────────
+       *
+       * Người chia sẻ cần biết liên kết có ai mở không — đó là câu hỏi đầu tiên
+       * họ hỏi ("kế toán xem chưa?"). Đếm số lần mở là mức tối thiểu trả lời
+       * được câu đó mà KHÔNG lưu gì về người xem: không IP, không user agent.
+       * Người nhận liên kết không có tài khoản ở đây và không đồng ý điều gì cả.
+       *
+       * ─── ON DELETE CASCADE ──────────────────────────────────────────────
+       *
+       * Xoá báo cáo là mọi liên kết tới nó mất theo. Giữ lại một liên kết trỏ
+       * vào một báo cáo không còn tồn tại chỉ để nó trả 404 ở một đường vòng
+       * dài hơn.
+       */
+      `CREATE TABLE IF NOT EXISTS report_shares (
+         id             BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+         tenant_id      BIGINT UNSIGNED NOT NULL,
+         report_id      BIGINT UNSIGNED NOT NULL,
+         token_hash     CHAR(64)        NOT NULL,
+         created_by     BIGINT UNSIGNED NOT NULL,
+         expires_at     DATETIME(3)     NULL,
+         revoked_at     DATETIME(3)     NULL,
+         last_viewed_at DATETIME(3)     NULL,
+         view_count     INT UNSIGNED    NOT NULL DEFAULT 0,
+         created_at     DATETIME(3)     NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+         PRIMARY KEY (id),
+         UNIQUE KEY uq_report_share_token_hash (token_hash),
+         KEY ix_report_share_report (tenant_id, report_id, revoked_at),
+         CONSTRAINT fk_report_share_report FOREIGN KEY (report_id)
+           REFERENCES reports (id) ON DELETE CASCADE,
+         CONSTRAINT fk_report_share_tenant FOREIGN KEY (tenant_id)
+           REFERENCES tenants (id) ON DELETE CASCADE
+       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    ],
+  },
 ];

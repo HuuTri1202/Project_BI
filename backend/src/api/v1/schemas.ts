@@ -217,6 +217,25 @@ export const commitDatasetsBodySchema = z.object({
     .default([]),
 });
 
+/* ─── Chia sẻ báo cáo bằng liên kết — mong muốn D5 ─────────────────────── */
+
+/**
+ * `soNgay === null` = liên kết KHÔNG hết hạn.
+ *
+ * Cho phép, nhưng không phải mặc định của giao diện: một liên kết vĩnh viễn là
+ * một đường vào vĩnh viễn tới số liệu, và người tạo nó phải chọn điều đó một
+ * cách tường minh. Trần 365 ngày để "vĩnh viễn" chỉ có một cách diễn đạt duy
+ * nhất (`null`), thay vì hai cách nói cùng một chuyện.
+ */
+export const createShareBodySchema = z.object({
+  soNgay: z.number().int().positive().max(365).nullable().optional().default(7),
+});
+
+export const shareIdParamSchema = z.object({
+  id: z.coerce.number().int().positive(),
+  shareId: z.coerce.number().int().positive(),
+});
+
 // ─── Báo cáo (§7.6) ──────────────────────────────────────────────────────────
 
 /**
