@@ -9,6 +9,7 @@ import { guiLaiThuXacMinh } from '../features/auth/api';
 import { NutGoogle } from '../features/auth/NutGoogle';
 import { FullPageLoader } from '../components/FullPageLoader';
 import { PasswordInput } from '../components/PasswordInput';
+import { docGhiNho, ghiGhiNho } from '../auth/ghiNhoDangNhap';
 import { getApiError } from '../services/apiClient';
 
 type FieldName = 'email' | 'password';
@@ -43,6 +44,11 @@ export default function LoginPage(): React.ReactElement {
   const [errors, setErrors] = useState<Errors>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  /*
+   * Đọc cờ hiện có làm giá trị ban đầu: người đã tích ở lần trước mở lại trang
+   * đăng nhập (vì token hết hạn 7 ngày) thì không phải tích lại.
+   */
+  const [ghiNho, setGhiNho] = useState(docGhiNho);
 
   /*
    * ─── Trạng thái riêng cho "email chưa xác minh" (§1.10) ────────────────────
@@ -144,6 +150,15 @@ export default function LoginPage(): React.ReactElement {
 
     setSubmitting(true);
     try {
+      /*
+       * Ghi cờ TRƯỚC khi gọi `login`, không phải sau.
+       *
+       * `login` thành công là điều hướng ngay sang trang trong, nên mọi dòng
+       * đặt sau nó chỉ chạy nhờ may mắn về thứ tự render. Cờ này cũng được ghi
+       * khi đăng nhập THẤT BẠI, và đúng như vậy: nó là sở thích của cái máy,
+       * không phải một phần của phiên vừa mở.
+       */
+      ghiGhiNho(ghiNho);
       const outcome = await login(values.email.trim(), values.password);
       navigate(redirectTargetFor(outcome.user, outcome.role, incoming?.from), { replace: true });
     } catch (err) {
@@ -260,6 +275,33 @@ export default function LoginPage(): React.ReactElement {
               placeholder="••••••••"
               disabled={submitting}
             />
+
+            {/*
+             * "Ghi nhớ đăng nhập trên máy này" — mong muốn D7.
+             *
+             * Mặc định TẮT, và đó là chủ đích: luật "đóng app là hết phiên"
+             * (`appSession.ts`) bảo vệ đúng tình huống máy dùng chung, nên nó
+             * vẫn là mặc định. Bản vá chỉ biến luật thành lựa chọn.
+             *
+             * Nhãn nói "máy này" và dòng dưới nói "máy riêng": người tích ô này
+             * đang để token nằm trên đĩa qua cả lần đóng trình duyệt, và họ cần
+             * biết điều đó bằng chữ, không phải bằng kinh nghiệm.
+             */}
+            <label className="flex items-start gap-2.5 text-sm text-slate-600">
+              <input
+                type="checkbox"
+                checked={ghiNho}
+                onChange={(e) => setGhiNho(e.target.checked)}
+                disabled={submitting}
+                className="mt-0.5 h-4 w-4 shrink-0 rounded border-slate-300 text-brand-600 focus:ring-brand-500"
+              />
+              <span>
+                Ghi nhớ đăng nhập trên máy này
+                <span className="mt-0.5 block text-xs text-slate-500">
+                  Chỉ dùng trên máy riêng. Không tích thì đóng trình duyệt là hết phiên.
+                </span>
+              </span>
+            </label>
 
             <button
               type="submit"

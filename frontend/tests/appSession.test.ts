@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { beginAppSession, type AppSessionEnv } from '../src/auth/appSession';
+import { ghiGhiNho } from '../src/auth/ghiNhoDangNhap';
 import { readToken, writeToken } from '../src/auth/tokenStorage';
 
 /**
@@ -135,5 +136,61 @@ describe('beginAppSession — đóng app là hết phiên', () => {
     };
 
     await expect(beginAppSession({ tab: chan, locks: browser().locks })).resolves.toBe('fresh');
+  });
+});
+
+/**
+ * "Ghi nhớ đăng nhập trên máy này" — mong muốn D7.
+ *
+ * Đo trong lần dùng thử như người thật: đóng trình duyệt là mất phiên, và đó là
+ * điều gây bực mình nhất với một người dùng máy riêng. Luật "đóng app là hết
+ * phiên" vẫn ĐÚNG và vẫn là mặc định — bộ này canh cả hai chiều, vì sửa lệch
+ * một chiều là bỏ luôn lớp bảo vệ cho máy dùng chung.
+ */
+describe('beginAppSession — ghi nhớ đăng nhập (D7)', () => {
+  it('đã tích ghi nhớ: mở lại app GIỮ phiên, dù không còn tab nào', async () => {
+    ghiGhiNho(true);
+    writeToken('token-tu-hom-qua');
+    window.localStorage.setItem(SNAPSHOT_KEY, '{"at":1,"data":[]}');
+
+    const start = await beginAppSession({ tab: tab(), locks: browser().locks });
+
+    expect(start).toBe('remembered');
+    expect(readToken()).toBe('token-tu-hom-qua');
+    // Ảnh chụp số liệu cũng được giữ: cùng một người, cùng một máy, cùng phiên
+    // làm việc nối tiếp — không có người kế tiếp nào để giấu số liệu khỏi.
+    expect(window.localStorage.getItem(SNAPSHOT_KEY)).not.toBeNull();
+  });
+
+  it('CHƯA tích: hành vi y hệt trước bản vá', async () => {
+    writeToken('token-tu-hom-qua');
+
+    const start = await beginAppSession({ tab: tab(), locks: browser().locks });
+
+    expect(start).toBe('fresh');
+    expect(readToken()).toBeNull();
+  });
+
+  it('tắt ghi nhớ rồi mở lại: phiên cũ bị xoá như thường', async () => {
+    ghiGhiNho(true);
+    ghiGhiNho(false);
+    writeToken('token-tu-hom-qua');
+
+    expect(await beginAppSession({ tab: tab(), locks: browser().locks })).toBe('fresh');
+    expect(readToken()).toBeNull();
+  });
+
+  it('F5 vẫn là F5, không bị cờ ghi nhớ che mất', async () => {
+    // Thứ tự xét phải giữ: `resumed` nói đúng chuyện vừa xảy ra, còn
+    // `remembered` thì không. Một ngày nào đó có người đọc mã này để tìm hiểu
+    // vì sao phiên còn sống, và hai câu trả lời khác nhau dẫn tới hai chỗ khác
+    // nhau.
+    ghiGhiNho(true);
+    const motTab = tab();
+    await beginAppSession({ tab: motTab, locks: browser().locks });
+    writeToken('token-vua-dang-nhap');
+
+    expect(await beginAppSession({ tab: motTab, locks: browser().locks })).toBe('resumed');
+    expect(readToken()).toBe('token-vua-dang-nhap');
   });
 });

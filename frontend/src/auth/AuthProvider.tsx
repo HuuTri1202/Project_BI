@@ -11,6 +11,7 @@ import {
   type LoginOutcome,
 } from './authContext';
 import { clearSnapshots } from '../services/querySnapshots';
+import { ghiGhiNho } from './ghiNhoDangNhap';
 import { clearToken, readToken, writeToken } from './tokenStorage';
 
 interface Session {
@@ -190,6 +191,16 @@ export function AuthProvider({ children }: { children: ReactNode }): React.React
 
   const logout = useCallback(async () => {
     await authApi.logout();
+    /*
+     * Xoá cờ "ghi nhớ đăng nhập" — mong muốn D7.
+     *
+     * Ở ĐÂY chứ không trong `clearSession`: `clearSession` cũng chạy khi gặp
+     * 401, tức là khi token hết hạn sau 7 ngày. Xoá cờ ở đó thì người dùng máy
+     * riêng phải tích lại mỗi tuần một lần mà không hiểu vì sao. Còn người bấm
+     * ĐĂNG XUẤT đang nói "tôi xong rồi", và giữ lại một lựa chọn ghi nhớ sau
+     * câu đó là hiểu sai câu đó.
+     */
+    ghiGhiNho(false);
     clearSession();
     navigate('/login', { replace: true });
   }, [clearSession, navigate]);
