@@ -758,9 +758,24 @@ export function HoiDapPanel(): React.ReactElement | null {
          * chỉ còn một khối trắng nhoè. Nền trắng + viền mảnh + bóng đổ giữ được
          * hình, và vẫn nổi khỏi mặt trang vì mọi trang ở đây đều là `bg-slate-50`.
          */
-        className="group fixed right-4 bottom-4 z-50 flex h-14 w-14 items-center justify-center rounded-full border border-slate-200 bg-white shadow-lg transition-transform hover:scale-105 focus-visible:ring-2 focus-visible:ring-brand-200 focus-visible:outline-none"
+        className="group fixed right-4 bottom-4 z-50 flex h-14 items-center gap-2 rounded-full border border-slate-200 bg-white pr-4 pl-2.5 shadow-lg transition-transform hover:scale-105 focus-visible:ring-2 focus-visible:ring-brand-200 focus-visible:outline-none"
       >
         <BieuTuongRobot className="h-9 w-9 transition-transform group-hover:-translate-y-0.5" />
+        {/*
+         * NHÃN THẤY ĐƯỢC, không chỉ `aria-label` — vá C5.
+         *
+         * Đo khi dùng hệ thống như người thật: nút này là một hình tròn chỉ có
+         * con robot, và lần đầu gặp thì không ai biết nó là gì. `aria-label` chỉ
+         * nói cho trình đọc màn hình; `title` thì phải trỏ chuột vào và chờ, tức
+         * là vô dụng trên điện thoại.
+         *
+         * Giữ nhãn ở MỌI bề rộng, không `hidden sm:inline`: trên điện thoại mới
+         * là lúc không có tooltip nào để dựa vào. Viên thuốc rộng ~160px ở góc
+         * phải dưới vẫn vừa trên màn 390px.
+         */}
+        <span className="text-sm font-semibold whitespace-nowrap text-slate-800">
+          Trợ lý dữ liệu
+        </span>
       </button>
     );
   }

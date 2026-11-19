@@ -229,6 +229,18 @@ describe('Khung chỉ hiện khi trang có gì để hỏi', () => {
     expect(screen.queryByRole('button')).toBeNull();
   });
 
+  it('nút mang nhãn THẤY ĐƯỢC, không chỉ `aria-label`', async () => {
+    /*
+     * Vá C5. Đo khi dùng hệ thống như người thật: nút là một hình tròn chỉ có
+     * con robot, và lần đầu gặp thì không biết nó là gì. `aria-label` chỉ nói
+     * cho trình đọc màn hình, còn `title` thì phải trỏ chuột vào và chờ — tức
+     * là vô dụng trên điện thoại, đúng nơi cần nó nhất.
+     */
+    await dung([{ ten: 'Đơn hàng Q4', duKien: [{ nhan: 'Số dòng', gia: '12.431' }] }]);
+
+    expect(nutMo().textContent).toContain('Trợ lý dữ liệu');
+  });
+
   it('có nguồn -> hiện nút, bấm thì mở khung', async () => {
     await dung([
       { ten: 'Đơn hàng Q4', duKien: [{ nhan: 'Số dòng của Đơn hàng Q4', gia: '12.431' }] },
