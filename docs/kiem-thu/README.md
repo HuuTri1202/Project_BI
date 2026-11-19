@@ -123,6 +123,7 @@ API nên không thấy; test backend không mở màn hình nên cũng không th
 | `thanh-toan.spec.ts` | Mã QR có vẽ ra ma trận thật không; đồng hồ `setInterval` có chạy không; và **server đổi trạng thái đơn thì màn hình có tự bắt không** — hai tiến trình, một đổi dữ liệu một đang xem, thứ không ca jsdom nào dựng được |
 | `xuat-tep.spec.ts` | Bấm Xuất thì một TỆP THẬT có rơi xuống đĩa không. `modern-screenshot` cần layout engine và canvas vẽ được; `taiXuong()` tạo `<a download>` rồi click — trong jsdom cả hai là lời gọi không làm gì. Kiểm PNG bằng cách **đếm điểm ảnh mang màu cột**, và kiểm Excel bằng cách **đọc ngược tệp bằng `exceljs`** rồi so từng con số |
 | `keo-tha.spec.ts` | KÉO một ô trên khung bằng con trỏ thật. `CanvasBoard` dùng Pointer Events + `setPointerCapture`, đọc toạ độ ở từng khung hình và ghi `el.style` trong `requestAnimationFrame` — trong jsdom không có layout nên `getBoundingClientRect` trả 0 và bước quy về ô lưới chia cho 0. Cả §10.20 là mã chưa từng chạy trong ca test nào trước ca này |
+| `sua-bieu-do.spec.ts` | Kéo một TRƯỜNG vào ô Chiều dữ liệu — HTML5 drag-and-drop, API khác hẳn ca trên. **Đây là ca có bằng chứng mạnh nhất cho cả bộ:** xoá `e.preventDefault()` trong `Shelf.onDragOver` làm kéo-thả chết hẳn với mọi người dùng, và **873/873 ca jsdom vẫn xanh** — cái cổng "phần tử này nhận thả được" là của trình duyệt, jsdom không có nó. Ca này đỏ |
 
 Bệ đỡ của hai ca báo cáo (`dungBaoCaoMau`, `xoaBaoCaoVaBoTheoTen`) nằm ở
 `e2e/helpers.ts`, dùng chung — mỗi ca truyền TÊN RIÊNG, vì hai ca chạy nối nhau
@@ -144,11 +145,21 @@ giả không kèm một AssertionError nào.
 
 ⚠️ **Hạn nhịp đăng nhập là một trần cứng của bộ e2e.** `LOGIN_MAX_ATTEMPTS = 10`
 trong `LOGIN_LOCKOUT_MINUTES = 15` phút, theo IP. `layToken` NHỚ LẠI token nên cả
-lượt chạy chỉ gọi 1 lời gọi API, cộng 6 lần đăng nhập qua giao diện (mỗi ca một
-lần, và đó là phần của hành trình) — tức 7 trên 10, còn chỗ cho ba ca nữa. Bản
+lượt chạy chỉ gọi 1 lời gọi API, cộng 7 lần đăng nhập qua giao diện (mỗi ca một
+lần, và đó là phần của hành trình) — tức 8 trên 10, chỉ còn chỗ cho HAI ca nữa. Bản
 đầu gọi lại mỗi lần và khi bộ lên 6 ca thì hai trong ba lượt đỏ với "đăng nhập để
 lấy token dọn dẹp", một câu không nói gì về nguyên nhân. Vượt 10 thì cách đúng là
 một `storageState` dựng một lần ở `globalSetup`, KHÔNG phải nới hạn nhịp.
+
+**Bộ này đã tìm ra ba lỗi thật của sản phẩm, không phải của chính nó:**
+
+1. khung hỏi đáp xin `pageSize=200` trong khi máy chủ chặn ở 100 — cả ba truy vấn
+   ngữ cảnh trả 400 và nó trả lời như thể tổ chức chưa có dữ liệu gì;
+2. `rename` của cube schema thất bại `EPERM` trên Windows khi container Cube đang
+   theo dõi thư mục — 503 kèm một câu chỉ sai hẳn chỗ cần sửa (xem
+   `cubeSchemaStore.doiTenCoThuLai`);
+3. và khi dựng ca `sua-bieu-do`, đo được rằng xoá `preventDefault()` trong
+   `Shelf.onDragOver` đi qua được cả 873 ca jsdom mà không ca nào kêu.
 
 **Trần thời gian là số ĐO, không phải số đoán.** Mỗi lượt chạy khởi động Vite
 LẠNH (`reuseExistingServer` không có gì dùng lại khi 5173 chưa listening), nên
