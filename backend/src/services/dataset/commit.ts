@@ -69,6 +69,17 @@ export interface CommitInput {
    * phân biệt chữ hoa thường là hai thứ khác nhau thật.
    */
   gopHoaThuong: boolean;
+  /**
+   * Quy ước phân cách người dùng tự chốt cho từng cột — mong muốn D2.
+   *
+   * Thắng kết luận của `doanQuyUocSo`, và chỉ thắng ở những cột người dùng thật
+   * sự tích: ở đó hệ thống đã nói ra rằng nó không phân xử được, nên câu trả lời
+   * của người cầm tệp là câu trả lời đúng.
+   *
+   * Mang theo tên sheet vì mỗi sheet thành một bộ dữ liệu riêng với bảng cột
+   * riêng — `ordinal` một mình không chỉ ra được cột nào của sheet nào.
+   */
+  quyUocSo: readonly { sheet: string; ordinal: number; format: 'vn' | 'en' }[];
 }
 
 export interface CommittedDataset {
@@ -138,7 +149,14 @@ export async function commitDatasets(input: CommitInput): Promise<CommittedDatas
     const created: CommittedDataset[] = [];
 
     for (const [index, sheet] of sheets.entries()) {
-      const columns = buildColumns(sheet, input.gopHoaThuong);
+      const columns = buildColumns(
+        sheet,
+        input.gopHoaThuong,
+        // Lọc theo ĐÚNG sheet này; `Map` để `buildColumns` tra theo ordinal.
+        new Map(
+          input.quyUocSo.filter((q) => q.sheet === sheet.name).map((q) => [q.ordinal, q.format]),
+        ),
+      );
       const rows = buildRows(sheet, columns);
       const name = multi ? `${input.name} · ${sheet.name}` : input.name;
 
@@ -201,14 +219,25 @@ export async function commitDatasets(input: CommitInput): Promise<CommittedDatas
  * `fieldName`, nên hai cột cùng tên thì cột sau đè cột trước và dữ liệu biến mất
  * trong im lặng. File thật rất hay có hai cột "Ghi chú".
  */
-function buildColumns(sheet: ParsedSheet, gopHoaThuong: boolean): datasetsRepo.ColumnInput[] {
+function buildColumns(
+  sheet: ParsedSheet,
+  gopHoaThuong: boolean,
+  quyUocSo: ReadonlyMap<number, 'vn' | 'en'>,
+): datasetsRepo.ColumnInput[] {
   const used = new Set<string>();
 
   return sheet.header.map((sourceName, columnIndex) => {
     const values = sheet.rows.slice(0, SAMPLE_ROWS).map((row) => row[columnIndex] ?? '');
     const semanticType = inferColumnType(values);
-    // Chỉ cột SỐ mới có quy ước phân cách để mà suy — xem `doanQuyUocSo`.
-    const numberFormat = semanticType === 'number' ? doanQuyUocSo(values) : null;
+    /*
+     * Chỉ cột SỐ mới có quy ước phân cách để mà suy — xem `doanQuyUocSo`.
+     *
+     * Người dùng tích tay thì lời họ THẮNG lời hàm đoán (mong muốn D2): ô tích
+     * chỉ hiện ở những cột hệ thống đã nói ra rằng nó không phân xử được, và ở
+     * đó người cầm tệp biết rõ hơn mọi quy tắc.
+     */
+    const numberFormat =
+      semanticType === 'number' ? (quyUocSo.get(columnIndex) ?? doanQuyUocSo(values)) : null;
     /*
      * Bản đồ gộp chỉ dựng cho cột CHỮ, và chỉ khi người dùng đã đồng ý.
      *

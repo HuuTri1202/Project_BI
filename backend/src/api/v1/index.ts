@@ -575,6 +575,7 @@ v1Router.post(
       name: body.name,
       sheetNames: body.sheets,
       gopHoaThuong: body.gopHoaThuong,
+      quyUocSo: body.quyUocSo,
     });
 
     const details: DatasetDetailDto[] = [];

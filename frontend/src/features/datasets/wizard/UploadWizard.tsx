@@ -8,6 +8,7 @@ import * as datamodelApi from '../../datamodels/api';
 import * as tenantApi from '../../tenant/api';
 import * as api from '../api';
 import { useInvalidateDatasets } from '../hooks';
+import { quyUocDaChon } from './quyUocCot';
 import { StepChooseData } from './StepChooseData';
 import { StepProgress, type ProgressState } from './StepProgress';
 import { StepUpload } from './StepUpload';
@@ -114,6 +115,24 @@ export function UploadWizard({
    * im lặng là một API đáng sợ.
    */
   const [gopHoaThuong, setGopHoaThuong] = useState(true);
+  /*
+   * Những cột người dùng đã chốt "dấu chấm là phân cách nghìn" — mong muốn D2.
+   *
+   * Mặc định RỖNG, ngược với `gopHoaThuong`: gộp hoa/thường là việc gần như
+   * chắc chắn người dùng muốn, còn ở đây hệ thống vừa nói thẳng rằng nó không
+   * phân xử được — tự tích hộ chính là đoán thay người cầm tệp, đúng thứ bản vá
+   * A1 đã cẩn thận tránh.
+   */
+  const [quyUocVn, setQuyUocVn] = useState<ReadonlySet<string>>(() => new Set());
+
+  const doiQuyUoc = (khoa: string, laVn: boolean): void => {
+    setQuyUocVn((cu) => {
+      const moi = new Set(cu);
+      if (laVn) moi.add(khoa);
+      else moi.delete(khoa);
+      return moi;
+    });
+  };
   const [datasetName, setDatasetName] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -276,6 +295,7 @@ export function UploadWizard({
           name: datasetName.trim(),
           sheets,
           gopHoaThuong,
+          quyUocSo: quyUocDaChon(quyUocVn, sheets),
         }));
       committedRef.current = datasets;
 
@@ -557,6 +577,8 @@ export function UploadWizard({
             onChange={setSheets}
             gopHoaThuong={gopHoaThuong}
             onGopChange={setGopHoaThuong}
+            quyUocVn={quyUocVn}
+            onQuyUocChange={doiQuyUoc}
           />
         )}
 

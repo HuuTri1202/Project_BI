@@ -629,6 +629,16 @@ export interface CanhBaoCotDto {
    * được bằng mắt với ô trong tệp và tự quyết trong một giây.
    */
   docThanh?: string;
+  /**
+   * Con số `viDu[0]` sẽ thành NẾU người dùng nói dấu chấm là phân cách nghìn —
+   * mong muốn D2 ("xem trước giá trị sau khi đổi").
+   *
+   * Tính ở BACKEND bằng chính `parseNumber`, không tính lại ở giao diện: luật
+   * đọc số là thứ đã có một nguồn duy nhất (xem `normalizeCell`), và một bản
+   * sao ở frontend chỉ để hiện xem trước sẽ lệch khỏi thứ thật sự được ghi vào
+   * kho ngay lần sửa đầu tiên.
+   */
+  docThanhKhiVn?: string;
 }
 
 export interface SheetPreviewDto {
@@ -684,6 +694,14 @@ export interface CommitDatasetsInput {
    * định BIẾN ĐỔI dữ liệu khi client im lặng là một API đáng sợ.
    */
   gopHoaThuong?: boolean;
+  /**
+   * Người dùng tự chốt quy ước phân cách cho MỘT cột — mong muốn D2.
+   *
+   * Chỉ hiện ở những cột hệ thống đã cảnh báo `so-mo-ho`, nên danh sách này
+   * luôn ngắn. Mang theo tên sheet vì mỗi sheet thành một bộ dữ liệu riêng với
+   * bảng cột riêng: thiếu nó thì ô tích ở sheet này đổi cách đọc của sheet kia.
+   */
+  quyUocSo?: { sheet: string; ordinal: number; format: NumberFormat }[];
 }
 
 export const DATASET_NAME_MAX = 255;

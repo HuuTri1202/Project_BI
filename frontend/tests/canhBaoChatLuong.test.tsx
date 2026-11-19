@@ -1,9 +1,10 @@
 import type { AnalyzeResultDto, CanhBaoCotDto, SheetPreviewDto } from '@bi/shared';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
 import { StepChooseData } from '../src/features/datasets/wizard/StepChooseData';
+import { quyUocDaChon } from '../src/features/datasets/wizard/quyUocCot';
 
 /**
  * Cảnh báo chất lượng dữ liệu ở bước 2 của wizard — vá A2 và C3.
@@ -50,10 +51,16 @@ const SO_MO_HO: CanhBaoCotDto = {
   loai: 'so-mo-ho',
   viDu: ['750.000'],
   docThanh: '750',
+  docThanhKhiVn: '750.000',
 };
 
-function dung(canhBao: CanhBaoCotDto[], gop = true): { onGopChange: (g: boolean) => void } {
+function dung(
+  canhBao: CanhBaoCotDto[],
+  gop = true,
+  quyUocVn: ReadonlySet<string> = new Set(),
+): { onGopChange: (g: boolean) => void; onQuyUocChange: (k: string, v: boolean) => void } {
   const onGopChange = vi.fn();
+  const onQuyUocChange = vi.fn();
   render(
     <StepChooseData
       analysis={phanTich(canhBao)}
@@ -61,9 +68,11 @@ function dung(canhBao: CanhBaoCotDto[], gop = true): { onGopChange: (g: boolean)
       onChange={vi.fn()}
       gopHoaThuong={gop}
       onGopChange={onGopChange}
+      quyUocVn={quyUocVn}
+      onQuyUocChange={onQuyUocChange}
     />,
   );
-  return { onGopChange };
+  return { onGopChange, onQuyUocChange };
 }
 
 describe('cảnh báo hoa/thường', () => {
@@ -101,6 +110,63 @@ describe('cảnh báo số mơ hồ', () => {
     // số là hứa một thứ nó không làm.
     dung([SO_MO_HO]);
     expect(screen.queryByRole('checkbox', { name: /Gộp các nhóm/ })).toBeNull();
+  });
+});
+
+describe('người dùng tự chốt quy ước số của một cột (D2)', () => {
+  /*
+   * Hệ thống vừa nói ra rằng nó KHÔNG phân xử được cột này, nên đây là chỗ duy
+   * nhất người cầm tệp nói lại được. Trước bản này họ chỉ có một đường: sửa tệp
+   * rồi tải lên lần nữa.
+   */
+  it('ô tích chỉ hiện ở cột MƠ HỒ, và nói trước con số sau khi đổi', () => {
+    dung([SO_MO_HO]);
+
+    const o = screen.getByRole('checkbox', { name: /dấu chấm là.*phân cách nghìn/i });
+    expect((o as HTMLInputElement).checked).toBe(false);
+    // Xem trước: cả hai con số đều do backend tính bằng `parseNumber`.
+    expect(o.closest('label')?.textContent).toContain('750.000');
+  });
+
+  it('tích rồi thì câu đổi sang nói con số MỚI, không nhắc lại lo ngại cũ', () => {
+    dung([SO_MO_HO], true, new Set(['Sheet1:1']));
+
+    const canhBao = screen.getByRole('status');
+    expect(canhBao.textContent).toContain('theo lựa chọn của bạn');
+    expect(canhBao.textContent).toContain('thành 750.000');
+    // Câu cũ ("sẽ vào hệ thống thành 750") phải đi hẳn, không nằm cạnh câu mới.
+    expect(canhBao.textContent).not.toContain('thành 750 ');
+  });
+
+  it('bấm thì báo ra ngoài, kèm khoá mang TÊN SHEET', () => {
+    // Khoá phải có tên sheet: mỗi sheet thành một bộ dữ liệu với bảng cột
+    // riêng, nên `ordinal` một mình sẽ đổi cách đọc của cả sheet khác.
+    const { onQuyUocChange } = dung([SO_MO_HO]);
+    const o = screen.getByRole('checkbox', { name: /dấu chấm là.*phân cách nghìn/i });
+
+    fireEvent.click(o);
+    expect(onQuyUocChange).toHaveBeenCalledWith('Sheet1:1', true);
+  });
+
+  it('cột hoa/thường KHÔNG có ô tích quy ước số', () => {
+    dung([HOA_THUONG]);
+    expect(screen.queryByRole('checkbox', { name: /phân cách nghìn/i })).toBeNull();
+  });
+});
+
+describe('gửi lên đúng những cột của sheet ĐƯỢC TÍCH', () => {
+  it('bỏ tích sheet thì quy ước của nó không đi theo', () => {
+    // Người dùng mở xem Sheet2, tích một ô ở đó, rồi bỏ tích chính Sheet2. Gửi
+    // kèm thì backend nhận một quy ước cho một bộ dữ liệu không được tạo.
+    expect(quyUocDaChon(new Set(['Sheet1:1', 'Sheet2:3']), ['Sheet1'])).toEqual([
+      { sheet: 'Sheet1', ordinal: 1, format: 'vn' },
+    ]);
+  });
+
+  it('tên sheet có dấu hai chấm vẫn cắt đúng', () => {
+    expect(quyUocDaChon(new Set(['Q1:2026:4']), ['Q1:2026'])).toEqual([
+      { sheet: 'Q1:2026', ordinal: 4, format: 'vn' },
+    ]);
   });
 });
 

@@ -269,6 +269,11 @@ function canhBaoSoMoHo(
 
   const dau = moHo[0] ?? '';
   const doc = parseNumber(dau, doanQuyUocSo(values));
+  // Con số NẾU người dùng nói dấu chấm là phân cách nghìn — xem trước của D2.
+  // Tính ở đây bằng chính `parseNumber` để không có bản sao luật nào ở frontend.
+  const docVn = parseNumber(dau, 'vn');
+
+  const viet = (x: number | null): string => (x === null ? '' : x.toLocaleString('vi-VN'));
 
   return {
     columnIndex,
@@ -277,6 +282,7 @@ function canhBaoSoMoHo(
     viDu: moHo,
     // Con số THẬT sẽ vào kho, định dạng theo quy ước Việt để người dùng đối
     // chiếu được bằng mắt với ô trong tệp.
-    docThanh: doc === null ? '' : doc.toLocaleString('vi-VN'),
+    docThanh: viet(doc),
+    docThanhKhiVn: viet(docVn),
   };
 }

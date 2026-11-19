@@ -198,6 +198,23 @@ export const commitDatasetsBodySchema = z.object({
    * từ chính tệp của họ.
    */
   gopHoaThuong: z.boolean().optional().default(false),
+  /**
+   * Quy ước phân cách người dùng tự chốt cho một cột — mong muốn D2.
+   *
+   * Trần 200: nó chỉ chứa những cột hệ thống đã cảnh báo là MƠ HỒ, nên một
+   * danh sách dài hơn thế là client gửi bừa, không phải người dùng tích tay.
+   */
+  quyUocSo: z
+    .array(
+      z.object({
+        sheet: z.string().min(1),
+        ordinal: z.number().int().nonnegative(),
+        format: z.enum(['vn', 'en']),
+      }),
+    )
+    .max(200)
+    .optional()
+    .default([]),
 });
 
 // ─── Báo cáo (§7.6) ──────────────────────────────────────────────────────────

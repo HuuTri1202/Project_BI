@@ -1,6 +1,7 @@
 import type { AnalyzeResultDto, CanhBaoCotDto, SheetPreviewDto } from '@bi/shared';
 import { useMemo, useState } from 'react';
 import { Badge } from '../../../components/ui/Badge';
+import { khoaQuyUoc } from './quyUocCot';
 import { Button } from '../../../components/ui/Button';
 
 /**
@@ -28,7 +29,14 @@ interface Props {
   /** Gộp các nhóm chỉ khác chữ hoa/thường — vá A2. */
   gopHoaThuong: boolean;
   onGopChange: (gop: boolean) => void;
+  /**
+   * Những cột người dùng đã chốt là "dấu chấm là phân cách nghìn" — mong muốn
+   * D2. Khoá là tên sheet + ordinal, vì mỗi sheet có bảng cột riêng.
+   */
+  quyUocVn: ReadonlySet<string>;
+  onQuyUocChange: (khoa: string, laVn: boolean) => void;
 }
+
 
 export function StepChooseData({
   analysis,
@@ -36,6 +44,8 @@ export function StepChooseData({
   onChange,
   gopHoaThuong,
   onGopChange,
+  quyUocVn,
+  onQuyUocChange,
 }: Props): React.ReactElement {
   const [search, setSearch] = useState('');
   const [focused, setFocused] = useState(analysis.sheets[0]?.name ?? '');
@@ -166,7 +176,12 @@ export function StepChooseData({
 
         <div className="min-w-0">
           {preview ? (
-            <SheetPreview sheet={preview} previewRowLimit={analysis.previewRowLimit} />
+            <SheetPreview
+              sheet={preview}
+              previewRowLimit={analysis.previewRowLimit}
+              quyUocVn={quyUocVn}
+              onQuyUocChange={onQuyUocChange}
+            />
           ) : (
             <p className="text-sm text-slate-500">Chọn một sheet để xem trước.</p>
           )}
@@ -225,17 +240,68 @@ export function StepChooseData({
  * Ví dụ luôn lấy từ CHÍNH tệp của người dùng. Một câu cảnh báo chung chung
  * ("dữ liệu có thể không nhất quán") thì không ai đi tìm được chỗ nào.
  */
-function CanhBaoChatLuong({ canhBao }: { canhBao: readonly CanhBaoCotDto[] }): React.ReactElement {
+function CanhBaoChatLuong({
+  canhBao,
+  sheet,
+  quyUocVn,
+  onQuyUocChange,
+}: {
+  canhBao: readonly CanhBaoCotDto[];
+  sheet: string;
+  quyUocVn: ReadonlySet<string>;
+  onQuyUocChange: (khoa: string, laVn: boolean) => void;
+}): React.ReactElement {
   return (
     <ul
       role="status"
-      className="mb-2 space-y-1 rounded-lg bg-amber-50 px-3.5 py-2.5 text-sm text-amber-800"
+      className="mb-2 space-y-1.5 rounded-lg bg-amber-50 px-3.5 py-2.5 text-sm text-amber-800"
     >
-      {canhBao.map((c) => (
-        <li key={`${String(c.columnIndex)}-${c.loai}`}>{cauCanhBao(c)}</li>
-      ))}
+      {canhBao.map((c) => {
+        const khoa = khoaQuyUoc(sheet, c.columnIndex);
+        const laVn = quyUocVn.has(khoa);
+
+        return (
+          <li key={`${String(c.columnIndex)}-${c.loai}`}>
+            {c.loai === 'so-mo-ho' && laVn ? cauDaChonVn(c) : cauCanhBao(c)}
+
+            {/*
+             * Ô tích CỦA TỪNG CỘT — mong muốn D2.
+             *
+             * Chỉ hiện ở cột `so-mo-ho`, tức đúng những cột hệ thống vừa nói ra
+             * rằng nó không phân xử được. Ở đó người cầm tệp biết rõ hơn mọi quy
+             * tắc, mà trước bản này họ không có cách nào nói ra ngoài việc sửa
+             * tệp rồi tải lại.
+             *
+             * Hai con số trong nhãn đều do BACKEND tính bằng `parseNumber`
+             * (`docThanh` / `docThanhKhiVn`), nên xem trước không bao giờ nói
+             * khác thứ sẽ được ghi vào kho.
+             */}
+            {c.loai === 'so-mo-ho' && (
+              <label className="mt-1 flex items-start gap-2 text-amber-900">
+                <input
+                  type="checkbox"
+                  checked={laVn}
+                  onChange={(e) => onQuyUocChange(khoa, e.target.checked)}
+                  className="mt-0.5 h-4 w-4 shrink-0 rounded border-amber-300 text-brand-600 focus:ring-brand-500"
+                />
+                <span>
+                  Trong cột này, dấu chấm là <strong>phân cách nghìn</strong> — đọc{' '}
+                  {nhayKep(c.viDu.slice(0, 1))} thành {c.docThanhKhiVn ?? ''}
+                </span>
+              </label>
+            )}
+          </li>
+        );
+      })}
     </ul>
   );
+}
+
+/** Câu khi người dùng ĐÃ chốt kiểu Việt — nói con số mới, không nhắc lại lo ngại cũ. */
+function cauDaChonVn(c: CanhBaoCotDto): string {
+  const ten = c.sourceName === '' ? 'Cột ' + String(c.columnIndex + 1) : c.sourceName;
+  const so = c.docThanhKhiVn ?? '';
+  return 'Cột ' + nhayKep([ten]) + ': ô ' + nhayKep(c.viDu) + ' sẽ vào hệ thống thành ' + so + ' theo lựa chọn của bạn.';
 }
 
 const nhayKep = (viDu: readonly string[]): string => viDu.map((v) => `“${v}”`).join(', ');
@@ -262,9 +328,13 @@ function cauCanhBao(c: CanhBaoCotDto): string {
 function SheetPreview({
   sheet,
   previewRowLimit,
+  quyUocVn,
+  onQuyUocChange,
 }: {
   sheet: SheetPreviewDto;
   previewRowLimit: number;
+  quyUocVn: ReadonlySet<string>;
+  onQuyUocChange: (khoa: string, laVn: boolean) => void;
 }): React.ReactElement {
   const shown = Math.min(sheet.previewRows.length, previewRowLimit);
 
@@ -281,7 +351,14 @@ function SheetPreview({
         </p>
       </div>
 
-      {sheet.canhBao.length > 0 && <CanhBaoChatLuong canhBao={sheet.canhBao} />}
+      {sheet.canhBao.length > 0 && (
+        <CanhBaoChatLuong
+          canhBao={sheet.canhBao}
+          sheet={sheet.name}
+          quyUocVn={quyUocVn}
+          onQuyUocChange={onQuyUocChange}
+        />
+      )}
 
       <div className="max-h-80 overflow-auto rounded-xl border border-slate-200">
         <table className="w-full text-sm">

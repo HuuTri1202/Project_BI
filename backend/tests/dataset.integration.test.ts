@@ -162,6 +162,97 @@ async function commitSheets(
 
 // ─────────────────────────────────────────────────────────────────────────────
 
+describe('người dùng tự chốt quy ước phân cách của một cột (D2)', () => {
+  /**
+   * Cột toàn ô MƠ HỒ: không có giá trị nào đủ hai nhóm nghìn, nên
+   * `doanQuyUocSo` không kết luận được và `750.000` vào kho thành 750 — đúng
+   * ca 50/50 mà bản vá A1 cố ý chọn phía "không nhân lên 1000 lần".
+   *
+   * Bộ này canh đường thoát của người cầm tệp: họ tích một ô ở bước 2 và lời
+   * họ THẮNG lời hàm đoán. Không có nó, lựa chọn duy nhất của họ là sửa tệp rồi
+   * tải lên lần nữa.
+   */
+  const CSV_MO_HO = ['Ma,Gia', 'A,750.000', 'B,15.000'].join('\n');
+
+  async function chotVoiQuyUoc(
+    quyUocSo: { sheet: string; ordinal: number; format: string }[] | undefined,
+  ): Promise<number> {
+    const datasetId = await upload(f.tokenAdminA, 'gia.csv', CSV_MO_HO);
+    const analyzed = await request(app)
+      .post(`/api/v1/datasets/${datasetId}/analyze`)
+      .set(bearer(f.tokenAdminA));
+    expect(analyzed.status, JSON.stringify(analyzed.body)).toBe(200);
+
+    const sheet = analyzed.body.sheets[0].name as string;
+    const body: Record<string, unknown> = { name: 'Gia ban', sheets: [sheet] };
+    if (quyUocSo !== undefined) {
+      body['quyUocSo'] = quyUocSo.map((q) => ({ ...q, sheet }));
+    }
+
+    const commit = await request(app)
+      .post(`/api/v1/datasets/${datasetId}/commit`)
+      .set(bearer(f.tokenAdminA))
+      .send(body);
+    expect(commit.status, JSON.stringify(commit.body)).toBe(200);
+    return commit.body[0].id as number;
+  }
+
+  async function docCot(
+    datasetId: number,
+  ): Promise<{ numberFormat: string | null; mau: unknown }> {
+    const [cot] = await mysqlPool.query<RowDataPacket[]>(
+      'SELECT number_format FROM dataset_columns WHERE dataset_id = ? AND ordinal = 1',
+      [datasetId],
+    );
+    const [dong] = await mysqlPool.query<RowDataPacket[]>(
+      'SELECT data FROM dataset_rows WHERE dataset_id = ? ORDER BY row_index ASC LIMIT 1',
+      [datasetId],
+    );
+    const raw = dong[0]?.['data'];
+    const doc = (typeof raw === 'string' ? JSON.parse(raw) : raw) as Record<string, unknown>;
+    return {
+      numberFormat: (cot[0]?.['number_format'] as string | null) ?? null,
+      mau: doc['Gia'],
+    };
+  }
+
+  it('KHÔNG tích: giữ nguyên kết luận đã đo trên Global-Superstore', async () => {
+    const id = await chotVoiQuyUoc(undefined);
+    const { numberFormat, mau } = await docCot(id);
+
+    expect(numberFormat, 'cột không đủ bằng chứng thì không có quy ước nào được lưu').toBeNull();
+    expect(mau, '`750.000` đứng một mình vẫn đọc là 750 — phía không nhân lên 1000 lần').toBe(750);
+  });
+
+  it('TÍCH: quy ước được lưu, và ô vào kho thành 750.000', async () => {
+    const id = await chotVoiQuyUoc([{ sheet: '', ordinal: 1, format: 'vn' }]);
+    const { numberFormat, mau } = await docCot(id);
+
+    expect(numberFormat, 'lựa chọn của người dùng phải được LƯU như mọi quy ước khác').toBe('vn');
+    expect(mau).toBe(750000);
+  });
+
+  it('quy ước của SHEET KHÁC không chạm tới sheet này', async () => {
+    // Khoá gồm cả tên sheet vì mỗi sheet thành một bộ dữ liệu với bảng cột
+    // riêng. Lọc sai thì một ô tích ở sheet nào cũng đổi cách đọc của mọi sheet.
+    const datasetId = await upload(f.tokenAdminA, 'gia2.csv', CSV_MO_HO);
+    await request(app).post(`/api/v1/datasets/${datasetId}/analyze`).set(bearer(f.tokenAdminA));
+    const commit = await request(app)
+      .post(`/api/v1/datasets/${datasetId}/commit`)
+      .set(bearer(f.tokenAdminA))
+      .send({
+        name: 'Gia ban 2',
+        sheets: ['Sheet1'],
+        quyUocSo: [{ sheet: 'Mot sheet khac', ordinal: 1, format: 'vn' }],
+      });
+    expect(commit.status, JSON.stringify(commit.body)).toBe(200);
+
+    const { numberFormat, mau } = await docCot(commit.body[0].id as number);
+    expect(numberFormat).toBeNull();
+    expect(mau).toBe(750);
+  });
+});
+
 describe('§7.8 phân quyền theo bảng route', () => {
   type Method = 'get' | 'post' | 'patch' | 'delete';
 
