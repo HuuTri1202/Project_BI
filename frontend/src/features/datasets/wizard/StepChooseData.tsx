@@ -1,4 +1,4 @@
-import type { AnalyzeResultDto, SheetPreviewDto } from '@bi/shared';
+import type { AnalyzeResultDto, CanhBaoCotDto, SheetPreviewDto } from '@bi/shared';
 import { useMemo, useState } from 'react';
 import { Badge } from '../../../components/ui/Badge';
 import { Button } from '../../../components/ui/Button';
@@ -25,9 +25,18 @@ interface Props {
   analysis: AnalyzeResultDto;
   selected: string[];
   onChange: (sheets: string[]) => void;
+  /** Gộp các nhóm chỉ khác chữ hoa/thường — vá A2. */
+  gopHoaThuong: boolean;
+  onGopChange: (gop: boolean) => void;
 }
 
-export function StepChooseData({ analysis, selected, onChange }: Props): React.ReactElement {
+export function StepChooseData({
+  analysis,
+  selected,
+  onChange,
+  gopHoaThuong,
+  onGopChange,
+}: Props): React.ReactElement {
   const [search, setSearch] = useState('');
   const [focused, setFocused] = useState(analysis.sheets[0]?.name ?? '');
 
@@ -62,6 +71,15 @@ export function StepChooseData({ analysis, selected, onChange }: Props): React.R
 
   const allVisibleChecked =
     visible.length > 0 && visible.every((s) => selected.includes(s.name));
+
+  /*
+   * Ô tích gộp đọc TOÀN BỘ các sheet, không chỉ sheet đang xem trước: cờ gửi
+   * lên là cờ của cả lần nhập, nên hỏi theo từng sheet sẽ hứa một thứ mà API
+   * không làm được.
+   */
+  const coNhomTrung = analysis.sheets.some((s) =>
+    s.canhBao.some((c) => c.loai === 'hoa-thuong'),
+  );
 
   return (
     <div>
@@ -155,6 +173,35 @@ export function StepChooseData({ analysis, selected, onChange }: Props): React.R
         </div>
       </div>
 
+      {coNhomTrung && (
+        /*
+         * Ô tích này là chỗ người dùng CHO PHÉP biến đổi dữ liệu, nên nó chỉ
+         * xuất hiện khi hệ thống đã thật sự tìm thấy nhóm trùng, và luôn đứng
+         * cạnh câu nói rõ sẽ gộp cái gì. Một ô tích "làm sạch dữ liệu" hiện
+         * thường trực thì không ai biết nó sẽ làm gì với tệp của mình.
+         */
+        <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-3">
+          <label className="flex items-start gap-2.5 text-sm text-amber-900">
+            <input
+              type="checkbox"
+              checked={gopHoaThuong}
+              onChange={(e) => onGopChange(e.target.checked)}
+              className="mt-0.5 h-4 w-4 shrink-0 rounded border-amber-300 text-brand-600 focus:ring-brand-500"
+            />
+            <span>
+              <span className="font-medium">
+                Gộp các nhóm chỉ khác nhau chữ hoa/thường khi nhập
+              </span>
+              <span className="mt-0.5 block text-amber-800">
+                Áp dụng cho mọi sheet được chọn. Cách viết xuất hiện nhiều nhất được giữ làm
+                nhãn, nên biểu đồ vẫn hiện đúng chữ trong tệp của bạn. Bỏ tích nếu cột của bạn
+                phân biệt chữ hoa thường (mã hàng, mã phiếu).
+              </span>
+            </span>
+          </label>
+        </div>
+      )}
+
       {selected.length === 0 && (
         <p role="alert" className="mt-4 text-sm text-red-700">
           Hãy tích ít nhất một sheet để nhập.
@@ -162,6 +209,43 @@ export function StepChooseData({ analysis, selected, onChange }: Props): React.R
       )}
     </div>
   );
+}
+
+/**
+ * Cảnh báo chất lượng dữ liệu của một sheet — vá A2 và C3.
+ *
+ * ⚠️ Hai lỗi đã đo khi dùng hệ thống như người thật, và cả hai đều IM LẶNG
+ * tuyệt đối trước bản vá này:
+ *
+ *   · biểu đồ "doanh thu theo khu vực" hiện 5 cột cho 3 khu vực, vì `MIỀN NAM`
+ *     và `Miền Nam` là hai nhóm riêng — tệp bán hàng thật luôn có kiểu này;
+ *   · một ô `750.000` vào kho thành `750`, và bảng xem trước vẫn hiện nguyên
+ *     văn `750.000` nên không có cách nào phát hiện bằng mắt.
+ *
+ * Ví dụ luôn lấy từ CHÍNH tệp của người dùng. Một câu cảnh báo chung chung
+ * ("dữ liệu có thể không nhất quán") thì không ai đi tìm được chỗ nào.
+ */
+function CanhBaoChatLuong({ canhBao }: { canhBao: readonly CanhBaoCotDto[] }): React.ReactElement {
+  return (
+    <ul
+      role="status"
+      className="mb-2 space-y-1 rounded-lg bg-amber-50 px-3.5 py-2.5 text-sm text-amber-800"
+    >
+      {canhBao.map((c) => (
+        <li key={`${String(c.columnIndex)}-${c.loai}`}>{cauCanhBao(c)}</li>
+      ))}
+    </ul>
+  );
+}
+
+const nhayKep = (viDu: readonly string[]): string => viDu.map((v) => `“${v}”`).join(', ');
+
+function cauCanhBao(c: CanhBaoCotDto): string {
+  const ten = c.sourceName === '' ? `Cột ${String(c.columnIndex + 1)}` : c.sourceName;
+  if (c.loai === 'hoa-thuong') {
+    return `Cột “${ten}” có ${String(c.soNhom ?? 0)} nhóm chỉ khác nhau chữ hoa/thường hoặc khoảng trắng: ${nhayKep(c.viDu)}. Không gộp thì biểu đồ vẽ chúng thành những cột riêng.`;
+  }
+  return `Cột “${ten}” có ô ${nhayKep(c.viDu)} sẽ vào hệ thống thành ${c.docThanh ?? ''} — dấu chấm ở đây được hiểu là dấu thập phân. Nếu bạn muốn nó là ${c.viDu[0] ?? ''} thì hãy viết một giá trị không thể hiểu lẫn trong cột, ví dụ 1.250.000, rồi tải lại.`;
 }
 
 function SheetPreview({
@@ -185,6 +269,8 @@ function SheetPreview({
           {shown.toLocaleString('vi-VN')} dòng đầu
         </p>
       </div>
+
+      {sheet.canhBao.length > 0 && <CanhBaoChatLuong canhBao={sheet.canhBao} />}
 
       <div className="max-h-80 overflow-auto rounded-xl border border-slate-200">
         <table className="w-full text-sm">

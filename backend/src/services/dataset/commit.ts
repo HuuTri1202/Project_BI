@@ -6,6 +6,7 @@ import { kiemHanMuc } from '../billing/limits';
 import { queueAutoLoad } from '../ingest/autoLoad';
 import { HttpError } from '../../utils/httpError';
 import { analyzeDataset } from './analyze';
+import { banDoGop } from './chatLuong';
 import { defaultFieldName, defaultFieldRole, doanQuyUocSo, inferColumnType } from './inferType';
 import { normalizeCell } from './normalizeCell';
 import type { ParsedSheet } from './parseFile';
@@ -59,6 +60,15 @@ export interface CommitInput {
   /** Tên gốc; nhiều sheet thì nối thêm tên sheet cho phân biệt được. */
   name: string;
   sheetNames: readonly string[];
+  /**
+   * Gộp các nhóm chỉ khác nhau chữ hoa/thường và khoảng trắng — vá A2.
+   *
+   * Người dùng tích ở bước 2, sau khi đã đọc cảnh báo kèm ví dụ lấy từ chính
+   * tệp của họ (`CanhBaoCotDto` loại `hoa-thuong`). Không tích thì không có ô
+   * nào bị đổi, vì gộp là BIẾN ĐỔI dữ liệu: `aB12` và `Ab12` trong một cột mã
+   * phân biệt chữ hoa thường là hai thứ khác nhau thật.
+   */
+  gopHoaThuong: boolean;
 }
 
 export interface CommittedDataset {
@@ -128,7 +138,7 @@ export async function commitDatasets(input: CommitInput): Promise<CommittedDatas
     const created: CommittedDataset[] = [];
 
     for (const [index, sheet] of sheets.entries()) {
-      const columns = buildColumns(sheet);
+      const columns = buildColumns(sheet, input.gopHoaThuong);
       const rows = buildRows(sheet, columns);
       const name = multi ? `${input.name} · ${sheet.name}` : input.name;
 
@@ -191,7 +201,7 @@ export async function commitDatasets(input: CommitInput): Promise<CommittedDatas
  * `fieldName`, nên hai cột cùng tên thì cột sau đè cột trước và dữ liệu biến mất
  * trong im lặng. File thật rất hay có hai cột "Ghi chú".
  */
-function buildColumns(sheet: ParsedSheet): datasetsRepo.ColumnInput[] {
+function buildColumns(sheet: ParsedSheet, gopHoaThuong: boolean): datasetsRepo.ColumnInput[] {
   const used = new Set<string>();
 
   return sheet.header.map((sourceName, columnIndex) => {
@@ -199,6 +209,15 @@ function buildColumns(sheet: ParsedSheet): datasetsRepo.ColumnInput[] {
     const semanticType = inferColumnType(values);
     // Chỉ cột SỐ mới có quy ước phân cách để mà suy — xem `doanQuyUocSo`.
     const numberFormat = semanticType === 'number' ? doanQuyUocSo(values) : null;
+    /*
+     * Bản đồ gộp chỉ dựng cho cột CHỮ, và chỉ khi người dùng đã đồng ý.
+     *
+     * Dựng ở đây rồi LƯU, không suy lại ở bước nạp: `banDoGop` chọn cách viết
+     * đại diện theo số lần xuất hiện trong MẪU này, còn `readFileRows` đọc cả
+     * tệp. Suy lại ở đó thì cùng một ô có thể mang hai nhãn khác nhau giữa bảng
+     * xem trước và kho phân tích — đúng cái bẫy mà `number_format` đã tránh.
+     */
+    const valueMap = gopHoaThuong && semanticType === 'text' ? banDoGop(values) : null;
 
     let fieldName = defaultFieldName(sourceName, columnIndex);
     if (used.has(fieldName)) {
@@ -216,6 +235,7 @@ function buildColumns(sheet: ParsedSheet): datasetsRepo.ColumnInput[] {
       ordinal: columnIndex,
       dataType: semanticType,
       numberFormat,
+      valueMap,
       // Ô trống trong file là chuyện thường, nên mọi cột đều cho phép null.
       isNullable: true,
       fieldName,
@@ -251,7 +271,7 @@ function buildRows(
       doc[column.fieldName ?? column.name] = normalizeCell(
         row[column.ordinal] ?? '',
         column.semanticType ?? 'text',
-        column.numberFormat ?? null,
+        { numberFormat: column.numberFormat, valueMap: column.valueMap },
       );
     }
     return doc;

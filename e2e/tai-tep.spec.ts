@@ -33,6 +33,13 @@ const TEP = path.resolve(__dirname, '../docs/kiem-thu/du-lieu-thu/kiem-thu-ban-h
 /** Tên bộ dữ liệu wizard tự đặt từ tên tệp — xem `slugTenFile` không đụng tới tên hiển thị. */
 const TEN_BO = 'kiem-thu-ban-hang';
 
+/** Tệp thứ hai: chữ hoa/thường lẫn lộn như tệp bán hàng gõ tay thật — vá A2. */
+const TEP_HOA_THUONG = path.resolve(
+  __dirname,
+  '../docs/kiem-thu/du-lieu-thu/kiem-thu-hoa-thuong.csv',
+);
+const TEN_BO_HOA_THUONG = 'kiem-thu-hoa-thuong';
+
 /**
  * Dọn theo TÊN, không theo id mà ca đã ghi lại.
  *
@@ -48,17 +55,19 @@ test.afterEach(async ({ request }) => {
   const token = await layToken(request);
   const auth = { Authorization: `Bearer ${token}` };
 
-  const ds = await request.get(
-    `http://127.0.0.1:4000/api/v1/datasets?page=1&pageSize=100&q=${encodeURIComponent(TEN_BO)}`,
-    { headers: auth },
-  );
-  if (ds.status() !== 200) return;
+  for (const ten of [TEN_BO, TEN_BO_HOA_THUONG]) {
+    const ds = await request.get(
+      `http://127.0.0.1:4000/api/v1/datasets?page=1&pageSize=100&q=${encodeURIComponent(ten)}`,
+      { headers: auth },
+    );
+    if (ds.status() !== 200) continue;
 
-  const { items } = (await ds.json()) as { items: { id: number; name: string }[] };
-  for (const d of items.filter((x) => x.name === TEN_BO)) {
-    await request.delete(`http://127.0.0.1:4000/api/v1/datasets/${String(d.id)}`, {
-      headers: auth,
-    });
+    const { items } = (await ds.json()) as { items: { id: number; name: string }[] };
+    for (const d of items.filter((x) => x.name === ten)) {
+      await request.delete(`http://127.0.0.1:4000/api/v1/datasets/${String(d.id)}`, {
+        headers: auth,
+      });
+    }
   }
 });
 
@@ -177,6 +186,114 @@ test('tải CSV lên -> chốt -> bộ dữ liệu nằm trong Kho dữ liệu',
    * rỗng, vì danh sách đọc từ cache của react-query.
    */
   expect(vua, 'phải tìm lại được bộ dữ liệu vừa tạo qua API').toBeDefined();
+
+  khongLoiNao(theoDoi);
+});
+
+/**
+ * Hành trình #2b: tệp chữ hoa/thường lẫn lộn → cảnh báo → gộp — vá A2.
+ *
+ * ═══ Vì sao ca này phải ở trình duyệt thật ══════════════════════════════════
+ *
+ * Lỗi đã đo khi dùng hệ thống như người thật: tệp bán hàng gõ tay có `MIỀN NAM`
+ * lẫn `Miền Nam`, và biểu đồ "doanh thu theo khu vực" hiện NĂM cột cho BA khu
+ * vực. Hệ thống không gộp, không gợi ý, không nói một câu nào.
+ *
+ * Phần phát hiện và phần gộp đều đã có ca đơn vị (`chatLuong.test.ts`), và phần
+ * nối xuống kho đã có ca tích hợp (`ingest.integration.test.ts`). Thứ CHỈ chỗ
+ * này mới thấy là mắt xích ở giữa: cảnh báo có thật sự hiện ra ở bước 2 không,
+ * và ô tích "gộp" có đi tới `commit` không. Cả hai đều có thể đứt mà toàn bộ
+ * test đơn vị vẫn xanh — cờ `gopHoaThuong` chỉ cần không được truyền vào payload
+ * là xong.
+ */
+test('tệp lẫn chữ hoa/thường -> cảnh báo ở bước 2, và gộp khi nhập', async ({ page, request }) => {
+  test.setTimeout(90_000);
+
+  const theoDoi = theoDoiLoi(page);
+  await dangNhap(page);
+
+  await page.goto('/datasets');
+  await page.locator('header').getByRole('button', { name: '+ Tạo bộ dữ liệu' }).click();
+
+  const wizard = page.getByRole('dialog');
+  await wizard.locator('input[type="file"]:not([webkitdirectory])').setInputFiles(TEP_HOA_THUONG);
+  await page.waitForResponse(
+    (res) => res.request().method() === 'PUT' && res.url().includes(':9000/'),
+    { timeout: 20_000 },
+  );
+  await wizard.getByRole('button', { name: 'Tiếp tục' }).click();
+
+  /*
+   * Bước 2 phải NÓI RA chuyện gì, ở cột nào, bằng chữ trong tệp của người dùng.
+   *
+   * Một câu chung chung ("dữ liệu có thể không nhất quán") thì không ai đi tìm
+   * được chỗ nào, nên ca này khẳng định cả tên cột lẫn ví dụ.
+   */
+  const canhBao = wizard.getByRole('status').filter({ hasText: 'Khu vực' });
+  await expect(canhBao, 'bước 2 phải cảnh báo nhóm khác chữ hoa/thường').toBeVisible({
+    timeout: 20_000,
+  });
+  await expect(canhBao).toContainText('MIỀN NAM');
+  await expect(canhBao).toContainText('2 nhóm');
+
+  // Ô tích phải BẬT SẴN: người dùng vừa đọc cảnh báo kèm ví dụ, và gần như chắc
+  // chắn muốn gộp. Nhưng nó phải là một ô tích thật, bỏ được.
+  const oGop = wizard.getByRole('checkbox', {
+    name: /Gộp các nhóm chỉ khác nhau chữ hoa\/thường/,
+  });
+  await expect(oGop).toBeChecked();
+
+  await wizard.getByRole('button', { name: 'Tạo 1 bộ dữ liệu' }).click();
+  await expect(wizard.getByText('Đã tạo bộ dữ liệu thành công!')).toBeVisible({ timeout: 25_000 });
+
+  /*
+   * Và giờ là câu hỏi thật: trong dữ liệu đã nhập, còn mấy nhãn?
+   *
+   * Đọc qua API chứ không đếm trên màn hình: bảng xem trước cắt theo trang và
+   * `truncate` chữ, nên một khẳng định bằng mắt ở đây sẽ mong manh mà không
+   * chặt hơn chút nào.
+   */
+  const token = await layToken(request);
+  const auth = { Authorization: `Bearer ${token}` };
+  const ds = await request.get(
+    `http://127.0.0.1:4000/api/v1/datasets?page=1&pageSize=100&q=${encodeURIComponent(TEN_BO_HOA_THUONG)}`,
+    { headers: auth },
+  );
+  expect(ds.status()).toBe(200);
+  const { items } = (await ds.json()) as { items: { id: number; name: string }[] };
+  const vua = items.find((d) => d.name === TEN_BO_HOA_THUONG);
+  expect(vua, 'phải tìm lại được bộ dữ liệu vừa tạo').toBeDefined();
+
+  const xemTruoc = await request.get(
+    `http://127.0.0.1:4000/api/v1/datasets/${String(vua?.id)}/preview`,
+    { headers: auth },
+  );
+  expect(xemTruoc.status()).toBe(200);
+  // `rows` là MẢNG theo thứ tự `columns`, không phải object theo tên cột — tra
+  // vị trí thay vì đoán khoá, vì tên field đã đi qua bước làm sạch tiêu đề.
+  const { columns, rows } = (await xemTruoc.json()) as {
+    columns: string[];
+    rows: (string | number | boolean | null)[][];
+  };
+  const iKhuVuc = columns.findIndex((c) => c.includes('Khu'));
+  const iDoanhThu = columns.findIndex((c) => c.includes('Doanh thu'));
+  expect(iKhuVuc, 'phải tìm được cột khu vực trong bản xem trước').toBeGreaterThanOrEqual(0);
+
+  const khuVuc = rows.map((r) => r[iKhuVuc]);
+  // Ba cách viết về MỘT nhãn, và nhãn đó là cách viết nhiều nhất trong tệp —
+  // không phải một dạng hoa/thường do hệ thống sinh ra.
+  expect(khuVuc.filter((v) => v === 'Miền Nam')).toHaveLength(3);
+  expect(khuVuc, 'không còn nhãn nào ở dạng gốc chưa gộp').not.toContain('MIỀN NAM');
+  expect(khuVuc).not.toContain('Miền  Nam');
+  expect(khuVuc).not.toContain('miền bắc');
+  // Ba khu vực, đúng như người đọc tệp hiểu.
+  expect(new Set(khuVuc).size).toBe(3);
+
+  /*
+   * Và tiện thể, cùng tệp này canh lại bản vá A1: `750.000` là ô MƠ HỒ, nhưng
+   * `1.250.000` ở dòng trên phân xử cho cả cột là kiểu Việt.
+   */
+  expect(rows.map((r) => r[iDoanhThu])).toContain(750000);
 
   khongLoiNao(theoDoi);
 });

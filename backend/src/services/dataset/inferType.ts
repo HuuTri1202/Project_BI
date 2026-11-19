@@ -135,7 +135,15 @@ const MOT_NHOM_CHAM = /^-?[1-9]\d{0,2}\.\d{3}$/;
 /** Dấu chấm chắc chắn là dấu THẬP PHÂN: phần lẻ khác ba chữ số, hoặc phần nguyên là 0. */
 const THAP_PHAN_RO = /^-?(?:0\.\d+|\d+\.\d{1,2}|\d+\.\d{4,})$/;
 
-export function doanQuyUocSo(values: Iterable<string>): QuyUocSo | null {
+/**
+ * Bằng chứng thô tìm được trong cột, TRƯỚC khi kết luận.
+ *
+ * Tách ra khỏi `doanQuyUocSo` vì `null` của hàm đó trộn hai chuyện rất khác
+ * nhau: "không có bằng chứng nào" và "có bằng chứng của CẢ HAI quy ước". Cái
+ * thứ hai là một cột người dùng cần biết (C3 trong báo cáo QA: `1,250,000` và
+ * `750.000` nằm cùng một cột), còn cái thứ nhất thì không có gì để nói.
+ */
+export function bangChungQuyUocSo(values: Iterable<string>): { vn: boolean; en: boolean } {
   let vn = false;
   let en = false;
 
@@ -147,10 +155,31 @@ export function doanQuyUocSo(values: Iterable<string>): QuyUocSo | null {
     if (GROUPED_VN.test(s)) vn = true;
     else if (GROUPED_EN.test(s) || THAP_PHAN_RO.test(s)) en = true;
 
-    // Trái nhau thì dừng sớm: không có kết luận nào đúng cho cả cột.
-    if (vn && en) return null;
+    // Trái nhau thì dừng sớm: đã đủ để kết luận là không kết luận được.
+    if (vn && en) break;
   }
 
+  return { vn, en };
+}
+
+/**
+ * Ô này có nằm trong TẬP MƠ HỒ không — tức cách đọc của nó phụ thuộc quy ước
+ * của cột (`750.000` là 750 hay 750 nghìn).
+ *
+ * Mở ra ngoài để `chatLuong` nói được với người dùng đúng những ô đó, thay vì
+ * một câu chung chung về "dữ liệu không nhất quán". Tập này phải là MỘT nơi:
+ * `parseNumber` đổi cách đọc đúng những ô này, nên một bản sao của regex sẽ
+ * khiến cảnh báo nói về một tập ô khác với tập thật sự bị ảnh hưởng.
+ */
+export function laOMoHoPhanCach(raw: string): boolean {
+  const s = raw.trim().replace(/\s/g, '').replace(/%$/, '');
+  return MOT_NHOM_CHAM.test(s);
+}
+
+export function doanQuyUocSo(values: Iterable<string>): QuyUocSo | null {
+  const { vn, en } = bangChungQuyUocSo(values);
+  // Trái nhau thì không có kết luận nào đúng cho cả cột.
+  if (vn && en) return null;
   if (vn) return 'vn';
   return en ? 'en' : null;
 }

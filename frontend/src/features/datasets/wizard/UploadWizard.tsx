@@ -105,6 +105,15 @@ export function UploadWizard({
   const [analysis, setAnalysis] = useState<AnalyzeResultDto | null>(null);
   /** Tên các sheet được TÍCH — mỗi cái sẽ thành một bộ dữ liệu riêng (§7.5). */
   const [sheets, setSheets] = useState<string[]>([]);
+  /*
+   * Mặc định BẬT, và mặc định nằm ở đây chứ không ở API.
+   *
+   * Ở đây người dùng vừa đọc cảnh báo kèm ví dụ từ chính tệp của họ, nên bật
+   * sẵn là làm hộ việc họ gần như chắc chắn muốn (`MIỀN NAM` và `Miền Nam` là
+   * một khu vực). API thì giữ mặc định TẮT: một API biến đổi dữ liệu khi client
+   * im lặng là một API đáng sợ.
+   */
+  const [gopHoaThuong, setGopHoaThuong] = useState(true);
   const [datasetName, setDatasetName] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -266,6 +275,7 @@ export function UploadWizard({
         (await api.commitDatasets(upload.state.datasetId, {
           name: datasetName.trim(),
           sheets,
+          gopHoaThuong,
         }));
       committedRef.current = datasets;
 
@@ -541,7 +551,13 @@ export function UploadWizard({
         )}
 
         {step === 1 && analysis && (
-          <StepChooseData analysis={analysis} selected={sheets} onChange={setSheets} />
+          <StepChooseData
+            analysis={analysis}
+            selected={sheets}
+            onChange={setSheets}
+            gopHoaThuong={gopHoaThuong}
+            onGopChange={setGopHoaThuong}
+          />
         )}
 
         {step === 2 && (

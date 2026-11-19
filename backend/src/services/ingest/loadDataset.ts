@@ -286,6 +286,7 @@ async function openSource(
           // định một lần trên mẫu của nó, và mọi nơi đọc file phải dùng đúng
           // kết luận đó — xem docblock của `normalizeCell`.
           numberFormat: c.numberFormat,
+          valueMap: c.valueMap,
         })),
         batchSize: BATCH_ROWS,
         maxRows,

@@ -87,6 +87,8 @@ export interface IngestColumn {
   semanticType: SemanticType | null;
   /** Quy ước phân cách số của cột, do §7 suy ra và LƯU — xem `doanQuyUocSo`. */
   numberFormat: NumberFormat | null;
+  /** Bản đồ gộp cách viết của cột chữ, do §7 dựng và LƯU — xem `banDoGop`. */
+  valueMap: Record<string, string> | null;
   /** Cần parse lại chuỗi thành mốc thời gian trước khi gửi đi. */
   isDateTime: boolean;
   isNumber: boolean;
@@ -112,6 +114,7 @@ export function buildIngestColumns(
         sourceOrdinal: c.ordinal,
         semanticType: c.semanticType,
         numberFormat: c.numberFormat,
+        valueMap: c.valueMap,
         isDateTime: chType.includes('DateTime64'),
         isNumber: /Float|Int|Decimal/.test(chType),
         isBoolean: source === 'file' && c.semanticType === 'boolean',

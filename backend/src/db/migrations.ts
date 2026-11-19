@@ -3346,4 +3346,28 @@ export const migrations: readonly Migration[] = [
          ADD COLUMN number_format ENUM('vn','en') NULL AFTER included`,
     ],
   },
+  /*
+   * Bản đồ gộp các cách viết của cùng một giá trị — vá A2.
+   *
+   * `MIỀN NAM` và `Miền Nam` là hai nhóm riêng trong biểu đồ, nên một tệp bán
+   * hàng người gõ tay cho ra năm cột cho ba khu vực. Người dùng tích "gộp" ở
+   * bước 2 của wizard; bản đồ được dựng từ mẫu lúc `commit` và LƯU lại ở đây.
+   *
+   * Vì sao lưu chứ không suy lại mỗi lần đọc: cùng lý do với `number_format` ở
+   * migration 43. Hai đường cùng đọc một tệp (`commit` ghi bảng xem trước,
+   * `readFileRows` nạp vào ClickHouse) lấy mẫu khác nhau, nên suy lại ở mỗi nơi
+   * là mở đường cho hai nơi gộp khác nhau trên cùng một ô.
+   *
+   * JSON chứ không phải một cờ boolean kèm luật sinh: cách viết ĐẠI DIỆN là cách
+   * xuất hiện nhiều nhất trong chính tệp của người dùng, nên nhãn biểu đồ vẫn là
+   * chữ của họ. Một luật kiểu Title Case thì biến `iPhone` thành `Iphone`.
+   */
+  {
+    id: 44,
+    name: 'dataset_columns_value_map',
+    statements: [
+      `ALTER TABLE dataset_columns
+         ADD COLUMN value_map JSON NULL AFTER number_format`,
+    ],
+  },
 ];

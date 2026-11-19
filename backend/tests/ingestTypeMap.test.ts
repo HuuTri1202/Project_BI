@@ -197,6 +197,7 @@ function col(input: {
   semanticType: 'text' | 'number' | 'date' | 'boolean' | null;
   fieldRole: null;
   numberFormat: null;
+  valueMap: null;
   isNullable: boolean;
   included: boolean;
 } {
@@ -208,6 +209,7 @@ function col(input: {
     semanticType: input.semanticType ?? null,
     fieldRole: null,
     numberFormat: null,
+    valueMap: null,
     isNullable: true,
     included: input.included ?? true,
   };

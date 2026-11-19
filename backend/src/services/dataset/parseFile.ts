@@ -3,6 +3,7 @@ import { Readable } from 'node:stream';
 import Papa from 'papaparse';
 
 import { env } from '../../config/env';
+import { canhBaoCot } from './chatLuong';
 import { stripBom } from './detectFormat';
 import { inferColumnType } from './inferType';
 import { loadWorkbook, XlsxLoadError, type Workbook } from './loadWorkbook';
@@ -293,6 +294,20 @@ function normalizeRow(width: number): (row: unknown[]) => string[] {
 export function toPreview(sheet: ParsedSheet): SheetPreviewDto {
   const sample = sheet.rows.slice(0, SAMPLE_ROWS);
 
+  // `values` đi kèm từng cột để phần cảnh báo dưới đây không phải cắt mẫu lần
+  // hai; nó được loại khỏi DTO ngay ở `return` vì 200 ô mỗi cột không có lý do
+  // gì đi qua dây.
+  const cot = sheet.header.map((sourceName, columnIndex) => {
+    const values = sample.map((row) => row[columnIndex] ?? '');
+    return {
+      columnIndex,
+      sourceName,
+      semanticType: inferColumnType(values),
+      samples: values.filter((v) => v !== '').slice(0, 3),
+      values,
+    };
+  });
+
   return {
     name: sheet.name,
     // Số dòng THẬT của sheet, không phải số dòng đang giữ trong bộ nhớ. Lấy
@@ -300,14 +315,16 @@ export function toPreview(sheet: ParsedSheet): SheetPreviewDto {
     // vừa trông hợp lý, nên không ai nghi ngờ.
     rowCount: sheet.totalRows,
     previewRows: sheet.rows.slice(0, PREVIEW_ROWS),
-    columns: sheet.header.map((sourceName, columnIndex) => {
-      const values = sample.map((row) => row[columnIndex] ?? '');
-      return {
-        columnIndex,
-        sourceName,
-        semanticType: inferColumnType(values),
-        samples: values.filter((v) => v !== '').slice(0, 3),
-      };
-    }),
+    // Liệt kê tường minh để `values` KHÔNG đi qua dây: 200 ô mỗi cột nhân số
+    // cột là một phần tải không ai dùng, và nó còn nằm trong cache Redis.
+    columns: cot.map((c) => ({
+      columnIndex: c.columnIndex,
+      sourceName: c.sourceName,
+      semanticType: c.semanticType,
+      samples: c.samples,
+    })),
+    // Soi trên cùng MỘT mẫu với phần đoán kiểu ở trên: cảnh báo nói về đúng
+    // những ô mà kiểu đã được suy ra từ đó.
+    canhBao: cot.flatMap((c) => canhBaoCot(c.sourceName, c.columnIndex, c.values, c.semanticType)),
   };
 }

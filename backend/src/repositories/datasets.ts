@@ -368,10 +368,38 @@ export async function findOneAnyWorkspace(
   return row ? toDto(row) : null;
 }
 
+/**
+ * Đọc `value_map` về đúng hình dạng `khoá -> cách viết đại diện`.
+ *
+ * Chịu được cả ba thứ có thể nằm trong cột đó: object mysql2 đã parse hộ, chuỗi
+ * JSON (một số cấu hình driver trả về vậy), và `NULL` của mọi cột có trước
+ * migration 44. Giá trị không phải chuỗi thì bỏ — một bản đồ hỏng không được
+ * phép làm cả lần nạp chết.
+ */
+function docBanDoGop(raw: unknown): Record<string, string> | null {
+  if (raw === null || raw === undefined) return null;
+
+  let obj: unknown = raw;
+  if (typeof raw === 'string') {
+    try {
+      obj = JSON.parse(raw);
+    } catch {
+      return null;
+    }
+  }
+  if (typeof obj !== 'object' || obj === null) return null;
+
+  const map: Record<string, string> = {};
+  for (const [khoa, gia] of Object.entries(obj as Record<string, unknown>)) {
+    if (typeof gia === 'string') map[khoa] = gia;
+  }
+  return Object.keys(map).length === 0 ? null : map;
+}
+
 export async function listColumns(db: Db, datasetId: number): Promise<DatasetColumnDto[]> {
   const [rows] = await db.query<RowDataPacket[]>(
     `SELECT name, data_type, is_nullable, ordinal, field_name, semantic_type, field_role,
-            included, number_format
+            included, number_format, value_map
        FROM dataset_columns WHERE dataset_id = ? ORDER BY ordinal ASC`,
     [datasetId],
   );
@@ -385,6 +413,9 @@ export async function listColumns(db: Db, datasetId: number): Promise<DatasetCol
     fieldRole: (r['field_role'] as FieldRole | null) ?? null,
     included: Number(r['included']) === 1,
     numberFormat: (r['number_format'] as NumberFormat | null) ?? null,
+    // Cột JSON: mysql2 trả về object đã parse, nhưng một bản ghi cũ hoặc một
+    // chuỗi rỗng thì không — `docBanDoGop` nhận cả hai hình dạng.
+    valueMap: docBanDoGop(r['value_map']),
   }));
 }
 
@@ -525,6 +556,7 @@ export interface ColumnInput {
   fieldRole?: FieldRole | null;
   included?: boolean;
   numberFormat?: NumberFormat | null;
+  valueMap?: Record<string, string> | null;
 }
 
 export async function replaceColumns(
@@ -538,7 +570,7 @@ export async function replaceColumns(
   await db.query<ResultSetHeader>(
     `INSERT INTO dataset_columns
        (dataset_id, name, data_type, is_nullable, ordinal,
-        field_name, semantic_type, field_role, included, number_format)
+        field_name, semantic_type, field_role, included, number_format, value_map)
      VALUES ?`,
     [
       columns.map((c) => [
@@ -552,6 +584,9 @@ export async function replaceColumns(
         c.fieldRole ?? null,
         c.included === false ? 0 : 1,
         c.numberFormat ?? null,
+        // `JSON.stringify` tay: driver bọc mảng-của-mảng cho `VALUES ?` nên một
+        // object đi vào đó thành `[object Object]`.
+        c.valueMap === undefined || c.valueMap === null ? null : JSON.stringify(c.valueMap),
       ]),
     ],
   );

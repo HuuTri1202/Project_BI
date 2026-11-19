@@ -190,6 +190,14 @@ export const commitDatasetsBodySchema = z.object({
     .array(z.string().min(1))
     .min(1, 'Hãy chọn ít nhất một sheet')
     .max(50, 'Chọn tối đa 50 sheet một lần'),
+  /**
+   * Gộp các nhóm chỉ khác chữ hoa/thường — người dùng tích ở bước 2.
+   *
+   * Mặc định `false`: client im lặng thì KHÔNG biến đổi dữ liệu. Giao diện mới
+   * là nơi đặt mặc định bật, vì ở đó người dùng vừa đọc xong cảnh báo kèm ví dụ
+   * từ chính tệp của họ.
+   */
+  gopHoaThuong: z.boolean().optional().default(false),
 });
 
 // ─── Báo cáo (§7.6) ──────────────────────────────────────────────────────────

@@ -555,6 +555,7 @@ v1Router.post(
       createdBy: auth.userId,
       name: body.name,
       sheetNames: body.sheets,
+      gopHoaThuong: body.gopHoaThuong,
     });
 
     const details: DatasetDetailDto[] = [];

@@ -240,6 +240,16 @@ export interface DatasetColumnDto {
    * cho bảng xem trước và kho phân tích nói hai điều khác nhau về cùng một ô.
    */
   numberFormat: NumberFormat | null;
+  /**
+   * Bản đồ GỘP các cách viết của cùng một giá trị: `khoá nhóm -> cách viết đại
+   * diện`. `null` = không gộp gì (mặc định, và là trạng thái của mọi cột có
+   * trước migration 44).
+   *
+   * Khoá nhóm là giá trị đã bỏ khoảng trắng hai đầu, co chuỗi trắng thành một
+   * dấu cách và hạ chữ thường — xem `services/dataset/chatLuong.ts`. Cùng lý lẽ
+   * "quyết định một lần rồi LƯU" như `numberFormat` ngay trên.
+   */
+  valueMap: Record<string, string> | null;
 }
 
 /**
@@ -590,12 +600,42 @@ export interface SheetColumnDto {
   samples: string[];
 }
 
+/**
+ * Một vấn đề CHẤT LƯỢNG dữ liệu phát hiện ở bước xem trước — §7.5.
+ *
+ * Hai lỗi đã đo trên hệ thống đang chạy, và cả hai đều im lặng tuyệt đối trước
+ * bản vá này:
+ *
+ *   `hoa-thuong`   biểu đồ "doanh thu theo khu vực" hiện NĂM cột cho BA khu
+ *                  vực, vì `MIỀN NAM` và `Miền Nam` là hai nhóm riêng;
+ *   `so-mo-ho`     cột có ô `750.000` mà hệ thống sắp đọc thành 750, vì dấu
+ *                  chấm ở đó có thể là dấu thập phân (xem `doanQuyUocSo`).
+ */
+export interface CanhBaoCotDto {
+  columnIndex: number;
+  sourceName: string;
+  loai: 'hoa-thuong' | 'so-mo-ho';
+  /** Cách viết THẬT lấy từ tệp của người dùng — không phải ví dụ bịa. */
+  viDu: string[];
+  /** Số nhóm sẽ gộp lại. Chỉ có ở `hoa-thuong`. */
+  soNhom?: number;
+  /**
+   * `viDu[0]` sẽ vào kho dưới dạng con số này. Chỉ có ở `so-mo-ho`.
+   *
+   * Nói con số thật thay vì nói "có thể không chính xác": người dùng đối chiếu
+   * được bằng mắt với ô trong tệp và tự quyết trong một giây.
+   */
+  docThanh?: string;
+}
+
 export interface SheetPreviewDto {
   name: string;
   columns: SheetColumnDto[];
   /** Số dòng dữ liệu, không tính hàng tiêu đề. */
   rowCount: number;
   previewRows: string[][];
+  /** Rỗng = không phát hiện vấn đề nào trong mẫu đã soi. */
+  canhBao: CanhBaoCotDto[];
 }
 
 /**
@@ -632,6 +672,15 @@ export interface AnalyzeResultDto {
 export interface CommitDatasetsInput {
   sheets: string[];
   name: string;
+  /**
+   * Gộp các nhóm chỉ khác nhau chữ hoa/thường và khoảng trắng — người dùng tích
+   * ở bước 2, và chỉ thấy ô tích đó khi hệ thống đã PHÁT HIỆN nhóm trùng
+   * (`CanhBaoCotDto` loại `hoa-thuong`).
+   *
+   * Bỏ trống = không gộp. Mặc định nằm ở giao diện chứ không ở đây: một API mặc
+   * định BIẾN ĐỔI dữ liệu khi client im lặng là một API đáng sợ.
+   */
+  gopHoaThuong?: boolean;
 }
 
 export const DATASET_NAME_MAX = 255;

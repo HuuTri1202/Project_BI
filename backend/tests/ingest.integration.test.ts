@@ -10,6 +10,7 @@ import { closeMysql, mysqlPool } from '../src/config/mysql';
 import { closeRedis } from '../src/config/redis';
 import * as loadsRepo from '../src/repositories/datasetLoads';
 import * as datasetsRepo from '../src/repositories/datasets';
+import { banDoGop } from '../src/services/dataset/chatLuong';
 import { doanQuyUocSo, inferColumnType } from '../src/services/dataset/inferType';
 import { deleteDataset } from '../src/services/connections/deleteDataset';
 import { queueAutoLoad } from '../src/services/ingest/autoLoad';
@@ -610,6 +611,108 @@ describe('quy ước phân cách số đi trọn từ lúc CHỐT tới lúc N�
     }
 
     expect(batches[0]?.map((r) => r[1])).toEqual([-288.765, 0.402]);
+  });
+});
+
+describe('bản đồ gộp hoa/thường đi trọn từ lúc CHỐT tới lúc NẠP', () => {
+  /**
+   * Lỗi đã đo trên hệ thống đang chạy: biểu đồ "doanh thu theo khu vực" hiện
+   * NĂM cột cho BA khu vực, vì `MIỀN NAM` và `Miền Nam` là hai nhóm riêng trong
+   * GROUP BY của kho.
+   *
+   * ⚠️ Cùng loại ca với bộ `number_format` ngay trên, và cùng lý do: phép tính
+   * đã có ca đơn vị ở `chatLuong.test.ts`, còn thứ chỉ chỗ này mới thấy là bản
+   * đồ có đi trọn đường hay không. Nó là cột JSON, nên có thêm một mắt dễ đứt
+   * mà `number_format` không có: ghi xuống phải `JSON.stringify`, đọc lên phải
+   * ra lại object.
+   */
+  it('cột khu vực: bản đồ được LƯU, và nạp ra đúng MỘT nhãn mỗi nhóm', async () => {
+    const csv = [
+      'Khu vực,Doanh thu',
+      'Miền Nam,100',
+      'MIỀN NAM,200',
+      'Miền  Nam,300',
+      'Miền Bắc,400',
+      // Cách viết này KHÔNG có trong mẫu dựng bản đồ ở dưới — nó đại diện cho
+      // dòng 5.000 của một tệp thật, và vẫn phải gộp đúng.
+      'mIỀn bẮc,500',
+      'Miền Trung,600',
+    ].join('\n');
+
+    const key = 'test/khu-vuc-hoa-thuong.csv';
+    memoryStorage.putForTest(key, Buffer.from(csv, 'utf8'));
+
+    // §7: `buildColumns` dựng bản đồ từ MẪU (ở đây là bốn dòng đầu), rồi lưu.
+    const mau = ['Miền Nam', 'MIỀN NAM', 'Miền  Nam', 'Miền Bắc'];
+    await datasetsRepo.replaceColumns(mysqlPool, f.datasetA, [
+      {
+        name: 'Khu vực',
+        dataType: 'text',
+        isNullable: true,
+        ordinal: 0,
+        semanticType: 'text',
+        valueMap: banDoGop(mau),
+      },
+      { name: 'Doanh thu', dataType: 'number', isNullable: true, ordinal: 1, semanticType: 'number' },
+    ]);
+
+    const daLuu = await datasetsRepo.listColumns(mysqlPool, f.datasetA);
+    expect(daLuu[0]?.valueMap, 'bản đồ phải được LƯU, không chỉ tính rồi quên').toEqual({
+      'miền nam': 'Miền Nam',
+    });
+
+    const batches: unknown[][][] = [];
+    for await (const batch of readFileRows(key, 'csv', {
+      sheetName: null,
+      columns: daLuu.map((c) => ({
+        ordinal: c.ordinal,
+        semanticType: c.semanticType ?? 'text',
+        valueMap: c.valueMap,
+      })),
+      batchSize: 100,
+      maxRows: 100,
+    })) {
+      batches.push(batch);
+    }
+
+    const khuVuc = batches[0]?.map((r) => r[0]);
+    // Ba cách viết của Miền Nam về MỘT nhãn — và nhãn đó là chữ của người dùng.
+    expect(khuVuc?.filter((v) => v === 'Miền Nam')).toHaveLength(3);
+    expect(khuVuc).not.toContain('MIỀN NAM');
+    expect(khuVuc).not.toContain('Miền  Nam');
+    // `Miền Bắc` chỉ có MỘT cách viết trong mẫu nên không vào bản đồ, và vì thế
+    // `mIỀn bẮc` ở dòng 5 vẫn là một nhóm riêng. Đó là hành vi ĐÚNG: hệ thống
+    // chỉ gộp những nhóm nó đã thật sự nhìn thấy có hai cách viết.
+    expect(khuVuc).toContain('mIỀn bẮc');
+    expect(khuVuc).toContain('Miền Trung');
+  });
+
+  it('không tích gộp -> không ô nào bị đổi', async () => {
+    const csv = ['Khu vực', 'Miền Nam', 'MIỀN NAM'].join('\n');
+    const key = 'test/khu-vuc-khong-gop.csv';
+    memoryStorage.putForTest(key, Buffer.from(csv, 'utf8'));
+
+    await datasetsRepo.replaceColumns(mysqlPool, f.datasetA, [
+      { name: 'Khu vực', dataType: 'text', isNullable: true, ordinal: 0, semanticType: 'text' },
+    ]);
+    const daLuu = await datasetsRepo.listColumns(mysqlPool, f.datasetA);
+    expect(daLuu[0]?.valueMap).toBeNull();
+
+    const batches: unknown[][][] = [];
+    for await (const batch of readFileRows(key, 'csv', {
+      sheetName: null,
+      columns: daLuu.map((c) => ({
+        ordinal: c.ordinal,
+        semanticType: c.semanticType ?? 'text',
+        valueMap: c.valueMap,
+      })),
+      batchSize: 100,
+      maxRows: 100,
+    })) {
+      batches.push(batch);
+    }
+
+    expect(batches[0]?.map((r) => r[0])).toEqual(['Miền Nam', 'MIỀN NAM']);
   });
 });
 

@@ -48,6 +48,8 @@ export interface FileColumnRef {
   semanticType: SemanticType;
   /** Quy ước phân cách số của cột — `null` thì đọc từng ô như luật cũ. */
   numberFormat?: NumberFormat | null;
+  /** Bản đồ gộp cách viết — `null` thì giữ nguyên từng ký tự của ô. */
+  valueMap?: Record<string, string> | null;
 }
 
 export interface ReadFileOptions {
@@ -87,7 +89,10 @@ export async function* readFileRows(
 
       batch.push(
         opts.columns.map((c) =>
-          normalizeCell(raw[c.ordinal] ?? '', c.semanticType, c.numberFormat ?? null),
+          normalizeCell(raw[c.ordinal] ?? '', c.semanticType, {
+            numberFormat: c.numberFormat,
+            valueMap: c.valueMap,
+          }),
         ),
       );
 
