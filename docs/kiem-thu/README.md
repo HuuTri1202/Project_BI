@@ -91,7 +91,38 @@ XT-04 báo lệch thời gian 99%. Cả hai đều sai.
 rồi tự dọn ở cuối. Nếu nó chết giữa chừng, dọn tay bằng cách xoá bộ dữ liệu và
 mô hình còn lại trong tổ chức đó.
 
-### 3. Sinh lại bản Markdown
+### 3. Bộ trình duyệt thật (Playwright)
+
+```bash
+npm run e2e          # chạy ngầm
+npm run e2e:ui       # mở bảng điều khiển, xem từng bước
+```
+
+Tự khởi động cả hai server (`npm run dev:api`, `npm run dev:web`) nếu chúng chưa
+chạy, và dùng lại nếu đã chạy. Cần 5 container (`npm run infra:up`).
+
+**Nó bù vào chỗ nào.** Frontend đã có 873 ca React Testing Library trên jsdom —
+đừng viết lại chúng ở đây. Chỗ duy nhất đáng dùng trình duyệt thật là những việc
+jsdom không làm được: Vega-Lite vẽ thật, tải tệp qua Uppy lên S3, xuất PDF/Excel
+ra tệp, kéo thả trên canvas, và **chia chunk** — `React.lazy` có thật sự tách và
+tải được qua HTTP hay không.
+
+Điểm cuối không phải lý thuyết. Ca đầu tiên (`e2e/dang-nhap.spec.ts`) tìm ra ngay
+một lỗi mà cả 873 ca jsdom lẫn 777 ca backend đều không thấy: khung hỏi đáp xin
+`pageSize=200` trong khi máy chủ chặn ở 100, nên **cả ba** truy vấn ngữ cảnh của
+nó trả 400 và nó trả lời như thể tổ chức chưa có dữ liệu gì. Test frontend mock
+API nên không thấy; test backend không mở màn hình nên cũng không thấy.
+
+**Chạy trên database dev.** `webServer` khởi động chính `npm run dev:api`, nên nó
+đọc `backend/.env`. Ca nào GHI dữ liệu thì phải tự dọn, đúng như bộ kịch bản ở
+mục 2. `workers: 1` vì các ca dùng chung một database.
+
+**Quan sát cần biết:** trên `http://localhost:5173`, nút đăng nhập Google (§1.9)
+trả 403 kèm `[GSI_LOGGER]: The given origin is not allowed for the given client
+ID` — origin này chưa nằm trong danh sách cho phép của client ID ở Google Cloud
+Console. Không phải lỗi mã, và đăng nhập bằng mật khẩu không bị ảnh hưởng.
+
+### 4. Sinh lại bản Markdown
 
 ```bash
 python docs/kiem-thu/xuat-markdown.py \

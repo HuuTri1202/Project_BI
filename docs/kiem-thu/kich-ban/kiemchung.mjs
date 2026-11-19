@@ -29,7 +29,11 @@ async function req(path, { method = 'GET', body, token, headers = {}, raw } = {}
   });
   const text = await res.text();
   let json = null;
-  try { json = JSON.parse(text); } catch { /* không phải JSON */ }
+  try {
+    json = JSON.parse(text);
+  } catch {
+    /* không phải JSON */
+  }
   return { status: res.status, json, text };
 }
 
@@ -53,10 +57,24 @@ async function req(path, { method = 'GET', body, token, headers = {}, raw } = {}
  */
 function donBoDemDangNhap() {
   try {
-    execSync(
-      'docker exec bi-redis redis-cli -a redispassword --no-auth-warning DEL "ratelimit:login:::ffff:127.0.0.1"',
-      { stdio: 'ignore' },
-    );
+    /*
+     * Xoá theo MẪU, không gọi tên một khoá.
+     *
+     * Khoá là `ratelimit:login:<ip>` với `<ip>` đúng như Express nhìn thấy, và
+     * có ÍT NHẤT hai dạng: `::ffff:127.0.0.1` khi gọi thẳng bằng IPv4 (đường
+     * của bộ kịch bản này), và `::1` khi đi qua Vite proxy từ trình duyệt
+     * (đường của bộ e2e). Bản đầu của hàm này chỉ xoá khoá IPv4 — đủ cho ở đây,
+     * nhưng lúc chẩn đoán một ca e2e đỏ, kiểm khoá IPv4 thấy TRỐNG nên tưởng
+     * không phải rate limit, trong khi `::1` đang giữ. Một khoá bị bỏ sót hiện
+     * ra dưới dạng lỗi chập chờn ở chỗ khác.
+     */
+    const r = 'docker exec bi-redis redis-cli -a redispassword --no-auth-warning';
+    const khoa = execSync(`${r} --scan --pattern "ratelimit:login:*"`, { encoding: 'utf8' })
+      .split('\n')
+      .map((d) => d.trim())
+      .filter((d) => d !== '');
+    if (khoa.length > 0)
+      execSync(`${r} DEL ${khoa.map((k) => `"${k}"`).join(' ')}`, { stdio: 'ignore' });
   } catch {
     // Không với tới được Redis thì vẫn cứ thử đăng nhập: nếu đó là vấn đề thật
     // thì `login` bên dưới sẽ ném ra kèm mã trạng thái, rõ hơn một lỗi docker.

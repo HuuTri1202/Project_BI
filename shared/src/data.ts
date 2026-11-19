@@ -524,10 +524,27 @@ export interface WarehousePageDto {
 }
 
 /**
+ * Số dòng TỐI ĐA một trang danh sách được xin.
+ *
+ * ⚠️ MỘT nguồn sự thật, và lý do nó phải ở `@bi/shared` là một lỗi có thật.
+ *
+ * Trước bản này con số 100 nằm trong `backend/src/utils/pagination.ts`, còn
+ * frontend tự đoán. `features/chat/nguCanhHeThong.ts` đoán 200, nên CẢ BA truy
+ * vấn ngữ cảnh của khung hỏi đáp (kho dữ liệu, mô hình, đơn hàng) trả 400 và
+ * khung hỏi đáp không thấy gì về dữ liệu của người dùng — im lặng, vì nó chỉ
+ * trả lời "không có dữ liệu" thay vì báo lỗi. Không một bài test nào bắt được:
+ * test frontend mock API, test backend không gọi màn hình.
+ *
+ * Nên đừng viết lại số 100 ở bất kỳ đâu. Cả `paginationSchema` của backend lẫn
+ * mọi lời gọi của frontend đều đọc hằng số này.
+ */
+export const MAX_PAGE_SIZE = 100;
+
+/**
  * Các cỡ trang cho bảng dữ liệu.
  *
- * Trần 100 trùng `MAX_PAGE_SIZE` của backend — để một lựa chọn trên giao diện
- * không bao giờ dẫn tới 400 từ máy chủ.
+ * Cỡ lớn nhất KHÔNG được vượt `MAX_PAGE_SIZE`, nếu không một lựa chọn trên giao
+ * diện sẽ dẫn thẳng tới 400 từ máy chủ.
  */
 export const DATA_PAGE_SIZES = [20, 50, 100] as const;
 

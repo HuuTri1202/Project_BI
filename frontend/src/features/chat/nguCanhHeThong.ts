@@ -1,3 +1,4 @@
+import { MAX_PAGE_SIZE } from '@bi/shared';
 import { useQuery } from '@tanstack/react-query';
 import { useMemo } from 'react';
 
@@ -22,7 +23,19 @@ import {
 } from './duKienTrang';
 import type { Nguon } from './nguCanh';
 
-const TRAN = 200;
+/**
+ * Trần của MÁY CHỦ, không phải một con số chọn ở đây.
+ *
+ * Trước bản này nó là `200`, và `paginationSchema` của backend chặn ở 100 — nên
+ * cả ba truy vấn dưới đây trả 400 và khung hỏi đáp không thấy gì về kho dữ
+ * liệu, mô hình hay đơn hàng của người dùng. Nó không báo lỗi, chỉ trả lời như
+ * thể tổ chức chưa có gì.
+ *
+ * Bắt được bằng `e2e/dang-nhap.spec.ts`: ca đó thu mọi phản hồi >= 400 của
+ * chính ta trong lúc mở khung hỏi đáp trên trình duyệt thật. Test frontend mock
+ * API nên không thấy, test backend không mở màn hình nên cũng không thấy.
+ */
+const TRAN = MAX_PAGE_SIZE;
 
 const HOI_DATASET = {
   page: 1,
