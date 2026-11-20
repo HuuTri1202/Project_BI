@@ -97,6 +97,22 @@ export async function replaceForUser(
  * gán sẵn bởi một đường khác, và ném lỗi ở đó sẽ làm hỏng việc tạo workspace vì
  * một chuyện không ai quan tâm.
  */
+/**
+ * Mã workspace đang SỐNG của một tổ chức — §B5.
+ *
+ * Tách khỏi `list` của repo workspaces vì nơi gọi chỉ cần đếm và cần id: nó
+ * quyết định "có gì để chọn không", không hiển thị gì cả.
+ */
+export async function liveWorkspaceIds(db: Db, tenantId: number): Promise<number[]> {
+  const [rows] = await db.query<IdRow[]>(
+    `SELECT id AS workspace_id FROM workspaces
+      WHERE tenant_id = ? AND deleted_at IS NULL
+      ORDER BY id`,
+    [tenantId],
+  );
+  return rows.map((r) => Number(r.workspace_id));
+}
+
 export async function grant(
   db: Db,
   tenantId: number,

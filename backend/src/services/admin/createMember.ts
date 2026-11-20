@@ -9,6 +9,7 @@ import { mysqlPool } from '../../config/mysql';
 import { withTransaction } from '../../db/tx';
 import * as adminMembersRepo from '../../repositories/adminMembers';
 import * as membershipsRepo from '../../repositories/memberships';
+import * as workspaceMembersRepo from '../../repositories/workspaceMembers';
 import * as usersRepo from '../../repositories/users';
 import { HttpError } from '../../utils/httpError';
 import { generateTempPassword, hashPassword } from '../auth/password';
@@ -21,6 +22,14 @@ export interface CreateMemberInput {
   fullName: string;
   role: TenantRole;
   jobTitle?: JobTitle | undefined;
+  /**
+   * Ai đang tạo — ghi vào `workspace_members.created_by` (§B5).
+   *
+   * `null` khi không biết: cột đó `ON DELETE SET NULL`, tức dòng phân quyền
+   * sống lâu hơn người đã gán nó, nên "không biết ai gán" là một trạng thái
+   * bảng này vốn đã chịu được.
+   */
+  actorId?: number | null | undefined;
 }
 
 /**
@@ -102,6 +111,8 @@ export async function createMember(input: CreateMemberInput): Promise<CreateAdmi
       await conn.query('SELECT id FROM tenants WHERE id = ? FOR UPDATE', [input.tenantId]);
       await kiemHanMuc(conn, input.tenantId, 'members', new Date());
       await membershipsRepo.upsert(conn, input.tenantId, existing.user.id, input.role);
+      // §B5 — thấy được workspace nào. Xem `ganWorkspaceMacDinh`.
+      await ganWorkspaceMacDinh(conn, input.tenantId, existing.user.id, input.actorId ?? null);
     });
 
     const attached = await adminMembersRepo.findMember(mysqlPool, input.tenantId, existing.user.id);
@@ -176,6 +187,13 @@ export async function createMember(input: CreateMemberInput): Promise<CreateAdmi
     // rỗng và tưởng mình bị mời nhầm.
     await membershipsRepo.upsert(conn, input.tenantId, id, input.role);
 
+    /*
+     * Thấy được workspace nào — §B5. Ngay sau `upsert` membership và trong cùng
+     * transaction: hai dòng cùng trả lời một câu hỏi ("người này vào được đâu"),
+     * nên chúng phải cùng sống hoặc cùng chết.
+     */
+    await ganWorkspaceMacDinh(conn, input.tenantId, id, input.actorId ?? null);
+
     // ─── Không gian riêng, ngang hàng với người tự đăng ký ────────────────────
     //
     // Người tự đăng ký lập ra công ty của mình và làm `admin` ở đó. Người được
@@ -221,6 +239,42 @@ export async function createMember(input: CreateMemberInput): Promise<CreateAdmi
  * hệ thống, một dòng tên "Trần Thị Thu" nằm giữa các công ty thật trông như dữ
  * liệu lỗi. Tiền tố "Không gian của" nói rõ nó là loại gì ngay ở chỗ đọc.
  */
+/**
+ * Workspace mặc định của người vừa được thêm — §B5.
+ *
+ * ═══ Chỉ gán khi tổ chức có ĐÚNG MỘT workspace ════════════════════════════
+ *
+ * Hai hành vi sai nằm hai bên, và luật này đi giữa.
+ *
+ * Bên trái là hành vi CŨ: không gán gì cả. Người được mời đăng nhập vào và
+ * thấy "Chưa có workspace — hãy nhờ quản trị viên thêm bạn vào một workspace",
+ * kèm `409` ở trang chủ; còn Admin thì không được nhắc gì lúc tạo vì hộp thoại
+ * không có ô workspace nào. Đo được ngày 20/11/2026 trên một tổ chức chỉ có
+ * MỘT workspace — tức là trên mọi tổ chức gói Miễn phí. Một tài khoản vừa tạo
+ * ra đã là ngõ cụt cho cả hai phía.
+ *
+ * Bên phải là "gán hết": nó xoá sạch lý do `workspace_members` ra đời
+ * (migration 40) — thêm một nhân viên nhân sự thì họ thấy luôn dữ liệu của
+ * Sale, của Kế toán, của Ban giám đốc.
+ *
+ * Luật ở giữa: chỉ gán khi KHÔNG CÓ GÌ ĐỂ CHỌN. Một workspace thì "chọn
+ * workspace nào" không phải một câu hỏi, và bắt Admin trả lời nó là bắt họ làm
+ * một thao tác chỉ có một đáp án. Từ hai workspace trở lên thì đó là một quyết
+ * định thật về phạm vi dữ liệu, và hệ thống không đoán hộ — hộp thoại tạo nói
+ * thẳng điều đó.
+ */
+async function ganWorkspaceMacDinh(
+  conn: Parameters<typeof membershipsRepo.upsert>[0],
+  tenantId: number,
+  userId: number,
+  actorId: number | null,
+): Promise<void> {
+  const ws = await workspaceMembersRepo.liveWorkspaceIds(conn, tenantId);
+  const duyNhat = ws.length === 1 ? ws[0] : undefined;
+  if (duyNhat === undefined) return;
+  await workspaceMembersRepo.grant(conn, tenantId, duyNhat, userId, actorId);
+}
+
 function personalTenantName(fullName: string): string {
   return `Không gian của ${fullName}`;
 }

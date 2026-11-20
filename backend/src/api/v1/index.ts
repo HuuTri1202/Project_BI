@@ -2115,10 +2115,10 @@ v1Router.post(
   authorize('member', 'invite'),
   rateLimit({ bucket: 'tenant-invite', max: 20, windowSeconds: 600 }),
   asyncHandler(async (req, res) => {
-    const { tenantId } = requireAuth(req);
+    const { tenantId, userId } = requireAuth(req);
     const body = createMemberBodySchema.parse(req.body);
 
-    const result = await createMember({ tenantId, ...body });
+    const result = await createMember({ tenantId, actorId: userId, ...body });
     res.status(201).json(result);
   }),
 );

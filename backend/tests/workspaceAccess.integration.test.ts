@@ -443,24 +443,69 @@ describe('Tài khoản MỚI vẫn có workspace mặc định, và THẤY đư�
     expect(ds.body[0].name).toBe('Không gian mặc định');
   });
 
-  it('nhưng trong tổ chức ĐƯỢC MỜI thì chưa thấy gì — đúng như thiết kế', async () => {
+  /*
+   * ═══ §B5 — ca này ĐÃ BỊ LẬT, và đây là lý do ══════════════════════════════
+   *
+   * Bản trước khẳng định điều ngược lại: người được mời KHÔNG thấy workspace
+   * nào, `GET /workspaces` trả rỗng và `/home` trả 409. Chú thích ở đó nói rõ
+   * nó là một đánh đổi có chủ đích, và "ca này tồn tại để ai sửa chỗ này biết
+   * mình đang đánh đổi cái gì".
+   *
+   * Thứ làm đổi quyết định là một lượt dùng thật ngày 20/11/2026: mời một nhân
+   * viên vào một tổ chức có ĐÚNG MỘT workspace. Người được mời đổi mật khẩu
+   * tạm xong, đăng nhập, và nhận một màn hình trống kèm câu "hãy nhờ quản trị
+   * viên thêm bạn vào một workspace" — trong khi Admin vừa tạo tài khoản ấy
+   * không được nhắc một chữ nào về bước còn thiếu. Với gói Miễn phí (tối đa
+   * một workspace) thì đó là 100% số lần mời.
+   *
+   * Luật mới đi giữa hai cái sai: tự gán khi KHÔNG CÓ GÌ ĐỂ CHỌN, đứng yên khi
+   * có. Nên bài này tách làm hai ca, một cho mỗi vế — và vế thứ hai giữ nguyên
+   * lời khẳng định cũ, vì lý lẽ của `workspace_members` vẫn còn nguyên giá trị
+   * ở đúng chỗ nó sinh ra để phục vụ.
+   */
+  it('tổ chức có MỘT workspace: người được mời vào được ngay', async () => {
     /*
-     * Ca đối chứng, và nó nói ra cái giá của tính năng này: người được mời với
-     * vai trò `viewer`/`creator` KHÔNG tự động thấy workspace nào của tổ chức
-     * mời họ. Admin phải gán bằng hộp thoại "Workspace".
+     * Tổ chức RIÊNG cho ca này: bệ đỡ của tệp dựng sẵn hai workspace (Nhân sự,
+     * Kinh doanh) vì mọi ca khác nói về chuyện siết phạm vi. Ca này nói về vế
+     * ngược lại nên nó cần đúng một.
+     */
+    const tenantId = await makeTenant('Quán Một Phòng', 'quan-mot-phong');
+    const admin = await makeUser('chu@mot-phong.test', 'Chủ Quán');
+    await makeMembership(admin, tenantId, 'admin');
+    await capGoiKhongGioiHan(tenantId, admin);
+    await makeWorkspace(tenantId, 'Không gian mặc định', 'mac-dinh');
+
+    const moi = await request(app)
+      .post('/api/v1/members')
+      .set(bearer(signTokenFor(admin, tenantId, 'admin')))
+      .send({ email: 'motws@example.com', fullName: 'Mot Ws', role: 'viewer' });
+    expect(moi.status).toBe(201);
+
+    await daDoiMatKhauTam(moi.body.user.userId as number);
+    const token = signTokenFor(moi.body.user.userId as number, tenantId, 'viewer');
+
+    const ds = await request(app).get('/api/v1/workspaces').set(bearer(token)).expect(200);
+    expect(ds.body).toHaveLength(1);
+    // Cửa thật sự quan trọng: trang chủ. 409 ở đây là một màn hình trống.
+    await request(app).get('/api/v1/home').set(bearer(token)).expect(200);
+  });
+
+  it('tổ chức có NHIỀU workspace: vẫn phải gán tay, và đó là chủ đích', async () => {
+    /*
+     * Vế còn lại của luật, và nó giữ nguyên lời khẳng định của bản cũ. Hai
+     * workspace trở lên thì "chọn cái nào" là một quyết định thật về phạm vi
+     * dữ liệu — thêm một nhân viên nhân sự mà họ thấy luôn dữ liệu của Kinh
+     * doanh là xoá sạch lý do `workspace_members` ra đời. Hệ thống không đoán
+     * hộ; hộp thoại tạo nói thẳng là còn một bước nữa.
      *
-     * Đó chính là điều đã yêu cầu — thêm nhân viên nhân sự thì họ chỉ thấy phòng
-     * Nhân sự — nhưng nó cũng có nghĩa là bỏ bước gán thì người mới mở ra một
-     * màn hình trống. Ca này tồn tại để ai sửa chỗ này biết mình đang đánh đổi
-     * cái gì, chứ không phải để khen hành vi đó là tiện.
+     * Bệ đỡ của tệp này vốn đã có hai workspace, nên không phải dựng thêm gì.
      */
     const moi = await request(app)
       .post('/api/v1/members')
       .set(bearer(f.tokenAdmin))
-      .send({ email: 'chuaganws@example.com', fullName: 'Chua Gan Ws', role: 'viewer' });
+      .send({ email: 'nhieuws@example.com', fullName: 'Nhieu Ws', role: 'viewer' });
     expect(moi.status).toBe(201);
 
-    // Xem ghi chú ở ca trên: mật khẩu tạm chặn `/api/v1` từ §1.10.
     await daDoiMatKhauTam(moi.body.user.userId as number);
     const token = signTokenFor(moi.body.user.userId as number, f.tenantId, 'viewer');
 
