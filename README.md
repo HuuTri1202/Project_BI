@@ -180,7 +180,7 @@ bi-flatform/
     ├── ports.md              # bản đồ cổng — đọc trước khi thêm service
     ├── thanh-toan.md         # gói cước, VietQR, webhook Sepay, hạn mức (§11)
     ├── tai-khoan-thu-nghiem.md
-    └── kiem-thu/             # bộ test case + kịch bản trình duyệt
+    └── kiem-thu/             # bộ test case bấm tay + dữ liệu mẫu
 ```
 
 ---
@@ -2739,7 +2739,7 @@ mất hộp.
 
 #### Đo trên Chromium thật
 
-Báo cáo hai biểu đồ trên file `docs/kiem-thu/du-lieu-thu/kiem-thu-ban-hang.csv`,
+Báo cáo hai biểu đồ trên file `kiem-thu-ban-hang.csv` (tệp mẫu cũ, nay chỉ còn trong lịch sử git),
 40 phép kiểm, tất cả xanh. Những phép đáng kể:
 
 ```
@@ -2835,7 +2835,7 @@ hình đã mất.
 
 #### Đo trên Chromium thật
 
-Báo cáo hai biểu đồ trên `docs/kiem-thu/du-lieu-thu/kiem-thu-ban-hang.csv`, hai
+Báo cáo hai biểu đồ trên `kiem-thu-ban-hang.csv` (tệp mẫu cũ, nay chỉ còn trong lịch sử git), hai
 tab trong cùng một phiên trình duyệt, 36 phép kiểm, tất cả xanh:
 
 ```
@@ -2955,7 +2955,7 @@ vừa rời.
 
 #### Đo trên Chromium thật
 
-Báo cáo hai biểu đồ trên `docs/kiem-thu/du-lieu-thu/kiem-thu-ban-hang.csv`. Mỗi
+Báo cáo hai biểu đồ trên `kiem-thu-ban-hang.csv` (tệp mẫu cũ, nay chỉ còn trong lịch sử git). Mỗi
 vòng có ba cú kéo (dời mũi tên, co giãn mũi tên, dời biểu đồ), mỗi cú 90 nhịp chuột
 16 ms. Chạy 6 vòng, cùng một kịch bản cho cả hai bản:
 

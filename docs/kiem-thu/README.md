@@ -1,217 +1,47 @@
 # Kiểm thử
 
-Thư mục này chứa bộ test case của hệ thống và **cách chạy lại nó**. Một tài liệu
-kiểm thử mà không ai dựng lại được kết quả thì chỉ là một bảng chữ.
+Thư mục này chứa **một** thứ: bộ test case để một người ngồi bấm tay trên trình
+duyệt, cùng dữ liệu để chạy nó.
 
 | File | Là gì |
 |---|---|
-| [bo-test-case.md](bo-test-case.md) | Hồ sơ kiểm thử — bản Markdown để chép vào báo cáo. **Sinh tự động, đừng sửa tay** |
-| `bo-test-case.html` | Bản gốc của hồ sơ, cũng là bản duy nhất được sửa |
-| [kich-ban-trinh-duyet.md](kich-ban-trinh-duyet.md) | **51 kịch bản bấm tay trên trình duyệt** — cũng sinh tự động |
-| `kich-ban-trinh-duyet.html` | Bản gốc của kịch bản. Mở bằng trình duyệt thì có ô đánh dấu Đạt/Không đạt, lưu ngay trong máy |
-| `du-lieu-thu/` | Hai file CSV mẫu, đáp án ghi sẵn trong kịch bản |
-| `xuat-markdown.py` · `xuat-kich-ban-md.py` | Sinh hai bản Markdown từ hai bản HTML |
-| `kich-ban/` | Bộ kịch bản **tự động** gọi thẳng vào API đang chạy |
+| [bo-test-case.md](bo-test-case.md) | **137 ca kiểm thử tay**, 73 ca bắt buộc. Các bước · kết quả mong đợi · ô ghi kết quả thực tế |
+| `du-lieu-thu/` | 9 tệp dữ liệu để tải lên. Đáp án của từng tệp ghi sẵn ở `§0.4` của tài liệu trên |
 
-## Tự kiểm thử trên trình duyệt
+## Cách dùng
 
-Mở `kich-ban-trinh-duyet.html` bằng trình duyệt rồi làm theo từ §0. Mỗi kịch bản
-có hai nút Đạt / Không đạt và một ô ghi chú; đánh dấu được lưu trong trình duyệt
-nên đóng tab mở lại vẫn còn, và thanh tiến độ ở đầu trang cho biết đã làm tới
-đâu. In ra giấy cũng được — bản in tự ẩn các nút bấm.
+Mở `bo-test-case.md`, làm theo `§0 · Chuẩn bị`, rồi đi từ §1 tới §14 **theo đúng
+thứ tự** — các phần sau dùng dữ liệu do phần trước tạo ra, và §12 cần gói đã
+được nâng ở §11.
 
-Hai file trong `du-lieu-thu/` là dữ liệu để tải lên. Con số đáp án trong kịch bản
-đã được nạp thật một lượt rồi truy vấn lại từ ClickHouse, nên màn hình cho số
-khác nghĩa là lỗi thật.
+Điền kết quả trực tiếp vào bảng hai cột dưới mỗi ca. In ra giấy cũng được.
 
-## Hai nguồn kết quả
+Không đủ thời gian chạy hết? Chạy riêng 73 ca đánh dấu ⭐ (khoảng 2,5 giờ) — đó
+là bộ tối thiểu nên chạy lại sau mỗi lần sửa mã.
 
-Cột *kết quả thực tế* trong tài liệu đến từ hai chỗ, và tài liệu ghi rõ ca nào
-thuộc chỗ nào:
+## Đáp án đến từ đâu
 
-- **Gọi API thật** (73 ca) — `kich-ban/` gọi `localhost:4000` bằng tài khoản
-  thật, rồi đối chiếu với ClickHouse và Redis. Cột kết quả chép nguyên văn thứ
-  server trả về.
-- **Đối chiếu bộ tự động** (64 ca) — mỗi ca trỏ tới một ca trong
-  `backend/tests/` hoặc `frontend/tests/`.
+Mọi con số trong phần "kết quả mong đợi" được **tính bằng máy** trên chính các
+tệp trong `du-lieu-thu/`, không phải ghi theo trí nhớ. Nên màn hình cho số khác
+là lỗi thật, không phải tài liệu sai.
 
-## Chạy lại
+Dữ liệu được sinh bằng một script có hạt giống cố định (`20261120`): chạy lại
+cho ra đúng bộ số đó. Nếu phải sinh lại hoặc đổi dữ liệu, sinh lại **cả** đáp án
+trong `§0.4` cùng lúc — hai thứ đó chỉ đúng khi đi cùng nhau.
 
-### 1. Bộ tự động
+## Không còn bộ kiểm thử tự động
 
-```bash
-npm run test              # 504 ca backend + 918 ca frontend, không cần hạ tầng
-npm run test:integration  # cần MySQL — BỎ QUA nhánh ClickHouse
+Toàn bộ tầng test tự động (vitest, Playwright, các script gọi API) đã được gỡ
+khỏi mã nguồn ngày 20/11/2026 theo yêu cầu dọn dẹp — xem commit
+`chore(kiem-thu): gỡ toàn bộ tầng test khỏi mã nguồn`. Lịch sử git còn đủ: lấy
+lại bằng `git show <commit>^:backend/tests/...`.
 
-# Đầy đủ, gồm cả nhánh chạm ClickHouse thật (cần npm run infra:up):
-npm --workspace backend run test:integration:ch
-```
-
-> ⚠️ **Database test phải được MIGRATE TAY** trước khi chạy lane tích hợp:
->
-> ```bash
-> MYSQL_DATABASE=bi_platform_test npm --workspace backend run migrate
-> ```
->
-> Không ai làm việc đó hộ: `vitest.integration.config.ts` chỉ ghi ra lời nhắc.
-> Quên thì triệu chứng KHÔNG nói gì về nguyên nhân — một lần quên sau migration
-> 43 cho ra 69 ca đỏ với `Unknown column 'number_format'`, trông hệt như một
-> bản vá làm hỏng mọi thứ.
-
-> ⚠️ `test:integration` **không** chạy 14 ca ClickHouse — nạp, nạp lại, hoán đổi
-> nguyên tử, janitor. Đó là lý do hai ca trong số đó đã mâu thuẫn với thiết kế
-> suốt nhiều tháng mà không ai biết (V-01).
->
-> Cổng này được giữ tường minh chứ không đổi thành tự dò rồi lặng lẽ bỏ qua —
-> skip ngầm khiến một lần chạy bỏ sót phần quan trọng nhất vẫn hiện màu xanh.
-> Thay vào đó, suite **in cảnh báo** mỗi lần bỏ qua, kèm đúng câu lệnh cần gõ.
-
-### 2. Bộ gọi API thật
-
-Cần backend đang chạy (`npm run dev`) và đủ 5 container (`npm run infra:up`).
+Cổng kiểm tra còn lại trong repo là:
 
 ```bash
-cd docs/kiem-thu/kich-ban
-node mod-xacthuc.mjs      # XT — xác thực, 21 ca
-node mod-phanquyen.mjs    # PQ + AT — phân quyền và an toàn, 22 ca
-node mod-luongdulieu.mjs  # TF + NA + MH — luồng đầu-cuối, 17 ca
-node mod-thuocdo.mjs      # TD — thước đo của mô hình dữ liệu, 19 ca
+npm run verify     # lint + typecheck + build
 ```
 
-Bốn lệnh trên chạy được **theo đúng thứ tự này**, và trước đây thì không: `XT-21`
-cố ý đăng nhập sai 13 lần để chứng minh chốt chặn dò mật khẩu có thật, rồi để lại
-bộ đếm ở mức 13 với TTL ~15 phút. Ba module sau không dọn bộ đếm đó nên module
-thứ hai chết ngay ở lời gọi `login` đầu tiên với HTTP 429. Giờ `login` trong
-`kiemchung.mjs` tự dọn bộ đếm trước khi lấy token — và `XT-21` vẫn đo nguyên vẹn,
-vì nó gọi `/auth/login` trực tiếp chứ không qua `login`.
-
-Hai ca `AT-06`/`AT-07` nói ra **trạng thái môi trường** chứ không phán xét:
-`ALLOW_PRIVATE_DB_HOSTS` mặc định BẬT ở dev (máy dev nối MySQL qua dải riêng),
-nên chốt SSRF không chặn ở đây và chúng chỉ khẳng định "không nối được tới địa
-chỉ nội bộ". Bản thân LUẬT chặn được chứng minh ở
-`backend/tests/guardHost.test.ts` — 33 ca, kiểm thẳng hàm thuần `blockedReason`
-nên không phụ thuộc cờ môi trường.
-
-**Không chạy song song với bộ tự động.** Hàm dọn của bộ tự động
-(`backend/tests/helpers/db.ts:63`) xoá mọi khoá `ratelimit:*` trước mỗi ca, nên
-bộ đếm chặn dò mật khẩu bị xoá liên tục và phép đo mất hết ý nghĩa. Lần chạy đầu
-tiên đã mắc đúng bẫy này: XT-21 báo "không thấy bị chặn" suốt 14 lần thử, còn
-XT-04 báo lệch thời gian 99%. Cả hai đều sai.
-
-`mod-luongdulieu.mjs` **ghi dữ liệu thật** vào tổ chức id 2 (Công ty Ánh Dương)
-rồi tự dọn ở cuối. Nếu nó chết giữa chừng, dọn tay bằng cách xoá bộ dữ liệu và
-mô hình còn lại trong tổ chức đó.
-
-### 3. Bộ trình duyệt thật (Playwright)
-
-```bash
-npm run e2e          # chạy ngầm
-npm run e2e:ui       # mở bảng điều khiển, xem từng bước
-```
-
-Tự khởi động cả hai server (`npm run dev:api`, `npm run dev:web`) nếu chúng chưa
-chạy, và dùng lại nếu đã chạy. Cần 5 container (`npm run infra:up`).
-
-**Nó bù vào chỗ nào.** Frontend đã có 873 ca React Testing Library trên jsdom —
-đừng viết lại chúng ở đây. Chỗ duy nhất đáng dùng trình duyệt thật là những việc
-jsdom không làm được: Vega-Lite vẽ thật, tải tệp qua Uppy lên S3, xuất PDF/Excel
-ra tệp, kéo thả trên canvas, và **chia chunk** — `React.lazy` có thật sự tách và
-tải được qua HTTP hay không.
-
-Điểm cuối không phải lý thuyết. Ca đầu tiên (`e2e/dang-nhap.spec.ts`) tìm ra ngay
-một lỗi mà cả 873 ca jsdom lẫn 777 ca backend đều không thấy: khung hỏi đáp xin
-`pageSize=200` trong khi máy chủ chặn ở 100, nên **cả ba** truy vấn ngữ cảnh của
-nó trả 400 và nó trả lời như thể tổ chức chưa có dữ liệu gì. Test frontend mock
-API nên không thấy; test backend không mở màn hình nên cũng không thấy.
-
-**Mười hai hành trình hiện có.** (Tiêu đề cũ ghi "bốn" từ thời bộ này có bốn
-tệp — bảng dưới mới là nguồn sự thật.)
-
-| Tệp | Thứ chỉ trình duyệt thật trả lời được |
-| --- | --- |
-| `dang-nhap.spec.ts` | `React.lazy` có tách chunk và tải được qua HTTP không |
-| `tai-tep.spec.ts` | Uppy có PUT thật lên MinIO bằng vé đã ký không (test backend mô phỏng bước này bằng `putForTest`, tức là kiểm chính đoạn mã giả) |
-| `bieu-do.spec.ts` | Vega có VẼ không — đếm đúng 3 cột và đòi nhãn trục là dữ liệu thật (`chartSpec.test.ts` chỉ kiểm *đặc tả*, một object JavaScript) |
-| `thanh-toan.spec.ts` | Mã QR có vẽ ra ma trận thật không; đồng hồ `setInterval` có chạy không; và **server đổi trạng thái đơn thì màn hình có tự bắt không** — hai tiến trình, một đổi dữ liệu một đang xem, thứ không ca jsdom nào dựng được |
-| `xuat-tep.spec.ts` | Bấm Xuất thì một TỆP THẬT có rơi xuống đĩa không. `modern-screenshot` cần layout engine và canvas vẽ được; `taiXuong()` tạo `<a download>` rồi click — trong jsdom cả hai là lời gọi không làm gì. Kiểm PNG bằng cách **đếm điểm ảnh mang màu cột**, và kiểm Excel bằng cách **đọc ngược tệp bằng `exceljs`** rồi so từng con số |
-| `keo-tha.spec.ts` | KÉO một ô trên khung bằng con trỏ thật. `CanvasBoard` dùng Pointer Events + `setPointerCapture`, đọc toạ độ ở từng khung hình và ghi `el.style` trong `requestAnimationFrame` — trong jsdom không có layout nên `getBoundingClientRect` trả 0 và bước quy về ô lưới chia cho 0. Cả §10.20 là mã chưa từng chạy trong ca test nào trước ca này |
-| `sua-bieu-do.spec.ts` | Kéo một TRƯỜNG vào ô Chiều dữ liệu — HTML5 drag-and-drop, API khác hẳn ca trên. **Đây là ca có bằng chứng mạnh nhất cho cả bộ:** xoá `e.preventDefault()` trong `Shelf.onDragOver` làm kéo-thả chết hẳn với mọi người dùng, và **873/873 ca jsdom vẫn xanh** — cái cổng "phần tử này nhận thả được" là của trình duyệt, jsdom không có nó. Ca này đỏ |
-| `bao-cao-tu-bo.spec.ts` | Một cú bấm từ menu dòng Kho dữ liệu có tới được trình dựng không (vá B2). Việc được kiểm là một CHUỖI CHUYỂN TRANG: `POST /datamodels` rồi điều hướng, rồi trình dựng phải mở ra với ô thả có thật — jsdom không có router thật của trang và không có ClickHouse để mô hình dựng lên |
-| `dien-thoai.spec.ts` | Bố cục trên màn 390px, ĐO BẰNG PIXEL (vá B5). jsdom không có engine bố cục: mọi `getBoundingClientRect` trả 0, nên ở đó không phân biệt được một bản vá CSS đúng với một bản vá không chạy |
-| `ghi-nho-dang-nhap.spec.ts` | Mở context THỨ HAI từ `storageState` của context đầu — mô phỏng đúng lần đóng trình duyệt, vì Playwright chỉ chép `localStorage`, không chép `sessionStorage` (mong muốn D7). Ba bản giả trong `appSession.test.ts` không chứng minh được trình duyệt thật hành xử như chúng |
-| `chia-se.spec.ts` | Liên kết chia sẻ mở được trong một trình duyệt SẠCH, không token nào (mong muốn D5). Và một khẳng định sinh ra từ một đột biến ĐI QUA: chặn request để đọc header `Authorization` khi người ĐANG đăng nhập mở liên kết của chính mình |
-| `gui-dinh-ky.spec.ts` | Ba ô chọn của hộp "Gửi định kỳ" có gửi lên đúng `tanSuat`/`thu`/`gio` không, và câu "chỉ gửi cho thành viên" có HIỆN RA không (mong muốn D6). Mốc đã lưu phải là 01:00 UTC cho lịch 8 giờ sáng — chỗ một lỗi múi giờ hiện ra |
-
-Bệ đỡ của hai ca báo cáo (`dungBaoCaoMau`, `xoaBaoCaoVaBoTheoTen`) nằm ở
-`e2e/helpers.ts`, dùng chung — mỗi ca truyền TÊN RIÊNG, vì hai ca chạy nối nhau
-trên cùng database dev và dùng chung một tên thì phần dọn của ca này xoá dữ liệu
-đang dùng của ca kia.
-
-Ca thanh toán HUỶ đơn chứ không trả tiền: một đơn `paid` bật subscription thật và
-ghi vào sổ cái tiền, mà sổ cái là append-only có chủ đích nên không lùi được. Huỷ
-đi qua đúng vòng thăm dò đó bằng cùng cơ chế. Muốn kiểm thật nhánh `paid` thì
-phải cho e2e một API chạy trên `bi_platform_test`.
-
-**Chạy trên database dev.** `webServer` khởi động chính `npm run dev:api`, nên nó
-đọc `backend/.env`. Ca nào GHI dữ liệu thì phải tự dọn, đúng như bộ kịch bản ở
-mục 2. `workers: 1` vì các ca dùng chung một database.
-
-⚠️ **Đừng chạy bộ này song song với lane tích hợp.** Hai bộ dùng chung container
-MySQL, và chạy cùng lúc làm `resetDatabase()` của lane tích hợp hết giờ — ra đỏ
-giả không kèm một AssertionError nào.
-
-**Hạn nhịp đăng nhập KHÔNG còn là trần của bộ e2e** — và chính bộ này là thứ chỉ
-ra tại sao nó từng là. `LOGIN_MAX_ATTEMPTS = 10` trong `LOGIN_LOCKOUT_MINUTES = 15`
-phút, theo IP, nhưng từ bản vá A4 thì `/auth/login` chỉ đếm lần ĐOÁN SAI mật khẩu
-(xem `middleware/rateLimit.ts`, tham số `demMaLoi`), nên đăng nhập đúng không tiêu
-lượt nào.
-
-Trước bản vá: `layToken` NHỚ LẠI token nên cả lượt chạy chỉ gọi 1 lời gọi API, cộng
-7 lần đăng nhập qua giao diện — tức 8 trên 10, chỉ còn chỗ cho HAI ca nữa. Bản đầu
-gọi lại mỗi lần và khi bộ lên 6 ca thì hai trong ba lượt đỏ với "đăng nhập để lấy
-token dọn dẹp", một câu không nói gì về nguyên nhân. Cái trần đó là một LỖI THẬT của
-sản phẩm đội lốt giới hạn của bộ test: người dùng thật cũng bị khoá y như vậy. Cache
-token ở `layToken` thì vẫn giữ — nó tiết kiệm ~300 ms bcrypt mỗi ca — nhưng không
-còn là thứ chống đỡ cái trần nữa.
-
-**Bộ này đã tìm ra năm lỗi thật của sản phẩm, không phải của chính nó:**
-
-1. khung hỏi đáp xin `pageSize=200` trong khi máy chủ chặn ở 100 — cả ba truy vấn
-   ngữ cảnh trả 400 và nó trả lời như thể tổ chức chưa có dữ liệu gì;
-2. `rename` của cube schema thất bại `EPERM` trên Windows khi container Cube đang
-   theo dõi thư mục — 503 kèm một câu chỉ sai hẳn chỗ cần sửa (xem
-   `cubeSchemaStore.doiTenCoThuLai`);
-3. khi dựng ca `sua-bieu-do`, đo được rằng xoá `preventDefault()` trong
-   `Shelf.onDragOver` đi qua được cả 873 ca jsdom mà không ca nào kêu;
-4. cái trần 8-trên-10 ở trên: hạn nhịp đếm cả lần đăng nhập THÀNH CÔNG, nên
-   người dùng thật cũng bị khoá đúng như bộ test (A4, đã vá);
-5. và một ĐỘT BIẾN ĐI QUA, loại bằng chứng ngược: đổi `axios` thành `apiClient`
-   ở đường đọc liên kết chia sẻ không làm ca `chia-se` đỏ, vì trình duyệt sạch
-   không có token nào để gắn. Khẳng định "lời gọi công khai không mang token của
-   người đang đăng nhập" được viết ra CHÍNH VÌ chỗ trống đó.
-
-**Trần thời gian là số ĐO, không phải số đoán.** Mỗi lượt chạy khởi động Vite
-LẠNH (`reuseExistingServer` không có gì dùng lại khi 5173 chưa listening), nên
-lần đầu vào một trang Vite phải biên dịch tại chỗ cả cây phụ thuộc của trang đó —
-với trang báo cáo là cả vega/vega-lite. Vì vậy ba khẳng định chờ hình của
-`bieu-do.spec.ts` mang trần 20 giây thay cho 5 giây mặc định của Playwright: với
-trần mặc định nó đỏ ở 2 trong 7 lượt, và ảnh snapshot lúc đỏ cho thấy biểu đồ đã
-vẽ đúng — trạng thái tới muộn hơn trần, không phải không tới.
-
-**Quan sát cần biết:** trên `http://localhost:5173`, nút đăng nhập Google (§1.9)
-trả 403 kèm `[GSI_LOGGER]: The given origin is not allowed for the given client
-ID` — origin này chưa nằm trong danh sách cho phép của client ID ở Google Cloud
-Console. Không phải lỗi mã, và đăng nhập bằng mật khẩu không bị ảnh hưởng.
-
-### 4. Sinh lại bản Markdown
-
-```bash
-python docs/kiem-thu/xuat-markdown.py \
-  docs/kiem-thu/bo-test-case.html \
-  docs/kiem-thu/bo-test-case.md
-```
-
-## Sửa tài liệu
-
-Sửa `bo-test-case.html` rồi chạy lại bước 3. Đừng sửa `bo-test-case.md` — lần
-sinh sau sẽ ghi đè, và trước khi bị ghi đè thì hai bản đã nói hai điều khác nhau.
+Nó bắt được lỗi kiểu và lỗi cú pháp, **không** bắt được lỗi hành vi. Bộ test case
+trong thư mục này là lớp duy nhất còn lại làm việc đó, nên một ca ⭐ không đạt
+nghĩa là có thứ cần sửa trước khi demo.

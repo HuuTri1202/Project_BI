@@ -275,17 +275,13 @@ thử §5.9 cho đủ ba bậc thì đăng nhập bằng `hanh@saomai.vn`, vào 
 đổi vai trò của `nam@saomai.vn` thành **Người tạo báo cáo**, rồi đăng nhập lại
 bằng Nam.
 
-## Database test
+## Không còn database test
 
-Bộ test tích hợp chạy trên database **riêng** `bi_platform_test` và
-`TRUNCATE` sạch trước mỗi ca, nên `npm run test:integration` không bao giờ đụng
-tới các tài khoản ở trên. Database đó phải tồn tại và đã migrate:
+Bộ test tự động đã được gỡ khỏi mã nguồn ngày 20/11/2026, và hai database dành
+riêng cho nó (`bi_platform_test` ở MySQL, `bi_analytics_test` ở ClickHouse) đã
+được xoá. Mọi tài khoản ở trên nằm trong `bi_platform` — database dev thật.
 
-```bash
-docker exec bi-mysql mysql -uroot -prootpassword \
-  -e "CREATE DATABASE IF NOT EXISTS bi_platform_test
-      CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-      GRANT ALL PRIVILEGES ON bi_platform_test.* TO 'bi_user'@'%'; FLUSH PRIVILEGES;"
-
-MYSQL_DATABASE=bi_platform_test npm --workspace backend run migrate
-```
+Hệ quả cần biết: **không còn lớp nào tự động chạm vào các tài khoản này, và cũng
+không còn lớp nào tự dọn sau khi bạn thử.** Kiểm thử bây giờ là bấm tay theo
+[bộ test case](kiem-thu/bo-test-case.md), và phần `§15` của tài liệu đó nói cách
+dọn lại sân kiểm thử.

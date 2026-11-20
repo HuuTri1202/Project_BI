@@ -1,0 +1,2 @@
+Tệp này KHÔNG phải .csv hay .xlsx.
+Nó tồn tại để kiểm ca từ chối định dạng.
