@@ -227,3 +227,39 @@ describe('normalizeCell áp bản đồ gộp', () => {
     expect(normalizeCell('01/02/2026', 'date', { valueMap: map })).toBe('01/02/2026');
   });
 });
+
+describe('Cột tròn nghìn: gợi ý đọc kiểu Việt — §B3', () => {
+  /*
+   * ĐO ĐƯỢC ngày 20/11/2026, và nó im lặng hoàn toàn: một bảng giá sản phẩm
+   * (29.000, 32.000, 45.000) vào kho thành 29, 32, 45. `doanQuyUocSo` trả
+   * `null` cho cột toàn ô mơ hồ, và "không kết luận" ở đây tương đương với
+   * "đọc thành thập phân" — tức một câu trả lời, chỉ là câu sai.
+   *
+   * Không đổi thẳng kết luận của `doanQuyUocSo` được: cột `-288.765` /
+   * `763.155` của Global-Superstore cũng toàn ô mơ hồ, và ở đó thập phân mới
+   * đúng. Thứ phân biệt hai cột là đuôi `.000`.
+   */
+  it('mọi ô mơ hồ tròn nghìn -> gợi ý tích sẵn', () => {
+    const c = canhBaoCot('Giá bán', 0, ['29.000', '32.000', '45.000'], 'number');
+
+    expect(c[0]?.loai).toBe('so-mo-ho');
+    expect(c[0]?.goiYVn).toBe(true);
+  });
+
+  /*
+   * ĐỐI CHỨNG — cột thập phân thật của Global-Superstore. Phần lẻ biến thiên
+   * nên không có gợi ý nào, và cách đọc cũ giữ nguyên.
+   */
+  it('phần lẻ biến thiên -> KHÔNG gợi ý', () => {
+    const c = canhBaoCot('Lợi nhuận', 0, ['-288.765', '763.155'], 'number');
+
+    expect(c[0]?.loai).toBe('so-mo-ho');
+    expect(c[0]?.goiYVn).toBeUndefined();
+  });
+
+  it('một ô không tròn nghìn là đủ để thôi gợi ý', () => {
+    const c = canhBaoCot('Giá', 0, ['29.000', '32.000', '45.500'], 'number');
+
+    expect(c[0]?.goiYVn).toBeUndefined();
+  });
+});

@@ -8,7 +8,7 @@ import * as datamodelApi from '../../datamodels/api';
 import * as tenantApi from '../../tenant/api';
 import * as api from '../api';
 import { useInvalidateDatasets } from '../hooks';
-import { quyUocDaChon } from './quyUocCot';
+import { quyUocDaChon, quyUocGoiY } from './quyUocCot';
 import { StepChooseData } from './StepChooseData';
 import { StepProgress, type ProgressState } from './StepProgress';
 import { StepUpload } from './StepUpload';
@@ -118,10 +118,19 @@ export function UploadWizard({
   /*
    * Những cột người dùng đã chốt "dấu chấm là phân cách nghìn" — mong muốn D2.
    *
-   * Mặc định RỖNG, ngược với `gopHoaThuong`: gộp hoa/thường là việc gần như
-   * chắc chắn người dùng muốn, còn ở đây hệ thống vừa nói thẳng rằng nó không
-   * phân xử được — tự tích hộ chính là đoán thay người cầm tệp, đúng thứ bản vá
-   * A1 đã cẩn thận tránh.
+   * Khởi đầu RỖNG, rồi được điền bằng `quyUocGoiY` ngay khi có kết quả phân
+   * tích — §B3.
+   *
+   * Bản trước để rỗng tuyệt đối, với lý lẽ "hệ thống vừa nói thẳng rằng nó
+   * không phân xử được, tự tích hộ là đoán thay người cầm tệp". Lý lẽ ấy đúng
+   * cho một cột mơ hồ BẤT KỲ, và sai cho cột mà MỌI ô đều tròn nghìn: ở đó
+   * mặc định "không tích" cũng là một câu trả lời — câu trả lời đọc `29.000`
+   * thành 29 — và nó sai 1000 lần với gần như mọi tệp tiền của người Việt.
+   * Đo được ngày 20/11/2026: cả một bảng giá vào kho thành 29, 32, 45.
+   *
+   * Nên chỗ này không còn là "tích hay không tích" mà là "câu trả lời mặc định
+   * nào ít sai hơn", và ô tích vẫn nằm đó cùng cả hai cách đọc để người dùng
+   * bấm lại.
    */
   const [quyUocVn, setQuyUocVn] = useState<ReadonlySet<string>>(() => new Set());
 
@@ -220,6 +229,8 @@ export function UploadWizard({
       if (!first) throw new Error('File không có sheet nào chứa dữ liệu.');
 
       setAnalysis(result);
+      // §B3 — tích sẵn những cột tròn nghìn. Xem `quyUocGoiY`.
+      setQuyUocVn(quyUocGoiY(result.sheets));
       // File một sheet thì tích sẵn — bắt người dùng bấm một ô tích duy nhất
       // trước khi đi tiếp là một bước thừa không mang thông tin gì.
       setSheets(result.sheets.length === 1 ? [first.name] : []);

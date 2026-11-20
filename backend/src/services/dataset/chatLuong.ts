@@ -284,5 +284,39 @@ function canhBaoSoMoHo(
     // chiếu được bằng mắt với ô trong tệp.
     docThanh: viet(doc),
     docThanhKhiVn: viet(docVn),
+    ...(deuTronNghin(values) ? { goiYVn: true } : {}),
   };
+}
+
+/**
+ * Mọi ô mơ hồ của cột đều kết thúc bằng `.000` — §B3.
+ *
+ * ═══ Vì sao một tín hiệu nữa, khi đã có `doanQuyUocSo` ════════════════════
+ *
+ * `doanQuyUocSo` trả `null` cho cột TOÀN ô mơ hồ, và `parseNumber(null)` đọc
+ * `29.000` thành 29. Với một tệp của người Việt thì đó là sai 1000 lần, im
+ * lặng: giá niêm yết 29.000 ₫ vào kho thành 29, và biểu đồ vẫn vẽ ra một hình
+ * trông hợp lý. Đo được ngày 20/11/2026 trên một tệp danh mục sản phẩm.
+ *
+ * Nhưng KHÔNG thể đổi thẳng kết luận của `doanQuyUocSo`: cột `-288.765` /
+ * `763.155` của Global-Superstore cũng toàn ô mơ hồ, và ở đó cách đọc thập
+ * phân mới đúng. Hai cột cùng hình dạng, hai nghĩa — nên thứ phân biệt chúng
+ * phải là một tín hiệu KHÁC, không phải một mặc định khác.
+ *
+ * Tín hiệu đó là đuôi `.000`. Một cột thập phân thật thì phần lẻ phải BIẾN
+ * THIÊN (`.765`, `.155`, `.402`); một cột mà MỌI giá trị đều tròn nghìn chỉ là
+ * một cột tiền viết theo lối Việt. Nó không đủ chắc để đổi cách đọc sau lưng
+ * người dùng — nên nó chỉ đi ra giao diện để TÍCH SẴN ô chọn, nơi người dùng
+ * nhìn thấy cả hai cách đọc rồi bấm.
+ */
+function deuTronNghin(values: readonly string[]): boolean {
+  let co = false;
+  for (const raw of values) {
+    if (isBlank(raw)) continue;
+    const s = raw.trim();
+    if (!laOMoHoPhanCach(s)) continue;
+    co = true;
+    if (!s.endsWith('.000')) return false;
+  }
+  return co;
 }

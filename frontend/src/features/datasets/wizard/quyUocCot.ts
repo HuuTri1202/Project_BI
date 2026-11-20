@@ -43,3 +43,31 @@ export function quyUocDaChon(
     })
     .filter((q) => sheets.includes(q.sheet));
 }
+
+/**
+ * Những cột nên TÍCH SẴN "dấu chấm là phân cách nghìn" — §B3.
+ *
+ * Backend gắn cờ `goiYVn` cho cột mà MỌI ô mơ hồ đều tròn nghìn (`.000`). Một
+ * cột thập phân thật có phần lẻ biến thiên (`.765`, `.155`, `.402`), nên cột
+ * tròn nghìn toàn bộ gần như chắc chắn là cột tiền viết theo lối Việt.
+ *
+ * Vì sao TÍCH SẴN chứ không đổi thẳng cách đọc ở backend: hai cột có thể cùng
+ * hình dạng mà khác nghĩa — `29.000` (hai mươi chín nghìn) và `288.765` (hai
+ * trăm tám tám phẩy bảy sáu lăm) đều là "ô mơ hồ". Tín hiệu `.000` đủ mạnh để
+ * đặt sẵn câu trả lời, không đủ mạnh để trả lời thay. Người dùng vẫn nhìn thấy
+ * cả hai cách đọc trong cùng một câu cảnh báo rồi bấm.
+ */
+export function quyUocGoiY(
+  sheets: readonly {
+    name: string;
+    canhBao: readonly { columnIndex: number; loai: string; goiYVn?: boolean }[];
+  }[],
+): Set<string> {
+  const ra = new Set<string>();
+  for (const s of sheets) {
+    for (const c of s.canhBao) {
+      if (c.loai === 'so-mo-ho' && c.goiYVn === true) ra.add(khoaQuyUoc(s.name, c.columnIndex));
+    }
+  }
+  return ra;
+}

@@ -322,7 +322,15 @@ function cauCanhBao(c: CanhBaoCotDto): string {
      */
     return `Cột “${ten}” có ${String(c.soNhom ?? 0)} cặp giá trị chỉ khác nhau ở DẤU: ${nhayKep(c.viDu)}. Nếu là cùng một thứ, hãy sửa cho thống nhất trong tệp rồi tải lại — hệ thống không tự gộp, vì bỏ dấu thì “Miền” và “Miên” thành một.`;
   }
-  return `Cột “${ten}” có ô ${nhayKep(c.viDu)} sẽ vào hệ thống thành ${c.docThanh ?? ''} — dấu chấm ở đây được hiểu là dấu thập phân. Nếu bạn muốn nó là ${c.viDu[0] ?? ''} thì hãy viết một giá trị không thể hiểu lẫn trong cột, ví dụ 1.250.000, rồi tải lại.`;
+  /*
+   * ⚠️ KHÔNG bảo người dùng về Excel sửa tệp rồi tải lại — §B3.
+   *
+   * Câu cũ kết thúc bằng "hãy viết một giá trị không thể hiểu lẫn trong cột,
+   * ví dụ 1.250.000, rồi tải lại", trong khi ô tích giải quyết đúng chuyện đó
+   * nằm ngay DƯỚI câu ấy. Nó chỉ sang đường dài nhất và bỏ qua đường ngắn
+   * nhất — người đọc kỹ sẽ đi sửa tệp, người đọc lướt sẽ bỏ qua cả hai.
+   */
+  return `Cột “${ten}” có ô ${nhayKep(c.viDu)} sẽ vào hệ thống thành ${c.docThanh ?? ''} — dấu chấm ở đây được hiểu là dấu thập phân. Muốn nó là ${c.viDu[0] ?? ''} thì tích ô ngay bên dưới.`;
 }
 
 function SheetPreview({

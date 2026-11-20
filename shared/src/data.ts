@@ -630,6 +630,18 @@ export interface CanhBaoCotDto {
    */
   docThanh?: string;
   /**
+   * Mọi ô mơ hồ của cột đều tròn nghìn (`.000`) — §B3. Chỉ có ở `so-mo-ho`.
+   *
+   * Giao diện TÍCH SẴN ô "dấu chấm là phân cách nghìn" khi cờ này bật: một cột
+   * mà mọi giá trị đều tròn nghìn thì gần như chắc chắn là cột tiền viết theo
+   * lối Việt, không phải cột thập phân (cột thập phân thật có phần lẻ biến
+   * thiên: `.765`, `.155`, `.402`).
+   *
+   * Vẫn là một ô TÍCH chứ không phải một quyết định sau lưng: người dùng nhìn
+   * thấy cả hai cách đọc ngay cạnh nhau rồi bấm.
+   */
+  goiYVn?: boolean;
+  /**
    * Con số `viDu[0]` sẽ thành NẾU người dùng nói dấu chấm là phân cách nghìn —
    * mong muốn D2 ("xem trước giá trị sau khi đổi").
    *
