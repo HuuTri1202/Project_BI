@@ -11,6 +11,7 @@ import { env } from '../../config/env';
 import { chTableName, qualified } from '../ingest/buildDdl';
 import { quoteIdent } from '../ingest/typeMap';
 import { HttpError } from '../../utils/httpError';
+import { nhanThoiGian } from '../../utils/nhanThoiGian';
 
 /**
  * Tổng hợp dữ liệu biểu đồ bằng ClickHouse (§7.6, viết lại ở §9).
@@ -102,7 +103,20 @@ export async function aggregateInWarehouse(
   const groups = Number(totals[0]?.groups ?? 0);
   const grouped = groups > limit;
 
-  const rows = top.map((r) => ({ label: r.label, value: Number(r.value) }));
+  /*
+   * Cột NGÀY: đổi dấu thời gian của kho thành nhãn người đọc được.
+   *
+   * `toString` của ClickHouse trả `2026-08-04 00:00:00.000`, và trước bản này
+   * chuỗi đó đi thẳng ra trục ngang của biểu đồ. Cùng một luật với nhánh mô
+   * hình (`nhanCua` trong `modelReportData`), cùng một hàm.
+   *
+   * ⚠️ Chỉ đổi NHÃN, sau khi đã gộp. Gộp theo chuỗi đã định dạng thì hai mốc
+   * khác giờ trong cùng một ngày sẽ nhập làm một mà không ai khai điều đó.
+   */
+  const laNgay = dimensionCol.semanticType === 'date';
+  const nhan = (tho: string): string => (laNgay && tho !== EMPTY_LABEL ? nhanThoiGian(tho) : tho);
+
+  const rows = top.map((r) => ({ label: nhan(r.label), value: Number(r.value) }));
 
   // Chỉ gộp "Khác" khi phép tính CỘNG ĐƯỢC. Trung bình của các trung bình không
   // phải trung bình, và "Khác" của min/max thì vô nghĩa — ở những phép đó ta cắt

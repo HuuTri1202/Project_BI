@@ -172,6 +172,41 @@ describe('assignField', () => {
     const patch = assignField(custom, 'series', { kind: 'dimension', id: D2 });
     expect(patch).toEqual({ seriesId: D2 });
   });
+
+  /*
+   * ═══ Thả một chiều THỜI GIAN: cách sắp mặc định đổi theo ═════════════
+   *
+   * Mặc định chung là "theo giá trị, lớn → nhỏ" — đúng cho hạng mục, sai hẳn
+   * cho một trục thời gian. Đo được ngày 20/11/2026: thả "Ngày bán" vào một
+   * biểu đồ đường cho ra hai mươi ngày doanh thu cao nhất rút từ ba tháng,
+   * nối lại thành một đường dốc đều. Hình ấy đọc như một xu hướng và không
+   * phải một xu hướng.
+   */
+  it('thả chiều thời gian thì mặc định sắp theo thời gian', () => {
+    expect(assignField(draft(), 'dimension', { kind: 'dimension', id: D2 }, 'time')).toEqual({
+      dimensionId: D2,
+      options: { ...draft().options, sort: 'label' },
+    });
+  });
+
+  it('chiều CHỮ thì không đụng tới cách sắp', () => {
+    expect(assignField(draft(), 'dimension', { kind: 'dimension', id: D2 }, 'string')).toEqual({
+      dimensionId: D2,
+    });
+  });
+
+  /*
+   * ĐỐI CHỨNG quan trọng nhất của nhóm này: lựa chọn của NGƯỜI DÙNG không bị
+   * một cú thả lật ngược. Ai đã chọn "lớn → nhỏ" để xem ngày bán chạy nhất thì
+   * thả lại đúng cột ấy không được đổi ý hộ họ.
+   */
+  it('người dùng đã tự chọn cách sắp thì giữ nguyên', () => {
+    const daChon = draft({ options: { ...draft().options, sort: 'value-asc' } });
+
+    expect(assignField(daChon, 'dimension', { kind: 'dimension', id: D2 }, 'time')).toEqual({
+      dimensionId: D2,
+    });
+  });
 });
 
 describe('slotForClick', () => {

@@ -287,6 +287,14 @@ interface InternalQueryOptions {
    */
   order?: 'asc' | 'desc';
   /**
+   * Sắp theo CHIỀU ĐẦU TIÊN thay vì theo thước đo — §A4.
+   *
+   * Có mặt thì nó thắng `order`. Dùng cho trục thời gian và cho ô "Sắp xếp
+   * theo tên": cả hai đều cần trang 1 là hai mươi mốc ĐẦU TIÊN, không phải hai
+   * mươi mốc lớn nhất xếp lại.
+   */
+  theoChieu?: 'asc' | 'desc';
+  /**
    * Bỏ qua `offset` nhóm đầu tiên — chia trang biểu đồ (§10.12).
    *
    * Cùng lập luận với `order`: "trang 2" là một phép của TRUY VẤN. Lấy về tất
@@ -526,8 +534,20 @@ export function buildQuery(
   // Sắp theo thước đo ĐẦU TIÊN, giảm dần. Không sắp thì ClickHouse trả theo thứ
   // tự nội bộ và bảng kết quả đổi thứ tự giữa hai lần chạy cùng một truy vấn —
   // trông như dữ liệu không ổn định.
+  /*
+   * Sắp theo CHIỀU đứng trước sắp theo thước đo.
+   *
+   * `keys[0]` chứ không phải `dimensions[0]`: với một chiều thời gian đã gom
+   * mức (`c_orders.d7.month`), thứ Cube trả về — và thứ sắp được — là khoá có
+   * hậu tố, nằm trong `keys`.
+   */
+  const firstDimension = keys[0];
   const firstMeasure = measures[0];
-  if (firstMeasure !== undefined) query.order = { [firstMeasure]: internal.order ?? 'desc' };
+  if (internal.theoChieu !== undefined && firstDimension !== undefined) {
+    query.order = { [firstDimension]: internal.theoChieu };
+  } else if (firstMeasure !== undefined) {
+    query.order = { [firstMeasure]: internal.order ?? 'desc' };
+  }
 
   const limit = input.limit ?? 500;
   query.limit = limit;

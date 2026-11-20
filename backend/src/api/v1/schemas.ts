@@ -379,6 +379,13 @@ export const reportModelConfigSchema = z.object({
    */
   pick: z.enum(GROUP_PICKS).optional(),
   /**
+   * Sắp theo CHÍNH CHIỀU thay vì theo thước đo — xem `ReportModelConfigDto`.
+   *
+   * Cùng hạng với `pick`: nó đổi câu hỏi gửi xuống Cube, nên nó ở trong
+   * `config` và đi vào khoá cache.
+   */
+  theoChieu: z.enum(['asc', 'desc']).nullish(),
+  /**
    * Chiều thứ hai — tách chuỗi (§10.9). Router kiểm nó có thật trong mô hình và
    * kiểm nó KHÁC chiều chính; zod chỉ lo hình dạng.
    *

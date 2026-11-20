@@ -415,6 +415,20 @@ export const CHART_SORT_LABELS: Record<ChartSort, string> = {
   'label-desc': 'Theo tên (Z → A)',
 };
 
+/**
+ * Cùng bốn lựa chọn, đọc bằng lời của một trục THỜI GIAN.
+ *
+ * "Theo tên (A → Z)" áp lên một cột ngày là một câu vô nghĩa: nhãn ở đó là
+ * `04/08/2026`, và người dùng không hỏi "tên nào đứng trước" mà hỏi "cũ hay
+ * mới trước". Cùng một giá trị `ChartSort`, chỉ khác chữ hiện ra.
+ */
+export const CHART_SORT_LABELS_TIME: Record<ChartSort, string> = {
+  value: 'Theo giá trị (lớn → nhỏ)',
+  'value-asc': 'Theo giá trị (nhỏ → lớn)',
+  label: 'Theo thời gian (cũ → mới)',
+  'label-desc': 'Theo thời gian (mới → cũ)',
+};
+
 /** Phép tổng hợp khi nhiều dòng rơi vào cùng một nhóm. */
 export const AGGREGATES = ['sum', 'avg', 'count', 'min', 'max'] as const;
 export type Aggregate = (typeof AGGREGATES)[number];
@@ -567,6 +581,30 @@ export interface ReportModelConfigDto {
    * `config` và không bao giờ đọc `options`.
    */
   pick?: GroupPick | undefined;
+  /**
+   * Sắp xếp theo CHÍNH CHIỀU, không theo thước đo — và đây là một phép của
+   * TRUY VẤN, cùng hạng với `pick`.
+   *
+   * ═══ Lỗi nó sinh ra để chữa ════════════════════════════════════════════
+   *
+   * Thả "Ngày bán" vào một biểu đồ đường: Cube được hỏi "hai mươi dòng có
+   * thước đo lớn nhất", rồi trục ngang xếp lại hai mươi dòng ấy theo tên. Kết
+   * quả là một đường nối hai mươi ngày RỜI RẠC rút từ ba tháng — nó có hình
+   * một xu hướng, và nó không phải một xu hướng. Ô "Sắp xếp" trước đây phải in
+   * ra một dòng đính chính: "các trang vẫn đi theo thứ hạng của thước đo".
+   *
+   * Có trường này thì "theo tên / theo thời gian" đổi luôn câu hỏi gửi xuống
+   * Cube, nên trang 1 là hai mươi mốc ĐẦU TIÊN thật, và lật trang là đi tiếp
+   * theo thời gian.
+   *
+   * Vắng mặt = sắp theo thước đo, đúng hành vi cũ, nên báo cáo đã lưu không
+   * đổi một con số nào cho tới khi được mở lại bằng bản này.
+   *
+   * `null` cũng được nhận, cùng lý do với `seriesDimensionId`: khoá cache của
+   * trình dựng dựng một hình dạng CỐ ĐỊNH, mà `JSON.stringify` thì xoá
+   * `undefined` khỏi thân request — hai cách viết cho cùng một ý.
+   */
+  theoChieu?: 'asc' | 'desc' | null | undefined;
   /**
    * Chiều THỨ HAI — tách biểu đồ thành nhiều chuỗi, mỗi chuỗi một màu (§10.9).
    *
@@ -921,6 +959,15 @@ export interface ReportDataDto {
   measureLabel: string;
   /** Có mặt = biểu đồ nhiều chuỗi, và đây là tên chiều tách chuỗi. */
   seriesLabel?: string | undefined;
+  /**
+   * Máy chủ ĐÃ sắp sẵn theo chiều — trình vẽ đừng sắp lại.
+   *
+   * Có mặt khi truy vấn chạy với `config.theoChieu`. Trình vẽ phải đọc cờ này
+   * chứ không đọc `options.sort`: nhãn của một chiều thời gian là `04/08/2026`,
+   * và sắp chuỗi ấy theo bảng chữ cái là xếp theo NGÀY TRONG THÁNG — 01/09
+   * đứng trước 04/08. Thứ tự đúng đã có sẵn trong `rows`.
+   */
+  theoChieu?: 'asc' | 'desc' | undefined;
   /**
    * Có nhóm nào bị cắt khỏi biểu đồ không — để trang xem NÓI RA điều đó.
    *

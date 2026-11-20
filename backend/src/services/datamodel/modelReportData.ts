@@ -5,6 +5,9 @@ import {
   type ReportModelConfigDto,
 } from '@bi/shared';
 
+import { nhanThoiGian } from '../../utils/nhanThoiGian';
+
+import { cubeTypeOf } from './classifyColumn';
 import { loadModelContext, runExplorerQuery, type ModelContext } from './explorer';
 
 /**
@@ -128,6 +131,11 @@ export async function aggregateFromModel(
    * `config` thay vì để backend đọc `options.sort` (§10.15).
    */
   const bottom = config.pick === 'bottom';
+  /*
+   * Sắp theo CHIỀU thì không còn khái niệm "đầu bảng / cuối bảng" nữa: thứ tự
+   * đã do chính chiều quyết định, và `bottom` không được nói gì thêm.
+   */
+  const theoChieu = theoChieuCua(config);
 
   const result = await runExplorerQuery(
     tenantId,
@@ -143,7 +151,7 @@ export async function aggregateFromModel(
     // viết dài hơn, và mọi thứ đi vào truy vấn Cube đều đáng để ngắn.
     {
       ctx,
-      ...(bottom ? { order: 'asc' as const } : {}),
+      ...(theoChieu !== undefined ? { theoChieu } : bottom ? { order: 'asc' as const } : {}),
       ...(page > 0 ? { offset: page * limit } : {}),
     },
   );
@@ -161,19 +169,24 @@ export async function aggregateFromModel(
    * dòng thừa nằm ở CUỐI — đảo sau khi cắt sẽ bỏ mất nhóm nhỏ nhất và giữ lại
    * đúng cái dòng chỉ dùng để đếm.
    */
-  const ranked = bottom ? [...result.rows].reverse() : result.rows;
+  const ranked = bottom && theoChieu === undefined ? [...result.rows].reverse() : result.rows;
+
+  const nhan = nhanCua(ctx, config.dimensionId);
 
   const all = ranked.map((row) => ({
     // Ô trống là thứ người xem CẦN thấy, không phải thứ nên giấu — cùng lập
     // luận với `aggregateWarehouse`.
-    label: labelOf(row[0] ?? null),
+    label: nhan(row[0] ?? null),
     value: Number(row[1] ?? 0),
   }));
 
   // Dòng thừa thứ `limit + 1` chỉ dùng để BIẾT còn dữ liệu, không bao giờ được vẽ.
   const hasMore = all.length > limit;
   // Đã đảo ở trên nên phần cần bỏ luôn nằm ở ĐẦU khi lấy nhóm nhỏ nhất.
-  const rows = bottom ? all.slice(Math.max(0, all.length - limit)) : all.slice(0, limit);
+  const rows =
+    bottom && theoChieu === undefined
+      ? all.slice(Math.max(0, all.length - limit))
+      : all.slice(0, limit);
 
   return {
     rows,
@@ -193,6 +206,8 @@ export async function aggregateFromModel(
     grouped: false,
     paging: { page, hasMore },
     format: measureCol?.format,
+    // Nói ra là máy chủ đã sắp sẵn — trình vẽ đọc cờ này để thôi sắp lại nhãn.
+    ...(theoChieu === undefined ? {} : { theoChieu }),
   };
 }
 
@@ -258,6 +273,8 @@ async function aggregateWithSeries(
    * nhất — bỏ chuỗi lớn đi thì các cột còn lại cộng không ra tổng nào cả.
    */
   const bottom = config.pick === 'bottom';
+  // Cùng luật với nhánh một chuỗi: sắp theo chiều thì `bottom` thôi có nghĩa.
+  const theoChieu = theoChieuCua(config);
 
   const [ranking, seriesRanking] = await Promise.all([
     runExplorerQuery(
@@ -275,7 +292,7 @@ async function aggregateWithSeries(
       // phải một câu hỏi ai đó hỏi.
       {
         ctx,
-        ...(bottom ? { order: 'asc' as const } : {}),
+        ...(theoChieu !== undefined ? { theoChieu } : bottom ? { order: 'asc' as const } : {}),
         ...(page > 0 ? { offset: page * limit } : {}),
       },
     ),
@@ -296,10 +313,17 @@ async function aggregateWithSeries(
   // Giữ cả giá trị THÔ lẫn nhãn hiển thị. Nhãn để sắp xếp và để vẽ; giá trị thô
   // để làm bộ lọc ở bước 2 — `labelOf` đã đổi `null` thành "(trống)", một chuỗi
   // không tồn tại trong dữ liệu.
-  const doc = (rows: (string | number | null)[][], n: number) =>
+  const nhanNhom = nhanCua(ctx, config.dimensionId);
+  const nhanChuoi = nhanCua(ctx, seriesId);
+
+  const doc = (
+    rows: (string | number | null)[][],
+    n: number,
+    nhan: (cell: string | number | null) => string,
+  ) =>
     rows.slice(0, n).map((row) => {
       const raw = row[0] ?? null;
-      return { raw, label: labelOf(raw) };
+      return { raw, label: nhan(raw) };
     });
 
   const cutGroups = ranking.rows.length > limit;
@@ -307,11 +331,13 @@ async function aggregateWithSeries(
 
   // Cùng phép đảo với nhánh một chuỗi: truy vấn hỏi tăng dần để LẤY ĐÚNG các
   // nhóm nhỏ nhất, rồi đảo lại để thứ hạng — và biểu đồ — vẫn giảm dần.
-  const rankedGroups = bottom ? [...ranking.rows].reverse() : ranking.rows;
-  const keepGroups = bottom
-    ? doc(rankedGroups.slice(Math.max(0, rankedGroups.length - limit)), limit)
-    : doc(rankedGroups, limit);
-  const keepSeries = doc(seriesRanking.rows, SERIES_CAP);
+  const rankedGroups =
+    bottom && theoChieu === undefined ? [...ranking.rows].reverse() : ranking.rows;
+  const keepGroups =
+    bottom && theoChieu === undefined
+      ? doc(rankedGroups.slice(Math.max(0, rankedGroups.length - limit)), limit, nhanNhom)
+      : doc(rankedGroups, limit, nhanNhom);
+  const keepSeries = doc(seriesRanking.rows, SERIES_CAP, nhanChuoi);
 
   // Thứ hạng để sắp lại ở bước 3. Nhóm trùng nhãn sau `labelOf` (ví dụ `null`
   // và chuỗi rỗng đều thành "(trống)") giữ thứ hạng của lần xuất hiện đầu.
@@ -364,8 +390,8 @@ async function aggregateWithSeries(
   const rows = breakdown.rows
     .slice(0, rowCap)
     .map((row) => ({
-      label: labelOf(row[0] ?? null),
-      series: labelOf(row[1] ?? null),
+      label: nhanNhom(row[0] ?? null),
+      series: nhanChuoi(row[1] ?? null),
       value: Number(row[2] ?? 0),
     }))
     // Bộ lọc đã lo phần lớn, nhưng không lo được ca hai giá trị thô KHÁC nhau
@@ -387,10 +413,62 @@ async function aggregateWithSeries(
     grouped: cutSeries,
     paging: { page, hasMore: cutGroups },
     format: measureCol?.format,
+    ...(theoChieu === undefined ? {} : { theoChieu }),
   };
 }
 
 /** Cube trả về chuỗi, số, hoặc null cho một chiều. Biểu đồ chỉ nhận chuỗi. */
+/**
+ * Hàm dựng nhãn cho MỘT chiều — thường là `labelOf`, chiều thời gian thì khác.
+ *
+ * Cube trả dấu thời gian ở dạng máy đọc (`2026-08-04T00:00:00.000`). Trước bản
+ * này chuỗi đó đi thẳng ra trục ngang, ra Excel, ra câu trả lời của khung hỏi
+ * đáp và ra trang chia sẻ công khai. Xem `nhanThoiGian`.
+ *
+ * ⚠️ Đổi nhãn ở ĐÂY, không ở frontend. Bốn mặt đọc cùng một `rows[].label`
+ * (biểu đồ, tệp xuất, bảng của trình đọc màn hình, khung hỏi đáp), nên sửa ở
+ * frontend là sửa một mặt rồi còn ba mặt phải nhớ.
+ *
+ * ⚠️ Chỉ nhãn HIỂN THỊ đổi. Giá trị THÔ đi làm bộ lọc ở nhánh nhiều chuỗi
+ * (`restrict`) vẫn là chuỗi gốc của Cube — đổi nó là truy vấn bước 3 không
+ * khớp dòng nào.
+ */
+function nhanCua(ctx: ModelContext, dimensionId: number): (cell: string | number | null) => string {
+  const chType = ctx.index.columns.get(dimensionId)?.chType;
+  if (chType === undefined || cubeTypeOf(chType) !== 'time') return labelOf;
+  return (cell) => {
+    const tho = labelOf(cell);
+    return tho === EMPTY_LABEL ? tho : nhanThoiGian(tho);
+  };
+}
+
+/**
+ * `theoChieu` của một cấu hình — kèm ĐƯỜNG LUI cho báo cáo lưu trước §A4.
+ *
+ * ═══ Vì sao backend đọc `options` ở đúng chỗ này ══════════════════════════
+ *
+ * Ranh giới "backend chỉ đọc `config`, không đọc `options`" có thật và đáng
+ * giữ: nó là thứ cho phép đổi bảng màu mà không tốn một vòng tới Cube. Nhưng
+ * `theoChieu` được SUY RA từ `options.sort` (trình dựng làm việc đó rồi lưu ra
+ * `config`, y như `pick`), nên một báo cáo lưu TRƯỚC bản này có `options.sort
+ * = 'label'` mà không có `theoChieu`.
+ *
+ * Không có đường lui thì báo cáo ấy giữ nguyên thứ tự cũ — thứ tự theo thước
+ * đo — cho tới khi có ai mở trình dựng ra bấm Lưu. Người dùng không có cách
+ * nào biết là phải làm thế, và hai báo cáo cùng một lựa chọn sẽ vẽ ra hai thứ
+ * khác nhau tuỳ ngày nó được lưu.
+ *
+ * Nên chỗ này đọc `options` đúng MỘT trường, chỉ khi `theoChieu` vắng mặt, và
+ * chỉ để trả lời câu hỏi mà chính `options.sort` đã trả lời.
+ */
+function theoChieuCua(config: ReportModelConfigDto): 'asc' | 'desc' | undefined {
+  if (config.theoChieu !== undefined && config.theoChieu !== null) return config.theoChieu;
+  const sort = config.options?.sort;
+  if (sort === 'label') return 'asc';
+  if (sort === 'label-desc') return 'desc';
+  return undefined;
+}
+
 function labelOf(cell: string | number | null): string {
   if (cell === null) return EMPTY_LABEL;
   const text = String(cell).trim();

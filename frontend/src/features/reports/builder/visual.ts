@@ -1,4 +1,6 @@
 import {
+  type ChartSort,
+  type CubeType,
   CANVAS_COLUMNS,
   CANVAS_DEFAULT_H,
   CANVAS_DEFAULT_W,
@@ -106,6 +108,29 @@ export const LIMIT_CHOICES = [5, 10, 20, 50, 100] as const;
  */
 export function pickOf(draft: VisualDraft): GroupPick {
   return draft.options.sort === 'value-asc' ? 'bottom' : 'top';
+}
+
+/**
+ * Sắp theo CHÍNH CHIỀU — suy ra từ cùng một ô chọn với `pickOf`.
+ *
+ * ═══ Vì sao hai cách sắp "theo tên" phải đổi cả TRUY VẤN ══════════════════
+ *
+ * Trước bản này chúng chỉ xếp lại một trang đã cắt theo thước đo, và ô chọn
+ * phải in ra một dòng tự đính chính: "các trang vẫn đi theo thứ hạng của
+ * thước đo". Với một chiều THỜI GIAN thì lời đính chính ấy không cứu được gì:
+ * trang 1 là hai mươi ngày doanh thu cao nhất rút từ ba tháng, nối lại thành
+ * một đường — một hình có dáng xu hướng mà không phải xu hướng.
+ *
+ * Giờ "theo tên" hỏi thẳng Cube sắp theo chiều, nên trang 1 là hai mươi mốc
+ * ĐẦU TIÊN và lật trang là đi tiếp theo đúng thứ tự ấy.
+ *
+ * ⚠️ Trả `undefined` cho hai cách sắp theo GIÁ TRỊ: ở đó thứ hạng theo thước
+ * đo mới là thứ được hỏi, và `pick` đã lo chiều lấy.
+ */
+export function theoChieuOf(sort: ChartSort | undefined): 'asc' | 'desc' | undefined {
+  if (sort === 'label') return 'asc';
+  if (sort === 'label-desc') return 'desc';
+  return undefined;
 }
 
 /**
@@ -247,6 +272,12 @@ export interface PreviewConfig {
    * là lý do phép suy ra phải nằm ở `pickOf` chứ không nằm trong giao diện.
    */
   pick: GroupPick;
+  /**
+   * Cùng lý do với `pick`: nó đổi câu hỏi gửi xuống Cube nên phải nằm trong
+   * khoá cache. Bỏ quên thì đổi từ "theo giá trị" sang "theo tên" là một lần
+   * trúng cache — biểu đồ đứng yên, không request, ô chọn trông như hỏng.
+   */
+  theoChieu: 'asc' | 'desc' | null;
   seriesDimensionId: number | null;
   /**
    * PHẢI có mặt, cùng lý do với `pick`: nó đổi measure mà Cube được hỏi.
@@ -265,6 +296,7 @@ export function previewConfigOfDraft(draft: VisualDraft): PreviewConfig | null {
     measureId: draft.measureId,
     limit: draft.limit,
     pick: pickOf(draft),
+    theoChieu: theoChieuOf(draft.options.sort) ?? null,
     seriesDimensionId: seriesUsed(draft),
     measureAgg: draft.measureAgg,
   };
@@ -282,6 +314,14 @@ export function previewConfigOfDto(config: ReportModelConfigDto): PreviewConfig 
     measureId: config.measureId,
     limit: config.limit,
     pick: config.pick ?? 'top',
+    /*
+     * SUY LẠI từ `options.sort`, không đọc `config.theoChieu`.
+     *
+     * Báo cáo lưu trước bản này không có trường đó, nhưng vẫn có `options.sort`
+     * — và người dùng đã chọn "theo tên" từ hồi đó thì họ phải nhận đúng thứ
+     * mình chọn ngay lần mở này, không phải đợi tới lần lưu sau.
+     */
+    theoChieu: theoChieuOf(config.options?.sort) ?? null,
     seriesDimensionId: config.seriesDimensionId ?? null,
     measureAgg: config.measureAgg ?? null,
   };
@@ -307,6 +347,10 @@ export function toDto(draft: VisualDraft): ReportVisualDto | null {
       measureAgg: draft.measureAgg,
       limit: draft.limit,
       pick: pickOf(draft),
+      // Lưu ra cả đây, cùng lý do với `pick`: backend chỉ đọc `config`.
+      ...(theoChieuOf(draft.options.sort) === undefined
+        ? {}
+        : { theoChieu: theoChieuOf(draft.options.sort) }),
       seriesDimensionId: seriesUsed(draft),
       options: draft.options,
     },
@@ -510,6 +554,12 @@ export function assignField(
   draft: VisualDraft,
   slot: Slot,
   field: DragField,
+  /**
+   * Kiểu Cube của trường vừa thả — chỉ dùng để chọn cách sắp mặc định.
+   *
+   * Vắng mặt thì giữ nguyên cách sắp đang có, đúng hành vi cũ.
+   */
+  cubeType?: CubeType,
 ): Partial<VisualDraft> | null {
   if (slot === 'measure') {
     // `measureAgg: null` đi kèm BẮT BUỘC: phép gộp đang chọn thuộc về thước đo
@@ -520,10 +570,23 @@ export function assignField(
   if (field.kind === 'measure') return null;
 
   if (slot === 'dimension') {
-    // Cùng một chiều ở hai ô cho ra một chuỗi trên mỗi nhóm — một biểu đồ trông
-    // y hệt biểu đồ một chuỗi kèm một chú giải chép lại trục ngang. Backend từ
-    // chối; ở đây thì nhường ô mới và tự dọn ô cũ.
-    return { dimensionId: field.id, ...(draft.seriesId === field.id ? { seriesId: null } : {}) };
+    /*
+     * Thả một chiều THỜI GIAN thì cách sắp mặc định là THEO THỜI GIAN.
+     *
+     * Mặc định chung là "theo giá trị, lớn → nhỏ" — đúng cho hạng mục, sai hẳn
+     * cho một trục thời gian: nó cho ra hai mươi ngày doanh thu cao nhất rút
+     * từ ba tháng, nối lại thành một đường dốc đều. Hình ấy đọc như một xu
+     * hướng và không phải một xu hướng; đó là lỗi đo được ngày 20/11/2026.
+     *
+     * Chỉ đổi khi cách sắp đang là MẶC ĐỊNH: người dùng đã tự chọn "lớn → nhỏ"
+     * thì một cú thả không được lật lựa chọn của họ.
+     */
+    const theoThoiGian = cubeType === 'time' && draft.options.sort === DEFAULT_OPTIONS.sort;
+    return {
+      dimensionId: field.id,
+      ...(draft.seriesId === field.id ? { seriesId: null } : {}),
+      ...(theoThoiGian ? { options: { ...draft.options, sort: 'label' as const } } : {}),
+    };
   }
 
   if (field.id === draft.dimensionId) return null;

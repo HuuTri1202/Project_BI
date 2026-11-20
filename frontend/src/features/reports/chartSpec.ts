@@ -210,6 +210,8 @@ export function buildChartSpec({
   if (chartType === 'table') return null;
 
   const opts = options ?? {};
+  // Máy chủ đã sắp theo chiều thì mọi trục giữ nguyên thứ tự `rows` — xem `sortOf`.
+  const daSapSan = data.theoChieu !== undefined && data.theoChieu !== null;
 
   /** Ô có tự khai chiều cao không — xem `height` ở trên. */
   const fit = typeof height === 'number' && height > 0;
@@ -356,7 +358,7 @@ export function buildChartSpec({
           field: 'label',
           type: 'nominal',
           title: tenDuoi(data.dimensionLabel),
-          sort: sortOf(opts),
+          sort: sortOf(opts, daSapSan),
           axis: nhanNhom,
         },
         y: {
@@ -381,7 +383,7 @@ export function buildChartSpec({
     // Trục nhóm của biểu đồ NGANG là trục dọc, nên tên nó ăn bề ngang; của bốn
     // loại kia là trục ngang, nên tên nó ăn chiều cao.
     title: horizontal ? tenTrai(data.dimensionLabel) : tenDuoi(data.dimensionLabel),
-    sort: sortOf(opts),
+    sort: sortOf(opts, daSapSan),
     // Nằm ngang thì nhãn có cả chiều rộng để trải ra, nên không xoay và cho
     // gấp đôi chỗ. Đó chính là lý do loại này tồn tại bên cạnh biểu đồ cột.
     axis: horizontal ? { labelLimit: 220, ...denseLabels } : nhanNhom,
@@ -727,7 +729,15 @@ function markColorFor(palette: ChartPalette | undefined): string {
  * chuỗi có nhiều dòng cùng một nhãn, nên thứ tự phải tính trên TỔNG của nhãn
  * đó — đảo mảng sẽ xếp theo dòng đầu tiên bắt gặp.
  */
-function sortOf(opts: ReportChartOptionsDto): SortOrder {
+function sortOf(opts: ReportChartOptionsDto, daSapSan: boolean): SortOrder {
+  /*
+   * MÁY CHỦ ĐÃ SẮP thì trình vẽ không được sắp lại — xem `ReportDataDto.theoChieu`.
+   *
+   * Nhãn của một chiều thời gian là `04/08/2026`. Sắp chuỗi ấy theo bảng chữ
+   * cái là xếp theo NGÀY TRONG THÁNG: 01/09 đứng trước 04/08. Thứ tự đúng đã
+   * nằm sẵn trong `rows` vì chính Cube đã sắp — giữ nguyên là xong.
+   */
+  if (daSapSan) return null;
   if (opts.sort === 'label') return 'ascending';
   if (opts.sort === 'label-desc') return 'descending';
   if (opts.sort === 'value-asc') return { field: 'value', op: 'sum', order: 'ascending' };

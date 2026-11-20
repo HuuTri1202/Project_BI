@@ -197,6 +197,35 @@ describe('buildChartSpec', () => {
     expect(spec.encoding.x.sort).toBeNull();
   });
 
+  /*
+   * ═══ MÁY CHỦ ĐÃ SẮP thì trình vẽ không được sắp lại ═══════════════════
+   *
+   * Nhãn của một chiều thời gian là `04/08/2026`. Sắp chuỗi ấy theo bảng chữ
+   * cái là xếp theo NGÀY TRONG THÁNG: `01/09/2026` nhảy lên trước
+   * `04/08/2026`. Đo được ngày 20/11/2026, ngay sau khi nhãn ISO được đổi
+   * thành dạng người đọc — bản vá này sinh ra một lỗi mới nếu thiếu chốt kia.
+   *
+   * Thứ tự đúng đã nằm sẵn trong `rows` vì chính Cube đã sắp.
+   */
+  it('cờ `theoChieu` của máy chủ thắng mọi lựa chọn sắp xếp', () => {
+    const ngay = fakeData({
+      rows: [
+        { label: '04/08/2026', value: 120 },
+        { label: '01/09/2026', value: 80 },
+        { label: '05/10/2026', value: 210 },
+      ],
+      theoChieu: 'asc',
+    });
+
+    for (const sort of CHART_SORTS) {
+      const spec = buildChartSpec({ chartType: 'line', data: ngay, options: { sort } }) as {
+        encoding: { x: { sort?: unknown } };
+      };
+
+      expect(spec.encoding.x.sort, `sort = ${sort}`).toBeNull();
+    }
+  });
+
   it('bốn cách sắp cho ra BỐN spec khác nhau', () => {
     const specs = CHART_SORTS.map(
       (sort) =>
