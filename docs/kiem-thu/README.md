@@ -8,6 +8,20 @@ duyệt, cùng dữ liệu để chạy nó.
 | [bo-test-case.md](bo-test-case.md) | **137 ca kiểm thử tay**, 73 ca bắt buộc. Các bước · kết quả mong đợi · ô ghi kết quả thực tế |
 | `du-lieu-thu/` | 9 tệp dữ liệu để tải lên. Đáp án của từng tệp ghi sẵn ở `§0.4` của tài liệu trên |
 
+## Bản bấm được
+
+Cùng 137 ca đó, dựng thành một trang để mở trên màn hình thứ hai trong lúc test:
+
+**https://claude.ai/artifact/VSomCtDa3JrJc5C6H5fpm1**
+
+Mỗi ca có hai nút Đạt / Không đạt và một ô ghi chú; kết quả lưu ngoài trang nên
+đóng tab hay đổi máy vẫn còn. Thanh đầu trang đếm số ca đã đạt và số ca ⭐ chưa
+đạt, lọc được theo "chỉ ca ⭐" / "chưa làm" / "không đạt", và nút **Sao chép kết
+quả** sinh ra một bảng Markdown của các ca chưa đạt để dán vào báo cáo.
+
+Trang đọc nội dung từ chính `bo-test-case.md`, nên **sửa tài liệu thì phải dựng
+lại trang** — hai bản không tự đồng bộ.
+
 ## Cách dùng
 
 Mở `bo-test-case.md`, làm theo `§0 · Chuẩn bị`, rồi đi từ §1 tới §14 **theo đúng
