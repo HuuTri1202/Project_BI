@@ -17,6 +17,7 @@ import {
 } from '@bi/shared';
 
 import { CHART_CHOICES } from '../chartCatalog';
+import { BoLoc } from './BoLoc';
 import { Choice, PaletteChoice, PanelTitle, Shelf, Toggle } from './controls';
 import type { DragField } from './dnd';
 import { moTaCua } from './fieldText';
@@ -163,6 +164,14 @@ export function VisualPanel({
           }
         />
       </div>
+
+      {/* Bộ lọc đứng giữa "Ô thả" và "Định dạng" — nó đổi SỐ như mấy ô thả, chứ
+          không đổi hình như mấy công tắc bên dưới. */}
+      <BoLoc
+        filters={draft.filters}
+        dimensions={dimensions}
+        onChange={(filters) => onChange({ filters })}
+      />
 
       <div className="space-y-3">
         <PanelTitle>Định dạng</PanelTitle>

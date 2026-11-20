@@ -1,6 +1,7 @@
 import {
   type ChartSort,
   type CubeType,
+  type ExplorerFilterDto,
   CANVAS_COLUMNS,
   CANVAS_DEFAULT_H,
   CANVAS_DEFAULT_W,
@@ -59,6 +60,13 @@ export interface VisualDraft {
   measureAgg: MeasureAgg | null;
   /** Số nhóm MỖI TRANG — xem `ReportModelConfigDto.limit`. */
   limit: number;
+  /**
+   * Điều kiện lọc của riêng ô — §B1.
+   *
+   * Mảng RỖNG chứ không `undefined`, cùng luật với `options`: trong trình dựng
+   * mọi thứ đều có một trạng thái đang hiện trên màn hình.
+   */
+  filters: ExplorerFilterDto[];
   /*
    * KHÔNG có `pick` và KHÔNG có `overflow` — §10.15.
    *
@@ -186,6 +194,7 @@ export function emptyVisual(at: { x: number; y: number }): VisualDraft {
     id: newVisualId(),
     chartType: 'bar',
     dimensionId: null,
+    filters: [],
     measureId: null,
     seriesId: null,
     measureAgg: null,
@@ -208,6 +217,7 @@ export function fromDto(visual: ReportVisualDto): VisualDraft {
     seriesId: visual.config.seriesDimensionId ?? null,
     measureAgg: visual.config.measureAgg ?? null,
     limit: visual.config.limit,
+    filters: [...(visual.config.filters ?? [])],
     /*
      * `normalizePalette` SAU phép trải, không phải trước.
      *
@@ -278,6 +288,11 @@ export interface PreviewConfig {
    * trúng cache — biểu đồ đứng yên, không request, ô chọn trông như hỏng.
    */
   theoChieu: 'asc' | 'desc' | null;
+  /**
+   * Cùng lý do với `pick`: lọc đổi SỐ, nên nó phải nằm trong khoá cache. Bỏ
+   * quên thì thêm một điều kiện là một lần trúng cache — biểu đồ đứng yên.
+   */
+  filters: readonly ExplorerFilterDto[];
   seriesDimensionId: number | null;
   /**
    * PHẢI có mặt, cùng lý do với `pick`: nó đổi measure mà Cube được hỏi.
@@ -297,6 +312,7 @@ export function previewConfigOfDraft(draft: VisualDraft): PreviewConfig | null {
     limit: draft.limit,
     pick: pickOf(draft),
     theoChieu: theoChieuOf(draft.options.sort) ?? null,
+    filters: draft.filters,
     seriesDimensionId: seriesUsed(draft),
     measureAgg: draft.measureAgg,
   };
@@ -322,6 +338,7 @@ export function previewConfigOfDto(config: ReportModelConfigDto): PreviewConfig 
      * mình chọn ngay lần mở này, không phải đợi tới lần lưu sau.
      */
     theoChieu: theoChieuOf(config.options?.sort) ?? null,
+    filters: config.filters ?? [],
     seriesDimensionId: config.seriesDimensionId ?? null,
     measureAgg: config.measureAgg ?? null,
   };
@@ -352,6 +369,7 @@ export function toDto(draft: VisualDraft): ReportVisualDto | null {
         ? {}
         : { theoChieu: theoChieuOf(draft.options.sort) }),
       seriesDimensionId: seriesUsed(draft),
+      ...(draft.filters.length === 0 ? {} : { filters: draft.filters }),
       options: draft.options,
     },
     ...(title === '' ? {} : { title }),

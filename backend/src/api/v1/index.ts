@@ -926,6 +926,20 @@ function assertChartConfigAgainst(
       `${CHART_TYPE_LABELS[chartType]} cần hai chiều: một cho trục và một cho nhóm màu.`,
     );
   }
+
+  /*
+   * Chiều của mỗi ĐIỀU KIỆN LỌC cũng phải còn trong mô hình — §B1.
+   *
+   * Cùng lý do với hai chiều ở trên: xoá một cột khỏi mô hình rồi mở báo cáo
+   * cũ ra thì `buildQuery` ném `FIELD_UNKNOWN`, một câu nói về `dimensionId`
+   * chứ không nói về cái ô người dùng đang nhìn. Bắt ở đây để câu lỗi gọi tên
+   * đúng thứ đã mất.
+   */
+  for (const f of config.filters ?? []) {
+    if (!fields.dimensions.some((d) => d.id === f.dimensionId)) {
+      throw fieldGone('Chiều trong một điều kiện lọc');
+    }
+  }
 }
 
 v1Router.post(

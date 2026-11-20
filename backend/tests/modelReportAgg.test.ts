@@ -238,3 +238,78 @@ describe('Trục THỜI GIAN: câu hỏi gửi đi phải sắp theo chiều', (
     expect(kq.theoChieu).toBe('asc');
   });
 });
+
+describe('Bộ lọc của ô phải tới CẢ BỐN truy vấn', () => {
+  /** Mọi `filters` đã đi ra, mỗi lời gọi một phần tử. */
+  const daLoc = (): unknown[] =>
+    explorer.runExplorerQuery.mock.calls.map((c) => (c[3] as { filters?: unknown }).filters);
+
+  const LOC = [{ dimensionId: 2323, operator: 'equals' as const, values: ['GrabFood'] }];
+
+  it('biểu đồ một chuỗi: truy vấn duy nhất mang điều kiện', async () => {
+    await aggregateFromModel(1, 1, 9, cauHinh({ filters: LOC }), 0, CTX);
+
+    expect(daLoc()).toEqual([LOC]);
+  });
+
+  /*
+   * ⚠️ Ca quan trọng nhất của nhóm này, và nó là một cái bẫy ĐÃ sập một lần với
+   * `measureAggs` (xem khối chú thích đầu tệp).
+   *
+   * Biểu đồ có Nhóm màu chạy BA truy vấn. Thiếu bộ lọc ở một trong hai bảng xếp
+   * hạng thì hai mươi nhóm được chọn là hai mươi nhóm của TOÀN BỘ dữ liệu, rồi
+   * truy vấn cuối mới lọc chúng — biểu đồ ra vài cột lèo tèo hoặc trắng trơn,
+   * trong khi dữ liệu khớp điều kiện nằm ở những nhóm không được chọn. Không có
+   * gì trên màn hình tố giác chuyện đó.
+   */
+  it('biểu đồ có Nhóm màu: cả ba truy vấn đều mang điều kiện', async () => {
+    await aggregateFromModel(1, 1, 9, cauHinh({ seriesDimensionId: 7, filters: LOC }), 0, CTX);
+
+    const gui = daLoc();
+    expect(gui).toHaveLength(3);
+    for (const f of gui) expect(f).toEqual(LOC);
+  });
+
+  it('không lọc gì thì KHÔNG gửi trường `filters` — truy vấn y như trước', async () => {
+    await aggregateFromModel(1, 1, 9, cauHinh(), 0, CTX);
+
+    expect(daLoc()).toEqual([undefined]);
+  });
+
+  it('danh sách rỗng cũng không gửi gì', async () => {
+    await aggregateFromModel(1, 1, 9, cauHinh({ filters: [] }), 0, CTX);
+
+    expect(daLoc()).toEqual([undefined]);
+  });
+
+  /*
+   * Người xem phải ĐỌC ĐƯỢC là ô đang lọc. "Thành tiền theo Chi nhánh" mà chỉ
+   * tính GrabFood là một con số có thật trả lời cho câu hỏi khác.
+   */
+  it('trả về mô tả điều kiện, viết thành lời', async () => {
+    const kq = await aggregateFromModel(
+      1,
+      1,
+      9,
+      cauHinh({ filters: LOC }),
+      0,
+      ctxVoiCot({ 2323: 'String' }),
+    );
+
+    expect(kq.locMoTa).toContain('GrabFood');
+    expect(kq.locMoTa).toContain('bằng');
+  });
+
+  it('giá trị NGÀY trong mô tả đọc theo kiểu Việt', async () => {
+    const kq = await aggregateFromModel(
+      1,
+      1,
+      9,
+      cauHinh({ filters: [{ dimensionId: 7, operator: 'gte', values: ['2026-10-01'] }] }),
+      0,
+      ctxVoiCot({ 7: 'Date' }),
+    );
+
+    expect(kq.locMoTa).toContain('01/10/2026');
+  });
+});

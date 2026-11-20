@@ -1,6 +1,6 @@
 import type { ReportAnnotationDto } from './annotation';
 import type { DatasetSource } from './data';
-import type { MeasureAgg, MeasureFormat } from './datamodel';
+import type { ExplorerFilterDto, MeasureAgg, MeasureFormat } from './datamodel';
 
 /**
  * Hợp đồng dữ liệu của báo cáo và biểu đồ (§7.6, mở rộng ở §10.8).
@@ -618,6 +618,26 @@ export interface ReportModelConfigDto {
    */
   seriesDimensionId?: number | null | undefined;
   /**
+   * Điều kiện LỌC của riêng ô này — §B1.
+   *
+   * ═══ Vì sao một báo cáo cần nó ════════════════════════════════════════
+   *
+   * Trước bản này mọi ô biểu đồ là "toàn bộ dữ liệu, toàn bộ thời gian". Chủ
+   * một quán cà phê không dựng được "Doanh thu tháng này", "Chỉ chi nhánh Quận
+   * 1", "Quý 4" — tức là không dựng được phần lớn câu hỏi người ta thật sự
+   * hỏi. Explorer và khung hỏi đáp đã lọc được từ lâu (`ExplorerFilterDto`,
+   * `hoiTrenMoHinh`); chỉ báo cáo — thứ được LƯU và mở lại mỗi sáng — thì
+   * không.
+   *
+   * Dùng lại nguyên `ExplorerFilterDto`: cùng toán tử, cùng phép kiểm
+   * (`assertFilter`), cùng đường đi xuống Cube. Một hình dạng thứ hai cho cùng
+   * một việc là hai bộ luật phải nhớ sửa cùng lúc.
+   *
+   * ⚠️ Ở TRONG `config` chứ không trong `options`: nó đổi SỐ, nên nó phải nằm
+   * trong khoá cache và backend phải đọc được nó.
+   */
+  filters?: readonly ExplorerFilterDto[] | undefined;
+  /**
    * Cách TRÌNH BÀY, không đụng tới con số — xem `ReportChartOptionsDto`.
    *
    * Nằm trong cùng một cột `config` vì nó cùng vòng đời với báo cáo và cùng
@@ -968,6 +988,18 @@ export interface ReportDataDto {
    * đứng trước 04/08. Thứ tự đúng đã có sẵn trong `rows`.
    */
   theoChieu?: 'asc' | 'desc' | undefined;
+  /**
+   * Điều kiện lọc đang áp, viết thành lời — §B1.
+   *
+   * ⚠️ Một ô đã lọc mà KHÔNG nói ra là đúng cái lỗi cả bản vá này đi sửa: một
+   * con số có thật, trình bày đẹp, trả lời cho một câu hỏi khác. "Thành tiền
+   * theo Chi nhánh" đọc là doanh thu của chi nhánh; nếu nó chỉ là doanh thu
+   * GrabFood thì chữ ấy phải nằm ngay cạnh con số.
+   *
+   * Dựng ở backend chứ không ở trình vẽ: chỉ backend có NHÃN của chiều (cấu
+   * hình chỉ mang id), và câu chữ phải giống nhau ở mọi mặt đọc nó.
+   */
+  locMoTa?: string | undefined;
   /**
    * Có nhóm nào bị cắt khỏi biểu đồ không — để trang xem NÓI RA điều đó.
    *

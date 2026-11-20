@@ -22,6 +22,7 @@ import {
   nextPageName,
   pickOf,
   previewConfigOfDraft,
+  previewConfigOfDto,
   readyPages,
   readyVisuals,
   seriesUsed,
@@ -637,5 +638,43 @@ describe('cellStyle / rowsNeeded', () => {
         { y: 0, h: 7 },
       ]),
     ).toBe(13);
+  });
+});
+
+describe('Bộ lọc đi theo ô qua cả ba hình dạng', () => {
+  const LOC = [{ dimensionId: 99, operator: 'equals' as const, values: ['GrabFood'] }];
+
+  /*
+   * `PreviewConfig` là KHOÁ CACHE của react-query. Thiếu `filters` ở đó thì
+   * thêm một điều kiện là một lần trúng cache — biểu đồ đứng yên, không
+   * request, không lỗi, và ô lọc trông như hỏng.
+   */
+  it('khoá cache mang theo điều kiện lọc', () => {
+    const d = draft({ dimensionId: D1, measureId: M, filters: LOC });
+
+    expect(previewConfigOfDraft(d)?.filters).toEqual(LOC);
+  });
+
+  it('cấu hình đã lưu đọc ngược ra cũng mang theo', () => {
+    const c = previewConfigOfDto({
+      dimensionId: D1,
+      measureId: M,
+      limit: 20,
+      filters: LOC,
+    });
+
+    expect(c.filters).toEqual(LOC);
+  });
+
+  it('không lọc gì thì cấu hình lưu ra KHÔNG có trường thừa', () => {
+    const dto = toDto(draft({ dimensionId: D1, measureId: M, filters: [] }));
+
+    expect(dto?.config).not.toHaveProperty('filters');
+  });
+
+  it('có lọc thì lưu ra đủ', () => {
+    const dto = toDto(draft({ dimensionId: D1, measureId: M, filters: LOC }));
+
+    expect(dto?.config.filters).toEqual(LOC);
   });
 });

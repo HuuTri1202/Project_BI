@@ -386,6 +386,20 @@ export const reportModelConfigSchema = z.object({
    */
   theoChieu: z.enum(['asc', 'desc']).nullish(),
   /**
+   * Điều kiện lọc của riêng ô — §B1. Dùng lại nguyên `explorerFilterSchema`.
+   *
+   * Trần 10: một ô biểu đồ cần vài điều kiện, không cần một câu SQL. Trần này
+   * cũng chặn một thân request bơm phồng đi thẳng xuống Cube.
+   *
+   * ⚠️ `z.lazy`: `explorerFilterSchema` khai Ở DƯỚI trong cùng tệp này, và một
+   * `const` thì không được nâng lên. Đọc thẳng ở đây là `ReferenceError` ngay
+   * lúc nạp module — tức cả API chết, không phải một route chết.
+   */
+  filters: z
+    .array(z.lazy(() => explorerFilterSchema))
+    .max(10)
+    .optional(),
+  /**
    * Chiều thứ hai — tách chuỗi (§10.9). Router kiểm nó có thật trong mô hình và
    * kiểm nó KHÁC chiều chính; zod chỉ lo hình dạng.
    *

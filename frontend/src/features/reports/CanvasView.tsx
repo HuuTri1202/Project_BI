@@ -255,6 +255,21 @@ function ViewCard({
             {title}
           </h3>
         )}
+        {/*
+          Ô ĐÃ LỌC thì nói ra, ngay cạnh tiêu đề — §B1.
+          Không có dòng này thì "Thành tiền theo Chi nhánh" đọc là doanh thu
+          của chi nhánh, trong khi nó có thể chỉ là doanh thu GrabFood tháng
+          10. Nằm trong DOM nên ảnh PNG/PDF (chụp từ chính DOM này) cũng mang
+          theo; tệp Excel thì chưa — xem ghi chú ở `excelBaoCao`.
+        */}
+        {rows?.locMoTa !== undefined && rows.locMoTa !== '' && (
+          <span
+            className="max-w-[45%] shrink-0 truncate rounded bg-amber-50 px-1.5 py-0.5 text-[10px] text-amber-800"
+            title={`Đang lọc: ${rows.locMoTa}`}
+          >
+            lọc: {rows.locMoTa}
+          </span>
+        )}
         {/* Lật trang nhóm là một vòng tới Cube. Nói ra, nếu không thì một cú bấm
             không thấy gì đổi trong nửa giây đọc ra như một cú bấm trượt. */}
         {paged.isFetching && (
