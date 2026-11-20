@@ -118,8 +118,34 @@ test('Khung báo cáo trên điện thoại: hai ô 6/12 xếp dọc, mỗi ô r
   expect(t?.width ?? 0, 'ô thứ nhất phải rộng gần hết màn hình').toBeGreaterThan(RONG_TOI_THIEU);
   expect(p?.width ?? 0, 'ô thứ hai phải rộng gần hết màn hình').toBeGreaterThan(RONG_TOI_THIEU);
 
-  // Cao đủ để đọc được trục — `min-height: 15rem` trong `index.css`.
+  /*
+   * Cao đủ để đọc được trục — `min-height: 15rem` trong `index.css`.
+   *
+   * ⚠️ VÀ MỘT TRẦN TRÊN, vì chốt một phía ở đây đã để lọt đúng cái lỗi nó sinh
+   * ra để chặn. Đo tay ngày 20/11/2026 trên một báo cáo THẬT ở 390×844: ô cao
+   * 2.856px — hơn ba màn hình cho một biểu đồ bốn cột — mà ca này vẫn xanh, vì
+   * 2.856 > 200 và không có vế nào hỏi ngược lại.
+   *
+   * ⚠️ HAI CHỐT DƯỚI ĐÂY CHƯA TÁI HIỆN ĐƯỢC LỖI ẤY, và nói ra thì hơn là để
+   * người sau tưởng chúng đã chứng minh gì đó. Đã thử: đổi ô sang chiều ngày,
+   * đổi sang biểu đồ đường, chờ thêm hai giây — cả ba lần ô vẫn đúng 240px,
+   * tức `min-height`, tức biểu đồ trong ô này KHÔNG VẼ ở bệ đỡ e2e (dữ liệu
+   * chưa kịp qua Cube). Vòng lặp chiều cao chỉ chạy khi có hình thật: biểu đồ
+   * nhận `height: container`, hộp chứa cao theo hàng lưới, hàng lưới `auto`
+   * thì cao theo nội dung — tức theo chính nó. Đo được trên báo cáo thật:
+   * 684 → 1.128 → 1.740 → 2.370 → 2.826 → 3.318px qua từng nhịp hai giây.
+   *
+   * Bản vá nằm ở `index.css` (hàng lưới có chiều cao xác định). Hai chốt này
+   * giữ cho nó không âm thầm quay lại Ở ĐÂU CÓ HÌNH VẼ — còn bằng chứng cho
+   * chính bản vá là phép đo tay ở trên.
+   */
+  const caoMan = page.viewportSize()?.height ?? 844;
   expect(t?.height ?? 0, 'ô phải cao đủ để biểu đồ đọc được').toBeGreaterThan(200);
+  expect(t?.height ?? 0, 'ô KHÔNG được cao hơn màn hình').toBeLessThanOrEqual(caoMan);
+
+  await page.waitForTimeout(2_000);
+  const sau = await oTrai.boundingBox();
+  expect(Math.round(sau?.height ?? 0), 'ô không được tự lớn dần').toBe(Math.round(t?.height ?? 0));
 
   khongLoiNao(theoDoi, [CANVAS_DATA_409_CHU_DICH]);
 });

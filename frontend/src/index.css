@@ -202,9 +202,25 @@
 @media (max-width: 1023px) {
   .khung-xem-doc {
     grid-template-columns: 1fr !important;
-    /* `auto` chứ không phải chiều cao hàng cố định: ô đứng một mình nên nó cao
-       theo nội dung, không theo số hàng người dựng đã kéo. */
-    grid-auto-rows: auto !important;
+    /*
+     * HÀNG CÓ CHIỀU CAO XÁC ĐỊNH — và `auto` ở đây là một vòng lặp, không phải
+     * một lựa chọn về thẩm mỹ.
+     *
+     * ĐO ĐƯỢC trên 390×844: mỗi ô cao 2.856px, biểu đồ bên trong 2.311px — hơn
+     * ba màn hình cho một biểu đồ bốn cột, trục Y chạy từ 4.900.000 với vạch
+     * 100.000 một. Người dùng cuộn mãi không hết một ô.
+     *
+     * Vòng lặp: Vega nhận `height: container`, tức nó ĐỌC chiều cao của hộp
+     * chứa. Hộp chứa cao theo hàng lưới. Hàng `auto` thì cao theo nội dung —
+     * tức theo chính cái biểu đồ đang hỏi nó. Hai bên hỏi nhau, và `ResizeObserver`
+     * của vega-embed đẩy con số ấy lớn dần sau mỗi nhịp đo.
+     *
+     * Một chiều cao XÁC ĐỊNH cắt vòng lặp ở đúng chỗ nó sinh ra. `min()` để cái
+     * nào nhỏ hơn thì thắng: máy cao thì 24rem là một biểu đồ đọc tốt mà vẫn
+     * thấy được ô kế dưới, máy thấp (hoặc xoay ngang) thì 60vh giữ cho một ô
+     * không chiếm trọn màn hình.
+     */
+    grid-auto-rows: min(60vh, 24rem) !important;
     min-height: 0 !important;
   }
 
@@ -213,15 +229,19 @@
     grid-row: auto !important;
     order: var(--doc-thu-tu, 0);
     /*
-     * Trần dưới cho một biểu đồ còn đọc được trục; cao hơn thì nội dung tự nới.
+     * Trần dưới, và nó vẫn cần dù hàng đã có chiều cao xác định.
      *
      * `!important` là BẮT BUỘC, và đo được: `cellStyle` đặt `min-height: 0` nội
      * tuyến (nó cần thế trên desktop để nội dung rộng không làm ô phình ra), mà
      * style nội tuyến thắng stylesheet. Thiếu nó thì ô xếp dọc cao đúng 63px —
-     * tiêu đề cộng một biểu đồ cao 0px, vì chiều cao của biểu đồ vốn lấy từ
-     * chiều cao hàng lưới mà hàng giờ là `auto`.
+     * tiêu đề cộng một biểu đồ cao 0px.
+     *
+     * ⚠️ Và một TRẦN TRÊN, cùng con số với chiều cao hàng. Nội dung cao hơn ô
+     * (một bảng số liệu nhiều dòng) phải cuộn BÊN TRONG ô chứ không được kéo ô
+     * dài ra — kéo dài ra là mở lại đúng vòng lặp mà hàng xác định vừa cắt.
      */
     min-height: 15rem !important;
+    max-height: min(60vh, 24rem) !important;
   }
 
   /*
