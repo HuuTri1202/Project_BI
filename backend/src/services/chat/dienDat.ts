@@ -88,16 +88,41 @@ const NHAC = [
   'Chỉ trả về câu đã viết lại, không giải thích gì thêm.',
 ].join(' ');
 
+/*
+ * ═══ CÂU HỎI KHÔNG ĐƯỢC ĐI VÀO LỜI NHẮC ════════════════════════════════════
+ *
+ * `input.cauHoi` có trong hợp đồng của endpoint và CỐ Ý không được dùng ở đây.
+ *
+ * LỖI ĐO ĐƯỢC, ảnh chụp 20/11/2026. Người dùng hỏi "chi nhánh nào doanh thu
+ * cao nhất"; câu mẫu frontend tính ra là
+ *
+ *   Cao nhất là don-hang-nha-go — "Số báo cáo đang dùng mô hình": 1 — so trên 4 mục…
+ *
+ * một câu TRẬT ĐỀ, nhưng trung thực: nó nói rõ con số ấy đo cái gì. Bản trước
+ * gửi kèm câu hỏi, và mô hình — bị dặn "nêu rõ bằng CHỮ là con số đó nói về cái
+ * gì" — bắc cầu qua chỗ hổng bằng chính chủ ngữ của câu hỏi:
+ *
+ *   "Chi nhánh có doanh thu cao nhất là don-hang-nha-go (2); số báo cáo…"
+ *
+ * Một câu trật đề biến thành một câu SAI, sai theo cách không ai kiểm lại được.
+ *
+ * ⚠️ `giuNguyenSo` KHÔNG bắt được ca này: mọi con số đều còn nguyên. Thứ bị
+ * thêm vào là một CHỦ NGỮ. Một chốt "phải giữ nhãn gốc" cũng không bắt được —
+ * nhãn "số báo cáo đang dùng mô hình" vẫn nằm nguyên trong câu đã viết lại,
+ * chỉ bị đẩy xuống làm vế sau.
+ *
+ * Nên chốt duy nhất đứng vững là KHÔNG ĐƯA câu hỏi cho mô hình: thứ nó không
+ * biết thì nó không mượn được. Câu mẫu đã mang đủ nhãn, con số và điều kiện —
+ * đúng ba thứ mà việc viết lại cần.
+ */
+
 export async function dienDat(input: DienDatInput): Promise<string> {
   if (!coCauHinhLlm()) return input.cau;
 
   const { noiDung } = await goiMoHinh(
     [
       { role: 'system', content: NHAC },
-      {
-        role: 'user',
-        content: `Câu người dùng hỏi: ${input.cauHoi}\nCâu trả lời cần viết lại: ${input.cau}`,
-      },
+      { role: 'user', content: `Câu trả lời cần viết lại: ${input.cau}` },
     ],
     800,
   );

@@ -1923,6 +1923,29 @@ const TU_DEM = new Set([
   'it',
   'lon',
   'nho',
+  /*
+   * 'cao' và 'thap' — HAI CHỮ SO SÁNH, và chúng vào đây muộn hơn cả danh sách.
+   *
+   * LỖI ĐO ĐƯỢC, ảnh chụp 20/11/2026. Đứng ở Trang chủ hỏi "chi nhánh nào doanh
+   * thu cao nhất" và nhận về tên một MÔ HÌNH kèm số báo cáo của nó. Chữ bắc cầu
+   * là `cao`: `chuanHoa('cáo')` cũng ra `cao`, nên chữ "cao" của "cao nhất"
+   * khớp nhãn "Số báo CÁO đang dùng mô hình" và thắng một mình.
+   *
+   * Khung đã biết đúng cái bẫy này ở chỗ khác: `docYDinh` cố ý truyền câu hỏi
+   * CÒN DẤU cho `chieuSoSanh`, với ghi chú "bỏ dấu thì 'ít báo CÁO nhất' có
+   * `cao` và đọc ngược hẳn chiều". Phép chấm cột thì chưa.
+   *
+   * Chúng thuộc về danh sách này theo đúng luật của chính nó: `nhat`, `nhieu`,
+   * `it`, `lon`, `nho` đều đã ở đây vì chúng nói về PHÉP SO, không nói cột nào.
+   * "cao"/"thấp" cùng một vai.
+   *
+   * ⚠️ Bỏ chúng KHÔNG làm nhãn về báo cáo mất điểm: hai phía đều đi qua
+   * `tuNoiDung`, nên "báo cáo" trong câu hỏi cũng rụng chữ "cao" y hệt và vẫn
+   * khớp nhau bằng chữ "bao" — đúng cách 'nhieu' đang sống chung với "bao
+   * nhiêu" ở ngay bên trên.
+   */
+  'cao',
+  'thap',
   'max',
   'min',
   'chua',
@@ -2127,6 +2150,72 @@ interface Cot {
 interface ThuocTinh extends Cot {
   muc: Muc[];
   cot: Cot[];
+}
+
+/**
+ * Câu hỏi có gọi tên thứ gì khung CHƯA TỪNG THẤY không — `nhacThuLa` cho người ngoài.
+ *
+ * ═══ Vì sao lớp mô hình ngôn ngữ cũng phải đi qua cửa này ══════════════════
+ *
+ * Lớp ngoại tuyến đã hỏi câu đó từ lâu (xem `nhacThuLa`): một chữ từ bốn ký tự
+ * mà cả trang lẫn cả tổ chức chưa từng nhắc là tên một thứ không tồn tại, và
+ * mọi con số trả về cho nó đều là con số của câu hỏi khác. Lớp `hieuY` thì
+ * KHÔNG hỏi — nó nhận về một chỉ số rồi in thẳng con số của nhãn ấy ra.
+ *
+ * LỖI ĐO ĐƯỢC, ảnh chụp 20/11/2026. Đứng ở Trang chủ hỏi "chi nhánh nào doanh
+ * thu cao nhất":
+ *
+ *   "Chi nhánh có doanh thu cao nhất là don-hang-nha-go (2); số báo cáo đang
+ *    dùng mô hình là 1, tính trên 4 mục trong toàn bộ tổ chức."
+ *
+ * `don-hang-nha-go` là tên một MÔ HÌNH. Lớp ngoại tuyến đã từ chối đúng (chữ
+ * "doanh" không có trong vốn từ của khung); mô hình ngôn ngữ thì chọn đại nhãn
+ * "Số báo cáo đang dùng mô hình" dù lời nhắc dặn thẳng "thà trả về 0 còn hơn".
+ *
+ * Nên chốt không nằm ở lời nhắc — lời nhắc là thứ xin, không phải thứ bảo đảm —
+ * mà ở đây: cùng một luật, áp cho cả hai lớp. Trượt cửa này thì câu đi tiếp
+ * xuống đường đặt truy vấn MỚI trên mô hình, và đó chính là đường trả lời đúng
+ * câu ấy.
+ */
+export function hoiThuLa(tatCa: Nguon[], cauHoi: string): boolean {
+  return nhacThuLa(cauHoi, tuDaBiet(tatCa));
+}
+
+/**
+ * Câu hỏi có NÓI VỀ nhãn này không — chốt thứ hai của lớp `hieuY`.
+ *
+ * `hoiThuLa` hỏi "câu này có gọi tên thứ gì khung chưa từng thấy không", và nó
+ * KHÔNG đủ: ca thật trượt qua cửa đó vì mọi chữ đều có thật ở đâu đó trên khung
+ * — "nhánh" có trong tên một báo cáo, còn "doanh" thì có trong tên gói
+ * **Doanh** nghiệp ở bản tóm tắt thanh toán. Hai chữ có thật, ghép lại thành
+ * một câu hỏi mà nhãn được chọn không nói về.
+ *
+ * Nên cửa này hỏi một câu hẹp hơn hẳn: trong câu hỏi có chữ nào THẬT SỰ RIÊNG
+ * không, và nếu có thì nhãn được chọn có mang lấy một chữ nào trong số đó không.
+ *
+ *   "chi nhánh nào doanh thu cao nhất"  chữ riêng: nhánh, doanh
+ *      nhãn "Số báo cáo đang dùng mô hình don-hang-nha-go" → không chữ nào → BỎ
+ *
+ *   "cái này to cỡ nào"                 chữ riêng: (không có)
+ *      → người dùng đang TRỎ vào trang, không gọi tên gì → giữ
+ *
+ * Đúng hai hình dạng đó là ranh giới của cả lớp `hieuY`: nó sinh ra cho câu
+ * TRỎ, loại câu mà phép so từ khoá không có gì để bám. Câu gọi đích danh một
+ * chủ đề thì đã tự mang đủ bằng chứng để kiểm, và kiểm được thì phải kiểm.
+ *
+ * ⚠️ Cận BỐN ký tự, cùng con số và cùng lý lẽ với `nhacThuLa`: tiếng Việt tách
+ * theo âm tiết nên gần như mọi từ chức năng đều ngắn. Dài hơn bốn mà vẫn chung
+ * chung thì `TU_BO_QUA` đã kể tên.
+ *
+ * ⚠️ KHÔNG áp cho cặp VẼ — xem chỗ gọi trong `HoiDapPanel`.
+ */
+export function nhanNoiVeCauHoi(nhan: string, cauHoi: string): boolean {
+  const rieng = [...tuNoiDung(cauHoi, false)].filter(
+    (t) => t.length >= 4 && !/^\d+$/.test(t) && !TU_BO_QUA.has(t),
+  );
+  if (rieng.length === 0) return true;
+  const cua = tuNoiDung(nhan, false);
+  return rieng.some((t) => cua.has(t));
 }
 
 export function nhanDuyNhat(nguon: Nguon[]): string[] {

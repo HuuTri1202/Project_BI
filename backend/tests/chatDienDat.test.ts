@@ -58,6 +58,41 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+describe('Câu hỏi của người dùng KHÔNG được vào lời nhắc', () => {
+  /*
+   * Lỗi đo được, ảnh chụp 20/11/2026 — xem khối chú thích cùng tên trong
+   * `dienDat.ts`.
+   *
+   * Câu mẫu nói về "Số báo cáo đang dùng mô hình". Câu hỏi nói về "chi nhánh"
+   * và "doanh thu". Bản trước gửi cả hai, và mô hình dán chủ ngữ của câu hỏi
+   * lên con số của câu mẫu: "Chi nhánh có doanh thu cao nhất là
+   * don-hang-nha-go (2)". Mọi con số còn nguyên, nên `giuNguyenSo` cho qua.
+   *
+   * Chốt ở đây là chốt DUY NHẤT đứng vững được: đọc đúng thân request đã gửi và
+   * đòi rằng mấy chữ của câu hỏi không có mặt trong đó. Thứ mô hình không biết
+   * thì nó không mượn được.
+   */
+  it('thân request gửi đi KHÔNG mang chữ nào của câu hỏi', async () => {
+    const { dienDat } = await napVoiEnv(DU_CAU_HINH);
+    const goi = vi
+      .fn()
+      .mockResolvedValue(traVe('Mô hình don-hang-nha-go đang được 1 báo cáo dùng.'));
+    globalThis.fetch = goi as unknown as typeof fetch;
+
+    await dienDat({
+      cauHoi: 'chi nhánh nào doanh thu cao nhất',
+      cau: 'Cao nhất là don-hang-nha-go — "Số báo cáo đang dùng mô hình": 1.',
+      so: ['1'],
+    });
+
+    const than = String((goi.mock.calls[0]?.[1] as { body: string }).body);
+    expect(than, 'câu hỏi không được nằm trong thân request').not.toContain('chi nhánh');
+    expect(than).not.toContain('doanh thu');
+    // Đối chứng: câu MẪU thì phải có, nếu không thì ca trên xanh vì gửi rỗng.
+    expect(than).toContain('Số báo cáo đang dùng mô hình');
+  });
+});
+
 describe('Luật đối chiếu: con số phải còn nguyên', () => {
   it('mô hình ĐỔI một con số -> bỏ câu đó, trả câu mẫu', async () => {
     /*

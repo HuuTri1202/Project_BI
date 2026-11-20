@@ -1205,6 +1205,39 @@ const CA: Ca[] = [
     can: 'chua-hieu',
     vi: 'KHÔNG có workspace nào tên Sales — "sale" không khớp chỗ nào, nên từ chối',
   },
+  /*
+   * Câu hỏi về SỐ LIỆU BÊN TRONG dữ liệu, hỏi từ một trang chỉ có siêu dữ liệu.
+   *
+   * ⚠️ Lỗi người dùng gặp thật, ảnh chụp ngày 20/11/2026: đứng ở Trang chủ hỏi
+   * "chi nhánh nào doanh thu cao nhất" và nhận về
+   *
+   *   "Chi nhánh có doanh thu cao nhất là don-hang-nha-go (2);
+   *    số báo cáo đang dùng mô hình là 1, tính trên 4 mục trong toàn bộ tổ chức."
+   *
+   * `don-hang-nha-go` là tên một MÔ HÌNH, không phải chi nhánh. Đáp án thật là
+   * "Chi nhánh Quận 1 — 6.887.000".
+   *
+   * Chữ bắc cầu là "cao": `chuanHoa('cáo')` cũng ra `cao`, nên chữ "cao" của
+   * "cao nhất" khớp nhãn "Số báo CÁO đang dùng mô hình" — một từ đồng tự sau
+   * khi bỏ dấu, không phải một bằng chứng. Khung đã có đúng luật này ở
+   * `chieuSoSanh` ("bỏ dấu thì 'ít báo CÁO nhất' có `cao`"), chỉ thiếu ở phép
+   * chấm cột.
+   *
+   * Phải trả `null`: khung không có số liệu đó, và lúc đó `HoiDapPanel` chuyển
+   * câu sang đường truy vấn mô hình — đúng việc nó làm cho mọi câu khác.
+   */
+  {
+    trang: 'trangChu',
+    hoi: 'khu vực nào doanh thu cao nhất',
+    can: 'chua-hieu',
+    vi: 'Số liệu bên trong dữ liệu — trang chủ chỉ có siêu dữ liệu, phải từ chối',
+  },
+  {
+    trang: 'trangChu',
+    hoi: 'chi nhánh nào doanh thu cao nhất',
+    can: 'chua-hieu',
+    vi: 'Ảnh chụp 20/11/2026 — trả về tên một MÔ HÌNH kèm số báo cáo',
+  },
 
   // ─── Trang danh sách mô hình: so GIỮA các mục ─────────────────────────────
   { trang: 'dsMoHinh', hoi: 'mô hình nào nhiều bảng nhất', can: ['Global-Superstore', '5'] },

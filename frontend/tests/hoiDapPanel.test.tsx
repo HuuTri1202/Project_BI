@@ -501,6 +501,67 @@ describe('Chip chọn nguồn', () => {
   });
 });
 
+describe('Mô hình chọn nhãn cho câu nói về thứ khung chưa từng thấy', () => {
+  /*
+   * Ảnh chụp 20/11/2026 — xem `hoiThuLa` trong `traLoi.ts`.
+   *
+   * Đứng ở Trang chủ hỏi "chi nhánh nào doanh thu cao nhất". Lớp ngoại tuyến từ
+   * chối đúng (chữ "doanh" không có trong vốn từ của khung), rồi lớp mô hình
+   * ngôn ngữ chọn đại nhãn "Số báo cáo đang dùng mô hình" và khung in con số
+   * của nhãn ấy ra như thể nó là doanh thu của một chi nhánh.
+   *
+   * Mô hình ở đây được mock để LUÔN chọn mục 0 — tức là ca này không đo mô hình
+   * đoán giỏi hay dở, nó đo cái CHỐT đứng sau mô hình.
+   */
+  it('con số của nhãn mô hình chọn KHÔNG được in ra', async () => {
+    hieuCauHoi.mockResolvedValue({ chon: 0, trangThai: 'da-doc' });
+    await dung([
+      {
+        ten: 'Trang chủ',
+        duKien: [{ nhan: 'Số báo cáo đang dùng mô hình don-hang-nha-go', gia: '1' }],
+      },
+    ]);
+    fireEvent.click(nutMo());
+
+    hoi('chi nhánh nào doanh thu cao nhất');
+
+    expect(await screen.findByText(/không có mục nào trả lời được câu này/)).toBeInTheDocument();
+    /*
+     * Khoanh đúng CÂU TRẢ LỜI, không khoanh cả nhãn.
+     *
+     * Khung vẫn mời "Số báo cáo đang dùng mô hình don-hang-nha-go?" thành một
+     * nút hỏi tiếp — đó là đề nghị, không phải lời khẳng định, và nó đúng việc:
+     * người dùng thấy ngay trang này có số gì để hỏi. Thứ bị cấm là con số
+     * được in ra như câu trả lời cho câu vừa hỏi.
+     */
+    expect(screen.queryByText('Số báo cáo đang dùng mô hình don-hang-nha-go: 1.')).toBeNull();
+  });
+
+  /*
+   * ĐỐI CHỨNG — thiếu nó thì một chốt "lúc nào cũng bỏ" vẫn xanh, và cả lớp
+   * `hieuY` thành một lời gọi mạng không bao giờ đổi được gì.
+   *
+   * Cùng nhãn, cùng mô hình chọn mục 0; khác mỗi câu hỏi — câu này không gọi
+   * tên thứ gì khung chưa thấy.
+   */
+  it('câu hỏi KHÔNG gọi tên thứ lạ thì con số vẫn được in ra', async () => {
+    hieuCauHoi.mockResolvedValue({ chon: 0, trangThai: 'da-doc' });
+    await dung([
+      {
+        ten: 'Trang chủ',
+        duKien: [{ nhan: 'Số báo cáo đang dùng mô hình don-hang-nha-go', gia: '1' }],
+      },
+    ]);
+    fireEvent.click(nutMo());
+
+    hoi('cái này bao nhiêu');
+
+    expect(
+      await screen.findByText('Số báo cáo đang dùng mô hình don-hang-nha-go: 1.'),
+    ).toBeInTheDocument();
+  });
+});
+
 describe('Mô hình chọn nhãn khi phép so từ khoá trượt', () => {
   const trang: Nguon[] = [
     {

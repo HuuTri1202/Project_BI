@@ -515,3 +515,49 @@ describe('duKienPhang — danh sách nhãn gửi cho mô hình chọn', () => {
     ]);
   });
 });
+
+describe('Chữ so sánh KHÔNG được làm bằng chứng chọn cột', () => {
+  /*
+   * Ảnh chụp 20/11/2026 — câu trả lời SAI nguy hiểm nhất tìm được trong lượt
+   * dùng thử như người thật.
+   *
+   * Chủ quán đứng ở Trang chủ hỏi "chi nhánh nào doanh thu cao nhất" và nhận:
+   *
+   *   "Chi nhánh có doanh thu cao nhất là don-hang-nha-go (2);
+   *    số báo cáo đang dùng mô hình là 1, tính trên 4 mục trong toàn bộ tổ chức."
+   *
+   * `don-hang-nha-go` là tên một MÔ HÌNH. Đáp án thật là "Chi nhánh Quận 1".
+   *
+   * Chữ bắc cầu là `cao`: `chuanHoa('cáo')` cũng ra `cao`, nên chữ "cao" của
+   * "cao nhất" khớp nhãn "Số báo CÁO đang dùng mô hình" — và nó là chữ DUY
+   * NHẤT khớp, nên cột ấy thắng một mình, không có ai gỡ hoà.
+   *
+   * Phải trả `null`: khung không có số liệu đó. Lúc ấy `HoiDapPanel` chuyển câu
+   * sang đường đặt truy vấn mới trên mô hình — đường trả lời đúng câu này.
+   */
+  const heThong = trangMoHinh([
+    moHinh({ name: 'don-hang-nha-go', reportCount: 1, datasetCount: 2 }),
+    moHinh({ name: 'danh-muc-san-pham', reportCount: 0, datasetCount: 1 }),
+  ]);
+
+  it('"chi nhánh nào doanh thu cao nhất" KHÔNG chạm vào cột "Số báo cáo"', () => {
+    expect(soSanhNguon(heThong, 'chi nhánh nào doanh thu cao nhất')).toBeNull();
+  });
+
+  it('"thấp nhất" cũng vậy — cùng một chữ, ngược chiều', () => {
+    expect(soSanhNguon(heThong, 'chi nhánh nào doanh thu thấp nhất')).toBeNull();
+  });
+
+  /*
+   * ĐỐI CHỨNG. Thiếu nó thì một chốt "lúc nào cũng trả null" vẫn cho hai ca
+   * trên màu xanh, và cả nhánh so sánh thành ra vô dụng.
+   *
+   * Câu này hỏi ĐÚNG cột ấy, bằng đúng mấy chữ của nó.
+   */
+  it('hỏi đúng cột thì vẫn trả lời', () => {
+    const kq = soSanhNguon(heThong, 'mô hình nào nhiều bảng nhất');
+
+    expect(kq?.cau).toContain('don-hang-nha-go');
+    expect(kq?.so).toEqual(['2']);
+  });
+});

@@ -37,6 +37,8 @@ import {
   moHinhTrongHeThong,
   traLoiKhung,
   traLoiBangThoEp,
+  hoiThuLa,
+  nhanNoiVeCauHoi,
 } from './traLoi';
 import type { TraLoi } from './traLoi';
 
@@ -543,7 +545,26 @@ export function HoiDapPanel(): React.ReactElement | null {
 
     void hieuCauHoi({ cauHoi: q, nhan: luaChon.map((lc) => lc.nhan) })
       .then(({ chon, trangThai }) => {
-        const kq = chon === null ? null : (luaChon[chon]?.chay() ?? null);
+        /*
+         * Cùng một luật cho cả hai lớp — xem `hoiThuLa`.
+         *
+         * Mô hình chọn một nhãn SỐ LIỆU cho một câu gọi tên thứ khung chưa từng
+         * thấy thì con số ấy trả lời cho câu hỏi khác. Bỏ lựa chọn đó đi, câu
+         * rơi xuống đường đặt truy vấn MỚI trên mô hình ngay bên dưới.
+         *
+         * ⚠️ KHÔNG áp cho cặp VẼ. Chúng không khẳng định con số nào — chúng mở
+         * một cú bấm dựng biểu đồ — và đó đúng là chỗ lớp này đáng giá nhất:
+         * mô hình đặt tên cột tiếng Anh còn người dùng hỏi tiếng Việt thì phép
+         * so từ khoá không còn chữ nào để bám, và mọi chữ tiếng Việt trong câu
+         * đều "lạ" với khung.
+         */
+        const laCapVe = chon !== null && chon < capVe.length;
+        const boVi =
+          chon !== null &&
+          !laCapVe &&
+          (hoiThuLa([...nguCanh.nguon, ...heThong], q) ||
+            !nhanNoiVeCauHoi(luaChon[chon]?.nhan ?? '', q));
+        const kq = chon === null || boVi ? null : (luaChon[chon]?.chay() ?? null);
         if (kq === null) {
           /*
            * Mô hình đã đọc hết danh sách và không mục nào trả lời được. Đó là
