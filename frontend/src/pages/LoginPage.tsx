@@ -332,11 +332,11 @@ export default function LoginPage(): React.ReactElement {
           </div>
         </div>
 
-        {/* Nói rõ đăng ký là để LẬP tổ chức, không phải để xin vào tổ chức đã
-            có — người bị lạc sẽ quay về đúng trang này, nên chỉ dẫn phải nằm ở
-            đây chứ không chỉ ở trang đăng ký. */}
+        {/* Nói rõ đăng ký là để lập tổ chức RIÊNG của mình, không phải để xin
+            vào tổ chức đã có — người bị lạc sẽ quay về đúng trang này, nên chỉ
+            dẫn phải nằm ở đây chứ không chỉ ở trang đăng ký. */}
         <p className="mt-6 text-center text-sm text-slate-500">
-          Muốn lập tổ chức mới?{' '}
+          Chưa có tài khoản?{' '}
           <Link to="/register" className="font-medium text-brand-600 hover:text-brand-700">
             Đăng ký
           </Link>

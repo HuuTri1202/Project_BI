@@ -537,20 +537,35 @@ request, chỉ thêm một cột vào câu đã chạy sẵn.
 **Lối ra luôn mở.** `/api/auth/*` cố ý không đi qua hai middleware này, nên
 `POST /auth/change-password` vẫn gọi được — người bị chặn có đúng một việc làm
 được, và đó là việc ta muốn họ làm. Mất luôn mật khẩu tạm thì đi `forgot-password`:
-`datLaiMatKhau` hạ cờ xuống. Có một bài test giữ lấy lối ra này, để ai thêm
-middleware "tươi" cho cả `authRouter` sẽ thấy đỏ trước khi đẩy người dùng vào một
-vòng lặp không cửa thoát.
+`datLaiMatKhau` hạ cờ xuống. Ai định thêm một middleware "tươi" cho cả
+`authRouter` phải đọc đoạn này trước: làm vậy là đẩy người dùng vào một vòng lặp
+không cửa thoát.
 
-### Đăng nhập bằng Google (§1.9)
+### Đăng nhập và đăng ký bằng Google (§1.9)
 
-Tuỳ chọn. Không khai `GOOGLE_CLIENT_ID` thì nút biến mất khỏi trang đăng nhập và
-endpoint trả 503 — cùng khuôn với lớp mô hình ngôn ngữ của khung hỏi đáp.
+Tuỳ chọn. Không khai `GOOGLE_CLIENT_ID` thì nút biến mất khỏi **cả hai** trang
+đăng nhập và đăng ký, còn endpoint trả 503 — cùng khuôn với lớp mô hình ngôn ngữ
+của khung hỏi đáp.
 
-**CHỈ đăng nhập, không đăng ký.** Endpoint này không bao giờ tạo người dùng mới.
-Google chỉ đưa được `email`, `name` và `sub`, trong khi `registerAccount` còn cần
-tên công ty, số điện thoại, chức danh — và quan trọng hơn, nó **dựng một tổ
-chức**. Tạo tổ chức từ một cú bấm nút là thứ không hoàn tác được qua giao diện,
-nên người chưa có tài khoản được mời đi qua trang đăng ký như cũ.
+**Email chưa có tài khoản thì được tạo luôn**, thay vì nhận `404 NoAccount` như
+trước. Lý do bản cũ không tạo được chưa bao giờ nằm ở Google: `registerAccount`
+đòi tên công ty, số điện thoại, chức danh — ba thứ Google không biết. Hệ quả là
+trang đăng nhập có nút Google mà trang đăng ký thì không, và ai bấm nút đó bằng
+một email chưa đăng ký thì bị đẩy sang một form hỏi đúng những thứ họ vừa định bỏ
+qua. Nay đăng ký chỉ tạo **một danh tính** (`registerFields` của `@bi/shared`:
+họ tên, email, mật khẩu, và tên công ty **tuỳ ý**), nên một cú bấm là đủ.
+
+Tài khoản sinh ra ở đường này có hai điểm riêng. `email_verified_at` đặt ngay —
+Google vừa xác nhận hộp thư đó, một bằng chứng mạnh hơn lá thư xác minh của ta,
+và không đặt thì tài khoản vừa tạo rơi vào chính chốt §1.10 rồi mắc kẹt vĩnh
+viễn. Và `password_hash` là hash của một chuỗi **ngẫu nhiên không ai biết** — cột
+đó NOT NULL, còn nhét một chuỗi canh vào thì bcrypt gặp hash sai dạng và trả về
+`false` hay ném lỗi là tuỳ thư viện. Muốn thêm mật khẩu thì đi `forgot-password`:
+họ kiểm soát hộp thư ấy nên lá thư tới đúng tay họ.
+
+Tổ chức sinh ra ở đường này luôn là **không gian riêng** mang tên người dùng
+(`owner_user_id` trỏ về chính họ) — không khai tên công ty thì không có gì để
+đặt. Đổi tên được ở trang Tổ chức.
 
 **Khoá tra cứu là `sub`, không phải email.** Email của một tài khoản Google đổi
 được (đổi tên miền công ty, đổi alias); `sub` thì không bao giờ. Lấy email làm
@@ -659,7 +674,9 @@ Giới hạn, ghi ra chứ không giấu:
 
 - **Tự đăng ký** — `POST /api/auth/register` dựng một lượt: tổ chức + tài khoản
   - tư cách thành viên + workspace, và người đăng ký làm quản trị tổ chức mình
-    vừa lập. Cố ý KHÔNG tự đăng nhập sau đó: lần đăng nhập đầu tiên là lần duy
+    vừa lập. Form chỉ hỏi họ tên, email, mật khẩu; **tên công ty tuỳ ý** — để
+    trống thì tổ chức là một không gian riêng mang tên người dùng, đổi tên sau
+    được. Cố ý KHÔNG tự đăng nhập sau đó: lần đăng nhập đầu tiên là lần duy
     nhất chứng minh mật khẩu vừa đặt đúng như người dùng nghĩ.
 - **Quên mật khẩu** — `POST /api/auth/forgot-password` gửi liên kết đặt lại;
   `/reset-password/verify` kiểm liên kết lúc mở trang, `/reset-password` đổi mật

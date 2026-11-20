@@ -203,15 +203,28 @@ export const jobTitleRule = z.enum(JOB_TITLES, {
  *
  * Tách riêng để backend `.extend()` thêm transform chuẩn hoá mà không phải chép
  * lại danh sách trường — `.superRefine` ở dưới không cho phép `.extend()` nữa.
+ *
+ * ═══ Vì sao đăng ký CHỈ hỏi danh tính ══════════════════════════════════════
+ *
+ * Trước đây form này có bảy ô: thêm số điện thoại, chức danh, và tên công ty
+ * BẮT BUỘC. Hệ quả không nằm ở độ dài form mà ở chỗ khác hẳn: Google chỉ đưa
+ * được `email` + `name`, nên "đăng ký bằng Google" KHÔNG THỂ tồn tại khi đăng
+ * ký còn đòi ba thứ Google không biết. Trang đăng nhập có nút Google mà trang
+ * đăng ký không có là vì vậy — và người bấm nút đó bằng một email chưa có tài
+ * khoản đi vào ngõ cụt.
+ *
+ * Nên đăng ký giờ chỉ TẠO MỘT DANH TÍNH. Số điện thoại và chức danh chuyển sang
+ * trang hồ sơ (§4.4), nơi chúng vốn đã sửa được. Tên công ty thành TUỲ Ý: khai
+ * thì lập công ty đó, để trống thì nhận một không gian riêng mang tên mình, đổi
+ * tên sau ở trang Tổ chức (§5). Cả hai đường đều do `registerAccount` dựng.
  */
 export const registerFields = z.object({
   fullName: fullNameRule,
-  companyName: companyNameRule,
   email: emailRule,
   password: passwordRule,
   confirmPassword: z.string().min(1, 'Vui lòng nhập lại mật khẩu'),
-  phone: phoneRule,
-  jobTitle: jobTitleRule,
+  /** Để trống -> không gian riêng. Xem khối chú thích ngay trên. */
+  companyName: companyNameRule.optional(),
 });
 
 /** Ràng buộc chéo: lỗi phải gắn vào ô xác nhận, không phải ô mật khẩu. */

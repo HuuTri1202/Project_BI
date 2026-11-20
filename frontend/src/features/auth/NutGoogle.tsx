@@ -25,11 +25,14 @@ import { useEffect, useRef, useState } from 'react';
 
 const GSI_SRC = 'https://accounts.google.com/gsi/client';
 
+/** Chữ trên nút, do Google dịch sẵn theo `locale`. */
+type ChuTrenNut = 'signin_with' | 'signup_with';
+
 interface GsiButtonOptions {
   theme: 'outline';
   size: 'large';
   width: number;
-  text: 'signin_with';
+  text: ChuTrenNut;
   locale: 'vi';
   shape: 'rectangular';
 }
@@ -92,9 +95,22 @@ interface Props {
   /** Nhận ID token của Google. Ném lỗi thì thông báo hiện ngay dưới nút. */
   onCredential: (credential: string) => Promise<void>;
   disabled?: boolean;
+  /**
+   * 'signup_with' cho trang đăng ký -> Google vẽ "Đăng ký bằng Google".
+   *
+   * Nhãn do GOOGLE dịch, không phải chữ của ta: nút nằm trong iframe của họ nên
+   * ta không ghi được chữ lên đó, chỉ chọn được một trong các nhãn có sẵn. Nhờ
+   * vậy chữ trên nút khớp với việc trang đang làm, thay vì mời người ở trang
+   * đăng ký "đăng nhập".
+   */
+  text?: ChuTrenNut;
 }
 
-export function NutGoogle({ onCredential, disabled = false }: Props): React.JSX.Element | null {
+export function NutGoogle({
+  onCredential,
+  disabled = false,
+  text = 'signin_with',
+}: Props): React.JSX.Element | null {
   const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
   const hopRef = useRef<HTMLDivElement>(null);
   const [loi, setLoi] = useState<string | null>(null);
@@ -109,6 +125,8 @@ export function NutGoogle({ onCredential, disabled = false }: Props): React.JSX.
   choiRef.current = onCredential;
   const khoaRef = useRef(disabled);
   khoaRef.current = disabled;
+  const chuRef = useRef(text);
+  chuRef.current = text;
 
   useEffect(() => {
     if (clientId === undefined || clientId === '') return;
@@ -145,7 +163,7 @@ export function NutGoogle({ onCredential, disabled = false }: Props): React.JSX.
           theme: 'outline',
           size: 'large',
           width: 320,
-          text: 'signin_with',
+          text: chuRef.current,
           locale: 'vi',
           shape: 'rectangular',
         });

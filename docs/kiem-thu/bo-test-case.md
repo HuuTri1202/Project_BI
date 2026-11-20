@@ -234,13 +234,13 @@ thiếu một thứ là ca đó không sửa lại được:
 
 **Các bước**
 
-1. Mở `/register`. Thử lần lượt các mật khẩu: `123456`, `matkhau`, `Matkhau1`.
+1. Mở `/register`. Thử lần lượt các mật khẩu: `123456`, `matkhau123`, `Matkhauxx`.
 2. Rồi thử `Matkhau@123`.
 
 **Kết quả mong đợi**
 
-- Ba mật khẩu đầu bị từ chối, và câu báo nói **thiếu gì** (độ dài, chữ hoa, ký tự đặc biệt) chứ không chỉ "mật khẩu không hợp lệ".
-- Mật khẩu cuối được nhận.
+- Ba mật khẩu đầu bị từ chối, và câu báo nói **thiếu gì** — lần lượt: quá ngắn, thiếu chữ hoa, thiếu chữ số — chứ không chỉ "mật khẩu không hợp lệ".
+- Mật khẩu cuối được nhận. Hệ thống **không** đòi ký tự đặc biệt, nên `Matkhau123` cũng phải được nhận.
 - Nút gửi bị khoá trong lúc đang xử lý, không bấm được hai lần.
 
 | Kết quả thực tế | Đạt / Không đạt |
@@ -253,17 +253,28 @@ thiếu một thứ là ca đó không sửa lại được:
 
 **Các bước**
 
-1. Đăng ký tài khoản mới, email `thu-nghiem-01@vidu.vn`, mật khẩu `Matkhau@123`.
-2. Thử đăng nhập ngay bằng tài khoản đó.
-3. Mở log của `npm run dev`, tìm lá thư xác minh được in ra, copy liên kết dạng
+1. Mở `/register`. Đếm số ô trên form.
+2. Điền đúng bốn ô bắt buộc — họ tên `Thử Nghiệm Một`, email
+   `thu-nghiem-01@vidu.vn`, mật khẩu `Matkhau@123` (hai lần) — **để trống ô tên
+   công ty** rồi bấm Đăng ký.
+3. Thử đăng nhập ngay bằng tài khoản đó.
+4. Mở log của `npm run dev`, tìm lá thư xác minh được in ra, copy liên kết dạng
    `http://localhost:5173/xac-minh-email?token=…` và dán vào trình duyệt.
-4. Đăng nhập lại.
+5. Đăng nhập lại.
 
 **Kết quả mong đợi**
 
-- Bước 2 **bị từ chối** vì email chưa xác minh, và hộp lỗi có nút gửi lại thư.
-- Bước 3 cho một trang nói đã xác minh xong.
-- Bước 4 vào được, và tài khoản mới có **một tổ chức riêng** tên dạng "Không gian của …".
+- Bước 1: form có **năm ô**, trong đó ô *Tên công ty* ghi rõ "(không bắt buộc)".
+  Không có ô số điện thoại và không có ô chức danh — hai thứ đó nay sửa ở trang
+  Hồ sơ (`XT-10`).
+- Bước 2: nút Đăng ký **bật sáng** dù ô tên công ty còn trống, và câu "Còn
+  thiếu: …" dưới nút **không** nhắc tên công ty.
+- Bước 3 **bị từ chối** vì email chưa xác minh, và hộp lỗi có nút gửi lại thư.
+- Bước 4 cho một trang nói đã xác minh xong.
+- Bước 5 vào được, và tài khoản mới có **một tổ chức riêng** tên đúng dạng
+  "Không gian của Thử Nghiệm Một". Đổi tên được ở trang Tổ chức (`TC-09`).
+- Làm lại từ bước 2 với email khác và **có** điền tên công ty: tổ chức mang đúng
+  tên công ty vừa khai, không phải "Không gian của …".
 
 | Kết quả thực tế | Đạt / Không đạt |
 |---|---|
@@ -347,16 +358,24 @@ thiếu một thứ là ca đó không sửa lại được:
 
 ### XT-10 ◻ · Trang cá nhân
 
+*Nay là nơi DUY NHẤT điền số điện thoại và chức danh — hai ô đã rời form đăng ký.*
+
 **Các bước**
 
 1. Vào `/profile`. Đổi họ tên thành `Lê Thị Mai (KT)`, lưu.
 2. Xem chân sidebar. Bấm F5.
-3. Đổi lại tên cũ `Lê Thị Mai`.
+3. Điền số điện thoại `0901234567` và chọn một chức danh, lưu. Bấm F5.
+4. Xoá trống lại cả hai ô đó, lưu. Bấm F5.
+5. Đổi lại tên cũ `Lê Thị Mai`.
 
 **Kết quả mong đợi**
 
 - Tên ở chân sidebar đổi theo **ngay**, không cần F5.
 - Sau F5 tên mới vẫn còn.
+- Bước 3: lưu được, và sau F5 số điện thoại hiện lại dạng `+84901234567`.
+- Bước 4: **xoá trống được** — không có câu "Số điện thoại không hợp lệ" cho một
+  ô cố ý để rỗng. Đây là ca đáng kiểm vì tài khoản mới nào cũng có hai ô này
+  trống từ đầu.
 - Email là ô chỉ đọc hoặc có cảnh báo riêng — không đổi lặng lẽ được.
 
 | Kết quả thực tế | Đạt / Không đạt |
@@ -380,18 +399,34 @@ thiếu một thứ là ca đó không sửa lại được:
 |---|---|
 |  |  |
 
-### XT-12 ◻ · Nút đăng nhập Google
+### XT-12 ◻ · Nút Google có ở CẢ hai trang
 
-*Ghi nhận trạng thái môi trường, không phán xét sản phẩm.*
+*Phần nhìn thấy được thì kiểm ở đây; phần bấm thật thì phụ thuộc môi trường.*
 
 **Các bước**
 
-1. Ở `/login`, bấm nút đăng nhập bằng Google.
+1. Mở `/login`, xem nút Google dưới form.
+2. Mở `/register`, xem nút Google dưới form.
+3. Bấm nút ở một trong hai trang.
 
 **Kết quả mong đợi**
 
-- Trên `localhost:5173`, Google trả lỗi `The given origin is not allowed for the given client ID` — **đúng như dự kiến**: origin này chưa được khai trong Google Cloud Console. Đây không phải lỗi mã.
-- Quan trọng: trang **không trắng, không treo**, và đăng nhập bằng mật khẩu vẫn dùng được ngay sau đó.
+- Bước 1: nút ghi **"Đăng nhập bằng Google"**.
+- Bước 2: nút ghi **"Đăng ký bằng Google"** — hai trang không được dùng chung
+  một nhãn. Đây là ca chính của bản vá: trước đây trang đăng ký **không có** nút
+  nào, nên ai bấm Google ở trang đăng nhập bằng email chưa có tài khoản sẽ nhận
+  "Vui lòng đăng ký trước" rồi gặp một form đòi tên công ty, số điện thoại và
+  chức danh — những thứ Google không biết.
+- Bước 3 trên `localhost:5173`: Google trả lỗi `The given origin is not allowed
+  for the given client ID` — **đúng như dự kiến**, origin này chưa được khai
+  trong Google Cloud Console. Đây không phải lỗi mã.
+- Quan trọng: trang **không trắng, không treo**, và đăng nhập bằng mật khẩu vẫn
+  dùng được ngay sau đó.
+- **Chưa kiểm được trên máy này:** việc một email Google chưa có tài khoản sẽ
+  được *tạo* tài khoản (kèm không gian riêng, email coi như đã xác minh vì Google
+  vừa xác nhận) cần một origin đã khai trong Google Cloud Console. Nhánh tạo tài
+  khoản đã được kiểm riêng ở tầng dịch vụ; nhánh bấm nút thì phải chờ môi
+  trường.
 
 | Kết quả thực tế | Đạt / Không đạt |
 |---|---|

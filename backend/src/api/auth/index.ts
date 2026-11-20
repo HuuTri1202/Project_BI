@@ -73,8 +73,13 @@ const DOAN_SAI_MAT_KHAU = [401] as const;
 /**
  * POST /api/auth/register — §1.4
  *
- * Tạo tổ chức + tài khoản + tư cách thành viên + workspace, và người đăng ký là
+ * Tạo tài khoản + tổ chức + tư cách thành viên + workspace, và người đăng ký là
  * quản trị viên của tổ chức mình vừa lập.
+ *
+ * TÊN CÔNG TY LÀ TUỲ Ý. Khai thì lập công ty đó; để trống thì nhận một không
+ * gian riêng mang tên mình, đổi tên sau ở trang Tổ chức. Lý lẽ đầy đủ ở
+ * `registerFields` trong `@bi/shared`; tóm tắt: đăng ký còn đòi những thứ Google
+ * không biết thì "đăng ký bằng Google" không thể tồn tại.
  *
  * CỐ Ý không trả token: đăng ký xong thì sang trang đăng nhập (§1.5). Tự đăng
  * nhập luôn nghe tiện hơn, nhưng nó khiến bước "đăng nhập lần đầu" không bao
@@ -99,11 +104,9 @@ authRouter.post(
 
     const created = await registerAccount({
       fullName: input.fullName,
-      companyName: input.companyName,
       email: input.email,
       password: input.password,
-      phone: input.phone,
-      jobTitle: input.jobTitle,
+      companyName: input.companyName,
     });
 
     /*
@@ -260,13 +263,19 @@ async function moPhien(user: usersRepo.PublicUser): Promise<Record<string, unkno
 /**
  * POST /api/auth/google — §1.9 đăng nhập bằng tài khoản Google.
  *
- * ═══ CHỈ ĐĂNG NHẬP, KHÔNG ĐĂNG KÝ ══════════════════════════════════════════
+ * ═══ ĐĂNG NHẬP, VÀ ĐĂNG KÝ NẾU CHƯA CÓ TÀI KHOẢN ═══════════════════════════
  *
- * Endpoint này không bao giờ tạo người dùng mới. Google chỉ đưa được `email`,
- * `name` và `sub`; mà `registerAccount` còn cần tên công ty, số điện thoại,
- * chức danh — và quan trọng hơn, nó DỰNG MỘT TỔ CHỨC. Tạo tổ chức từ một cú bấm
- * nút là thứ không hoàn tác được qua giao diện, nên người chưa có tài khoản
- * được mời đi qua trang đăng ký như cũ.
+ * Email chưa có tài khoản thì endpoint này TẠO MỚI, thay vì trả 404 như trước.
+ *
+ * Trước đây nó không tạo được, và lý do không nằm ở Google: `registerAccount`
+ * đòi tên công ty, số điện thoại, chức danh — ba thứ Google không biết. Hệ quả
+ * là trang đăng nhập có nút Google còn trang đăng ký thì không, và ai bấm nút đó
+ * bằng một email chưa đăng ký đi vào ngõ cụt "vui lòng đăng ký trước" rồi gặp
+ * một form hỏi những thứ họ vừa định bỏ qua. Nay đăng ký chỉ cần danh tính (xem
+ * `registerFields`), nên một cú bấm là đủ.
+ *
+ * Tổ chức sinh ra ở đường này LUÔN là không gian riêng mang tên người dùng —
+ * không khai tên công ty thì không có gì để đặt. Đổi tên được ở trang Tổ chức.
  *
  * ═══ TỰ LIÊN KẾT, và chốt duy nhất giữ cho nó an toàn ══════════════════════
  *
@@ -305,16 +314,36 @@ authRouter.post(
       }
 
       const theoEmail = await usersRepo.findByEmailForLogin(danhTinh.email);
-      if (!theoEmail) {
-        throw new HttpError(
-          404,
-          'NoAccount',
-          `Chưa có tài khoản nào dùng email ${danhTinh.email}. Vui lòng đăng ký trước.`,
-        );
-      }
+
+      /*
+       * Chưa có tài khoản -> tạo ngay tại đây. Xem khối chú thích đầu endpoint.
+       *
+       * `emailVerified: true` là an toàn, và chốt ngay trên là lý do: ta đã bắt
+       * `danhTinh.emailVerified` trước khi tới dòng này, nên Google đã chứng minh
+       * người đang bấm kiểm soát hộp thư ấy. Đó là bằng chứng MẠNH HƠN lá thư
+       * xác minh của chính ta. Bỏ cờ này thì tài khoản vừa tạo rơi vào chốt
+       * `EmailNotVerified` ở dưới và không bao giờ vào được: thư xác minh gửi
+       * tới đâu cũng vô nghĩa vì họ không có mật khẩu để dùng sau khi xác minh.
+       */
+      const tenGoogle = danhTinh.fullName?.trim();
+      const nguoi =
+        theoEmail?.user ??
+        (
+          await registerAccount({
+            // Google KHÔNG bắt buộc trả `name`. Lấy email làm tên tạm thay vì để
+            // trống: cột `full_name` là NOT NULL, và một hàng không tên trong
+            // bảng Thành viên thì không ai tra ra là ai. Sửa ở trang hồ sơ.
+            fullName: tenGoogle === undefined || tenGoogle === '' ? danhTinh.email : tenGoogle,
+            email: danhTinh.email,
+            // Không `password`: tài khoản này chưa có mật khẩu dùng được, và
+            // "Quên mật khẩu" là đường để thêm một cái.
+            emailVerified: true,
+          })
+        ).user;
+
       // Kiểm khoá TRƯỚC khi lập liên kết: một tài khoản đã bị khoá thì không nên
       // để lại thêm một lối vào, kể cả lối vào chưa dùng được ngay.
-      if (!theoEmail.user.isActive) {
+      if (!nguoi.isActive) {
         throw new HttpError(403, 'AccountDisabled', 'Tài khoản đã bị khoá. Liên hệ quản trị viên.');
       }
 
@@ -331,7 +360,7 @@ authRouter.post(
        * kết đã được ghi rồi mới bị từ chối, và hệ thống để lại một lối vào cho
        * một tài khoản mà chính nó vừa nói là không dùng được.
        */
-      if (theoEmail.user.emailVerifiedAt === null) {
+      if (nguoi.emailVerifiedAt === null) {
         throw new HttpError(
           403,
           'EmailNotVerified',
@@ -340,7 +369,7 @@ authRouter.post(
       }
 
       const lienKetDuoc = await identitiesRepo.linkIdentity({
-        userId: theoEmail.user.id,
+        userId: nguoi.id,
         provider: 'google',
         subject: danhTinh.sub,
         email: danhTinh.email,
@@ -354,7 +383,7 @@ authRouter.post(
           'Tài khoản này đã được liên kết với một tài khoản Google khác. Liên hệ quản trị viên.',
         );
       }
-      userId = theoEmail.user.id;
+      userId = nguoi.id;
     }
 
     // Đọc lại từ database chứ không tin bản vừa tìm: đường "đã liên kết" ở trên

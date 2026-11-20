@@ -6,6 +6,23 @@ import { slugifyOrFallback } from '../auth/slug';
 export const DEFAULT_WORKSPACE_NAME = 'Không gian mặc định';
 export const DEFAULT_WORKSPACE_SLUG = 'mac-dinh';
 
+/**
+ * Tên tổ chức cá nhân, suy từ họ tên.
+ *
+ * Không hỏi ai đặt tên nó. Với tài khoản do Admin tạo (§3.4) thì đây là không
+ * gian của NGƯỜI KIA, để người mời đặt tên hộ là sai chủ thể; với người tự đăng
+ * ký mà không khai công ty thì chẳng có gì để hỏi thêm — họ đổi tên sau ở trang
+ * Tổ chức. Cũng không lấy trơn họ tên làm tên tổ chức: trong console hệ thống,
+ * một dòng tên "Trần Thị Thu" nằm giữa các công ty thật trông như dữ liệu lỗi.
+ * Tiền tố "Không gian của" nói rõ nó là loại gì ngay ở chỗ đọc.
+ *
+ * Ở ĐÂY chứ không ở nơi gọi: hai đường sinh tổ chức cá nhân phải cho ra ĐÚNG
+ * một chuỗi, và đây là chuỗi người dùng đọc thấy.
+ */
+export function personalTenantName(fullName: string): string {
+  return `Không gian của ${fullName}`;
+}
+
 export interface ProvisionTenantInput {
   /** Tên hiển thị của tổ chức. Slug sinh từ đây, tự né trùng. */
   name: string;

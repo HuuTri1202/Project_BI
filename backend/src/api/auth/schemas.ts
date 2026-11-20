@@ -1,4 +1,11 @@
-import { loginSchema as sharedLoginSchema, normalizePhone, registerFields } from '@bi/shared';
+import {
+  companyNameRule,
+  jobTitleRule,
+  loginSchema as sharedLoginSchema,
+  normalizePhone,
+  phoneRule,
+  registerFields,
+} from '@bi/shared';
 import { z } from 'zod';
 import { MAX_PASSWORD_BYTES, MIN_PASSWORD_LENGTH } from '../../services/auth/password';
 
@@ -32,6 +39,21 @@ const normalized = <T extends z.ZodTypeAny>(fn: (v: string) => string, rule: T) 
 
 const trimmed = <T extends z.ZodTypeAny>(rule: T) => normalized((v) => v.trim(), rule);
 
+/**
+ * Ô TUỲ Ý: cắt khoảng trắng, và ô để trống nghĩa là KHÔNG GỬI GÌ.
+ *
+ * `''` phải thành `undefined` trước khi validate. Để nguyên thì chuỗi rỗng rơi
+ * vào chính `rule` và người cố ý bỏ trống một ô không bắt buộc nhận lỗi của ô
+ * đó — đúng cái bẫy mà `clearable` ở dưới đã mô tả, chỉ khác là ở đây ô trống
+ * nghĩa là "không khai", không phải "xoá giá trị đang có".
+ */
+const boTrongDuoc = <T extends z.ZodTypeAny>(rule: T) =>
+  z.preprocess((v) => {
+    if (typeof v !== 'string') return v;
+    const sach = v.trim();
+    return sach === '' ? undefined : sach;
+  }, rule.optional());
+
 /** Email: cắt khoảng trắng + hạ chữ thường, khớp collation _ci của cột. */
 const emailInput = <T extends z.ZodTypeAny>(rule: T) =>
   normalized((v) => v.trim().toLowerCase(), rule);
@@ -47,11 +69,11 @@ export const registerSchema = registerFields
   .extend({
     email: emailInput(registerFields.shape.email),
     fullName: trimmed(registerFields.shape.fullName),
-    companyName: trimmed(registerFields.shape.companyName),
-    // Chuẩn hoá về +84XXXXXXXXX để lưu. `?? v` giữ nguyên chuỗi gốc khi không
-    // nhận dạng được — khi đó `phoneRule` bên trong sẽ là bên từ chối, kèm
-    // thông báo đúng nghĩa, thay vì ta âm thầm ghi một giá trị sai dạng.
-    phone: normalized((v) => normalizePhone(v) ?? v, registerFields.shape.phone),
+    // Tuỳ ý: để trống thì `registerAccount` dựng không gian riêng mang tên người
+    // dùng thay vì một công ty. Lấy `companyNameRule` chứ không lấy
+    // `registerFields.shape.companyName` vì shape đó đã là `ZodOptional` — bọc
+    // thêm một lớp optional nữa chạy được nhưng đọc như một chỗ nhầm.
+    companyName: boTrongDuoc(companyNameRule),
   })
   .superRefine((value, ctx) => {
     if (value.password !== value.confirmPassword) {
@@ -138,10 +160,11 @@ export const resendVerificationSchema = z.object({
 /**
  * Sửa hồ sơ cá nhân — §4.4.
  *
- * Dùng lại đúng `registerFields` để luật họ tên, điện thoại, chức danh chỉ có
- * MỘT định nghĩa. Ba trường ở đây `.nullable()` vì tài khoản do Admin tạo (§4.7)
- * không đi qua form đăng ký nên chúng đang NULL; người dùng phải xoá trống lại
- * được, không thì một ô lỡ điền sai sẽ vĩnh viễn không gỡ ra được.
+ * Dùng lại đúng rule của `@bi/shared` để luật họ tên, điện thoại, chức danh chỉ
+ * có MỘT định nghĩa. Ba trường ở đây `.nullable()` vì chúng KHÔNG nằm trong form
+ * đăng ký (xem `registerFields`) nên mọi tài khoản mới đều có chúng NULL; người
+ * dùng phải xoá trống lại được, không thì một ô lỡ điền sai sẽ vĩnh viễn không
+ * gỡ ra được.
  *
  * `''` đổi thành `null` TRƯỚC khi validate: ô input rỗng gửi lên là chuỗi rỗng,
  * mà `phoneRule` sẽ từ chối chuỗi rỗng. Không xử lý ở đây thì người dùng bấm lưu
@@ -168,8 +191,11 @@ const clearable = <T extends z.ZodTypeAny>(rule: T) =>
 
 export const updateProfileSchema = z.object({
   fullName: trimmed(registerFields.shape.fullName).optional(),
-  phone: clearable(normalized((v) => normalizePhone(v) ?? v, registerFields.shape.phone)).optional(),
-  jobTitle: clearable(registerFields.shape.jobTitle).optional(),
+  // Chuẩn hoá về +84XXXXXXXXX để lưu. `?? v` giữ nguyên chuỗi gốc khi không
+  // nhận dạng được — khi đó `phoneRule` bên trong sẽ là bên từ chối, kèm thông
+  // báo đúng nghĩa, thay vì ta âm thầm ghi một giá trị sai dạng.
+  phone: clearable(normalized((v) => normalizePhone(v) ?? v, phoneRule)).optional(),
+  jobTitle: clearable(jobTitleRule).optional(),
   // Ngày sinh không có trong form đăng ký nên không có luật dùng chung. 'YYYY-MM-DD'
   // khớp cột DATE, và pool đã khai `dateStrings: ['DATE']` nên nó đi thẳng vào
   // database không qua đối tượng Date — ngày sinh không có múi giờ, để mysql2 tự

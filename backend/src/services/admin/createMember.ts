@@ -14,7 +14,7 @@ import * as usersRepo from '../../repositories/users';
 import { HttpError } from '../../utils/httpError';
 import { generateTempPassword, hashPassword } from '../auth/password';
 import { kiemHanMuc } from '../billing/limits';
-import { provisionTenant } from '../tenant/provisionTenant';
+import { personalTenantName, provisionTenant } from '../tenant/provisionTenant';
 
 export interface CreateMemberInput {
   tenantId: number;
@@ -232,14 +232,6 @@ export async function createMember(input: CreateMemberInput): Promise<CreateAdmi
 }
 
 /**
- * Tên tổ chức cá nhân, suy từ họ tên.
- *
- * Không hỏi Admin đặt tên: đây là không gian của NGƯỜI KIA, để người mời đặt tên
- * hộ là sai chủ thể. Cũng không lấy trơn họ tên làm tên tổ chức — trong console
- * hệ thống, một dòng tên "Trần Thị Thu" nằm giữa các công ty thật trông như dữ
- * liệu lỗi. Tiền tố "Không gian của" nói rõ nó là loại gì ngay ở chỗ đọc.
- */
-/**
  * Workspace mặc định của người vừa được thêm — §B5.
  *
  * ═══ Chỉ gán khi tổ chức có ĐÚNG MỘT workspace ════════════════════════════
@@ -273,10 +265,6 @@ async function ganWorkspaceMacDinh(
   const duyNhat = ws.length === 1 ? ws[0] : undefined;
   if (duyNhat === undefined) return;
   await workspaceMembersRepo.grant(conn, tenantId, duyNhat, userId, actorId);
-}
-
-function personalTenantName(fullName: string): string {
-  return `Không gian của ${fullName}`;
 }
 
 function isDuplicateEntry(err: unknown, indexName: string): boolean {
