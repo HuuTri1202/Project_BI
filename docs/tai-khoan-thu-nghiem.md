@@ -10,7 +10,26 @@
 > Khi triển khai thật: đổi `Admin@12345` trong `backend/.env` trước khi chạy
 > `npm run db:seed` lần đầu, và xoá mọi tài khoản trong file này.
 
-Cập nhật lần cuối: 17/11/2026 — thêm mục **Xác minh email** (§1.10).
+Cập nhật lần cuối: 20/11/2026 — thêm mục **Trước khi demo** ngay dưới đây.
+
+---
+
+## ⚠️ Trước khi demo hoặc nộp: hai giá trị VẬN HÀNH phải đổi lại
+
+Cả hai đều là dữ liệu trong database dev, **không phải mã nguồn** — migration
+gieo đúng giá thật (299.000 ₫ / 899.000 ₫) và cố ý để trống số tài khoản. Nên
+sửa chúng ở console quản trị, không sửa trong code.
+
+| Chỗ | Đang là gì trên máy này | Sửa ở đâu |
+|---|---|---|
+| **Giá gói** | `pro` và `business` **cùng 200 ₫** — đặt để chuyển khoản thử SePay cho rẻ. Bảng giá hiện ra hai gói khác nhau cùng một giá. | `/admin` → **Gói dịch vụ** |
+| **Tài khoản nhận tiền** | Số tài khoản và tên **cá nhân thật** của chủ dự án, hiện nguyên văn trên trang thanh toán của mọi tổ chức. | `/admin` → **Phương thức thanh toán** |
+
+Kiểm nhanh trước khi mở màn hình cho người khác xem:
+
+```bash
+docker exec bi-mysql mysql -uroot -prootpassword bi_platform   -e "SELECT code, price_vnd FROM plans WHERE deleted_at IS NULL;"
+```
 
 ---
 
