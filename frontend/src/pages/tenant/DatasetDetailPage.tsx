@@ -5,6 +5,7 @@ import {
   type DatasetCellValue,
   type DatasetColumnDto,
 } from '@bi/shared';
+import { useQueryClient } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { usePermissions } from '../../auth/usePermissions';
@@ -19,7 +20,9 @@ import { Pagination } from '../../components/ui/Pagination';
 import { TBody, TableWrap, Td, Th, THead, Tr } from '../../components/ui/Table';
 import { EmptyState, ErrorState, TableSkeleton } from '../../components/ui/states';
 import { LoadPanel } from '../../features/tenant/datasets/LoadPanel';
+import { CapNhatDuLieu } from '../../features/datasets/CapNhatDuLieu';
 import { RenameDatasetModal } from '../../features/tenant/datasets/RenameDatasetModal';
+import { tenantKeys } from '../../features/tenant/keys';
 import {
   useDataset,
   useDatasetPreview,
@@ -72,6 +75,9 @@ export default function DatasetDetailPage(): React.ReactElement {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const permissions = usePermissions();
+  // Sau khi thay dữ liệu: bỏ hết cache của khu bộ dữ liệu — cột, dòng xem
+  // trước, trạng thái nạp đều vừa đổi cùng lúc.
+  const queryClient = useQueryClient();
   /** Vá B2 — xem `useTaoBaoCaoNhanh`. */
   const taoBaoCao = useTaoBaoCaoNhanh();
 
@@ -211,6 +217,12 @@ export default function DatasetDetailPage(): React.ReactElement {
                 >
                   {taoBaoCao.dangChay ? 'Đang mở trình dựng…' : 'Tạo báo cáo'}
                 </Button>
+              )}
+              {permissions.can('dataset', 'modify') && (
+                <CapNhatDuLieu
+                  dataset={data}
+                  onXong={() => void queryClient.invalidateQueries({ queryKey: tenantKeys.all })}
+                />
               )}
               {permissions.can('dataset', 'modify') && (
                 <Button onClick={() => setRenaming(true)}>Đổi tên</Button>

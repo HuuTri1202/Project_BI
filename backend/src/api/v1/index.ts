@@ -1,4 +1,5 @@
 import {
+  type NumberFormat,
   ADMIN_ERROR_CODES,
   allVisuals,
   MAX_FOLDERS,
@@ -514,6 +515,77 @@ v1Router.post(
 );
 
 /**
+ * Xin chỗ tải lên một TỆP MỚI cho bộ dữ liệu ĐÃ CÓ — §B2.
+ *
+ * ═══ Vì sao không dùng lại `POST /datasets/uploads` ═══════════════════════
+ *
+ * Đường kia TẠO một bản ghi mới. Ở đây mục đích ngược lại: giữ nguyên `id` để
+ * mọi mô hình và báo cáo đang trỏ tới bộ này vẫn chạy, chỉ đổi tệp nguồn. Tháng
+ * sau có số mới thì người dùng cập nhật tại chỗ thay vì dựng lại cả chuỗi.
+ *
+ * Sau bước này, `/analyze` và `/commit` chạy y như lúc tạo — `commitDatasets`
+ * vốn đã dùng lại `input.datasetId` cho sheet đầu tiên, nên nó thay cột, thay
+ * dòng mẫu rồi xếp hàng nạp lại. Thứ duy nhất còn thiếu là chỗ này.
+ */
+v1Router.post(
+  '/datasets/:id/uploads',
+  authorize('dataset', 'modify'),
+  asyncHandler(async (req, res) => {
+    const auth = requireAuth(req);
+    const { id } = idParamSchema.parse(req.params);
+    const body = createUploadBodySchema.omit({ workspaceId: true, folderId: true }).parse(req.body);
+
+    const dataset = await datasetsRepo.findOne(mysqlPool, phamVi(req), id);
+    if (!dataset) throw notFound('Không tìm thấy bộ dữ liệu này.');
+    if (dataset.source !== 'file') {
+      throw badRequest(
+        'Bộ dữ liệu này đọc thẳng từ CSDL nguồn, không có tệp để thay. ' +
+          'Dùng nút "Nạp lại" ở tab Kho phân tích để đọc lại số mới nhất.',
+      );
+    }
+
+    const ext = extensionOf(body.filename);
+    if (ext === null) {
+      throw new HttpError(
+        400,
+        DATASET_ERROR_CODES.UNSUPPORTED_FORMAT,
+        'Chỉ nhận file .csv hoặc .xlsx.',
+      );
+    }
+    const s3Key = buildStorageKey(auth.tenantId, dataset.workspaceId, body.filename, ext);
+
+    await datasetsRepo.doiTepNguon(mysqlPool, auth.tenantId, id, {
+      s3Key,
+      originalFilename: body.filename,
+      fileExt: ext,
+    });
+
+    /*
+     * DỌN CACHE PHÂN TÍCH — và thiếu dòng này thì cả tính năng im lặng vô dụng.
+     *
+     * `analyzeDataset` nhớ kết quả theo `dataset:analyze:v2:<id>` trong 30 phút,
+     * một khoá KHÔNG mang theo tệp nào. Đúng ở đường tạo (một bản ghi `pending`
+     * chỉ có một tệp trong đời), sai hẳn từ lúc có đường này: bộ dữ liệu vừa trỏ
+     * sang tệp khác mà bước `/analyze` ngay sau đó vẫn đọc ra CỘT CỦA TỆP CŨ.
+     *
+     * ĐO ĐƯỢC ngày 20/11/2026: tải lên một tệp thiếu cột (bị chặn, đúng), rồi
+     * tải lên tệp đủ cột — vẫn nhận đúng câu "thiếu 5 cột" của lần trước, và nút
+     * Thay dữ liệu khoá cứng. Không có gì trên màn hình nói tại sao.
+     */
+    await clearAnalyzeCache(id);
+
+    const presigned = await storage.presignPut(s3Key, contentTypeOf(ext), env.UPLOAD_MAX_BYTES);
+
+    const result: CreateUploadResultDto = {
+      datasetId: id,
+      uploadUrl: presigned.url,
+      expiresAt: presigned.expiresAt,
+    };
+    res.status(201).json(result);
+  }),
+);
+
+/**
  * §7.5: đọc schema của file vừa tải lên. KHÔNG ghi gì.
  *
  * Là POST chứ không phải GET dù chỉ đọc: nó tải một file 50MB từ S3 và parse —
@@ -587,6 +659,10 @@ v1Router.post(
       sheetNames: body.sheets,
       gopHoaThuong: body.gopHoaThuong,
       quyUocSo: body.quyUocSo,
+      // §B2 — cập nhật tại chỗ. Danh sách cột đang có đọc từ DATABASE chứ không
+      // nhận từ client: client không có gì mới để nói, và nhận lại là mở một
+      // đường để chốt an toàn bị tắt bằng một thân request.
+      ...(body.capNhat === true ? await luatCapNhat(id, body) : {}),
     });
 
     const details: DatasetDetailDto[] = [];
@@ -596,6 +672,58 @@ v1Router.post(
     res.json(details);
   }),
 );
+
+/**
+ * Hai thứ một lần CẬP NHẬT phải mang theo từ bộ dữ liệu cũ — §B2.
+ *
+ * ═══ Cột đang có: để CHẶN ════════════════════════════════════════════════
+ *
+ * Đọc từ DATABASE chứ không nhận từ client: client không có gì mới để nói ở
+ * bước này, và nhận lại là mở một đường để chốt an toàn bị tắt bằng một thân
+ * request.
+ *
+ * ═══ Quy ước đọc SỐ: để KHÔNG ĐỔI NGHĨA DỮ LIỆU ══════════════════════════
+ *
+ * ĐO ĐƯỢC ngày 20/11/2026, và nó im lặng hoàn toàn: bộ dữ liệu được chốt với
+ * "dấu chấm là phân cách nghìn" cho cột Thành tiền (người dùng tự tích ở bước
+ * 2, sau khi đọc cảnh báo). Cập nhật bằng tệp tháng sau thì `quyUocSo` rỗng,
+ * `doanQuyUocSo` đoán lại từ đầu, và `29.000` vào kho thành `29`. Cùng một cột,
+ * cùng một người, hai cách đọc khác nhau — và không có gì trên màn hình nói ra.
+ *
+ * Quy ước là một quyết định của NGƯỜI DÙNG đã được lưu (`dataset_columns.
+ * number_format`, migration 44). Một lần cập nhật dữ liệu không phải lúc hỏi
+ * lại nó, cũng không phải lúc đoán lại. Khớp theo TÊN cột vì đó cũng là thứ
+ * `capNhat` dùng để kiểm thiếu/thừa.
+ *
+ * Client vẫn gửi `quyUocSo` được và nó THẮNG: đó là đường cho một màn hình sau
+ * này muốn hỏi lại, và nó không thể lỡ tay xoá quy ước cũ — chỗ này chỉ điền
+ * vào những cột client không nhắc tới.
+ */
+async function luatCapNhat(
+  id: number,
+  body: { sheets: string[]; quyUocSo?: { sheet: string; ordinal: number; format: NumberFormat }[] },
+): Promise<{
+  capNhat: true;
+  cotDangCo: string[];
+  quyUocSo: { sheet: string; ordinal: number; format: NumberFormat }[];
+}> {
+  const cot = await datasetsRepo.listColumns(mysqlPool, id);
+  const sheet = body.sheets[0] ?? '';
+  const daGui = new Set((body.quyUocSo ?? []).map((q) => q.ordinal));
+
+  return {
+    capNhat: true,
+    cotDangCo: cot.map((c) => c.name),
+    quyUocSo: [
+      ...(body.quyUocSo ?? []),
+      ...cot.flatMap((c) =>
+        c.numberFormat === null || daGui.has(c.ordinal)
+          ? []
+          : [{ sheet, ordinal: c.ordinal, format: c.numberFormat }],
+      ),
+    ],
+  };
+}
 
 /**
  * Bộ dữ liệu kèm cột.

@@ -189,6 +189,10 @@ export const createUploadBodySchema = z.object({
  */
 export const commitDatasetsBodySchema = z.object({
   name: z.string().trim().min(1, 'Tên bộ dữ liệu không được để trống').max(DATASET_NAME_MAX),
+  /**
+   * Lần CẬP NHẬT một bộ đã có, không phải lần nhập mới — §B2. Xem `CommitInput`.
+   */
+  capNhat: z.boolean().optional(),
   sheets: z
     .array(z.string().min(1))
     .min(1, 'Hãy chọn ít nhất một sheet')

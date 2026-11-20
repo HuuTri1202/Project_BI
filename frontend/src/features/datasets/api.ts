@@ -84,6 +84,40 @@ export async function createUpload(input: {
   return data;
 }
 
+/**
+ * Xin chỗ tải lên một TỆP MỚI cho bộ dữ liệu đã có — §B2.
+ *
+ * Khác `createUpload` ở chỗ nó KHÔNG tạo bản ghi mới: `id` giữ nguyên, nên mọi
+ * mô hình và báo cáo đang trỏ tới bộ này vẫn chạy sau khi dữ liệu được thay.
+ */
+export async function xinChoCapNhat(
+  id: number,
+  input: { filename: string; fileSize: number },
+): Promise<CreateUploadResultDto> {
+  const { data } = await apiClient.post<CreateUploadResultDto>(`/v1/datasets/${id}/uploads`, input);
+  return data;
+}
+
+/**
+ * Đẩy tệp thẳng lên S3 bằng vé đã ký.
+ *
+ * `fetch` trần chứ KHÔNG dùng `apiClient`: interceptor của nó gắn
+ * `Authorization` vào mọi request, mà presigned URL đã ký sẵn một tập header cố
+ * định — thêm một header lạ là chữ ký không khớp và S3 trả 403 kèm một thông
+ * báo chẳng liên quan gì tới quyền. Cùng lý do khiến `useUppyS3` phải dùng XHR
+ * riêng của Uppy.
+ */
+export async function dayTepLen(url: string, file: File): Promise<void> {
+  const res = await fetch(url, {
+    method: 'PUT',
+    body: file,
+    headers: { 'Content-Type': file.type === '' ? 'application/octet-stream' : file.type },
+  });
+  if (!res.ok) {
+    throw new Error(`Tải tệp lên không thành công (${String(res.status)}).`);
+  }
+}
+
 export async function analyzeDataset(id: number): Promise<AnalyzeResultDto> {
   const { data } = await apiClient.post<AnalyzeResultDto>(`/v1/datasets/${id}/analyze`);
   return data;

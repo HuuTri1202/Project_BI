@@ -80,6 +80,24 @@ export interface CommitInput {
    * riêng — `ordinal` một mình không chỉ ra được cột nào của sheet nào.
    */
   quyUocSo: readonly { sheet: string; ordinal: number; format: 'vn' | 'en' }[];
+  /**
+   * Đây là lần CẬP NHẬT một bộ đã có, không phải lần nhập mới — §B2.
+   *
+   * Đổi hai luật, và cả hai đều để bảo vệ thứ đang trỏ tới bộ này:
+   *
+   *   - Đúng MỘT sheet. Lần nhập mới tách N sheet thành N bộ; ở đây mà tách
+   *     thì bộ đang có bị thay bằng sheet đầu, còn N-1 bộ lạ xuất hiện trong
+   *     kho mà không ai xin.
+   *   - Tệp mới KHÔNG được THIẾU cột nào đang có. Mô hình và báo cáo trỏ tới
+   *     cột theo tên; mất một cột là mọi biểu đồ dùng nó hỏng, và hỏng SAU khi
+   *     dữ liệu cũ đã bị thay — không có đường lùi.
+   *
+   * Cột THÊM thì cho qua: tháng sau có thêm một cột là chuyện thường, và nó
+   * không làm hỏng gì đang chạy.
+   */
+  capNhat?: boolean;
+  /** Tên cột đang có, để kiểm luật trên. Chỉ cần khi `capNhat`. */
+  cotDangCo?: readonly string[];
 }
 
 export interface CommittedDataset {
@@ -114,6 +132,13 @@ export async function commitDatasets(input: CommitInput): Promise<CommittedDatas
     }
     return found;
   });
+
+  if (input.capNhat === true) {
+    kiemCapNhat(
+      sheets.map((s) => s.header),
+      input.cotDangCo ?? [],
+    );
+  }
 
   const multi = sheets.length > 1;
 
@@ -210,6 +235,54 @@ export async function commitDatasets(input: CommitInput): Promise<CommittedDatas
   );
 
   return created;
+}
+
+/**
+ * Hai luật của một lần CẬP NHẬT — §B2. Ném `HttpError` khi vi phạm.
+ *
+ * Tách ra khỏi `commitDatasets` để kiểm được bằng một bài test THUẦN: hàm kia
+ * phải tải tệp từ S3 và mở transaction, nên mọi luật nằm trong nó chỉ kiểm
+ * được qua bộ tích hợp — chậm hơn và chỉ chạy khi có container. Cùng lập luận
+ * với `buildQuery` bên `explorer`.
+ *
+ * ═══ Vì sao đúng MỘT sheet ═══════════════════════════════════════════════
+ *
+ * Lần nhập mới tách N sheet thành N bộ dữ liệu. Ở đây mà tách thì bộ đang có
+ * bị thay bằng sheet đầu, còn N-1 bộ lạ xuất hiện trong kho mà không ai xin.
+ *
+ * ═══ Vì sao cấm THIẾU cột, mà cho phép THÊM ══════════════════════════════
+ *
+ * Mô hình và báo cáo trỏ tới cột theo TÊN. Mất một cột là mọi biểu đồ dùng nó
+ * hỏng — và hỏng SAU khi dữ liệu cũ đã bị thay, tức không có đường lùi. Thêm
+ * một cột thì không làm hỏng gì đang chạy, mà tháng sau có thêm cột là chuyện
+ * thường.
+ */
+export function kiemCapNhat(
+  header: readonly (readonly string[])[],
+  cotDangCo: readonly string[],
+): void {
+  if (header.length !== 1) {
+    throw new HttpError(
+      400,
+      DATASET_ERROR_CODES.NO_COLUMNS_SELECTED,
+      'Cập nhật dữ liệu thì chọn đúng một sheet — sheet sẽ thay chỗ dữ liệu đang có.',
+    );
+  }
+
+  // So theo tên đã TRIM: tệp xuất lại từ Excel hay thêm một khoảng trắng cuối
+  // tiêu đề, và từ chối vì đúng một ký tự trắng là một câu lỗi không ai hiểu.
+  const coTrongTep = new Set((header[0] ?? []).map((h) => h.trim()));
+  const thieu = cotDangCo.filter((c) => !coTrongTep.has(c.trim()));
+  if (thieu.length > 0) {
+    throw new HttpError(
+      400,
+      DATASET_ERROR_CODES.NO_COLUMNS_SELECTED,
+      `Tệp mới thiếu ${String(thieu.length)} cột đang có: ${thieu.slice(0, 5).join(', ')}` +
+        `${thieu.length > 5 ? '…' : ''}. Mô hình và báo cáo đang gọi tên những cột này, ` +
+        'nên thay dữ liệu bằng tệp thiếu chúng sẽ làm biểu đồ hỏng. ' +
+        'Hãy xuất lại tệp với đủ cột, hoặc tạo một bộ dữ liệu mới.',
+    );
+  }
 }
 
 /**

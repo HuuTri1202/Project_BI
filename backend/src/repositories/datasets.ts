@@ -122,9 +122,8 @@ function toDto(row: DatasetRow): DatasetDto {
     truncated: row.truncated === 1,
 
     datamodelCount: Number(row.datamodel_count ?? 0),
-    datamodelId: row.datamodel_id === null || row.datamodel_id === undefined
-      ? null
-      : Number(row.datamodel_id),
+    datamodelId:
+      row.datamodel_id === null || row.datamodel_id === undefined ? null : Number(row.datamodel_id),
 
     loadStatus: row.load_status,
     loadedRowCount: Number(row.loaded_row_count),
@@ -135,12 +134,7 @@ function toDto(row: DatasetRow): DatasetDto {
 }
 
 export type DatasetSortKey =
-  | 'name'
-  | 'sourceTable'
-  | 'columnCount'
-  | 'syncedAt'
-  | 'rowCount'
-  | 'createdAt';
+  'name' | 'sourceTable' | 'columnCount' | 'syncedAt' | 'rowCount' | 'createdAt';
 
 export const DATASET_SORT_KEYS: readonly DatasetSortKey[] = [
   'name',
@@ -592,12 +586,7 @@ export async function replaceColumns(
   );
 }
 
-export async function rename(
-  db: Db,
-  tenantId: number,
-  id: number,
-  name: string,
-): Promise<number> {
+export async function rename(db: Db, tenantId: number, id: number, name: string): Promise<number> {
   const [result] = await db.query<ResultSetHeader>(
     `UPDATE datasets SET name = ? WHERE tenant_id = ? AND id = ? AND deleted_at IS NULL`,
     [name, tenantId, id],
@@ -769,6 +758,34 @@ export async function findStorageKey(
   const row = rows[0];
   if (!row || row['s3_key'] === null) return null;
   return { key: String(row['s3_key']), ext: row['file_ext'] as FileExt };
+}
+
+/**
+ * Trỏ một bộ dữ liệu đã có sang một TỆP MỚI — §B2.
+ *
+ * ═══ Vì sao nó phải tồn tại ═══════════════════════════════════════════════
+ *
+ * Trước bản này, một bộ dữ liệu từ file là ảnh chụp một lần: tháng sau có số
+ * mới thì phải tạo bộ mới, mô hình mới, báo cáo mới — còn báo cáo cũ treo số
+ * tháng 8 đến hết đời. Đổi khoá lưu trữ ngay trên bản ghi cũ giữ nguyên `id`,
+ * nên mọi mô hình và báo cáo đang trỏ tới nó vẫn chạy.
+ *
+ * ⚠️ KHÔNG xoá tệp cũ ở đây. Lần nạp mới có thể hỏng (tệp hỏng, sai sheet), và
+ * lúc đó tệp cũ là thứ duy nhất dựng lại được. Dọn tệp mồ côi là việc của một
+ * vòng quét riêng, không phải của đường ghi này.
+ */
+export async function doiTepNguon(
+  db: Db,
+  tenantId: number,
+  id: number,
+  input: { s3Key: string; originalFilename: string; fileExt: FileExt },
+): Promise<void> {
+  await db.query(
+    `UPDATE datasets
+        SET s3_key = ?, original_filename = ?, file_ext = ?
+      WHERE tenant_id = ? AND id = ? AND source = 'file' AND deleted_at IS NULL`,
+    [input.s3Key, input.originalFilename, input.fileExt, tenantId, id],
+  );
 }
 
 export async function markReady(
@@ -963,7 +980,6 @@ export async function capNhatDungLuongKho(
   );
   return doi + res.changedRows;
 }
-
 
 /**
  * Mọi id bộ dữ liệu MySQL còn biết tới — nguồn sự thật của janitor §9.

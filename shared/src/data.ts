@@ -702,6 +702,14 @@ export interface CommitDatasetsInput {
    * bảng cột riêng: thiếu nó thì ô tích ở sheet này đổi cách đọc của sheet kia.
    */
   quyUocSo?: { sheet: string; ordinal: number; format: NumberFormat }[];
+  /**
+   * Lần CẬP NHẬT một bộ đã có, không phải lần nhập mới — §B2.
+   *
+   * Bật thì backend đòi đúng một sheet và từ chối tệp THIẾU cột đang có: mô
+   * hình và báo cáo gọi tên cột, nên thay dữ liệu bằng tệp thiếu cột là làm
+   * biểu đồ hỏng sau khi dữ liệu cũ đã mất.
+   */
+  capNhat?: boolean;
 }
 
 export const DATASET_NAME_MAX = 255;
