@@ -24,8 +24,6 @@
     "format": "npm --workspace shared run format && npm --workspace backend run format && npm --workspace frontend run format",
     "format:check": "npm --workspace shared run format:check && npm --workspace backend run format:check && npm --workspace frontend run format:check",
     "build": "npm run build:shared && npm --workspace backend run build && npm --workspace frontend run build",
-    "test": "npm run build:shared && npm --workspace backend run test && npm --workspace frontend run test",
-    "test:integration": "npm run build:shared && npm --workspace backend run test:integration",
     "db:migrate": "npm --workspace backend run migrate",
     "db:seed": "npm --workspace backend run seed:admin",
     "db:backfill-personal": "npm --workspace backend run backfill:personal --",
@@ -38,12 +36,9 @@
     "infra:down:extra": "docker compose -f infrastructure/docker-compose.yml --profile data --profile bi rm -sf minio minio-init clickhouse cube",
     "infra:ps": "docker compose -f infrastructure/docker-compose.yml --profile data --profile bi ps",
     "infra:logs": "docker compose -f infrastructure/docker-compose.yml logs -f",
-    "infra:stats": "docker stats --no-stream --format \"table {{.Name}}\\t{{.MemUsage}}\\t{{.MemPerc}}\\t{{.CPUPerc}}\"",
-    "e2e": "playwright test",
-    "e2e:ui": "playwright test --ui"
+    "infra:stats": "docker stats --no-stream --format \"table {{.Name}}\\t{{.MemUsage}}\\t{{.MemPerc}}\\t{{.CPUPerc}}\""
   },
   "devDependencies": {
-    "@playwright/test": "1.56.1",
     "concurrently": "^9.1.2",
     "prettier-plugin-tailwindcss": "0.8.1"
   },

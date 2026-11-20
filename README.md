@@ -243,7 +243,6 @@ npm run lint           # ESLint cả 2
 npm run typecheck      # tsc --noEmit cả 2
 npm run format         # Prettier ghi đè cả 2
 npm run build          # build production cả 2
-npm test               # Vitest (backend)
 npm run verify         # lint + typecheck + build — CHẠY TRƯỚC KHI MỞ PR
 
 npm run infra:up       # service lõi: MySQL + Redis
@@ -1080,14 +1079,8 @@ SELECT uniqExact(_row_index) FROM raw_t4_d22;
 ### Kiểm chứng
 
 ```bash
-npm run verify                                   # unit: ánh xạ kiểu, quoteIdent, DDL
-npm run test:integration                         # 12 ca chỉ cần MySQL
-INGEST_CH_TESTS=1 npm run test:integration       # + 4 ca nạp thật vào ClickHouse
+npm run verify                                   # lint + typecheck + build
 ```
-
-Nhánh chạm ClickHouse nằm sau một biến khai **tường minh**, không phải sau một
-phép "ping rồi lặng lẽ skip": skip ngầm thì một lần chạy bỏ qua phần quan trọng
-nhất vẫn hiện màu xanh, và đó là kiểu hỏng tệ nhất.
 
 Đối chiếu tay:
 

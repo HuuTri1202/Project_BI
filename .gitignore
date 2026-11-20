@@ -41,13 +41,6 @@ out/
 *.tsbuildinfo
 .vite/
 
-# --- Test / coverage ---
-coverage/
-.nyc_output/
-*.lcov
-test-results/
-playwright-report/
-
 # --- Cache ---
 .cache/
 .parcel-cache/

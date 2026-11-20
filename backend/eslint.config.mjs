@@ -13,17 +13,7 @@ import tseslint from 'typescript-eslint';
  * `eslint-config-prettier` phải đứng CUỐI để tắt các rule format đụng Prettier.
  */
 export default tseslint.config(
-  /*
-   * `tmp/**` — file do MÁY sinh, không phải mã của ta.
-   *
-   * Lane test ghi cube schema vào `tmp/cube-schema-test/` (xem `CUBE_SCHEMA_DIR`
-   * trong `vitest.config.ts`). Chúng là mã Cube.js chạy trong container, nơi
-   * `cube()` và `CUBE` là biến toàn cục có sẵn — nên eslint báo `no-undef` cho
-   * từng dòng, hàng trăm lỗi, và `npm run lint` đỏ trên mọi máy đã từng chạy
-   * test tích hợp. Thư mục cũ nằm ngoài `backend/` nên chưa bao giờ gặp chuyện
-   * này; dòng này là phần phải đi kèm lần chuyển thư mục đó.
-   */
-  { ignores: ['dist/**', 'node_modules/**', 'coverage/**', 'tmp/**'] },
+  { ignores: ['dist/**', 'node_modules/**', 'coverage/**'] },
 
   js.configs.recommended,
   ...tseslint.configs.recommended,
