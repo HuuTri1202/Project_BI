@@ -61,6 +61,13 @@ export interface ParsedSheet {
   rows: string[][];
   /** Tổng số dòng THẬT trong sheet — đếm hết, kể cả phần không giữ lại. */
   totalRows: number;
+  /**
+   * Số dòng bị BỎ QUA trước hàng tiêu đề — §B4. `0` là trường hợp thường.
+   *
+   * Phải đi ra tới giao diện: bỏ qua dòng mà không nói là tự ý đổi hình dạng
+   * dữ liệu của người ta. Xem `chonDongTieuDe`.
+   */
+  boQuaDong: number;
 }
 
 export interface ParseResult {
@@ -129,8 +136,10 @@ function parseCsv(buffer: Buffer): Promise<ParseResult> {
           return;
         }
 
-        const [header = [], ...rest] = kept;
-        const totalRows = Math.max(0, seen - 1);
+        // §B4 — dòng tên báo cáo ở trên hàng tiêu đề. Xem `chonDongTieuDe`.
+        const boQuaDong = chonDongTieuDe(kept.map((r) => r.map(cellText)));
+        const [header = [], ...rest] = kept.slice(boQuaDong);
+        const totalRows = Math.max(0, seen - 1 - boQuaDong);
 
         resolve({
           sheets: [
@@ -139,6 +148,7 @@ function parseCsv(buffer: Buffer): Promise<ParseResult> {
               header: header.map(cellText),
               rows: rest.map(normalizeRow(header.length)),
               totalRows,
+              boQuaDong,
             },
           ],
           truncated: totalRows > env.DATASET_MAX_ROWS,
@@ -213,15 +223,18 @@ async function parseXlsx(buffer: Buffer): Promise<ParseResult> {
 
     if (table.length === 0) continue;
 
-    const totalRows = Math.max(0, seen - 1);
+    // §B4 — xem `chonDongTieuDe`. `table` đã đặc (xem khối `Array.from` trên).
+    const boQuaDong = chonDongTieuDe(table);
+    const totalRows = Math.max(0, seen - 1 - boQuaDong);
     if (totalRows > env.DATASET_MAX_ROWS) truncated = true;
 
-    const [header = [], ...rest] = table;
+    const [header = [], ...rest] = table.slice(boQuaDong);
     sheets.push({
       name: worksheet.name,
       header: header.map(cellText),
       rows: rest.map(normalizeRow(header.length)),
       totalRows,
+      boQuaDong,
     });
   }
 
@@ -230,6 +243,46 @@ async function parseXlsx(buffer: Buffer): Promise<ParseResult> {
   }
 
   return { sheets, truncated };
+}
+
+/**
+ * Dòng nào là HÀNG TIÊU ĐỀ — §B4.
+ *
+ * ═══ Hình dạng tệp thật mà bản cũ đọc hỏng ════════════════════════════════
+ *
+ * Tệp Excel người Việt xuất ra hầu như luôn có một dòng tên báo cáo ở trên
+ * cùng:
+ *
+ *     BÁO CÁO DOANH THU THÁNG 10/2026 — Nhà Gỗ Coffee     ← một ô duy nhất
+ *     (dòng trống)
+ *     Ngày | Chi nhánh | Sản phẩm | Số lượng | Doanh thu   ← tiêu đề thật
+ *
+ * Lấy cứng dòng đầu làm tiêu đề thì bộ dữ liệu ra MỘT cột tên là cả câu tiêu
+ * đề báo cáo, còn năm cột kia biến mất — không lỗi, không cảnh báo. Đo được
+ * ngày 20/11/2026: "1 cột · 7 dòng" cho một tệp sáu cột.
+ *
+ * ═══ Luật, và vì sao nó hẹp đúng mức ═════════════════════════════════════
+ *
+ * Dòng tiêu đề là dòng ĐẦU TIÊN có từ HAI ô không rỗng trở lên, tìm trong
+ * `TRAN_DO_TIEU_DE` dòng đầu. Không tìm thấy thì giữ nguyên dòng 0 — hành vi cũ.
+ *
+ * Hai ô là ngưỡng đúng: một tiêu đề báo cáo luôn nằm gọn trong một ô (người ta
+ * gộp ô hoặc gõ vào A1), còn một bảng dữ liệu thì theo định nghĩa có ít nhất
+ * hai cột. Tệp MỘT cột thật sự thì không dòng nào đạt hai ô, nên luật không
+ * bao giờ chạm tới nó.
+ *
+ * Trần mười dòng để một tệp lạ không bị quét cả nghìn dòng đi tìm một thứ
+ * không có — và vì chưa ai đặt mười dòng ghi chú lên đầu một bảng tính.
+ */
+const TRAN_DO_TIEU_DE = 10;
+
+export function chonDongTieuDe(table: readonly (readonly string[])[]): number {
+  const tran = Math.min(table.length, TRAN_DO_TIEU_DE);
+  for (let i = 0; i < tran; i += 1) {
+    const soO = (table[i] ?? []).filter((c) => cellText(c).trim() !== '').length;
+    if (soO >= 2) return i;
+  }
+  return 0;
 }
 
 // ─── Chuẩn hoá ô ─────────────────────────────────────────────────────────────
@@ -314,6 +367,9 @@ export function toPreview(sheet: ParsedSheet): SheetPreviewDto {
     // `rows.length` ở đây thì mọi file đều hiện đúng 1.000 dòng — con số vừa sai
     // vừa trông hợp lý, nên không ai nghi ngờ.
     rowCount: sheet.totalRows,
+    // §B4 — nói ra là đã bỏ mấy dòng đầu. Bỏ mà im lặng là tự ý đổi hình dạng
+    // dữ liệu của người ta; `0` thì DTO không mang trường này.
+    ...(sheet.boQuaDong > 0 ? { boQuaDong: sheet.boQuaDong } : {}),
     previewRows: sheet.rows.slice(0, PREVIEW_ROWS),
     // Liệt kê tường minh để `values` KHÔNG đi qua dây: 200 ô mỗi cột nhân số
     // cột là một phần tải không ai dùng, và nó còn nằm trong cache Redis.

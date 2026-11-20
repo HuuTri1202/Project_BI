@@ -351,6 +351,26 @@ function SheetPreview({
         </p>
       </div>
 
+      {/*
+        NÓI RA việc đã bỏ mấy dòng đầu — §B4.
+
+        Tệp Excel người Việt hầu như luôn có một dòng tên báo cáo trên cùng, và
+        hệ thống tự nhận ra để lấy đúng hàng tiêu đề. Bỏ mà im lặng thì khi nó
+        đoán SAI — một bảng mà dòng đầu thật sự là dữ liệu một cột — người dùng
+        mất một dòng và không có cách nào biết. Câu này cũng là chỗ họ đối chiếu
+        với bảng xem trước ngay bên dưới.
+      */}
+      {sheet.boQuaDong !== undefined && sheet.boQuaDong > 0 && (
+        <p
+          role="status"
+          className="rounded-lg bg-amber-50 px-3 py-2 text-xs leading-snug text-amber-900"
+        >
+          Đã bỏ qua <strong>{sheet.boQuaDong} dòng đầu</strong> của sheet này — chúng chỉ có một ô,
+          nên hệ thống coi đó là tiêu đề của báo cáo chứ không phải tên cột. Tên cột lấy từ dòng{' '}
+          {sheet.boQuaDong + 1}. Xem bảng bên dưới để đối chiếu.
+        </p>
+      )}
+
       {sheet.canhBao.length > 0 && (
         <CanhBaoChatLuong
           canhBao={sheet.canhBao}

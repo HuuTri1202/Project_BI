@@ -646,6 +646,15 @@ export interface SheetPreviewDto {
   columns: SheetColumnDto[];
   /** Số dòng dữ liệu, không tính hàng tiêu đề. */
   rowCount: number;
+  /**
+   * Số dòng bị BỎ QUA trước hàng tiêu đề — §B4. Vắng mặt = không bỏ dòng nào.
+   *
+   * Tệp Excel người Việt hầu như luôn có một dòng tên báo cáo ở trên cùng. Hệ
+   * thống tự nhận ra và bỏ nó, nhưng PHẢI nói ra: bỏ dòng mà im lặng là tự ý
+   * đổi hình dạng dữ liệu của người ta, và nếu đoán sai thì không ai biết vì
+   * sao cột lại ra như vậy.
+   */
+  boQuaDong?: number;
   previewRows: string[][];
   /** Rỗng = không phát hiện vấn đề nào trong mẫu đã soi. */
   canhBao: CanhBaoCotDto[];

@@ -33,8 +33,14 @@ function sheet(canhBao: CanhBaoCotDto[]): SheetPreviewDto {
   };
 }
 
-function phanTich(canhBao: CanhBaoCotDto[]): AnalyzeResultDto {
-  return { sheets: [sheet(canhBao)], truncated: false, maxRows: 50_000, previewRowLimit: 100 };
+function phanTich(canhBao: CanhBaoCotDto[], boQuaDong?: number): AnalyzeResultDto {
+  const s = sheet(canhBao);
+  return {
+    sheets: [boQuaDong === undefined ? s : { ...s, boQuaDong }],
+    truncated: false,
+    maxRows: 50_000,
+    previewRowLimit: 100,
+  };
 }
 
 const HOA_THUONG: CanhBaoCotDto = {
@@ -58,12 +64,13 @@ function dung(
   canhBao: CanhBaoCotDto[],
   gop = true,
   quyUocVn: ReadonlySet<string> = new Set(),
+  boQuaDong?: number,
 ): { onGopChange: (g: boolean) => void; onQuyUocChange: (k: string, v: boolean) => void } {
   const onGopChange = vi.fn();
   const onQuyUocChange = vi.fn();
   render(
     <StepChooseData
-      analysis={phanTich(canhBao)}
+      analysis={phanTich(canhBao, boQuaDong)}
       selected={['Sheet1']}
       onChange={vi.fn()}
       gopHoaThuong={gop}
@@ -199,5 +206,30 @@ describe('tệp sạch', () => {
     dung([]);
     expect(screen.queryByRole('status')).toBeNull();
     expect(screen.queryByRole('checkbox', { name: /Gộp các nhóm/ })).toBeNull();
+  });
+});
+
+describe('dòng tiêu đề bị bỏ qua thì PHẢI nói ra — §B4', () => {
+  /*
+   * Hệ thống tự nhận ra dòng tên báo cáo ở trên hàng tiêu đề và bỏ nó. Đó là
+   * thứ cứu được một tệp Excel người Việt điển hình (trước bản vá: "1 cột · 7
+   * dòng" cho một tệp sáu cột). Nhưng bỏ mà im lặng thì lúc nó đoán SAI, người
+   * dùng mất một dòng dữ liệu và không có cách nào biết vì sao.
+   */
+  it('nói rõ bỏ mấy dòng và tên cột lấy từ dòng nào', () => {
+    dung([], true, new Set(), 2);
+
+    const noi = screen.getAllByRole('status').map((e) => e.textContent ?? '');
+    const cau = noi.find((t) => t.includes('bỏ qua')) ?? '';
+    expect(cau).toContain('2 dòng đầu');
+    // Số dòng của hàng tiêu đề, đếm từ 1 — thứ người dùng mở Excel ra đối chiếu.
+    expect(cau).toContain('dòng 3');
+  });
+
+  it('không bỏ dòng nào thì KHÔNG hiện gì — câu thừa là tiếng ồn', () => {
+    dung([]);
+
+    const noi = screen.queryAllByRole('status').map((e) => e.textContent ?? '');
+    expect(noi.some((t) => t.includes('bỏ qua'))).toBe(false);
   });
 });
