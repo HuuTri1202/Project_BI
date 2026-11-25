@@ -37,6 +37,16 @@ const durationFromEnv = z
   .regex(/^\d+[smhd]$/, "Phải có dạng số + đơn vị s/m/h/d, ví dụ '15m'")
   .transform((v) => v as Duration);
 
+/**
+ * Mật khẩu mẫu của tài khoản quản trị seed.
+ *
+ * Là hằng số XUẤT RA chứ không phải một chuỗi viết thẳng trong `.default()`, vì
+ * `scripts/seed-admin.ts` phải SO ĐƯỢC với nó để từ chối chạy ở production khi
+ * mật khẩu vẫn là giá trị này. Hai bản chép tay sẽ lệch nhau đúng vào ngày ai
+ * đó đổi mặc định, và khi đó chốt an toàn kia im lặng mất tác dụng.
+ */
+export const MAT_KHAU_SEED_MAU = 'Admin@12345';
+
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().int().positive().max(65535).default(4000),
@@ -312,13 +322,45 @@ const envSchema = z.object({
    */
   EMAIL_VERIFICATION_TTL_HOURS: z.coerce.number().int().positive().max(168).default(24),
 
+  /**
+   * ═══ Quan trắc (OpenTelemetry → SigNoz) ═══════════════════════════════════
+   *
+   * `OTEL_EXPORTER_OTLP_ENDPOINT` vừa là địa chỉ VỪA là CÔNG TẮC: vắng mặt thì
+   * `tracing.ts` không dựng SDK nào cả. Một cờ `OTEL_ENABLED` riêng sẽ tạo ra
+   * được trạng thái "bật nhưng không có chỗ gửi", và ở trạng thái đó SDK cứ
+   * mỗi 30 giây lại thử gửi vào `http://localhost:4318` (mặc định của chuẩn)
+   * rồi hỏng — trên máy dev không chạy SigNoz thì đó là tiếng ồn vĩnh viễn.
+   *
+   * ⚠️ Đây là địa chỉ GỐC, không kèm `/v1/traces`. SDK tự nối đuôi đường dẫn
+   * cho từng loại tín hiệu, nên khai sẵn đuôi vào đây sẽ thành
+   * `/v1/traces/v1/traces`.
+   *
+   * Tên biến theo ĐÚNG chuẩn OpenTelemetry chứ không đặt tên riêng: cùng một
+   * cái tên ấy còn được chính SDK đọc khi ai đó chạy bằng đường
+   * `--require @opentelemetry/auto-instrumentations-node/register`, nên đặt tên
+   * khác là có hai nguồn chân lý cho cùng một địa chỉ.
+   *
+   * Tự lưu trữ thì KHÔNG cần khoá nạp dữ liệu — `OTEL_EXPORTER_OTLP_HEADERS`
+   * chỉ cần khi bắn thẳng lên SigNoz Cloud. SDK tự đọc biến đó, không cần khai
+   * ở đây.
+   */
+  OTEL_EXPORTER_OTLP_ENDPOINT: z.string().url().optional(),
+
+  /**
+   * Tên dịch vụ hiện trên màn hình Services của SigNoz.
+   *
+   * Mặc định có hậu tố `-api`: tiến trình này là backend, và một ngày nào đó
+   * trình duyệt cũng bắn tín hiệu lên thì hai nguồn phải phân biệt được nhau.
+   */
+  OTEL_SERVICE_NAME: z.string().min(1).default('open-insight-api'),
+
   // --- Seed tài khoản quản trị đầu tiên (§2.7) ---
   // Đều có giá trị mặc định nên KHÔNG bắt buộc khai trong .env; chỉ script
   // seed đọc tới.
   SEED_TENANT_NAME: z.string().min(1).default(APP_NAME),
   SEED_TENANT_SLUG: z.string().min(1).default('bi-platform'),
   SEED_ADMIN_EMAIL: z.string().email().default('admin@bi-platform.local'),
-  SEED_ADMIN_PASSWORD: z.string().min(8).max(72).default('Admin@12345'),
+  SEED_ADMIN_PASSWORD: z.string().min(8).max(72).default(MAT_KHAU_SEED_MAU),
   SEED_ADMIN_FULL_NAME: z.string().min(1).default('Quản trị viên'),
 });
 

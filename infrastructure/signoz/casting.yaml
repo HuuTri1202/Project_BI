@@ -1,0 +1,41 @@
+# =============================================================================
+# SigNoz — bản khai báo DUY NHẤT cần giữ trong repo.
+#
+# Từ SigNoz v0.130.0, script `install.sh` và các file compose trong `deploy/`
+# đã bị KHAI TỬ, không còn được phân phối. Cách cài hiện tại là `foundryctl`:
+# nó đọc file này rồi TỰ SINH ra compose vào `pours/deployment/compose.yaml`.
+#
+#   ⚠️ KHÔNG sửa tay bất cứ file nào trong `pours/` — lần `forge`/`cast` kế
+#      tiếp sẽ ghi đè. Mọi tuỳ biến phải viết vào ĐÂY.
+#
+# Cài:
+#   curl -fsSL https://signoz.io/foundry.sh | bash      # một lần, cài foundryctl
+#   cd infrastructure/signoz
+#   foundryctl cast -f casting.yaml                     # dựng và chạy
+#
+# Xem trước mà chưa chạy:
+#   foundryctl gauge -f casting.yaml    # kiểm điều kiện máy
+#   foundryctl forge -f casting.yaml    # chỉ sinh compose
+#   cd pours/deployment && docker compose up -d
+#
+# Sau khi chạy: giao diện ở http://localhost:8080
+# =============================================================================
+apiVersion: v1alpha1
+kind: Installation
+metadata:
+  name: signoz
+spec:
+  deployment:
+    flavor: compose
+    mode: docker
+
+  signoz:
+    spec:
+      # GHIM bản, không để `latest`.
+      #
+      # Đây là đồ án: con số đo được hôm nay phải đọc lại được vào ngày bảo vệ.
+      # `latest` nghĩa là một lần `docker compose pull` vô tình có thể đổi cả
+      # lược đồ lưu trữ lẫn giao diện giữa hai lần đo.
+      #
+      # v0.151.0 phát hành 18/11/2026 — bản mới nhất lúc dựng phần này.
+      image: signoz/signoz:v0.151.0

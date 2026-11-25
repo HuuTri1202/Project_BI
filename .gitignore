@@ -74,6 +74,12 @@ infrastructure/cube/model/views/
 # database mỗi lần backend khởi động, nên không có lý do gì để nằm trong Git.
 infrastructure/cube/model/tenants/
 
+# `foundryctl` SINH RA compose của SigNoz vào đây, và tài liệu SigNoz dặn thẳng
+# là đừng sửa tay vì lần `forge`/`cast` sau sẽ ghi đè. File duy nhất cần giữ
+# trong Git là `infrastructure/signoz/casting.yaml` — nguồn sinh ra cả thư mục
+# này. Xem `docs/quan-trac.md`.
+infrastructure/signoz/pours/
+
 
 # Dump database
 *.sql.gz
