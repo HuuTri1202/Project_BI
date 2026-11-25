@@ -27,7 +27,21 @@ import { PREVIEW_ROWS, ParseError, parseFile, toPreview, type ParsedSheet } from
 /** 30 phút — dài hơn thời gian một người ngồi làm xong wizard, ngắn hơn một ca làm việc. */
 const CACHE_TTL_SECONDS = 30 * 60;
 
-const cacheKey = (datasetId: number): string => `dataset:analyze:${datasetId}`;
+/*
+ * ⚠️ `v2` là SỐ HIỆU HÌNH DẠNG, không phải số phiên bản của tính năng.
+ *
+ * Cache này giữ `AnalyzeOutput` dưới dạng JSON, và bản vá "mảng thưa" vừa rồi
+ * ĐỔI hình dạng ấy: trước đó `header` của một sheet có ô tiêu đề trống đi qua
+ * `JSON.stringify` thành `['Ngay', null, 'So tien']`, giờ là `['Ngay', '',
+ * 'So tien']`. Mã mới đọc phải bản cache cũ thì vẫn nhận `null` và vẫn nổ ở
+ * `defaultFieldName` — bản vá coi như chưa được áp cho những người đã tải file
+ * lên trong 30 phút trước đó.
+ *
+ * Đổi khoá làm mọi bản cache cũ thành không với tới được, nên không ai phải
+ * chờ hết TTL hay xoá tay trong Redis. Lần sau đổi hình dạng của `AnalyzeOutput`
+ * thì tăng số này lên.
+ */
+const cacheKey = (datasetId: number): string => `dataset:analyze:v2:${datasetId}`;
 
 export interface AnalyzeOutput {
   result: AnalyzeResultDto;

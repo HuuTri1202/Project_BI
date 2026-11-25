@@ -54,7 +54,7 @@ export function UsageBar({
     <div>
       <div className="flex items-baseline justify-between gap-2 text-sm">
         <span className="text-slate-700">{label}</span>
-        <span className="tabular-nums text-slate-500">
+        <span className="text-slate-500 tabular-nums">
           <strong className="text-slate-900">{daDung}</strong>
           {' / '}
           {dinhDangHanMuc(item.limit, storage)}
@@ -85,12 +85,24 @@ export function UsageBar({
         />
       </div>
 
-      {/* Vượt hạn mức phải nói bằng CHỮ. Hạn mức đợt này chỉ hiển thị chứ không
+      {/* Chạm trần và VƯỢT trần là hai chuyện khác nhau, và nói gộp thì sai.
+
+          ⚠️ Bản trước dùng `percent >= 100` cho cả hai, nên một tổ chức mới lập
+          ở gói Miễn phí — đúng 1 workspace trên hạn mức 1 — mở màn Gói dịch vụ
+          lên là thấy một dòng ĐỎ "Đã vượt hạn mức" ngay ngày đầu, trong khi họ
+          chưa làm gì sai và cũng chẳng vượt cái gì.
+
+          Vẫn nói bằng CHỮ ở cả hai mức: hạn mức đợt này chỉ hiển thị chứ không
           chặn, nên nếu chỉ đổi màu thanh thì người dùng không biết chuyện gì
           đang xảy ra và cũng không biết có phải làm gì không. */}
-      {!khongGioiHan && percent >= 100 && (
+      {!khongGioiHan && item.used > (item.limit ?? 0) && (
         <p className="mt-1 text-xs text-red-700">
           Đã vượt hạn mức của gói. Bạn vẫn dùng được bình thường — nâng gói để có thêm chỗ.
+        </p>
+      )}
+      {!khongGioiHan && item.used === item.limit && (
+        <p className="mt-1 text-xs text-amber-700">
+          Đã dùng hết hạn mức của gói. Tạo thêm thì cần nâng gói.
         </p>
       )}
     </div>

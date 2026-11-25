@@ -3,6 +3,7 @@ import { Readable } from 'node:stream';
 import Papa from 'papaparse';
 
 import { env } from '../../config/env';
+import { canhBaoCot } from './chatLuong';
 import { stripBom } from './detectFormat';
 import { inferColumnType } from './inferType';
 import { loadWorkbook, XlsxLoadError, type Workbook } from './loadWorkbook';
@@ -60,6 +61,13 @@ export interface ParsedSheet {
   rows: string[][];
   /** Tổng số dòng THẬT trong sheet — đếm hết, kể cả phần không giữ lại. */
   totalRows: number;
+  /**
+   * Số dòng bị BỎ QUA trước hàng tiêu đề — §B4. `0` là trường hợp thường.
+   *
+   * Phải đi ra tới giao diện: bỏ qua dòng mà không nói là tự ý đổi hình dạng
+   * dữ liệu của người ta. Xem `chonDongTieuDe`.
+   */
+  boQuaDong: number;
 }
 
 export interface ParseResult {
@@ -128,8 +136,10 @@ function parseCsv(buffer: Buffer): Promise<ParseResult> {
           return;
         }
 
-        const [header = [], ...rest] = kept;
-        const totalRows = Math.max(0, seen - 1);
+        // §B4 — dòng tên báo cáo ở trên hàng tiêu đề. Xem `chonDongTieuDe`.
+        const boQuaDong = chonDongTieuDe(kept.map((r) => r.map(cellText)));
+        const [header = [], ...rest] = kept.slice(boQuaDong);
+        const totalRows = Math.max(0, seen - 1 - boQuaDong);
 
         resolve({
           sheets: [
@@ -138,6 +148,7 @@ function parseCsv(buffer: Buffer): Promise<ParseResult> {
               header: header.map(cellText),
               rows: rest.map(normalizeRow(header.length)),
               totalRows,
+              boQuaDong,
             },
           ],
           truncated: totalRows > env.DATASET_MAX_ROWS,
@@ -183,20 +194,47 @@ async function parseXlsx(buffer: Buffer): Promise<ParseResult> {
       // `row.values` là mảng 1-INDEXED — phần tử 0 luôn là undefined. Cắt bỏ nó,
       // nếu không mọi cột lệch một vị trí và cột cuối cùng biến mất.
       const values = Array.isArray(row.values) ? row.values.slice(1) : [];
-      table.push(values.map(cellText));
+      /*
+       * ⚠️ `Array.from`, KHÔNG phải `.map` — đây là chỗ mảng THƯA được lấp đầy.
+       *
+       * exceljs trả về mảng có LỖ cho ô trống: `['Ngày', <lỗ>, 'Số tiền']`. Mà
+       * `.map` BỎ QUA lỗ và giữ nguyên chúng là lỗ, nên `ParsedSheet.header`
+       * khai kiểu `string[]` mà thật ra không phải — và nó nói dối theo kiểu
+       * chỉ lộ ra ở một nơi duy nhất.
+       *
+       * LỖI ĐÃ XẢY RA TRÊN FILE THẬT: một file Excel có ô tiêu đề để trống ở
+       * giữa. Bước phân tích trả về 200 vì `toPreview` cũng dùng `.map` nên
+       * cũng bỏ qua lỗ. Bước chốt thì chết:
+       *
+       *     TypeError: Cannot read properties of null (reading 'replace')
+       *       at defaultFieldName (inferType.ts:186)
+       *
+       * Chỗ `null` sinh ra là CACHE: kết quả phân tích đi qua Redis bằng
+       * `JSON.stringify`, và JSON không có khái niệm lỗ — nó ghi lỗ thành
+       * `null`. Nên giá trị trong bộ nhớ và giá trị đọc lại từ cache là HAI
+       * hình dạng khác nhau, và chỉ hình dạng thứ hai mới nổ.
+       *
+       * `Array.from` coi lỗ là `undefined` và trả về mảng ĐẶC, nên `cellText`
+       * được gọi cho mọi vị trí và cho ra `''`. Sửa ở đây thì cả `header` lẫn
+       * `rows` đều đặc, vì cả hai đều cắt ra từ `table`.
+       */
+      table.push(Array.from(values, cellText));
     });
 
     if (table.length === 0) continue;
 
-    const totalRows = Math.max(0, seen - 1);
+    // §B4 — xem `chonDongTieuDe`. `table` đã đặc (xem khối `Array.from` trên).
+    const boQuaDong = chonDongTieuDe(table);
+    const totalRows = Math.max(0, seen - 1 - boQuaDong);
     if (totalRows > env.DATASET_MAX_ROWS) truncated = true;
 
-    const [header = [], ...rest] = table;
+    const [header = [], ...rest] = table.slice(boQuaDong);
     sheets.push({
       name: worksheet.name,
       header: header.map(cellText),
       rows: rest.map(normalizeRow(header.length)),
       totalRows,
+      boQuaDong,
     });
   }
 
@@ -205,6 +243,46 @@ async function parseXlsx(buffer: Buffer): Promise<ParseResult> {
   }
 
   return { sheets, truncated };
+}
+
+/**
+ * Dòng nào là HÀNG TIÊU ĐỀ — §B4.
+ *
+ * ═══ Hình dạng tệp thật mà bản cũ đọc hỏng ════════════════════════════════
+ *
+ * Tệp Excel người Việt xuất ra hầu như luôn có một dòng tên báo cáo ở trên
+ * cùng:
+ *
+ *     BÁO CÁO DOANH THU THÁNG 10/2026 — Nhà Gỗ Coffee     ← một ô duy nhất
+ *     (dòng trống)
+ *     Ngày | Chi nhánh | Sản phẩm | Số lượng | Doanh thu   ← tiêu đề thật
+ *
+ * Lấy cứng dòng đầu làm tiêu đề thì bộ dữ liệu ra MỘT cột tên là cả câu tiêu
+ * đề báo cáo, còn năm cột kia biến mất — không lỗi, không cảnh báo. Đo được
+ * ngày 20/11/2026: "1 cột · 7 dòng" cho một tệp sáu cột.
+ *
+ * ═══ Luật, và vì sao nó hẹp đúng mức ═════════════════════════════════════
+ *
+ * Dòng tiêu đề là dòng ĐẦU TIÊN có từ HAI ô không rỗng trở lên, tìm trong
+ * `TRAN_DO_TIEU_DE` dòng đầu. Không tìm thấy thì giữ nguyên dòng 0 — hành vi cũ.
+ *
+ * Hai ô là ngưỡng đúng: một tiêu đề báo cáo luôn nằm gọn trong một ô (người ta
+ * gộp ô hoặc gõ vào A1), còn một bảng dữ liệu thì theo định nghĩa có ít nhất
+ * hai cột. Tệp MỘT cột thật sự thì không dòng nào đạt hai ô, nên luật không
+ * bao giờ chạm tới nó.
+ *
+ * Trần mười dòng để một tệp lạ không bị quét cả nghìn dòng đi tìm một thứ
+ * không có — và vì chưa ai đặt mười dòng ghi chú lên đầu một bảng tính.
+ */
+const TRAN_DO_TIEU_DE = 10;
+
+export function chonDongTieuDe(table: readonly (readonly string[])[]): number {
+  const tran = Math.min(table.length, TRAN_DO_TIEU_DE);
+  for (let i = 0; i < tran; i += 1) {
+    const soO = (table[i] ?? []).filter((c) => cellText(c).trim() !== '').length;
+    if (soO >= 2) return i;
+  }
+  return 0;
 }
 
 // ─── Chuẩn hoá ô ─────────────────────────────────────────────────────────────
@@ -269,21 +347,40 @@ function normalizeRow(width: number): (row: unknown[]) => string[] {
 export function toPreview(sheet: ParsedSheet): SheetPreviewDto {
   const sample = sheet.rows.slice(0, SAMPLE_ROWS);
 
+  // `values` đi kèm từng cột để phần cảnh báo dưới đây không phải cắt mẫu lần
+  // hai; nó được loại khỏi DTO ngay ở `return` vì 200 ô mỗi cột không có lý do
+  // gì đi qua dây.
+  const cot = sheet.header.map((sourceName, columnIndex) => {
+    const values = sample.map((row) => row[columnIndex] ?? '');
+    return {
+      columnIndex,
+      sourceName,
+      semanticType: inferColumnType(values),
+      samples: values.filter((v) => v !== '').slice(0, 3),
+      values,
+    };
+  });
+
   return {
     name: sheet.name,
     // Số dòng THẬT của sheet, không phải số dòng đang giữ trong bộ nhớ. Lấy
     // `rows.length` ở đây thì mọi file đều hiện đúng 1.000 dòng — con số vừa sai
     // vừa trông hợp lý, nên không ai nghi ngờ.
     rowCount: sheet.totalRows,
+    // §B4 — nói ra là đã bỏ mấy dòng đầu. Bỏ mà im lặng là tự ý đổi hình dạng
+    // dữ liệu của người ta; `0` thì DTO không mang trường này.
+    ...(sheet.boQuaDong > 0 ? { boQuaDong: sheet.boQuaDong } : {}),
     previewRows: sheet.rows.slice(0, PREVIEW_ROWS),
-    columns: sheet.header.map((sourceName, columnIndex) => {
-      const values = sample.map((row) => row[columnIndex] ?? '');
-      return {
-        columnIndex,
-        sourceName,
-        semanticType: inferColumnType(values),
-        samples: values.filter((v) => v !== '').slice(0, 3),
-      };
-    }),
+    // Liệt kê tường minh để `values` KHÔNG đi qua dây: 200 ô mỗi cột nhân số
+    // cột là một phần tải không ai dùng, và nó còn nằm trong cache Redis.
+    columns: cot.map((c) => ({
+      columnIndex: c.columnIndex,
+      sourceName: c.sourceName,
+      semanticType: c.semanticType,
+      samples: c.samples,
+    })),
+    // Soi trên cùng MỘT mẫu với phần đoán kiểu ở trên: cảnh báo nói về đúng
+    // những ô mà kiểu đã được suy ra từ đó.
+    canhBao: cot.flatMap((c) => canhBaoCot(c.sourceName, c.columnIndex, c.values, c.semanticType)),
   };
 }

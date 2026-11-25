@@ -79,6 +79,23 @@ function mocCapNhat(ds: DatasetDto): string | null {
 }
 
 /*
+ * Mốc TẠO của một bộ dữ liệu, dạng ISO — hoặc `null`.
+ *
+ * ⚠️ Tách khỏi `mocCapNhat` chứ không gộp, vì hai thứ trả lời hai câu khác
+ * nhau và cả hai đều đúng: "có từ bao giờ" so với "lần cuối con số đổi". Một bộ
+ * tạo tháng trước mà nạp lại sáng nay thì nó vừa là bộ CŨ NHẤT vừa là bộ CẬP
+ * NHẬT GẦN NHẤT. Gộp lại là mất một trong hai câu.
+ *
+ * `?? null` không thừa, cùng lý do đã ghi ở `mocCapNhat`: kiểu khai `createdAt`
+ * là BẮT BUỘC, nhưng kiểu khai chỉ là một giả định về mạng. Một bản frontend
+ * mới nói chuyện với backend cũ thì trường này VẮNG MẶT, và `new Date(undefined)`
+ * in ra "Invalid Date" — một dữ kiện hỏng đứng cạnh sáu dữ kiện đúng.
+ */
+function mocTao(ds: DatasetDto): string | null {
+  return ds.createdAt ?? null;
+}
+
+/*
  * In ngày theo ĐÚNG cách `DatasetsPage` đang in nó.
  *
  * Khung nói "25/10/2026" còn bảng ngay cạnh nói "2026-10-25" là bắt người đọc
@@ -169,6 +186,24 @@ function duKienChung(ds: DatasetDto): DuKien[] {
         ? { luuY: 'đây là lần đồng bộ từ CSDL nguồn; bộ này chưa nạp vào kho phân tích' }
         : {}),
     });
+  }
+
+  /*
+   * Ngày TẠO — dữ kiện mở ra lớp câu hỏi "có từ bao giờ".
+   *
+   * `datasets.created_at` có từ migration 1 nhưng tới gần đây chưa ra tới
+   * client; bộ đánh giá ghi "Orders được tạo ngày nào" là bế tắc kèm đúng lý do
+   * đó. Thêm trường vào DTO rồi khai ở đây là đủ — không lớp xử lý ngôn ngữ nào
+   * phải đổi, vì mọi lớp sẵn có đều trả lời được một dữ kiện đã tồn tại.
+   *
+   * ⚠️ Nhãn KHÔNG chứa chữ "tệp"/"file", và đó không phải tình cờ: nhãn "Dung
+   * lượng"/"Tên tệp gốc" ngay dưới đã giữ chữ ấy, và hai nhãn cùng mang một chữ
+   * phân biệt thì câu "Orders tạo từ file nào" hoà điểm rồi bị bỏ cả hai. Ca đó
+   * nằm trong bộ đánh giá, nên nếu nhãn này lấn sân thì nó đỏ ngay.
+   */
+  const tao = mocTao(ds);
+  if (tao !== null) {
+    d.push({ nhan: `Ngày tạo của ${ds.name}`, gia: docNgay(tao) });
   }
 
   if (ds.source === 'file') {
@@ -336,6 +371,32 @@ export function tomTatBoDuLieu(ds: DatasetDto[], tong: number, pham: string): Du
     ...(moiNhat === null || mocMoiNhat === null
       ? []
       : dk('Bộ dữ liệu cập nhật gần đây nhất', `${moiNhat.name} (${docNgay(mocMoiNhat)})`, chuaDu)),
+    /*
+     * Bộ CŨ NHẤT — xếp theo ngày TẠO, không theo ngày cập nhật.
+     *
+     * ⚠️ Chữ "cũ" phải nằm TRONG nhãn, và đó là cả lý do nhãn này đọc được.
+     * `traCuu` chấm điểm bằng số từ trùng, nên "bộ dữ liệu nào cũ nhất" mà gặp
+     * nhãn "Bộ dữ liệu tạo sớm nhất" sẽ trùng đúng {bộ, dữ, liệu, nhất} — HOÀ
+     * điểm với "Bộ dữ liệu cập nhật gần đây nhất" ngay trên, và hoà thì luật
+     * "phải hơn hẳn ứng viên nhì" bỏ cả hai. Có chữ "cũ" thì nó hơn một điểm.
+     *
+     * Phép so nằm ở ĐÂY, trên chuỗi ISO, cùng lý do đã ghi dài ở `moiNhat`:
+     * lớp xếp hạng của khung chỉ nhận cột mà mọi ô đọc ra SỐ, nên một cột ngày
+     * luôn bị loại — và dạy nó hiểu ngày thì mở luôn cửa cho "tổng của cột
+     * ngày", đúng loại SAI đang phải chặn.
+     */
+    ...(() => {
+      const cuNhat = ds.reduce<DatasetDto | null>((tot, d) => {
+        const a = mocTao(d);
+        if (a === null) return tot;
+        const b = tot === null ? null : mocTao(tot);
+        return b === null || a < b ? d : tot;
+      }, null);
+      const moc = cuNhat === null ? null : mocTao(cuNhat);
+      return cuNhat === null || moc === null
+        ? []
+        : dk('Bộ dữ liệu cũ nhất', `${cuNhat.name} (tạo ${docNgay(moc)})`, chuaDu);
+    })(),
     /*
      * ⚠️ Nhãn cố ý KHÔNG chứa cụm "bộ dữ liệu". Cụm đó đã là của nhãn đầu
      * tiên; dùng lại là hai nhãn hoà điểm trong `traCuu` cho câu "có bao nhiêu bộ
@@ -651,6 +712,21 @@ export function duKienMoHinh(m: DataModelDetailDto, bangTruoc?: number | null): 
  * — rồi trả lời bằng một ô trống. Thà không có nó.
  */
 
+/**
+ * Định dạng một mốc ISO, hoặc `null` khi KHÔNG có mốc nào.
+ *
+ * ⚠️ Tồn tại vì `dk` một mình không đủ. `dinhDangNgay(undefined)` trả về chuỗi
+ * `"Invalid Date"` — một chuỗi KHÁC rỗng, nên `dk` nhận nó và phát ra một dữ
+ * kiện hỏng đứng cạnh các dữ kiện đúng. Mà một trường ISO vắng mặt là chuyện
+ * thường: kiểu khai `createdAt: string` là giả định về mạng chứ không phải bảo
+ * đảm, và một bản frontend mới nói chuyện với backend cũ thì nó vắng.
+ *
+ * Cùng lập luận đã ghi dài ở `mocCapNhat` đầu tệp.
+ */
+function ngay(iso: string | null | undefined): string | null {
+  return iso === null || iso === undefined || iso === '' ? null : dinhDangNgay(iso);
+}
+
 function dk(nhan: string, gia: string | number | null | undefined, luuY?: string): DuKien[] {
   if (gia === null || gia === undefined || gia === '') return [];
   const doc = typeof gia === 'number' ? gia.toLocaleString('vi-VN') : gia;
@@ -665,6 +741,17 @@ export function duKienTrangChu(home: HomeDataDto): Nguon[] {
       duKien: [
         ...dk(`Số báo cáo trong ${w}`, home.stats.reports),
         ...dk(`Số thành viên của ${w}`, home.stats.members),
+        /*
+         * ⚠️ `stats.datasets` và `stats.datamodels` CỐ Ý không khai ở đây, dù
+         * chúng về cùng lượt gọi (vá C1 cần chúng cho lời hướng dẫn ba bước).
+         *
+         * Khai rồi, và bộ đánh giá bắt được ngay: số câu ĐÚNG tụt 279 -> 278, ca
+         * mất là "có bao nhiêu mô hình dữ liệu" hỏi từ trang Hồ sơ. Lý do đúng
+         * như thiết kế: ngữ cảnh xuyên hệ thống đã mang sẵn số đếm ấy từ chính
+         * module của nó (`tomTatMoHinh`), nên thêm một dữ kiện nữa cùng nghĩa
+         * chỉ tạo ra HAI ứng viên cho một câu hỏi — và khung từ chối trả lời khi
+         * không phân xử được, đúng thứ nó phải làm.
+         */
         ...dk(`Báo cáo mở gần đây trong ${w}`, home.reports.map((r) => r.name).join('; ')),
       ],
     },
@@ -831,6 +918,46 @@ export function duKienNguonBaoCao(r: ReportDto): DuKien[] {
       `Nguồn của bộ dữ liệu ${r.sourceName}`,
       r.datasetSource === null ? null : DATASET_SOURCE_LABELS[r.datasetSource],
     ),
+
+    /*
+     * ─── Lý lịch của báo cáo: ai tạo, tạo lúc nào, sửa lúc nào ──────────────
+     *
+     * ⚠️ `ReportDto` MANG SẴN cả ba trường này, và `ReportViewer` đang giữ cả
+     * object `report`. Chúng bế tắc chỉ vì hàm này không khai ra — không phải
+     * vì thiếu dữ liệu, không phải vì khung không hiểu câu hỏi.
+     *
+     * ĐO ĐƯỢC: "ai là người tạo báo cáo này" bế tắc trên trang xem báo cáo,
+     * trong khi trang DANH SÁCH báo cáo trả lời được từ lâu bằng ĐÚNG những
+     * trường này (`duKienDanhSachBaoCao`). Cùng một DTO, hai hàm, một hàm quên.
+     *
+     * Nhãn dùng NGUYÊN VĂN nhãn của trang danh sách. Hai cách gọi khác nhau cho
+     * cùng một dữ kiện là hai câu trả lời cho cùng một câu hỏi, tuỳ người dùng
+     * đang đứng ở trang nào — và không ai phát hiện ra cho tới khi có người so
+     * hai màn hình.
+     *
+     * ⚠️ Chủ ngữ của mấy dữ kiện này là BÁO CÁO, không phải con chip đang chọn
+     * — cùng cái bẫy mà khối chú thích đầu hàm nói dài về. Bẫy đó được bịt bằng
+     * cách nhãn gọi ĐÍCH DANH `${r.name}`, y như trang danh sách làm; không có
+     * tên trong nhãn thì "Người tạo" đứng cạnh một biểu đồ đọc ra thành "người
+     * tạo biểu đồ này".
+     */
+    /*
+     * ⚠️ CỐ Ý KHÔNG có "Ngày tạo của báo cáo X" ở đây, dù `ReportDto` mang sẵn
+     * `createdAt`.
+     *
+     * Đã thêm rồi GỠ, và lý do là một con số đo được: nhãn ấy trùng {tạo, báo,
+     * cáo} với nhãn "Người tạo báo cáo X" ngay dưới, nên câu "ai tạo báo cáo
+     * này" — không có chữ "người" — HOÀ điểm giữa hai nhãn, và luật "phải hơn
+     * hẳn ứng viên nhì" bỏ cả hai. Thêm một dữ kiện làm MẤT một câu trả lời
+     * đang có.
+     *
+     * Đúng cái bẫy mà khối chú thích đầu hàm nói tới: mỗi nhãn thêm vào là một
+     * đường khớp nhầm mới. "Báo cáo tạo lúc nào" không phải câu người ta hỏi
+     * nhiều; "ai tạo báo cáo này" thì có.
+     */
+    ...dk(`Người tạo báo cáo ${r.name}`, r.creatorName),
+    ...dk(`Báo cáo ${r.name} sửa lần cuối lúc nào`, ngay(r.updatedAt)),
+    ...dk(`Thư mục của báo cáo ${r.name}`, r.folderName ?? 'Chung'),
   ];
 }
 

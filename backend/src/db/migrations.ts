@@ -3216,4 +3216,232 @@ export const migrations: readonly Migration[] = [
             AND m.role <> 'admin'`,
     ],
   },
+  // ─── user_identities: đăng nhập bằng nhà cung cấp ngoài (Google) ──────
+  //
+  // ⚠️ KHOÁ DUY NHẤT ĐẶT TRÊN `provider_user_id`, KHÔNG trên email.
+  //
+  // Cách viết tự nhiên là thêm một cột `users.google_email` rồi so email. Nó
+  // sai, và sai theo kiểu chỉ lộ ra khi đã mất tài khoản: email của một tài
+  // khoản Google ĐỔI ĐƯỢC (đổi tên miền công ty, đổi alias), còn `sub` — định
+  // danh Google cấp — thì không bao giờ đổi. Lấy email làm khoá nghĩa là người
+  // dùng đổi email bên Google xong thì mất lối vào, và một người khác nhận
+  // được email cũ ấy thì vào được tài khoản của họ.
+  //
+  // Hai khoá duy nhất, mỗi cái chặn một chuyện khác nhau:
+  //
+  //   uq_identity_subject  một tài khoản Google chỉ trỏ tới MỘT người dùng
+  //   uq_identity_user     một người dùng chỉ liên kết MỘT tài khoản Google
+  //
+  // `email_at_link` KHÔNG dùng để đăng nhập — nó chỉ để tra cứu về sau khi cần
+  // biết liên kết này được lập lúc ấy bằng email nào. Dùng nó làm khoá tìm là
+  // mở lại đúng lỗ vừa nói.
+  {
+    id: 41,
+    name: 'user_identities',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS user_identities (
+        id               BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+        user_id          BIGINT UNSIGNED NOT NULL,
+        provider         ENUM('google') NOT NULL,
+        provider_user_id VARCHAR(255) NOT NULL,
+        email_at_link    VARCHAR(255) NOT NULL,
+        created_at       DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+        last_login_at    DATETIME(3) NULL,
+        PRIMARY KEY (id),
+        UNIQUE KEY uq_identity_subject (provider, provider_user_id),
+        UNIQUE KEY uq_identity_user (user_id, provider),
+        CONSTRAINT fk_identity_user FOREIGN KEY (user_id)
+          REFERENCES users (id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    ],
+  },
+
+  // ─── 42. Xác minh email — §1.10 ───────────────────────────────────────────
+  //
+  // Cột `users.email_verified_at` có từ migration 1 nhưng CHƯA AI GHI và CHƯA AI
+  // ĐỌC. Nghĩa là tới hôm nay, quyền sở hữu một tài khoản không dựa trên gì cả:
+  // ai cũng đăng ký được bằng email của người khác.
+  //
+  // ═══ Vì sao việc này gấp lên từ migration 41 ═══════════════════════════════
+  //
+  // Migration 41 mở đường đăng nhập Google có TỰ LIÊN KẾT theo email. Ghép hai
+  // thứ lại ra một đường tấn công thật, và nó có tên: pre-hijacking.
+  //
+  //   1. Kẻ tấn công đăng ký `ketoan@congty.vn` — không phải chứng minh gì.
+  //      Nó được tài khoản + một tổ chức, làm admin, và biết mật khẩu.
+  //   2. Người thật sau đó bấm "Đăng nhập bằng Google". Google xác nhận email,
+  //      hệ thống tự liên kết, họ vào được và TIN đó là workspace của mình.
+  //   3. Họ nạp dữ liệu công ty lên. Kẻ tấn công đăng nhập bằng mật khẩu nó tự
+  //      đặt và đọc toàn bộ.
+  //
+  // Nghịch lý phải sửa: hệ thống ĐÒI Google chứng minh quyền sở hữu hộp thư
+  // trước khi liên kết, nhưng `/register` của chính nó KHÔNG đòi gì.
+  //
+  // ═══ Vì sao "ân xá" mọi dòng đang có ══════════════════════════════════════
+  //
+  // Câu UPDATE thứ hai đánh dấu MỌI tài khoản hiện tại là đã xác minh. Không có
+  // nó thì luật mới khoá sạch cả cơ sở dữ liệu đang chạy — kể cả tài khoản seed
+  // và các tài khoản trong `docs/tai-khoan-thu-nghiem.md` — và không ai còn
+  // đường vào để sửa.
+  //
+  // ⚠️ Nó cũng ân xá luôn một tài khoản squat có thể đã tồn tại. Chấp nhận được:
+  // luật chỉ có thể áp cho những gì xảy ra TỪ ĐÂY, và ngày mai thì không còn
+  // dòng nào chưa xác minh để ân xá nữa.
+  //
+  // `email_verified_at = created_at` chứ không phải `NOW(3)`: một mốc thời gian
+  // nói "đã xác minh từ lúc tạo" thì trung thực hơn là nói "cả 500 tài khoản
+  // cùng xác minh vào đúng giây chạy migration".
+  {
+    id: 42,
+    name: 'email_verification_tokens',
+    statements: [
+      // Bảng này là bản sinh đôi của `password_reset_tokens` (migration 36), và
+      // KHÔNG dùng chung với nó. Hai loại vé trao hai quyền khác nhau: một vé
+      // đặt lại mật khẩu, một vé xác minh email. Nhét chung một bảng thì mọi câu
+      // truy vấn phải nhớ lọc `purpose`, và `vohieuVeCu(userId)` của bên này sẽ
+      // vô hiệu hoá luôn vé của bên kia. Một lần quên là một vé xác minh đổi
+      // được mật khẩu.
+      `CREATE TABLE IF NOT EXISTS email_verification_tokens (
+         id          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+         user_id     BIGINT UNSIGNED NOT NULL,
+         token_hash  CHAR(64)        NOT NULL,
+         expires_at  DATETIME(3)     NOT NULL,
+         used_at     DATETIME(3)     NULL,
+         created_at  DATETIME(3)     NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+         PRIMARY KEY (id),
+         UNIQUE KEY uq_email_verify_token_hash (token_hash),
+         KEY ix_email_verify_user (user_id, used_at),
+         KEY ix_email_verify_expiry (expires_at),
+         CONSTRAINT fk_email_verify_user FOREIGN KEY (user_id)
+           REFERENCES users (id) ON DELETE CASCADE
+       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+
+      `UPDATE users
+          SET email_verified_at = created_at
+        WHERE email_verified_at IS NULL`,
+    ],
+  },
+  /**
+   * Quy ước phân cách số, lưu THEO CỘT — §7.
+   *
+   * Lỗi nó sửa đã đo trên hệ thống đang chạy: một tệp bán hàng có ô `750.000`
+   * vào ClickHouse thành `750`, và biểu đồ doanh thu hiện một cột 750 cạnh một
+   * cột 15.980.000. `parseNumber` xét từng ô nên `750.000` đứng một mình là ca
+   * 50/50 thật; nhìn cả cột thì ô `1.250.000` bên cạnh đã phân xử xong.
+   *
+   * Vì sao LƯU chứ không suy lại mỗi lần đọc: hai đường cùng đọc một file —
+   * `commit` ghi mẫu xem trước, `readFileRows` nạp vào ClickHouse — và chúng
+   * lấy mẫu khác nhau (200 dòng đầu so với cả file). Suy lại ở mỗi nơi là mở
+   * đường cho bảng xem trước và kho phân tích nói hai điều khác nhau về cùng
+   * một ô, đúng lớp lỗi mà `normalizeCell` đã sinh ra để chặn.
+   *
+   * NULL cho mọi cột cũ, và `parseNumber(raw, null)` chạy ĐÚNG như trước khi có
+   * migration này — nên bộ dữ liệu đã nạp không đổi giá trị, kể cả khi nạp lại.
+   */
+  {
+    id: 43,
+    name: 'dataset_columns_number_format',
+    statements: [
+      `ALTER TABLE dataset_columns
+         ADD COLUMN number_format ENUM('vn','en') NULL AFTER included`,
+    ],
+  },
+  /*
+   * Bản đồ gộp các cách viết của cùng một giá trị — vá A2.
+   *
+   * `MIỀN NAM` và `Miền Nam` là hai nhóm riêng trong biểu đồ, nên một tệp bán
+   * hàng người gõ tay cho ra năm cột cho ba khu vực. Người dùng tích "gộp" ở
+   * bước 2 của wizard; bản đồ được dựng từ mẫu lúc `commit` và LƯU lại ở đây.
+   *
+   * Vì sao lưu chứ không suy lại mỗi lần đọc: cùng lý do với `number_format` ở
+   * migration 43. Hai đường cùng đọc một tệp (`commit` ghi bảng xem trước,
+   * `readFileRows` nạp vào ClickHouse) lấy mẫu khác nhau, nên suy lại ở mỗi nơi
+   * là mở đường cho hai nơi gộp khác nhau trên cùng một ô.
+   *
+   * JSON chứ không phải một cờ boolean kèm luật sinh: cách viết ĐẠI DIỆN là cách
+   * xuất hiện nhiều nhất trong chính tệp của người dùng, nên nhãn biểu đồ vẫn là
+   * chữ của họ. Một luật kiểu Title Case thì biến `iPhone` thành `Iphone`.
+   */
+  {
+    id: 44,
+    name: 'dataset_columns_value_map',
+    statements: [
+      `ALTER TABLE dataset_columns
+         ADD COLUMN value_map JSON NULL AFTER number_format`,
+    ],
+  },
+  {
+    id: 45,
+    name: 'report_shares',
+    statements: [
+      /*
+       * ═══ Liên kết xem báo cáo cho người KHÔNG có tài khoản — mong muốn D5 ══
+       *
+       * Chủ cửa hàng muốn gửi một đường dẫn cho kế toán hoặc chủ đầu tư, những
+       * người sẽ không bao giờ lập tài khoản trong hệ thống này.
+       *
+       * ─── Chỉ giữ BĂM của chuỗi, không giữ chuỗi ─────────────────────────
+       *
+       * Cùng quy ước với `password_reset_tokens` (migration 36): chuỗi 32 byte
+       * ngẫu nhiên đi vào đường dẫn, database chỉ giữ SHA-256 của nó. Một bản
+       * dump database hay một lần đọc lỏng bảng này KHÔNG cho ai mở được báo
+       * cáo nào — và đó là khác biệt duy nhất đáng kể giữa bảng này và một bảng
+       * giữ nguyên văn chuỗi.
+       *
+       * ─── `revoked_at` chứ không DELETE ───────────────────────────────────
+       *
+       * Thu hồi một liên kết là một việc người dùng cần THẤY đã xảy ra, và cần
+       * thấy nó đã xảy ra lúc nào. Xoá dòng thì màn quản lý liên kết không còn
+       * gì để nói ngoài sự im lặng.
+       *
+       * ─── `view_count` và `last_viewed_at` ───────────────────────────────
+       *
+       * Người chia sẻ cần biết liên kết có ai mở không — đó là câu hỏi đầu tiên
+       * họ hỏi ("kế toán xem chưa?"). Đếm số lần mở là mức tối thiểu trả lời
+       * được câu đó mà KHÔNG lưu gì về người xem: không IP, không user agent.
+       * Người nhận liên kết không có tài khoản ở đây và không đồng ý điều gì cả.
+       *
+       * ─── ON DELETE CASCADE ──────────────────────────────────────────────
+       *
+       * Xoá báo cáo là mọi liên kết tới nó mất theo. Giữ lại một liên kết trỏ
+       * vào một báo cáo không còn tồn tại chỉ để nó trả 404 ở một đường vòng
+       * dài hơn.
+       */
+      `CREATE TABLE IF NOT EXISTS report_shares (
+         id             BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+         tenant_id      BIGINT UNSIGNED NOT NULL,
+         report_id      BIGINT UNSIGNED NOT NULL,
+         token_hash     CHAR(64)        NOT NULL,
+         created_by     BIGINT UNSIGNED NOT NULL,
+         expires_at     DATETIME(3)     NULL,
+         revoked_at     DATETIME(3)     NULL,
+         last_viewed_at DATETIME(3)     NULL,
+         view_count     INT UNSIGNED    NOT NULL DEFAULT 0,
+         created_at     DATETIME(3)     NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+         PRIMARY KEY (id),
+         UNIQUE KEY uq_report_share_token_hash (token_hash),
+         KEY ix_report_share_report (tenant_id, report_id, revoked_at),
+         CONSTRAINT fk_report_share_report FOREIGN KEY (report_id)
+           REFERENCES reports (id) ON DELETE CASCADE,
+         CONSTRAINT fk_report_share_tenant FOREIGN KEY (tenant_id)
+           REFERENCES tenants (id) ON DELETE CASCADE
+       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    ],
+  },
+  /*
+   * ═══ 46 LÀ SỐ ĐÃ CHÁY — đừng cấp lại ════════════════════════════════════
+   *
+   * 46 từng là `report_schedules` (gửi báo cáo định kỳ qua email). Tính năng
+   * đã được gỡ khỏi hệ thống, và vì migration ấy CHƯA lên remote nên nó được
+   * xoá hẳn thay vì thêm một migration thứ hai chỉ để `DROP TABLE`.
+   *
+   * Nhưng máy dev nào đã chạy nó thì trong `schema_migrations` vẫn còn dòng
+   * id 46. `migrate.ts` nhận diện THEO ID (`if (applied.has(migration.id))`),
+   * nên một migration mới lấy lại số 46 sẽ bị những máy đó BỎ QUA — im lặng,
+   * không lỗi. Migration kế tiếp bắt đầu từ 47.
+   *
+   * Dọn bảng chết trên máy đã chạy 46:
+   *   DROP TABLE IF EXISTS report_schedules;
+   *   DELETE FROM schema_migrations WHERE id = 46;
+   */
 ];

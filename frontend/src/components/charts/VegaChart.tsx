@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { TopLevelSpec } from 'vega-lite';
 
 import { KHONG_XUAT, THUOC_TINH_DANG_VE } from '../../services/danhDauXuat';
+import { DINH_DANG_NGAY_VIET, DINH_DANG_SO_VIET } from './localeViet';
 import { hamBieuThucVega, type DoChu } from './vegaExpr';
 import { khongKichThuoc, soDo } from './vegaSpecKey';
 
@@ -134,6 +135,9 @@ export function VegaChart<T extends object>({
     void (async () => {
       try {
         const { default: vegaEmbed, vega } = await import('vega-embed');
+        // Nạp cùng lúc với vega-embed: nó là một gói riêng, và chờ nối tiếp là
+        // thêm một vòng mạng cho mỗi biểu đồ đầu tiên của phiên.
+        const { expressionInterpreter } = await import('vega-interpreter');
         if (cancelled) return;
 
         const { spec: specMoi, data: dataMoi } = moiNhat.current;
@@ -149,10 +153,44 @@ export function VegaChart<T extends object>({
           },
           {
             actions: false,
+            /*
+             * ═══ Hai dòng này là thứ cho phép CSP KHÔNG cần 'unsafe-eval' ═══
+             *
+             * Mặc định, Vega biên dịch mọi biểu thức trong spec (`{expr: …}` ở
+             * nhãn trục — xem `chartSpec.ts`) thành mã JS rồi dựng hàm bằng
+             * `Function(...)`. Dưới `script-src 'self'` thì trình duyệt chặn
+             * thẳng:
+             *
+             *     EvalError: Evaluating a string as JavaScript violates the
+             *     following Content Security Policy directive…
+             *
+             * ⚠️ Và nó hỏng ÂM THẦM theo nghĩa tệ nhất: trang vẫn tải, không
+             * trang nào báo lỗi, chỉ những ô CÓ biểu đồ là trống. Đi một vòng
+             * app rồi đếm vi phạm CSP KHÔNG phát hiện được — phải vẽ thật một
+             * biểu đồ mới thấy.
+             *
+             * `ast: true` bảo Vega giữ biểu thức ở dạng cây cú pháp, và
+             * `expr: expressionInterpreter` cho nó một bộ THÔNG DỊCH duyệt cây
+             * đó thay vì sinh mã. Đây là đường chính thức Vega cấp cho môi
+             * trường có CSP, không phải mẹo. `expressionFunctions` bên dưới vẫn
+             * chạy y nguyên vì bộ thông dịch tra cùng một sổ đăng ký hàm.
+             *
+             * Giá phải trả: biểu thức chạy chậm hơn mã đã biên dịch. Ở đây
+             * không đáng kể — spec của ta chỉ có vài biểu thức cho nhãn trục,
+             * không có biểu thức nào chạy trên từng điểm dữ liệu.
+             */
+            ast: true,
+            expr: expressionInterpreter,
             // 'svg' chứ không phải 'canvas': màu lấy từ biến CSS của Tailwind là
             // chuỗi `oklch(...)`, và trình duyệt tự hiểu nó khi nằm trong thuộc
             // tính `fill` của SVG. Canvas thì khắt khe hơn khi phân tích màu.
             renderer: 'svg',
+            // Số và ngày trên trục theo quy ước Việt — xem `localeViet.ts`.
+            // Vega không đi qua `Intl` nên không tự theo locale của trang: thiếu
+            // hai dòng này thì trục ghi `16,000,000` ngay cạnh khung hỏi đáp ghi
+            // `15.980.000`, trên cùng một trang.
+            formatLocale: DINH_DANG_SO_VIET,
+            timeFormatLocale: DINH_DANG_NGAY_VIET,
             // Hàm riêng mà spec được gọi (đo nhãn trục — §10.22). Thiếu dòng
             // này thì spec gọi tới chúng không parse được, và ô hiện "Không vẽ
             // được biểu đồ".

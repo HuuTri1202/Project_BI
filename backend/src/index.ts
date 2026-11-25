@@ -1,3 +1,16 @@
+/*
+ * ⚠️ DÒNG NÀY PHẢI ĐỨNG ĐẦU, TRƯỚC MỌI IMPORT KHÁC.
+ *
+ * OpenTelemetry vá đè express/mysql2/ioredis ngay lúc chúng được `require`, nên
+ * nó phải chạy trước `./app`. Backend biên dịch ra CommonJS nên tsc giữ nguyên
+ * thứ tự này. Đổi chỗ nó xuống dưới thì hệ thống vẫn chạy bình thường — chỉ là
+ * SigNoz không còn thấy một span nào của Express. Xem `tracing.ts`.
+ *
+ * eslint-disable-next-line import/order -- thứ tự ở đây là ràng buộc chạy được,
+ * không phải sở thích sắp xếp.
+ */
+import './tracing';
+
 import type { Server } from 'node:http';
 import { createApp } from './app';
 import { closeClickhouse } from './config/clickhouse';
@@ -7,13 +20,72 @@ import { closeMysql } from './config/mysql';
 import { closeRedis } from './config/redis';
 import { runMigrations } from './db/migrate';
 import { regenerateAllTenants } from './services/datamodel/cubeSchemaService';
+import { cheDoMail } from './services/mail/mailer';
 import { checkSchemaDir } from './services/datamodel/cubeSchemaStore';
+import { startHamNongKhoiDong, stopHamNongKhoiDong } from './services/datamodel/hamNongKhoiDong';
 import { startBillingRunner, stopBillingRunner } from './services/billing/runner';
 import { startIngestRunner, stopIngestRunner } from './services/ingest/runner';
+import { dongQuanTrac } from './tracing';
 
 let server: Server | undefined;
 
+/**
+ * Production mà chưa khai SMTP thì KHÔNG mở cổng.
+ *
+ * ═══ Vì sao đây là lỗi chết người, không phải một tính năng thiếu ═════════
+ *
+ * Thiếu `SMTP_HOST`, hệ thống vẫn lên xanh: `/health` 200, `/health/ready` báo
+ * MySQL và Redis đều OK, giao diện mở bình thường. Nhưng §1.10 chặn đăng nhập
+ * cho tới khi email được xác minh, mà thư xác minh thì `mailer.ts` TỪ CHỐI gửi
+ * ở production (in vé ra log là phát quyền chiếm tài khoản cho ai đọc log).
+ *
+ * Kết quả: mọi người đăng ký mới kẹt vĩnh viễn ở `EmailNotVerified`, và quên
+ * mật khẩu cũng không có đường về. Một nền tảng chỉ còn đúng tài khoản đã seed
+ * dùng được — mà mọi đèn đều xanh, nên không ai biết để đi sửa.
+ *
+ * `mailer.ts` đã viết "thà hỏng ồn ào lúc khởi động còn hơn" từ đầu, nhưng chốt
+ * ấy chưa bao giờ được cài: nó chỉ ném lúc GỬI, tức lúc một người dùng thật đã
+ * đăng ký xong và đang chờ thư. Đây là chỗ cài nó.
+ *
+ * ─── Vì sao ở `index.ts` chứ không ở `config/env.ts` ──────────────────────
+ *
+ * `env.ts` chết là chết cho MỌI tiến trình đọc nó — kể cả `migrate` và
+ * `seed-admin`. Chặn luôn hai script đó là chặn chính đường sửa chữa. Chỉ máy
+ * chủ API mới cần từ chối phục vụ.
+ *
+ * ─── Vì sao hỏi `cheDoMail()` chứ không tự kiểm `SMTP_HOST` ───────────────
+ *
+ * Luật "khi nào thì gửi được" chỉ nên có MỘT bản. Tự viết lại
+ * `isProduction && SMTP_HOST === undefined` ở đây là dựng bản thứ hai, và hai
+ * bản sẽ lệch nhau đúng vào lần sửa đầu tiên — lúc đó chốt này gác một luật
+ * không còn ai dùng.
+ */
+function chanThieuSmtp(): void {
+  if (cheDoMail() !== 'tat') return;
+
+  console.error(
+    [
+      '',
+      '[server] TỪ CHỐI khởi động: production nhưng chưa khai SMTP_HOST.',
+      '',
+      '  Hệ thống sẽ trông như đang chạy tốt, nhưng KHÔNG ai đăng ký mới vào',
+      '  được: thư xác minh không gửi đi, nên mọi tài khoản mới kẹt ở',
+      '  EmailNotVerified, và quên mật khẩu cũng không có đường về.',
+      '',
+      '  Khắc phục: khai SMTP_HOST (và SMTP_USER / SMTP_PASSWORD nếu máy chủ thư',
+      '  đòi xác thực) trong backend/.env. Xem khối SMTP ở backend/.env.example',
+      '  và mục 5 của docs/trien-khai.md.',
+      '',
+    ].join('\n'),
+  );
+  process.exit(1);
+}
+
 async function start(): Promise<void> {
+  // TRƯỚC migration: một cấu hình thiếu thì càng phát hiện sớm càng ít thứ phải
+  // hoàn tác, và chốt này không chạm database nên không tốn gì.
+  chanThieuSmtp();
+
   // Chạy migration TRƯỚC khi mở cổng: không có bảng thì mọi request đều lỗi,
   // thà chết lúc boot với thông báo rõ ràng còn hơn phục vụ request rồi 500.
   await runMigrations();
@@ -50,7 +122,14 @@ async function start(): Promise<void> {
   // sạch trong khi database vẫn còn nguyên mô hình. Sinh lại lúc boot khép kín
   // khoảng lệch đó mà không ai phải nhớ làm gì. Cả hai hàm tự nuốt lỗi.
   await checkSchemaDir();
-  void regenerateAllTenants();
+
+  /*
+   * Hâm nóng NỐI SAU `regenerateAllTenants`, không song song — và thứ tự này là
+   * điều kiện đúng đắn, không phải tối ưu. Hâm trước khi file schema được ghi
+   * thì Cube biên dịch một thư mục rỗng rồi NHỚ bản rỗng đó dưới đúng
+   * `schemaVersion` hiện tại; xem khối chú thích ở `startHamNongKhoiDong`.
+   */
+  void regenerateAllTenants().then(startHamNongKhoiDong);
 }
 
 /**
@@ -93,9 +172,9 @@ async function shutdown(signal: NodeJS.Signals): Promise<void> {
     console.log('[server] HTTP server closed');
   });
 
-  // TRƯỚC `closeMysql`, không phải sau: hai vòng lặp nền đang giữ connection từ
+  // TRƯỚC `closeMysql`, không phải sau: mấy việc nền này đang giữ connection từ
   // chính pool đó. Xem `stopIngestRunner`.
-  await Promise.all([stopIngestRunner(), stopBillingRunner()]);
+  await Promise.all([stopIngestRunner(), stopBillingRunner(), stopHamNongKhoiDong()]);
 
   const results = await Promise.allSettled([closeMysql(), closeRedis(), closeClickhouse()]);
   for (const result of results) {
@@ -103,6 +182,15 @@ async function shutdown(signal: NodeJS.Signals): Promise<void> {
       console.error('[server] lỗi khi đóng kết nối:', result.reason);
     }
   }
+
+  /*
+   * Quan trắc đóng SAU CÙNG, và cố ý như vậy: mấy dòng trên có thể ném lỗi, mà
+   * đúng cái span ghi lại lỗi đó mới là thứ đáng gửi đi nhất. Tự nuốt lỗi — một
+   * lượt xả span hỏng không được phép chặn tiến trình thoát.
+   */
+  await dongQuanTrac().catch((err: unknown) => {
+    console.error('[server] lỗi khi đóng quan trắc:', err);
+  });
 
   process.exit(0);
 }

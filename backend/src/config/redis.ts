@@ -1,5 +1,6 @@
 import { Redis } from 'ioredis';
 import { env } from './env';
+import { moTaLoi } from '../utils/moTaLoi';
 
 /**
  * Redis dùng cho ĐÚNG ba việc, và chỉ ba việc đó:
@@ -31,7 +32,10 @@ export const redis = new Redis({
 
 // ioredis phát sự kiện 'error'; không bắt thì Node coi là uncaught và giết process.
 redis.on('error', (err: Error) => {
-  console.error('[redis]', err.message);
+  // `moTaLoi` chứ không `err.message`: lỗi kết nối tới cho dưới dạng
+  // `AggregateError` có `message` rỗng, và khi đó dòng log này in ra đúng
+  // chữ "[redis]" — xem `utils/moTaLoi.ts`.
+  console.error('[redis]', moTaLoi(err));
 });
 
 /** Ping thật để dùng cho readiness probe. Ném lỗi nếu không kết nối được. */

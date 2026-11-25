@@ -1,6 +1,6 @@
 import type { ReportAnnotationDto } from './annotation';
 import type { DatasetSource } from './data';
-import type { MeasureAgg, MeasureFormat } from './datamodel';
+import type { ExplorerFilterDto, MeasureAgg, MeasureFormat } from './datamodel';
 
 /**
  * Hợp đồng dữ liệu của báo cáo và biểu đồ (§7.6, mở rộng ở §10.8).
@@ -415,6 +415,20 @@ export const CHART_SORT_LABELS: Record<ChartSort, string> = {
   'label-desc': 'Theo tên (Z → A)',
 };
 
+/**
+ * Cùng bốn lựa chọn, đọc bằng lời của một trục THỜI GIAN.
+ *
+ * "Theo tên (A → Z)" áp lên một cột ngày là một câu vô nghĩa: nhãn ở đó là
+ * `04/08/2026`, và người dùng không hỏi "tên nào đứng trước" mà hỏi "cũ hay
+ * mới trước". Cùng một giá trị `ChartSort`, chỉ khác chữ hiện ra.
+ */
+export const CHART_SORT_LABELS_TIME: Record<ChartSort, string> = {
+  value: 'Theo giá trị (lớn → nhỏ)',
+  'value-asc': 'Theo giá trị (nhỏ → lớn)',
+  label: 'Theo thời gian (cũ → mới)',
+  'label-desc': 'Theo thời gian (mới → cũ)',
+};
+
 /** Phép tổng hợp khi nhiều dòng rơi vào cùng một nhóm. */
 export const AGGREGATES = ['sum', 'avg', 'count', 'min', 'max'] as const;
 export type Aggregate = (typeof AGGREGATES)[number];
@@ -568,6 +582,30 @@ export interface ReportModelConfigDto {
    */
   pick?: GroupPick | undefined;
   /**
+   * Sắp xếp theo CHÍNH CHIỀU, không theo thước đo — và đây là một phép của
+   * TRUY VẤN, cùng hạng với `pick`.
+   *
+   * ═══ Lỗi nó sinh ra để chữa ════════════════════════════════════════════
+   *
+   * Thả "Ngày bán" vào một biểu đồ đường: Cube được hỏi "hai mươi dòng có
+   * thước đo lớn nhất", rồi trục ngang xếp lại hai mươi dòng ấy theo tên. Kết
+   * quả là một đường nối hai mươi ngày RỜI RẠC rút từ ba tháng — nó có hình
+   * một xu hướng, và nó không phải một xu hướng. Ô "Sắp xếp" trước đây phải in
+   * ra một dòng đính chính: "các trang vẫn đi theo thứ hạng của thước đo".
+   *
+   * Có trường này thì "theo tên / theo thời gian" đổi luôn câu hỏi gửi xuống
+   * Cube, nên trang 1 là hai mươi mốc ĐẦU TIÊN thật, và lật trang là đi tiếp
+   * theo thời gian.
+   *
+   * Vắng mặt = sắp theo thước đo, đúng hành vi cũ, nên báo cáo đã lưu không
+   * đổi một con số nào cho tới khi được mở lại bằng bản này.
+   *
+   * `null` cũng được nhận, cùng lý do với `seriesDimensionId`: khoá cache của
+   * trình dựng dựng một hình dạng CỐ ĐỊNH, mà `JSON.stringify` thì xoá
+   * `undefined` khỏi thân request — hai cách viết cho cùng một ý.
+   */
+  theoChieu?: 'asc' | 'desc' | null | undefined;
+  /**
    * Chiều THỨ HAI — tách biểu đồ thành nhiều chuỗi, mỗi chuỗi một màu (§10.9).
    *
    * Vắng mặt hoặc `null` = biểu đồ một chuỗi, tức đúng hành vi từ §10.8. Mọi
@@ -579,6 +617,26 @@ export interface ReportModelConfigDto {
    * cái nút ‹ › lật nhóm, không lật màu. Xem `aggregateWithSeries`.
    */
   seriesDimensionId?: number | null | undefined;
+  /**
+   * Điều kiện LỌC của riêng ô này — §B1.
+   *
+   * ═══ Vì sao một báo cáo cần nó ════════════════════════════════════════
+   *
+   * Trước bản này mọi ô biểu đồ là "toàn bộ dữ liệu, toàn bộ thời gian". Chủ
+   * một quán cà phê không dựng được "Doanh thu tháng này", "Chỉ chi nhánh Quận
+   * 1", "Quý 4" — tức là không dựng được phần lớn câu hỏi người ta thật sự
+   * hỏi. Explorer và khung hỏi đáp đã lọc được từ lâu (`ExplorerFilterDto`,
+   * `hoiTrenMoHinh`); chỉ báo cáo — thứ được LƯU và mở lại mỗi sáng — thì
+   * không.
+   *
+   * Dùng lại nguyên `ExplorerFilterDto`: cùng toán tử, cùng phép kiểm
+   * (`assertFilter`), cùng đường đi xuống Cube. Một hình dạng thứ hai cho cùng
+   * một việc là hai bộ luật phải nhớ sửa cùng lúc.
+   *
+   * ⚠️ Ở TRONG `config` chứ không trong `options`: nó đổi SỐ, nên nó phải nằm
+   * trong khoá cache và backend phải đọc được nó.
+   */
+  filters?: readonly ExplorerFilterDto[] | undefined;
   /**
    * Cách TRÌNH BÀY, không đụng tới con số — xem `ReportChartOptionsDto`.
    *
@@ -922,6 +980,27 @@ export interface ReportDataDto {
   /** Có mặt = biểu đồ nhiều chuỗi, và đây là tên chiều tách chuỗi. */
   seriesLabel?: string | undefined;
   /**
+   * Máy chủ ĐÃ sắp sẵn theo chiều — trình vẽ đừng sắp lại.
+   *
+   * Có mặt khi truy vấn chạy với `config.theoChieu`. Trình vẽ phải đọc cờ này
+   * chứ không đọc `options.sort`: nhãn của một chiều thời gian là `04/08/2026`,
+   * và sắp chuỗi ấy theo bảng chữ cái là xếp theo NGÀY TRONG THÁNG — 01/09
+   * đứng trước 04/08. Thứ tự đúng đã có sẵn trong `rows`.
+   */
+  theoChieu?: 'asc' | 'desc' | undefined;
+  /**
+   * Điều kiện lọc đang áp, viết thành lời — §B1.
+   *
+   * ⚠️ Một ô đã lọc mà KHÔNG nói ra là đúng cái lỗi cả bản vá này đi sửa: một
+   * con số có thật, trình bày đẹp, trả lời cho một câu hỏi khác. "Thành tiền
+   * theo Chi nhánh" đọc là doanh thu của chi nhánh; nếu nó chỉ là doanh thu
+   * GrabFood thì chữ ấy phải nằm ngay cạnh con số.
+   *
+   * Dựng ở backend chứ không ở trình vẽ: chỉ backend có NHÃN của chiều (cấu
+   * hình chỉ mang id), và câu chữ phải giống nhau ở mọi mặt đọc nó.
+   */
+  locMoTa?: string | undefined;
+  /**
    * Có nhóm nào bị cắt khỏi biểu đồ không — để trang xem NÓI RA điều đó.
    *
    * Từ §10.15 nhánh mô hình một chiều luôn `false`: chia trang thì không nhóm
@@ -976,3 +1055,65 @@ export const REPORT_ERROR_CODES = {
    */
   DATASET_NOT_LOADED: 'DatasetNotLoaded',
 } as const;
+
+/* ─── Chia sẻ báo cáo bằng liên kết — mong muốn D5 ──────────────────────── */
+
+/**
+ * Một liên kết chia sẻ, như màn quản lý nhìn thấy nó.
+ *
+ * KHÔNG có chuỗi bí mật: database chỉ giữ băm của nó (migration 45), nên sau
+ * lần tạo thì không ai — kể cả chủ báo cáo — đọc lại được. `url` chỉ có mặt
+ * trong phản hồi của chính lần TẠO.
+ */
+export interface ReportShareDto {
+  id: number;
+  createdAt: string;
+  createdByName: string | null;
+  expiresAt: string | null;
+  revokedAt: string | null;
+  /** Số lần liên kết được mở. Không lưu gì về người xem — xem migration 45. */
+  viewCount: number;
+  lastViewedAt: string | null;
+}
+
+/** Phản hồi của lần TẠO — lần duy nhất chuỗi bí mật tồn tại ngoài đường dẫn. */
+export interface ReportShareCreatedDto {
+  share: ReportShareDto;
+  url: string;
+}
+
+/**
+ * Báo cáo như người cầm LIÊN KẾT nhìn thấy — không có phiên đăng nhập nào.
+ *
+ * Cố ý KHÔNG phải `ReportDto`: DTO kia mang `datamodelId`, `workspaceId`,
+ * `folderName`, `creatorName`… Những thứ đó nói về cấu trúc nội bộ của tổ chức,
+ * và người nhận liên kết không có lý do gì để thấy chúng. Ở đây chỉ có đúng
+ * những gì cần để VẼ ra trang báo cáo.
+ */
+export interface BaoCaoChiaSeDto {
+  name: string;
+  /** Tên tổ chức, để người nhận biết đây là báo cáo của ai. */
+  tenantName: string;
+  /** Lần cuối báo cáo được sửa — người đọc cần biết mình đang xem bản nào. */
+  updatedAt: string;
+  canvas: ReportCanvasDto;
+  /** Trang đang được trả về; giao diện dùng nó để đánh dấu tab đang mở. */
+  pageId: string;
+  soLieu: ReportCanvasDataDto;
+}
+
+/* ─── Chế độ gửi email của hệ thống ─────────────────────────────────────── */
+
+/**
+ * Ba chế độ gửi email — xem `backend/services/mail/mailer.ts`.
+ *
+ * Hiện chỉ backend đọc: thư xác minh email và thư đặt lại mật khẩu. Nằm ở
+ * `shared` vì kiểu này từng được giao diện đọc để cảnh báo "máy chưa khai
+ * SMTP", và sẽ cần lại ngay khi có mặt nào gửi thư cho người dùng cuối.
+ *
+ *   'smtp'  gửi thật.
+ *   'log'   chưa khai SMTP và KHÔNG phải production — thư in ra console.
+ *   'tat'   chưa khai SMTP ở production — mọi lần gửi NÉM lỗi.
+ */
+export const CHE_DO_MAIL = ['smtp', 'log', 'tat'] as const;
+export type CheDoMail = (typeof CHE_DO_MAIL)[number];

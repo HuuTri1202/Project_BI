@@ -1,0 +1,125 @@
+# =============================================================================
+# Caddy — cửa duy nhất mở ra Internet của bản triển khai.
+#
+# Hai biến phải có trong môi trường của container (xem docker-compose.prod.yml):
+#   DOMAIN      open-insight.vn
+#   ACME_EMAIL  dia-chi@that.vn     (Let's Encrypt gửi cảnh báo hết hạn vào đây)
+#
+# Caddy tự xin và tự gia hạn chứng chỉ TLS. Điều kiện: tên miền đã trỏ A/AAAA về
+# IP của máy này, và cổng 80 + 443 mở từ Internet — cổng 80 KHÔNG được bỏ, ACME
+# dùng nó để xác thực tên miền.
+# =============================================================================
+
+{
+	email {$ACME_EMAIL}
+}
+
+# =============================================================================
+# Tên miền chính — bản web tĩnh + API trên CÙNG một origin
+# =============================================================================
+#
+# Cùng origin là một quyết định, không phải tình cờ: `VITE_API_BASE_URL` mặc
+# định `/api`, nên trình duyệt gọi API ở chính tên miền đang mở. Nhờ vậy không
+# có preflight CORS nào, và `originGuard` của backend chỉ phải so đúng một giá
+# trị `CORS_ORIGIN`.
+{$DOMAIN} {
+	encode zstd gzip
+
+	# --- API ---
+	# `/health` nằm NGOÀI `/api` ở backend (xem app.ts), nên phải khai riêng.
+	@api path /api/* /health /health/*
+	handle @api {
+		reverse_proxy api:4000 {
+			# Backend đã bật `trust proxy`, nên nó đọc IP thật từ X-Forwarded-For
+			# — thứ mà bộ đếm chống dò mật khẩu dựa vào. Caddy gửi header này sẵn.
+			health_uri /health
+			health_interval 30s
+		}
+	}
+
+	# --- Bản web tĩnh ---
+	handle {
+		root * /srv
+		# SPA: mọi đường dẫn KHÔNG phải file thật đều trả index.html, để
+		# react-router tự xử. Thiếu dòng này thì F5 ở /bao-cao/12 ăn 404 —
+		# lỗi kinh điển của SPA sau reverse proxy.
+		try_files {path} /index.html
+		file_server
+	}
+
+	# ═══════════════════════════════════════════════════════════════════════
+	# Header an toàn — bản SONG SINH của `capHeaderAnToan` trong
+	# `frontend/vite.config.ts`. Sửa một bên phải sửa bên kia.
+	#
+	# ⚠️ `helmet()` ở backend KHÔNG che được trang này. Nó gắn header cho phản
+	# hồi của Express, mà Express chỉ trả JSON. Thứ trình duyệt MỞ — nhúng được
+	# vào iframe, chạy được script — là trang do Caddy phục vụ.
+	#
+	# ĐÃ TÁI HIỆN trên bản dev trước khi có khối này: một trang lạ nhúng app vào
+	# iframe và toàn bộ màn đăng nhập hiện ra bên trong, nút mồi đè lên ô mật
+	# khẩu, không một dòng cảnh báo nào.
+	#
+	# ─── Khác bản dev ở ĐÚNG một chỗ ──────────────────────────────────────
+	#
+	# `script-src` ở đây KHÔNG có `'unsafe-inline'`. Bản dev buộc phải có vì
+	# `@vitejs/plugin-react` chèn script inline để bật React Refresh; bản build
+	# không có script inline nào. Đây là lý do phải thử tấn công trên BẢN BUILD
+	# chứ không chỉ trên dev — hai bản chạy hai chính sách khác nhau.
+	# ═══════════════════════════════════════════════════════════════════════
+	header {
+		Content-Security-Policy "default-src 'self'; base-uri 'self'; object-src 'none'; form-action 'self'; frame-ancestors 'none'; script-src 'self' https://accounts.google.com; style-src 'self' 'unsafe-inline' https://accounts.google.com; img-src 'self' data: blob:; font-src 'self' data:; frame-src https://accounts.google.com; connect-src 'self' https://accounts.google.com https://s3.{$DOMAIN}; upgrade-insecure-requests"
+
+		# Cùng việc với `frame-ancestors 'none'`, giữ cả hai: `frame-ancestors`
+		# là chuẩn hiện hành và thắng khi cả hai cùng có, XFO là đường lui cho
+		# trình duyệt cũ không hiểu CSP cấp 2.
+		X-Frame-Options DENY
+
+		# HSTS: sau lần truy cập đầu, trình duyệt tự đổi http:// thành https://
+		# và không cho người dùng bỏ qua cảnh báo chứng chỉ.
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+		-Server
+	}
+}
+
+# =============================================================================
+# s3.<tên miền> — MinIO, cho trình duyệt tải tệp LÊN thẳng
+# =============================================================================
+#
+# ⚠️ Phải là TÊN MIỀN CON, không phải một đường dẫn con như `/s3/*`.
+#
+# Trình duyệt tải tệp thẳng lên object storage bằng presigned URL (§7.4) — tệp
+# không đi qua Express. Chữ ký SigV4 ký cả ĐƯỜNG DẪN và HOST. Nếu proxy theo
+# đường dẫn thì SDK ký `/s3/bucket/key` trong khi MinIO kiểm `/bucket/key`, và
+# mọi lần tải lên trả về `SignatureDoesNotMatch` — một lỗi trông như sai khoá
+# chứ không như sai cấu hình proxy.
+#
+# Với tên miền con thì đường dẫn giữ nguyên, Caddy chuyển tiếp nguyên `Host`, và
+# chữ ký khớp. Backend phải khai:
+#
+#   S3_ENDPOINT=https://s3.<tên miền>
+#   S3_FORCE_PATH_STYLE=true
+s3.{$DOMAIN} {
+	# KHÔNG `encode`: thân request là tệp nhị phân người dùng tải lên, nén lại
+	# vừa vô ích vừa làm lệch độ dài mà chữ ký đã ký.
+	reverse_proxy minio:9000
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		# Tệp do NGƯỜI DÙNG tải lên được phục vụ từ đây. Hai dòng dưới hạ thiệt
+		# hại nếu ai đó tải lên một tệp có nội dung HTML:
+		#
+		#   `nosniff` — trình duyệt không được tự đoán kiểu rồi chạy một tệp khai
+		#   là `text/plain` như thể nó là HTML.
+		#   `frame-ancestors 'none'` — tệp đó cũng không được nhúng vào trang lạ.
+		#
+		# Đây là tên miền RIÊNG, không phải `{$DOMAIN}`, nên kể cả khi một tệp
+		# HTML chạy được thì nó vẫn nằm ở origin khác: không đọc được
+		# `localStorage` của app, không lấy được token. Đó là lớp cách ly chính,
+		# hai dòng này chỉ là lớp thêm.
+		X-Content-Type-Options nosniff
+		Content-Security-Policy "frame-ancestors 'none'"
+		X-Frame-Options DENY
+	}
+}

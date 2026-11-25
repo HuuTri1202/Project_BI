@@ -1,5 +1,6 @@
 ﻿import {
   JOB_TITLES,
+  JOB_TITLE_OPTIONS,
   TENANT_ROLE_LABELS,
   emailRule,
   fullNameRule,
@@ -15,7 +16,7 @@ import { Field, SelectField } from '../../../components/ui/Field';
 import { Modal } from '../../../components/ui/Modal';
 import { LimitAlert } from '../../billing/LimitAlert';
 import { getApiError } from '../../../services/apiClient';
-import { useCreateMember } from '../hooks';
+import { useCreateMember, useWorkspaces } from '../hooks';
 
 /**
  * Schema dựng tại chỗ từ các rule dùng chung của `@bi/shared`.
@@ -70,6 +71,15 @@ export function CreateMemberModal({
   });
 
   const { errors, touchedFields, isValid, isSubmitting } = formState;
+
+  /*
+   * Đếm workspace để câu nhắc nói ĐÚNG thứ sắp xảy ra — §B5.
+   *
+   * Cùng khoá cache với bộ chọn trên thanh điều hướng, nên nó gần như luôn
+   * trúng cache và không tốn thêm vòng mạng nào khi hộp thoại mở ra.
+   */
+  const workspaces = useWorkspaces();
+  const nhieuWorkspace = (workspaces.data?.length ?? 1) > 1;
 
   const close = (): void => {
     reset();
@@ -146,11 +156,35 @@ export function CreateMemberModal({
         />
         <SelectField
           label="Chức danh (không bắt buộc)"
-          options={JOB_TITLES}
+          options={JOB_TITLE_OPTIONS}
           placeholder="— Không chọn —"
           error={errors.jobTitle?.message}
           registration={register('jobTitle')}
         />
+
+        {/*
+          NÓI RA phạm vi, vì nó là thứ quyết định người này thấy gì — §B5.
+
+          Trước bản này người mới tạo không được gán workspace nào, nên họ đăng
+          nhập vào và thấy "Chưa có workspace, hãy nhờ quản trị viên", còn Admin
+          thì không được nhắc gì ở đây. Nay backend tự gán khi tổ chức chỉ có
+          MỘT workspace (không có gì để chọn), và đứng yên khi có nhiều hơn —
+          lúc đó đây là chỗ duy nhất nói cho Admin biết họ còn một bước nữa.
+        */}
+        <p className="rounded-lg bg-slate-50 px-3 py-2 text-xs leading-snug text-slate-600">
+          {nhieuWorkspace ? (
+            <>
+              Tổ chức có nhiều workspace, nên người này <strong>chưa thấy workspace nào</strong>.
+              Bấm <strong>Workspace</strong> ở dòng của họ để chọn — không chọn thì họ đăng nhập vào
+              một màn hình trống.
+            </>
+          ) : (
+            <>
+              Người này sẽ thấy workspace của tổ chức ngay sau khi tạo. Thêm workspace mới thì nhớ
+              gán lại bằng nút <strong>Workspace</strong> ở dòng của họ.
+            </>
+          )}
+        </p>
       </form>
     </Modal>
   );

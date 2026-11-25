@@ -1,4 +1,9 @@
-import { CHART_TYPE_LABELS, ERROR_CODES, type ExplorerQueryDto } from '@bi/shared';
+import {
+  CHART_TYPE_LABELS,
+  DATAMODEL_ERROR_CODES,
+  ERROR_CODES,
+  type ExplorerQueryDto,
+} from '@bi/shared';
 import { useEffect, useRef, useState } from 'react';
 
 import { KHONG_XUAT } from '../../services/danhDauXuat';
@@ -34,8 +39,11 @@ import {
   nguonMoHo,
   nhanDuyNhat,
   moHinhTheoTen,
+  moHinhTrongHeThong,
   traLoiKhung,
   traLoiBangThoEp,
+  hoiThuLa,
+  nhanNoiVeCauHoi,
 } from './traLoi';
 import type { TraLoi } from './traLoi';
 
@@ -356,6 +364,10 @@ export function HoiDapPanel(): React.ReactElement | null {
       nhoMoHinhHoi(q, idBot, moHinh);
       return;
     }
+    // Vá B4 — chỉ ở ĐÂY, sau khi đã đọc hết số liệu trên trang mà không khớp.
+    // Đặt câu hỏi lại cho mọi lần bế tắc (kể cả "xin chào") thì nó thành tiếng
+    // ồn, và còn nói sai: không phải câu nào cũng cần một truy vấn trên kho.
+    if (hoiMoHinhNao(q, idBot)) return;
     hetDuong(q, idBot, cauTrangThai(trangThai));
   }
 
@@ -532,13 +544,32 @@ export function HoiDapPanel(): React.ReactElement | null {
       // mới không phụ thuộc vào danh sách đó.
       const moHinh = moHinhHoiDuoc(q);
       if (moHinh !== null) nhoMoHinhHoi(q, idBot, moHinh);
-      else hetDuong(q, idBot);
+      else if (!hoiMoHinhNao(q, idBot)) hetDuong(q, idBot);
       return;
     }
 
     void hieuCauHoi({ cauHoi: q, nhan: luaChon.map((lc) => lc.nhan) })
       .then(({ chon, trangThai }) => {
-        const kq = chon === null ? null : (luaChon[chon]?.chay() ?? null);
+        /*
+         * Cùng một luật cho cả hai lớp — xem `hoiThuLa`.
+         *
+         * Mô hình chọn một nhãn SỐ LIỆU cho một câu gọi tên thứ khung chưa từng
+         * thấy thì con số ấy trả lời cho câu hỏi khác. Bỏ lựa chọn đó đi, câu
+         * rơi xuống đường đặt truy vấn MỚI trên mô hình ngay bên dưới.
+         *
+         * ⚠️ KHÔNG áp cho cặp VẼ. Chúng không khẳng định con số nào — chúng mở
+         * một cú bấm dựng biểu đồ — và đó đúng là chỗ lớp này đáng giá nhất:
+         * mô hình đặt tên cột tiếng Anh còn người dùng hỏi tiếng Việt thì phép
+         * so từ khoá không còn chữ nào để bám, và mọi chữ tiếng Việt trong câu
+         * đều "lạ" với khung.
+         */
+        const laCapVe = chon !== null && chon < capVe.length;
+        const boVi =
+          chon !== null &&
+          !laCapVe &&
+          (hoiThuLa([...nguCanh.nguon, ...heThong], q) ||
+            !nhanNoiVeCauHoi(luaChon[chon]?.nhan ?? '', q));
+        const kq = chon === null || boVi ? null : (luaChon[chon]?.chay() ?? null);
         if (kq === null) {
           /*
            * Mô hình đã đọc hết danh sách và không mục nào trả lời được. Đó là
@@ -595,7 +626,41 @@ export function HoiDapPanel(): React.ReactElement | null {
   }
 
   function moHinhHoiDuoc(q: string): number | null {
-    return nguCanh.moHinhId ?? moHinhTheoTen(heThong, q);
+    const goiTen = nguCanh.moHinhId ?? moHinhTheoTen(heThong, q);
+    if (goiTen !== null) return goiTen;
+
+    /*
+     * Vá B4 — tổ chức chỉ có MỘT mô hình thì không có gì để nhập nhằng.
+     *
+     * Trước bản này, câu hỏi phải GỌI ĐÚNG TÊN mô hình mới chạy được truy vấn
+     * mới, kể cả khi cả tổ chức chỉ có một cái. Đó là một điều kiện người dùng
+     * không có cách nào biết, và nó biến khung ở Kho dữ liệu thành một khung
+     * chỉ đọc được bảng danh mục.
+     */
+    const tatCa = moHinhTrongHeThong(heThong);
+    return tatCa.length === 1 ? (tatCa[0]?.id ?? null) : null;
+  }
+
+  /**
+   * Nhiều mô hình mà câu hỏi không gọi tên cái nào -> HỎI LẠI, đừng bế tắc.
+   *
+   * Trả về `true` nếu đã trả lời bằng câu hỏi lại. Gợi ý là chính câu người dùng
+   * vừa gõ, có thêm tên mô hình ở đầu — bấm một cái là `moHinhTheoTen` khớp được
+   * và truy vấn chạy, không phải gõ lại gì.
+   */
+  function hoiMoHinhNao(q: string, idBot: number): boolean {
+    const tatCa = moHinhTrongHeThong(heThong);
+    if (tatCa.length < 2) return false;
+
+    thayBot(idBot, {
+      cau:
+        `Câu này cần một truy vấn mới trên kho dữ liệu, mà tổ chức đang có ${String(tatCa.length)} ` +
+        'mô hình nên tôi chưa biết hỏi trên cái nào. Chọn giúp tôi:',
+      chuaHieu: true,
+      // Năm cái là đủ để chọn mà không biến câu trả lời thành một danh sách dài.
+      goiY: tatCa.slice(0, 5).map((m) => `${m.ten} — ${q}`),
+    });
+    return true;
   }
 
   function nhoMoHinhHoi(q: string, idBot: number, moHinhId: number): void {
@@ -620,7 +685,7 @@ export function HoiDapPanel(): React.ReactElement | null {
     );
 
     void hoiTrenMoHinh(moHinhId, q, truoc)
-      .then(({ cau, so, hieuLa, truyVan, lyDo, goiY }) => {
+      .then(({ cau, so, hieuLa, truyVan, lyDo, goiY, daHoi }) => {
         /*
          * ═══ Câu xin một BIỂU ĐỒ thì thứ cần trả về là CẶP TRƯỜNG ════════
          *
@@ -666,7 +731,25 @@ export function HoiDapPanel(): React.ReactElement | null {
          * đúng là chưa trả lời được, nó chỉ nói thêm được vì sao.
          */
         if (cau === null) {
-          hetDuong(q, idBot, lyDo ?? undefined);
+          /*
+           * ⚠️ "Chưa gọi được mô hình" KHÁC HẲN "chưa hiểu câu này".
+           *
+           * `daHoi: false` nghĩa là lượt gọi tới nhà cung cấp đã HỎNG — hết hạn
+           * mức token mỗi phút, mất mạng, hoặc quá hạn chờ. Backend đã nói ra
+           * điều đó từ lâu (xem khối chú thích về `daGoi` trong
+           * `services/chat/dienDat.ts`), chỉ có chỗ này là bỏ đi không đọc.
+           *
+           * Hậu quả đo được 24/11/2026: hỏi tám câu liên tiếp thì hết hạn mức
+           * token của nhà cung cấp, và từ câu thứ chín khung nói "Tôi chưa hiểu
+           * câu này" cho đúng những câu nó vừa trả lời đúng ba mươi giây trước.
+           * Người dùng đọc ra là khung dốt nên gõ lại bằng cách khác, cách nào
+           * cũng trượt — vì thứ chặn không nằm ở câu chữ. Và trước hội đồng thì
+           * nó còn tệ hơn: sản phẩm trông như hỏng ngẫu nhiên.
+           *
+           * Dùng lại ĐÚNG câu của `cauTrangThai('goi-hong')` để hai đường của
+           * khung nói cùng một chuyện bằng cùng một câu.
+           */
+          hetDuong(q, idBot, lyDo ?? (daHoi === false ? cauTrangThai('goi-hong') : undefined));
           return;
         }
 
@@ -730,15 +813,39 @@ export function HoiDapPanel(): React.ReactElement | null {
          * vẫn đúng: chúng tạm thời, và câu trả lời bằng dữ liệu trên màn hình
          * vẫn là thứ tốt nhất khung làm được lúc đó.
          */
+        const loi = getApiError(err);
         hetDuong(
           q,
           idBot,
-          getApiError(err).error === ERROR_CODES.FORBIDDEN
+          loi.error === ERROR_CODES.FORBIDDEN
             ? 'Câu này cần chạy một truy vấn mới trên kho dữ liệu, mà vai trò của bạn ' +
                 'không được phép đọc mô hình dữ liệu. Tôi vẫn trả lời được mọi câu về số ' +
                 'liệu đang hiện trên màn hình. Cần hỏi số mới thì nhờ quản trị tổ chức đổi ' +
                 'vai trò giúp.'
-            : undefined,
+            : /*
+               * ═══ Hai mã nữa mà "chưa hiểu" là nói sai ═════════════════════
+               *
+               * 429 (hết lượt): câu của server đã nói đủ — hết bao nhiêu lượt,
+               * chờ bao lâu, và trong lúc chờ còn làm được gì (xem `thongBao`
+               * của bucket `chat-cau-hoi`). Cùng lý lẽ với `daHoi: false` ở
+               * nhánh trên.
+               *
+               * `CubeUnavailable`: ĐO ĐƯỢC 24/11/2026 — khởi động lại container
+               * Cube rồi hỏi ngay thì backend trả đúng câu cần thiết ("Hãy chạy
+               * npm run infra:up:bi rồi thử lại"), còn khung nuốt nó và nói
+               * "chưa hiểu". Trong khoảng gần một phút Cube chưa sẵn sàng sau
+               * mỗi lần dựng hạ tầng, MỌI câu hỏi số liệu đều nhận câu sai ấy —
+               * đúng khoảng thời gian người ta vừa mở máy để demo.
+               *
+               * Chỉ hai mã này, liệt kê tường minh: mấy mã khác (mất mạng, chưa
+               * cấu hình) thì câu của server nói về hạ tầng chứ không nói được
+               * cho người dùng cuối phải làm gì, nên "chưa hiểu" kèm số liệu
+               * trên màn hình vẫn là thứ tốt nhất khung làm được.
+               */
+              loi.error === ERROR_CODES.RATE_LIMITED ||
+                loi.error === DATAMODEL_ERROR_CODES.CUBE_UNAVAILABLE
+              ? loi.message
+              : undefined,
         );
       });
   }
@@ -758,9 +865,24 @@ export function HoiDapPanel(): React.ReactElement | null {
          * chỉ còn một khối trắng nhoè. Nền trắng + viền mảnh + bóng đổ giữ được
          * hình, và vẫn nổi khỏi mặt trang vì mọi trang ở đây đều là `bg-slate-50`.
          */
-        className="group fixed right-4 bottom-4 z-50 flex h-14 w-14 items-center justify-center rounded-full border border-slate-200 bg-white shadow-lg transition-transform hover:scale-105 focus-visible:ring-2 focus-visible:ring-brand-200 focus-visible:outline-none"
+        className="group fixed right-4 bottom-4 z-50 flex h-14 items-center gap-2 rounded-full border border-slate-200 bg-white pr-4 pl-2.5 shadow-lg transition-transform hover:scale-105 focus-visible:ring-2 focus-visible:ring-brand-200 focus-visible:outline-none"
       >
         <BieuTuongRobot className="h-9 w-9 transition-transform group-hover:-translate-y-0.5" />
+        {/*
+         * NHÃN THẤY ĐƯỢC, không chỉ `aria-label` — vá C5.
+         *
+         * Đo khi dùng hệ thống như người thật: nút này là một hình tròn chỉ có
+         * con robot, và lần đầu gặp thì không ai biết nó là gì. `aria-label` chỉ
+         * nói cho trình đọc màn hình; `title` thì phải trỏ chuột vào và chờ, tức
+         * là vô dụng trên điện thoại.
+         *
+         * Giữ nhãn ở MỌI bề rộng, không `hidden sm:inline`: trên điện thoại mới
+         * là lúc không có tooltip nào để dựa vào. Viên thuốc rộng ~160px ở góc
+         * phải dưới vẫn vừa trên màn 390px.
+         */}
+        <span className="text-sm font-semibold whitespace-nowrap text-slate-800">
+          Trợ lý dữ liệu
+        </span>
       </button>
     );
   }

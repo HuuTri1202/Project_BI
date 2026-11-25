@@ -4,8 +4,10 @@ import { env } from '../../config/env';
 import { authenticate, requireAuth } from '../../middleware/authenticate';
 import { rateLimit } from '../../middleware/rateLimit';
 import * as membershipsRepo from '../../repositories/memberships';
+import * as identitiesRepo from '../../repositories/userIdentities';
 import * as usersRepo from '../../repositories/users';
 import { hashPassword, verifyAgainstDummy, verifyPassword } from '../../services/auth/password';
+import { xacMinhGoogle } from '../../services/auth/googleIdentity';
 import { registerAccount } from '../../services/auth/registerAccount';
 import { expiresInSeconds, signAccessToken } from '../../services/auth/token';
 import { asyncHandler } from '../../utils/asyncHandler';
@@ -17,13 +19,22 @@ import {
   yeuCauDatLai,
 } from '../../services/auth/passwordReset';
 import {
+  DA_GUI_NEU_CAN,
+  guiVeXacMinh,
+  xacMinhBangVe,
+  yeuCauGuiLai,
+} from '../../services/auth/emailVerification';
+import {
   changePasswordSchema,
   forgotPasswordSchema,
+  googleLoginSchema,
   loginSchema,
   registerSchema,
+  resendVerificationSchema,
   resetPasswordSchema,
   switchTenantSchema,
   updateProfileSchema,
+  verifyEmailSchema,
   verifyResetTokenSchema,
 } from './schemas';
 
@@ -40,18 +51,35 @@ export const authRouter = Router();
  * Đếm theo IP và theo từng bucket riêng, nên người dùng bị chặn ở màn đăng ký
  * vẫn đăng nhập được bình thường.
  */
-const authRateLimit = (bucket: string) =>
+const authRateLimit = (bucket: string, demMaLoi?: readonly number[]) =>
   rateLimit({
     bucket,
+    demMaLoi,
     max: env.LOGIN_MAX_ATTEMPTS,
     windowSeconds: env.LOGIN_LOCKOUT_MINUTES * 60,
   });
 
 /**
+ * Hai đường đăng nhập chỉ đếm lần ĐOÁN SAI mật khẩu (401).
+ *
+ * Mọi mã khác KHÔNG tiêu lượt, và từng mã đều có lý do riêng: 200 nghĩa là
+ * người này biết mật khẩu, 403 (`EmailNotVerified`, `AccountDisabled`,
+ * `NoMembership`) cũng vậy — họ đã qua `verifyPassword` rồi, nên khoá họ chỉ
+ * khiến người dùng thật mắc kẹt mà không chặn được kẻ dò thêm một lượt nào. 400
+ * của zod thì không học được gì về mật khẩu.
+ */
+const DOAN_SAI_MAT_KHAU = [401] as const;
+
+/**
  * POST /api/auth/register — §1.4
  *
- * Tạo tổ chức + tài khoản + tư cách thành viên + workspace, và người đăng ký là
+ * Tạo tài khoản + tổ chức + tư cách thành viên + workspace, và người đăng ký là
  * quản trị viên của tổ chức mình vừa lập.
+ *
+ * TÊN CÔNG TY LÀ TUỲ Ý. Khai thì lập công ty đó; để trống thì nhận một không
+ * gian riêng mang tên mình, đổi tên sau ở trang Tổ chức. Lý lẽ đầy đủ ở
+ * `registerFields` trong `@bi/shared`; tóm tắt: đăng ký còn đòi những thứ Google
+ * không biết thì "đăng ký bằng Google" không thể tồn tại.
  *
  * CỐ Ý không trả token: đăng ký xong thì sang trang đăng nhập (§1.5). Tự đăng
  * nhập luôn nghe tiện hơn, nhưng nó khiến bước "đăng nhập lần đầu" không bao
@@ -76,12 +104,35 @@ authRouter.post(
 
     const created = await registerAccount({
       fullName: input.fullName,
-      companyName: input.companyName,
       email: input.email,
       password: input.password,
-      phone: input.phone,
-      jobTitle: input.jobTitle,
+      companyName: input.companyName,
     });
+
+    /*
+     * Thư xác minh (§1.10) — và vì sao lỗi gửi thư KHÔNG làm hỏng cả request.
+     *
+     * Tài khoản + tổ chức + workspace đã COMMIT xong. Ném lỗi ở đây sẽ trả về
+     * 500 cho một người mà tài khoản của họ THẬT SỰ đã được tạo: lần sau họ bấm
+     * Đăng ký lại và nhận "email đã được đăng ký", không hiểu gì cả.
+     *
+     * Đường thoát khi SMTP hỏng: `POST /auth/resend-verification`, mà trang đăng
+     * nhập chỉ đúng tới khi gặp `EmailNotVerified`. Nên lỗi ở đây chỉ cần ghi
+     * log để người vận hành thấy, không cần dội lên người dùng.
+     *
+     * ⚠️ `console.error` chứ không im lặng: SMTP sai cấu hình nghĩa là KHÔNG AI
+     * đăng ký được nữa (không ai xác minh được email), và đó là loại sự cố phải
+     * nhìn thấy trong log ngay từ lần đầu.
+     */
+    try {
+      await guiVeXacMinh(created.user, input.companyName);
+    } catch (err) {
+      console.error(
+        '[auth] Không gửi được thư xác minh cho',
+        created.user.email,
+        err instanceof Error ? err.message : err,
+      );
+    }
 
     res.status(201).json(created);
   }),
@@ -98,7 +149,7 @@ const INVALID_CREDENTIALS = 'Email hoặc mật khẩu không đúng.';
 /** POST /api/auth/login — §2.3, §2.4 */
 authRouter.post(
   '/login',
-  authRateLimit('login'),
+  authRateLimit('login', DOAN_SAI_MAT_KHAU),
   asyncHandler(async (req, res) => {
     const { email, password } = loginSchema.parse(req.body);
 
@@ -123,41 +174,238 @@ authRouter.post(
       throw new HttpError(403, 'AccountDisabled', 'Tài khoản đã bị khoá. Liên hệ quản trị viên.');
     }
 
-    // Từ đây là phần mới do mô hình `memberships`: xác thực xong mới biết người
-    // này thuộc những tổ chức nào.
-    const memberships = await membershipsRepo.listActiveByUser(found.user.id);
-
-    // Tài khoản có thật, mật khẩu đúng, nhưng không thuộc tổ chức nào — xảy ra
-    // khi vừa bị gỡ khỏi tổ chức cuối cùng. KHÔNG trả 401 ở đây: mật khẩu đúng
-    // rồi, báo sai mật khẩu là nói dối và người dùng sẽ thử lại tới khi bị khoá.
-    const active = memberships[0];
-    if (!active) {
+    /*
+     * Chưa xác minh email -> không vào được (§1.10).
+     *
+     * ═══ Vì sao chốt này đứng ĐÂY, sau `verifyPassword` ═══════════════════════
+     *
+     * Cùng lý lẽ với chốt `isActive` ngay trên: ai tới được dòng này đã chứng
+     * minh biết mật khẩu, nên nói thật với họ không tiết lộ gì. Đưa chốt lên
+     * trước `verifyPassword` là biến `/login` thành máy dò "email nào đã đăng ký
+     * mà chưa xác minh" — đúng thứ `INVALID_CREDENTIALS` đang cẩn thận che.
+     *
+     * ═══ Vì sao CHẶN chứ không chỉ cảnh báo ══════════════════════════════════
+     *
+     * Đây là thứ làm cho một tài khoản squat trở nên VÔ DỤNG. Kẻ đăng ký bằng
+     * email của người khác không bao giờ nhận được lá thư, nên không bao giờ
+     * xác minh được, nên không bao giờ đăng nhập được. Cho vào kèm một dải băng
+     * vàng "bạn chưa xác minh email" thì tài khoản đó vẫn dùng được bình thường
+     * và cả chốt này thành vô nghĩa. Xem migration 42.
+     */
+    if (found.user.emailVerifiedAt === null) {
       throw new HttpError(
         403,
-        'NoMembership',
-        'Tài khoản chưa thuộc tổ chức nào. Liên hệ quản trị viên để được thêm vào.',
+        'EmailNotVerified',
+        'Email chưa được xác minh. Hãy mở liên kết trong thư chúng tôi đã gửi, hoặc bấm "Gửi lại thư xác minh".',
       );
     }
 
-    await usersRepo.touchLastLogin(found.user.id);
+    res.json(await moPhien(found.user));
+  }),
+);
 
-    res.json({
-      token: signAccessToken({
-        userId: found.user.id,
-        tenantId: active.tenantId,
-        role: active.role,
-        platformRole: found.user.platformRole,
-      }),
-      expiresIn: expiresInSeconds(),
-      mustChangePassword: found.user.mustChangePassword,
-      user: found.user,
-      // Tổ chức đang mở và vai trò trong đó — hai thứ frontend dùng để điều hướng.
-      tenant: toTenantSummary(active),
+/**
+ * Gói phiên trả về — DÙNG CHUNG cho mọi đường đăng nhập.
+ *
+ * ⚠️ Gom lại chứ không chép, và đây là lý do: `/login` và `/google` phải trả về
+ * ĐÚNG MỘT hình dạng, vì frontend chỉ có một đường xử lý phiên. Hai bản sao của
+ * cùng một object literal thì lệch nhau ở lần sửa đầu tiên — và cái lệch đó rơi
+ * vào đường xác thực, nơi một trường thiếu nghĩa là người đăng nhập bằng Google
+ * nhận một phiên khác với người đăng nhập bằng mật khẩu, mà không ai thấy ngay.
+ *
+ * `/switch-tenant` CỐ Ý không dùng hàm này: ở đó tổ chức đang mở do người dùng
+ * chọn chứ không phải lấy cái đầu danh sách, nên nó có một luật khác.
+ */
+async function moPhien(user: usersRepo.PublicUser): Promise<Record<string, unknown>> {
+  // Xác thực xong mới biết người này thuộc những tổ chức nào.
+  const memberships = await membershipsRepo.listActiveByUser(user.id);
+
+  // Tài khoản có thật, chứng thực đúng, nhưng không thuộc tổ chức nào — xảy ra
+  // khi vừa bị gỡ khỏi tổ chức cuối cùng. KHÔNG trả 401 ở đây: chứng thực đã
+  // đúng rồi, báo sai là nói dối và người dùng sẽ thử lại tới khi bị khoá.
+  const active = memberships[0];
+  if (!active) {
+    throw new HttpError(
+      403,
+      'NoMembership',
+      'Tài khoản chưa thuộc tổ chức nào. Liên hệ quản trị viên để được thêm vào.',
+    );
+  }
+
+  await usersRepo.touchLastLogin(user.id);
+
+  return {
+    token: signAccessToken({
+      userId: user.id,
+      tenantId: active.tenantId,
       role: active.role,
-      // Danh sách đầy đủ, kể cả khi mới có một phần tử. Trả sẵn từ bây giờ để
-      // lúc thêm chức năng đổi tổ chức không phải sửa hợp đồng API.
-      memberships: memberships.map(toTenantSummaryWithRole),
-    });
+      platformRole: user.platformRole,
+    }),
+    expiresIn: expiresInSeconds(),
+    /*
+     * ⚠️ Cờ này VẪN áp cho người đăng nhập bằng Google, và đó là chủ ý.
+     *
+     * Nghe vô lý — họ có gõ mật khẩu đâu mà bắt đổi. Nhưng `must_change_password`
+     * bật lên khi quản trị viên tạo tài khoản bằng một mật khẩu TẠM, và mật khẩu
+     * tạm ấy vẫn là một chứng thực sống mà người khác đang biết. Cho qua vì người
+     * dùng vào bằng Google là để lại một lối vào thứ hai không ai đóng.
+     */
+    mustChangePassword: user.mustChangePassword,
+    user,
+    // Tổ chức đang mở và vai trò trong đó — hai thứ frontend dùng để điều hướng.
+    tenant: toTenantSummary(active),
+    role: active.role,
+    // Danh sách đầy đủ, kể cả khi mới có một phần tử.
+    memberships: memberships.map(toTenantSummaryWithRole),
+  };
+}
+
+/**
+ * POST /api/auth/google — §1.9 đăng nhập bằng tài khoản Google.
+ *
+ * ═══ ĐĂNG NHẬP, VÀ ĐĂNG KÝ NẾU CHƯA CÓ TÀI KHOẢN ═══════════════════════════
+ *
+ * Email chưa có tài khoản thì endpoint này TẠO MỚI, thay vì trả 404 như trước.
+ *
+ * Trước đây nó không tạo được, và lý do không nằm ở Google: `registerAccount`
+ * đòi tên công ty, số điện thoại, chức danh — ba thứ Google không biết. Hệ quả
+ * là trang đăng nhập có nút Google còn trang đăng ký thì không, và ai bấm nút đó
+ * bằng một email chưa đăng ký đi vào ngõ cụt "vui lòng đăng ký trước" rồi gặp
+ * một form hỏi những thứ họ vừa định bỏ qua. Nay đăng ký chỉ cần danh tính (xem
+ * `registerFields`), nên một cú bấm là đủ.
+ *
+ * Tổ chức sinh ra ở đường này LUÔN là không gian riêng mang tên người dùng —
+ * không khai tên công ty thì không có gì để đặt. Đổi tên được ở trang Tổ chức.
+ *
+ * ═══ TỰ LIÊN KẾT, và chốt duy nhất giữ cho nó an toàn ══════════════════════
+ *
+ * Email đã có tài khoản mật khẩu, nay bấm nút Google: hệ thống tự lập liên kết.
+ * Điều đó chỉ đúng khi `email_verified === true` — tức Google đã chứng minh
+ * người này kiểm soát hộp thư ấy. Thiếu chốt đó thì bất kỳ ai khai được một địa
+ * chỉ đều nhận được tài khoản của người khác.
+ *
+ * ⚠️ Không có ngoại lệ nào cho chốt này, kể cả với tên miền "tin được".
+ *
+ * ═══ Vì sao ở đây KHÔNG sợ lộ danh sách email ══════════════════════════════
+ *
+ * `/register` phải trả 409 khi email trùng, và đó là một kênh liệt kê email —
+ * README đã ghi. Endpoint này thì không: muốn hỏi "email X có tài khoản không"
+ * thì phải có một ID token Google hợp lệ CỦA CHÍNH email X, nghĩa là phải đang
+ * nắm hộp thư đó. Nên ở đây nói thẳng được, và nói thẳng thì người dùng thật
+ * biết mình phải làm gì tiếp.
+ */
+authRouter.post(
+  '/google',
+  authRateLimit('google', DOAN_SAI_MAT_KHAU),
+  asyncHandler(async (req, res) => {
+    const { credential } = googleLoginSchema.parse(req.body);
+    const danhTinh = await xacMinhGoogle(credential);
+
+    // Đã liên kết từ trước: `sub` là khoá tra cứu, không đụng tới email.
+    let userId = await identitiesRepo.findUserIdByProviderSubject('google', danhTinh.sub);
+
+    if (userId === null) {
+      if (!danhTinh.emailVerified) {
+        throw new HttpError(
+          401,
+          'GoogleEmailUnverified',
+          'Google chưa xác nhận email của tài khoản này, nên chưa thể dùng để đăng nhập.',
+        );
+      }
+
+      const theoEmail = await usersRepo.findByEmailForLogin(danhTinh.email);
+
+      /*
+       * Chưa có tài khoản -> tạo ngay tại đây. Xem khối chú thích đầu endpoint.
+       *
+       * `emailVerified: true` là an toàn, và chốt ngay trên là lý do: ta đã bắt
+       * `danhTinh.emailVerified` trước khi tới dòng này, nên Google đã chứng minh
+       * người đang bấm kiểm soát hộp thư ấy. Đó là bằng chứng MẠNH HƠN lá thư
+       * xác minh của chính ta. Bỏ cờ này thì tài khoản vừa tạo rơi vào chốt
+       * `EmailNotVerified` ở dưới và không bao giờ vào được: thư xác minh gửi
+       * tới đâu cũng vô nghĩa vì họ không có mật khẩu để dùng sau khi xác minh.
+       */
+      const tenGoogle = danhTinh.fullName?.trim();
+      const nguoi =
+        theoEmail?.user ??
+        (
+          await registerAccount({
+            // Google KHÔNG bắt buộc trả `name`. Lấy email làm tên tạm thay vì để
+            // trống: cột `full_name` là NOT NULL, và một hàng không tên trong
+            // bảng Thành viên thì không ai tra ra là ai. Sửa ở trang hồ sơ.
+            fullName: tenGoogle === undefined || tenGoogle === '' ? danhTinh.email : tenGoogle,
+            email: danhTinh.email,
+            // Không `password`: tài khoản này chưa có mật khẩu dùng được, và
+            // "Quên mật khẩu" là đường để thêm một cái.
+            emailVerified: true,
+          })
+        ).user;
+
+      // Kiểm khoá TRƯỚC khi lập liên kết: một tài khoản đã bị khoá thì không nên
+      // để lại thêm một lối vào, kể cả lối vào chưa dùng được ngay.
+      if (!nguoi.isActive) {
+        throw new HttpError(403, 'AccountDisabled', 'Tài khoản đã bị khoá. Liên hệ quản trị viên.');
+      }
+
+      /*
+       * ⚠️ KHÔNG tự liên kết vào một tài khoản chưa xác minh email (§1.10).
+       *
+       * Đây là nửa còn lại của lỗ hổng pre-hijacking mà migration 42 mô tả. Nửa
+       * kia là `/login` chặn tài khoản chưa xác minh — nhưng nếu đường này vẫn
+       * liên kết, thì kẻ squat vẫn thắng: nạn nhân vào được bằng Google, tin đó
+       * là workspace của mình, nạp dữ liệu lên, và mật khẩu của kẻ squat vẫn
+       * dùng được. Chặn cả hai đường thì tài khoản squat vô dụng hoàn toàn.
+       *
+       * Chốt đứng TRƯỚC `linkIdentity`, không phải sau: xếp sau thì dòng liên
+       * kết đã được ghi rồi mới bị từ chối, và hệ thống để lại một lối vào cho
+       * một tài khoản mà chính nó vừa nói là không dùng được.
+       */
+      if (nguoi.emailVerifiedAt === null) {
+        throw new HttpError(
+          403,
+          'EmailNotVerified',
+          `Tài khoản dùng email ${danhTinh.email} chưa xác minh email. Hãy mở liên kết trong thư xác minh trước khi đăng nhập bằng Google.`,
+        );
+      }
+
+      const lienKetDuoc = await identitiesRepo.linkIdentity({
+        userId: nguoi.id,
+        provider: 'google',
+        subject: danhTinh.sub,
+        email: danhTinh.email,
+      });
+      if (!lienKetDuoc) {
+        // Một trong hai khoá duy nhất đụng — xem `linkIdentity`. Cả hai đều là
+        // tình huống thật, và cả hai đều cần người thật xử lý.
+        throw new HttpError(
+          409,
+          'IdentityConflict',
+          'Tài khoản này đã được liên kết với một tài khoản Google khác. Liên hệ quản trị viên.',
+        );
+      }
+      userId = nguoi.id;
+    }
+
+    // Đọc lại từ database chứ không tin bản vừa tìm: đường "đã liên kết" ở trên
+    // mới chỉ có `userId`, và cả hai đường phải kiểm khoá bằng cùng một câu.
+    const user = await usersRepo.findById(userId);
+    if (!user) throw unauthorized('Tài khoản không còn tồn tại.');
+    if (!user.isActive) {
+      throw new HttpError(403, 'AccountDisabled', 'Tài khoản đã bị khoá. Liên hệ quản trị viên.');
+    }
+    // Chốt xác minh lặp lại ở đây để phủ CẢ đường "đã liên kết từ trước" — đường
+    // đó không đi qua khối trên. Một liên kết lập trước §1.10 có thể trỏ tới
+    // tài khoản chưa xác minh, và nó phải chịu đúng luật như mọi tài khoản khác.
+    if (user.emailVerifiedAt === null) {
+      throw new HttpError(
+        403,
+        'EmailNotVerified',
+        'Email của tài khoản này chưa được xác minh. Hãy mở liên kết trong thư xác minh trước khi đăng nhập.',
+      );
+    }
+
+    await identitiesRepo.touchIdentityLogin('google', danhTinh.sub);
+    res.json(await moPhien(user));
   }),
 );
 
@@ -349,6 +597,51 @@ authRouter.post(
     // 202 chứ không phải 200: ta đã NHẬN yêu cầu, còn thư có tới hộp thư hay
     // không thì ở đây chưa biết và cố ý không nói.
     res.status(202).json({ message: DA_GUI_NEU_CO });
+  }),
+);
+
+/**
+ * POST /api/auth/verify-email — xác minh email bằng vé trong thư (§1.10)
+ *
+ * POST chứ không phải GET dù liên kết trong thư là một URL mà người dùng bấm:
+ * trang `/xac-minh-email` của frontend đọc vé từ query string rồi gọi endpoint
+ * này. Để vé đi vào một GET của API nghĩa là nó nằm trong access log của
+ * `morgan` — cùng lý lẽ với `/reset-password/verify` ngay dưới.
+ *
+ * Hạn mức dùng bucket RIÊNG: một người mở lại liên kết vài lần vì tưởng chưa
+ * được không được phép khoá luôn đường đăng nhập của họ.
+ */
+authRouter.post(
+  '/verify-email',
+  authRateLimit('verify-email'),
+  asyncHandler(async (req, res) => {
+    const { token } = verifyEmailSchema.parse(req.body);
+    await xacMinhBangVe(token);
+
+    // 204 và KHÔNG tự đăng nhập: cùng lập luận với `/register`. Người vừa xác
+    // minh sang trang đăng nhập và tự gõ mật khẩu họ đã đặt — đó là bước duy
+    // nhất chứng minh mật khẩu ấy đúng như họ nghĩ.
+    res.status(204).end();
+  }),
+);
+
+/**
+ * POST /api/auth/resend-verification — gửi lại thư xác minh (§1.10)
+ *
+ * LUÔN trả 202 với cùng một câu, kể cả khi email không tồn tại hoặc đã xác minh
+ * rồi. Lý lẽ đầy đủ ở `services/auth/emailVerification.ts`; tóm tắt: phân biệt
+ * được ở đây là biến endpoint này thành máy dò email — y như `/forgot-password`.
+ *
+ * Bucket riêng, không dùng chung với `login`: người đang mắc ở đúng chỗ này cần
+ * bấm được nút gửi lại, và họ tới đây CHÍNH VÌ không đăng nhập được.
+ */
+authRouter.post(
+  '/resend-verification',
+  authRateLimit('resend-verification'),
+  asyncHandler(async (req, res) => {
+    const { email } = resendVerificationSchema.parse(req.body);
+    await yeuCauGuiLai(email);
+    res.status(202).json({ message: DA_GUI_NEU_CAN });
   }),
 );
 

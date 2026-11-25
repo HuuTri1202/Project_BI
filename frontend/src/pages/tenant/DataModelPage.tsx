@@ -61,10 +61,20 @@ interface TabDef {
   end?: boolean;
 }
 
+/*
+ * Nhãn tiếng Việt — vá B3.
+ *
+ * Ba tab này là "Schemas · Relationship · Explorer" giữa một giao diện Việt
+ * hoàn toàn, cạnh một nút "+ Create DataModel". Đo khi dùng hệ thống như người
+ * thật: nó đọc như ba màn hình của một sản phẩm khác dán vào.
+ *
+ * ĐƯỜNG DẪN giữ nguyên tiếng Anh (`/relationship`, `/explorer`): URL không phải
+ * câu chữ cho người đọc, và đổi nó làm hỏng mọi liên kết đã ai đó lưu lại.
+ */
 const TABS: TabDef[] = [
-  { to: '', label: 'Schemas', end: true },
-  { to: 'relationship', label: 'Relationship' },
-  { to: 'explorer', label: 'Explorer' },
+  { to: '', label: 'Cấu trúc', end: true },
+  { to: 'relationship', label: 'Quan hệ' },
+  { to: 'explorer', label: 'Khám phá' },
 ];
 
 const TAB_CLASS = '-mb-px shrink-0 border-b-2 px-4 py-2.5 text-sm font-medium transition-colors';
@@ -201,14 +211,14 @@ export default function DataModelPage(): React.ReactElement {
         title="Mô hình dữ liệu"
         description={
           data === undefined
-            ? 'Gắn nhãn ngữ nghĩa cho dữ liệu trong kho, khai quan hệ, rồi hỏi bằng Explorer.'
+            ? 'Gắn nhãn ngữ nghĩa cho dữ liệu trong kho, khai quan hệ, rồi hỏi ở tab Khám phá.'
             : `${data.datasetCount} bảng · ${data.measureCount} thước đo · ${data.relationshipCount} quan hệ`
         }
         actions={
           <div className="flex flex-wrap gap-2">
             {canEdit && (
               <Button variant="primary" onClick={() => setCreating(true)}>
-                + Create DataModel
+                + Tạo mô hình
               </Button>
             )}
             {canDelete && data !== undefined && (
@@ -229,7 +239,7 @@ export default function DataModelPage(): React.ReactElement {
             chỗ hợp lý nhất để đổi sang mô hình khác. */}
         <nav className="mt-1 flex flex-wrap items-center gap-1.5 text-sm" aria-label="Đường dẫn">
           <Link to="/datamodels" className="text-brand-700 hover:underline">
-            Data Model
+            Mô hình dữ liệu
           </Link>
           <span aria-hidden="true" className="text-slate-400">
             ›

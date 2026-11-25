@@ -3,6 +3,7 @@ import {
   CHART_SHELF_LABELS,
   CHART_SORTS,
   CHART_SORT_LABELS,
+  CHART_SORT_LABELS_TIME,
   CHART_STACKABLE,
   CHART_TYPE_HINTS,
   CHART_TYPE_LABELS,
@@ -16,6 +17,7 @@ import {
 } from '@bi/shared';
 
 import { CHART_CHOICES } from '../chartCatalog';
+import { BoLoc } from './BoLoc';
 import { Choice, PaletteChoice, PanelTitle, Shelf, Toggle } from './controls';
 import type { DragField } from './dnd';
 import { moTaCua } from './fieldText';
@@ -73,7 +75,9 @@ export function VisualPanel({
     draft.chartType === 'pie' || (draft.chartType !== 'heatmap' && chosenSeries !== null);
 
   const drop = (slot: 'dimension' | 'measure' | 'series', field: DragField): void => {
-    const patch = assignField(draft, slot, field);
+    // Kiểu của trường quyết định cách sắp mặc định — xem `assignField`.
+    const kieu = [...dimensions, ...measures].find((f) => f.id === field.id)?.cubeType;
+    const patch = assignField(draft, slot, field, kieu);
     if (patch !== null) onChange(patch);
   };
 
@@ -161,6 +165,14 @@ export function VisualPanel({
         />
       </div>
 
+      {/* Bộ lọc đứng giữa "Ô thả" và "Định dạng" — nó đổi SỐ như mấy ô thả, chứ
+          không đổi hình như mấy công tắc bên dưới. */}
+      <BoLoc
+        filters={draft.filters}
+        dimensions={dimensions}
+        onChange={(filters) => onChange({ filters })}
+      />
+
       <div className="space-y-3">
         <PanelTitle>Định dạng</PanelTitle>
 
@@ -206,7 +218,13 @@ export function VisualPanel({
           label="Sắp xếp"
           value={draft.options.sort}
           onChange={(v) => setOption({ sort: v as ChartSort })}
-          options={CHART_SORTS.map((s) => ({ value: s, label: CHART_SORT_LABELS[s] }))}
+          options={CHART_SORTS.map((s) => ({
+            value: s,
+            // Trục thời gian đọc bằng lời của thời gian — xem `CHART_SORT_LABELS_TIME`.
+            label: (chosenDimension?.cubeType === 'time'
+              ? CHART_SORT_LABELS_TIME
+              : CHART_SORT_LABELS)[s],
+          }))}
           hint={sapXepHint(draft.options.sort, draft.limit, chosenMeasure?.label)}
         />
 
@@ -285,7 +303,15 @@ function sapXepHint(
   const thuocDo = measure ?? 'thước đo';
   if (sort === 'value-asc') return `Trang 1 là ${limit} nhóm NHỎ NHẤT theo ${thuocDo}.`;
   if (sort === 'value') return undefined;
-  return `Xếp theo tên trong phạm vi trang này; các trang vẫn đi theo thứ hạng của ${thuocDo}.`;
+  /*
+   * Câu này từng là một lời ĐÍNH CHÍNH: "xếp theo tên trong phạm vi trang này;
+   * các trang vẫn đi theo thứ hạng của <thước đo>". Nó đúng, và đó là vấn đề —
+   * ô chọn nói một đằng, truy vấn làm một nẻo, và giao diện phải tự thú.
+   *
+   * Từ §A4 hai cách sắp theo tên đổi luôn câu hỏi gửi xuống Cube, nên trang 1
+   * là `limit` mốc ĐẦU TIÊN thật. Giờ câu chú thích chỉ còn nói ra điều đó.
+   */
+  return `Trang 1 là ${limit} nhóm đầu theo thứ tự này; lật trang là đi tiếp theo cùng thứ tự.`;
 }
 
 /**

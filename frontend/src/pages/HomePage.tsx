@@ -67,6 +67,15 @@ export default function HomePage(): React.ReactElement {
 
   const reports = data?.reports ?? [];
 
+  /*
+   * "Chưa bắt đầu" = đã tải dữ liệu xong mà workspace KHÔNG có báo cáo nào.
+   *
+   * Đòi `data !== undefined`: trong lúc chờ thì `stats.reports` là `undefined`,
+   * và đoán nó là 0 sẽ nháy lời hướng dẫn ra rồi thay bằng thẻ số — đúng kiểu
+   * nhấp nháy mà hai dấu gạch ngang ở `StatCard` vốn sinh ra để tránh.
+   */
+  const chuaBatDau = data !== undefined && data.stats.reports === 0;
+
   return (
     <Page>
       <PageHeader
@@ -90,12 +99,27 @@ export default function HomePage(): React.ReactElement {
             <ErrorState message={getApiError(error).message} />
           </div>
         )}
-        {/* Thẻ số. Trong lúc chờ để dấu gạch ngang chứ không phải số 0 — hiện 0
-          rồi nhảy sang 12 khiến người ta tin vào con số 0 đó trong khoảnh khắc. */}
-        <div className="mt-4 grid gap-4 sm:grid-cols-2">
-          <StatCard label="Báo cáo trong workspace" value={data?.stats.reports} />
-          <StatCard label="Thành viên trong tổ chức" value={data?.stats.members} />
-        </div>
+        {/*
+         * Tổ chức MỚI thì thay hai thẻ số bằng đường đi — vá C1.
+         *
+         * ⚠️ Đo khi dùng hệ thống như người thật: trang chủ lần đầu dành chỗ đẹp
+         * nhất cho hai thẻ "Báo cáo: 0" và "Thành viên: 1", rồi ~50% màn hình
+         * còn lại để trắng. Hai con số đó đúng, nhưng chúng không trả lời câu
+         * duy nhất người vừa lập tổ chức đang hỏi: giờ làm gì?
+         *
+         * Khi đã có báo cáo thì hai thẻ số quay lại — lúc đó chúng là thông tin
+         * thật, còn lời hướng dẫn mới là thứ chiếm chỗ vô ích.
+         */}
+        {chuaBatDau ? (
+          <BatDauTuDay stats={data?.stats} canEdit={canEdit} />
+        ) : (
+          /* Trong lúc chờ để dấu gạch ngang chứ không phải số 0 — hiện 0 rồi
+             nhảy sang 12 khiến người ta tin vào con số 0 đó trong khoảnh khắc. */
+          <div className="mt-4 grid gap-4 sm:grid-cols-2">
+            <StatCard label="Báo cáo trong workspace" value={data?.stats.reports} />
+            <StatCard label="Thành viên trong tổ chức" value={data?.stats.members} />
+          </div>
+        )}
 
         <section className="mt-6">
           <div className="flex flex-wrap items-center justify-between gap-3">
@@ -181,6 +205,99 @@ function AdminConsoleCard(): React.ReactElement {
       >
         Admin Console →
       </Link>
+    </section>
+  );
+}
+
+/**
+ * Ba bước đầu, kèm dấu đã-xong thật — vá C1.
+ *
+ * Dấu đã-xong đọc từ số đếm THẬT của tổ chức, không phải từ một cờ
+ * "đã xem hướng dẫn": người dùng có thể đã tải dữ liệu lên từ hôm trước, và một
+ * lời hướng dẫn bảo họ làm lại bước đó thì tệ hơn là không có hướng dẫn.
+ *
+ * Phạm vi của hai số đếm là TỔ CHỨC (xem `HomeDataDto.stats`), nên câu "đã có N
+ * bộ dữ liệu" khớp với thứ màn Kho dữ liệu đang hiện.
+ */
+function BatDauTuDay({
+  stats,
+  canEdit,
+}: {
+  stats: { datasets: number; datamodels: number } | undefined;
+  canEdit: boolean;
+}): React.ReactElement {
+  const soBo = stats?.datasets ?? 0;
+  const soMoHinh = stats?.datamodels ?? 0;
+
+  const buoc = [
+    {
+      to: '/datasets',
+      nhan: 'Tải dữ liệu lên',
+      moTa:
+        soBo > 0
+          ? `Đã có ${soBo.toLocaleString('vi-VN')} bộ dữ liệu. Tải thêm tệp Excel/CSV nếu cần.`
+          : 'Một tệp Excel hoặc CSV là đủ để bắt đầu — hệ thống tự đoán kiểu từng cột.',
+      xong: soBo > 0,
+    },
+    {
+      to: '/datamodels',
+      nhan: 'Khai mô hình dữ liệu',
+      moTa:
+        soMoHinh > 0
+          ? `Đã có ${soMoHinh.toLocaleString('vi-VN')} mô hình. Mở ra để sửa thước đo hoặc quan hệ.`
+          : 'Chọn bộ dữ liệu, đặt cột nào là chiều và cột nào là số đo cần cộng.',
+      xong: soMoHinh > 0,
+    },
+    {
+      to: '/reports',
+      nhan: 'Dựng báo cáo đầu tiên',
+      moTa: 'Bấm hoặc kéo chiều và thước đo vào ô, chọn kiểu biểu đồ, rồi lưu lại.',
+      xong: false,
+    },
+  ];
+
+  return (
+    <section className="mt-4 rounded-xl border border-slate-200 bg-white p-5">
+      <h2 className="text-sm font-semibold text-slate-900">Bắt đầu từ đây</h2>
+      <p className="mt-1 text-sm text-slate-500">
+        Ba bước, làm một lần. Lần sau mở trang này bạn sẽ thấy ngay báo cáo của mình.
+      </p>
+
+      <ol className="mt-4 space-y-2.5">
+        {buoc.map((b, i) => (
+          <li key={b.to}>
+            <Link
+              to={b.to}
+              className="hover:border-brand-300 flex items-start gap-3 rounded-lg border border-slate-200 px-3.5 py-3 transition-colors hover:bg-slate-50"
+            >
+              <span
+                aria-hidden="true"
+                className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-sm font-semibold ${
+                  b.xong ? 'bg-green-100 text-green-700' : 'bg-brand-50 text-brand-700'
+                }`}
+              >
+                {b.xong ? '✓' : i + 1}
+              </span>
+              <span className="min-w-0">
+                <span className="block text-sm font-medium text-slate-900">
+                  {b.nhan}
+                  {b.xong && <span className="sr-only"> (đã xong)</span>}
+                </span>
+                <span className="mt-0.5 block text-sm text-slate-500">{b.moTa}</span>
+              </span>
+            </Link>
+          </li>
+        ))}
+      </ol>
+
+      {!canEdit && (
+        // Viewer không tạo được gì, nên ba bước trên là ba cánh cửa đóng. Nói
+        // thẳng còn hơn để họ bấm vào rồi gặp trang 403.
+        <p className="mt-3 text-sm text-slate-500">
+          Vai trò của bạn là người xem, nên ba bước trên do quản trị viên hoặc người tạo nội dung
+          của tổ chức làm.
+        </p>
+      )}
     </section>
   );
 }

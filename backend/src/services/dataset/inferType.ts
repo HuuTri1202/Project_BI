@@ -71,7 +71,12 @@ export function looksLikeNumber(raw: string): boolean {
 
   // Số 0 đứng đầu -> mã định danh, không phải số. `0`, `0.5`, `-0.5` vẫn qua.
   const digits = s.replace(/^-/, '');
-  if (digits.length > 1 && digits.startsWith('0') && !digits.startsWith('0.') && !digits.startsWith('0,')) {
+  if (
+    digits.length > 1 &&
+    digits.startsWith('0') &&
+    !digits.startsWith('0.') &&
+    !digits.startsWith('0,')
+  ) {
     return false;
   }
 
@@ -84,7 +89,102 @@ export function looksLikeNumber(raw: string): boolean {
  * Trả `null` khi không phải số — nơi gọi quyết định làm gì, thay vì nhận `NaN`
  * rồi lặng lẽ đưa nó vào phép cộng và cho ra `NaN` ở tận biểu đồ.
  */
-export function parseNumber(raw: string): number | null {
+/**
+ * Quy ước phân cách của một CỘT số. `null` = cột không đủ bằng chứng.
+ *
+ * ═══ Vì sao phải có khái niệm "cột", trong khi `parseNumber` làm việc theo ô ══
+ *
+ * Phần trên đã kết luận `750.000` đứng MỘT MÌNH là ca 50/50 thật, và chọn phía
+ * không nhân dữ liệu lên 1000 lần. Kết luận đó đúng và vẫn giữ nguyên — nhưng
+ * nó chỉ đúng với ô ĐƠN ĐỘC. Trong một cột thật, ô bên cạnh thường đã trả lời:
+ *
+ *     1.250.000   hai nhóm, không đọc thành thập phân được -> cột kiểu Việt
+ *     750.000     mơ hồ, nhưng giờ hết mơ hồ: 750 nghìn
+ *
+ * Triệu chứng của việc thiếu bước này đã đo trên hệ thống đang chạy: một tệp
+ * bán hàng có ô `750.000` vào ClickHouse thành `750`, và biểu đồ doanh thu hiện
+ * một cột 750 cạnh một cột 15.980.000. Không có cảnh báo nào, và bảng xem trước
+ * vẫn hiện nguyên văn `750.000` nên người dùng không thể thấy.
+ *
+ * ═══ Bằng chứng, và vì sao MÂU THUẪN thì không kết luận ════════════════════
+ *
+ *   kiểu Việt   `1.234.567` (>=2 nhóm) hoặc `1.234,56` (có phẩy thập phân)
+ *   kiểu Anh    `1,234,567` (phẩy nhóm nghìn), hoặc một dấu chấm mà phần lẻ
+ *               KHÔNG phải ba chữ số (`1.5`), hoặc phần nguyên bắt đầu bằng 0
+ *               (`0.402` — không ai viết thế để nói "402")
+ *
+ * Có cả hai loại bằng chứng trong một cột thì dữ liệu tự nó đã trái nhau, và
+ * đoán bừa là nhân sai 1000 lần cho một nửa số ô. Trả `null`, tức là mỗi ô đọc
+ * theo luật cũ — cùng nguyên tắc "nghi ngờ thì đừng biến đổi" ở đầu file.
+ *
+ * ⚠️ Giữ nguyên kết quả đã đo trên `Global-Superstore`: cột `Discount` có
+ * `0.402` nên ra `'en'`, còn cột chỉ có `-288.765`/`763.155` thì ra `null` —
+ * cả hai đường đều dẫn tới đúng cách đọc cũ.
+ */
+export type QuyUocSo = 'vn' | 'en';
+
+/**
+ * Đúng MỘT nhóm ba chữ số sau dấu chấm, phần nguyên 1..999 không có số 0 đầu.
+ *
+ * Đây là TẬP ô mơ hồ, và cũng là tập DUY NHẤT mà quy ước của cột được phép đổi
+ * cách đọc. `0.402` nằm ngoài vì phần nguyên là 0; `1.5` nằm ngoài vì phần lẻ
+ * không đủ ba chữ số; `1.234.567` nằm ngoài vì đã có luật riêng.
+ */
+const MOT_NHOM_CHAM = /^-?[1-9]\d{0,2}\.\d{3}$/;
+
+/** Dấu chấm chắc chắn là dấu THẬP PHÂN: phần lẻ khác ba chữ số, hoặc phần nguyên là 0. */
+const THAP_PHAN_RO = /^-?(?:0\.\d+|\d+\.\d{1,2}|\d+\.\d{4,})$/;
+
+/**
+ * Bằng chứng thô tìm được trong cột, TRƯỚC khi kết luận.
+ *
+ * Tách ra khỏi `doanQuyUocSo` vì `null` của hàm đó trộn hai chuyện rất khác
+ * nhau: "không có bằng chứng nào" và "có bằng chứng của CẢ HAI quy ước". Cái
+ * thứ hai là một cột người dùng cần biết (C3 trong báo cáo QA: `1,250,000` và
+ * `750.000` nằm cùng một cột), còn cái thứ nhất thì không có gì để nói.
+ */
+export function bangChungQuyUocSo(values: Iterable<string>): { vn: boolean; en: boolean } {
+  let vn = false;
+  let en = false;
+
+  for (const raw of values) {
+    if (isBlank(raw)) continue;
+    const s = raw.trim().replace(/\s/g, '').replace(/%$/, '');
+    if (!looksLikeNumber(s)) continue;
+
+    if (GROUPED_VN.test(s)) vn = true;
+    else if (GROUPED_EN.test(s) || THAP_PHAN_RO.test(s)) en = true;
+
+    // Trái nhau thì dừng sớm: đã đủ để kết luận là không kết luận được.
+    if (vn && en) break;
+  }
+
+  return { vn, en };
+}
+
+/**
+ * Ô này có nằm trong TẬP MƠ HỒ không — tức cách đọc của nó phụ thuộc quy ước
+ * của cột (`750.000` là 750 hay 750 nghìn).
+ *
+ * Mở ra ngoài để `chatLuong` nói được với người dùng đúng những ô đó, thay vì
+ * một câu chung chung về "dữ liệu không nhất quán". Tập này phải là MỘT nơi:
+ * `parseNumber` đổi cách đọc đúng những ô này, nên một bản sao của regex sẽ
+ * khiến cảnh báo nói về một tập ô khác với tập thật sự bị ảnh hưởng.
+ */
+export function laOMoHoPhanCach(raw: string): boolean {
+  const s = raw.trim().replace(/\s/g, '').replace(/%$/, '');
+  return MOT_NHOM_CHAM.test(s);
+}
+
+export function doanQuyUocSo(values: Iterable<string>): QuyUocSo | null {
+  const { vn, en } = bangChungQuyUocSo(values);
+  // Trái nhau thì không có kết luận nào đúng cho cả cột.
+  if (vn && en) return null;
+  if (vn) return 'vn';
+  return en ? 'en' : null;
+}
+
+export function parseNumber(raw: string, quyUoc: QuyUocSo | null = null): number | null {
   const s = raw.trim().replace(/\s/g, '').replace(/%$/, '');
   if (s === '') return null;
 
@@ -93,6 +193,11 @@ export function parseNumber(raw: string): number | null {
     normalized = s.replace(/\./g, '').replace(',', '.');
   } else if (GROUPED_EN.test(s)) {
     normalized = s.replace(/,/g, '');
+  } else if (quyUoc === 'vn' && MOT_NHOM_CHAM.test(s)) {
+    // Ô MƠ HỒ, và cả cột đã phân xử — xem `doanQuyUocSo`. Chỉ nhánh này là mới;
+    // mọi ô không mơ hồ vẫn đi qua đúng hai nhánh ở trên, nên quy ước của cột
+    // KHÔNG bẻ lại được một giá trị tự nó đã rõ nghĩa.
+    normalized = s.replace(/\./g, '');
   } else {
     // `1,5` kiểu Việt Nam: dấu phẩy là dấu thập phân khi chỉ có một dấu và
     // không phải nhóm ba chữ số.

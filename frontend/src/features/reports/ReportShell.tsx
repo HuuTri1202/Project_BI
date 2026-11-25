@@ -51,7 +51,20 @@ export function ReportShell({
 }): React.ReactElement {
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-slate-50">
-      <header className="z-30 flex h-14 shrink-0 items-center gap-2 border-b border-slate-200 bg-white px-3 sm:gap-3 sm:px-4">
+      {/*
+        Thanh trên XUỐNG DÒNG được dưới `sm`, và đó là một lỗi đo được.
+
+        Trên 390px, bốn nút Xuất · Chia sẻ · Gửi định kỳ · Chỉnh sửa cần 461px
+        — số đo từ hồi còn nút Gửi định kỳ, nút đó nay đã gỡ khỏi hệ thống.
+        Với `h-14` cố định cộng `shrink-0`, nút cuối nằm ở x = 366…461 — tức
+        NGOÀI màn hình. Thanh này cuộn ngang được, nhưng trang thì không, nên
+        không có gì cho người dùng biết là còn nút phía sau: trên điện thoại,
+        báo cáo trở thành thứ không sửa được.
+
+        Cho xuống dòng thì hàng nút rơi xuống dòng thứ hai và thấy đủ. Desktop
+        giữ nguyên từng pixel: `sm:h-14 sm:flex-nowrap` khoá lại đúng hình cũ.
+      */}
+      <header className="z-30 flex min-h-14 shrink-0 flex-wrap items-center gap-2 border-b border-slate-200 bg-white px-3 py-2 sm:h-14 sm:flex-nowrap sm:gap-3 sm:px-4 sm:py-0">
         <button
           type="button"
           onClick={onExit}
@@ -78,7 +91,11 @@ export function ReportShell({
         <div className="max-w-md min-w-0 flex-1">{title}</div>
 
         {actions !== undefined && (
-          <div className="ml-auto flex shrink-0 items-center gap-2">{actions}</div>
+          // `flex-wrap`: bốn nút cộng lại rộng 404px, hơn cả màn 390px, nên
+          // riêng chúng cũng phải xuống được dòng.
+          <div className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-2 sm:shrink-0">
+            {actions}
+          </div>
         )}
       </header>
 

@@ -255,6 +255,38 @@ export async function softDelete(db: Db, tenantId: number, id: number): Promise<
 }
 
 /**
+ * Còn bao nhiêu báo cáo ĐANG SỐNG dựng trên mô hình này.
+ *
+ * Cùng việc với `datasetsRepo.countLiveReports`, chỉ khác cột tham chiếu —
+ * `datamodel_id` thay cho `dataset_id`. Tách thành hàm riêng ở đây vì đường xoá
+ * mô hình không được phép đoán: xoá một mô hình còn báo cáo dựng trên nó để lại
+ * báo cáo SỐNG mà không mở nổi, và người dùng chỉ biết khi bấm vào nó.
+ *
+ * Đo ngày 25/11/2026 trên database dev: 14 báo cáo đang sống trỏ vào mô hình đã
+ * xoá mềm, ở 2 tổ chức. Khoá ngoại vẫn nguyên (không có báo cáo nào trỏ vào id
+ * không tồn tại) — chỗ hở đúng là xoá MỀM không lan và không ai chặn.
+ *
+ * ⚠️ `tenant_id` trong câu WHERE là BẮT BUỘC, đừng bỏ cho gọn. Nơi gọi dùng con
+ * số này để trả 409 kèm SỐ LƯỢNG báo cáo, và nó chạy TRƯỚC khi biết người gọi
+ * có sở hữu mô hình hay không. Không lọc tổ chức thì tổ chức khác gửi
+ * `DELETE /datamodels/229` sẽ nhận "Còn 14 báo cáo đang dùng…" thay vì 404 —
+ * lộ cả sự tồn tại của mô hình lẫn số báo cáo dựng trên nó. Lọc rồi thì họ đếm
+ * được 0, đi tiếp, và `softDelete` trả 0 dòng → 404 đúng như mọi route khác.
+ */
+export async function countLiveReports(
+  db: Db,
+  tenantId: number,
+  datamodelId: number,
+): Promise<number> {
+  const [rows] = await db.query<RowDataPacket[]>(
+    `SELECT COUNT(*) AS total FROM reports
+      WHERE datamodel_id = ? AND tenant_id = ? AND deleted_at IS NULL`,
+    [datamodelId, tenantId],
+  );
+  return Number(rows[0]?.['total'] ?? 0);
+}
+
+/**
  * Đánh dấu mô hình vừa đổi — PHẢI gọi từ MỌI thao tác ghi lên bảng con.
  *
  * `updated_at` ở đây không chỉ là sổ sách: nó là `schemaVersion` mà Express ký
@@ -291,6 +323,46 @@ export async function schemaVersion(db: Db, tenantId: number): Promise<string> {
     [tenantId],
   );
   return String(rows[0]?.['v'] ?? 0);
+}
+
+/** Một tổ chức kèm phiên bản schema của nó — xem `tenantsDeHamNong`. */
+export interface TenantSchemaVersion {
+  tenantId: number;
+  schemaVersion: string;
+}
+
+/**
+ * Các tổ chức đáng HÂM NÓNG lúc khởi động, kèm `schemaVersion` của từng tổ chức.
+ *
+ * ⚠️ Biểu thức `COALESCE(MAX(UNIX_TIMESTAMP(updated_at)), 0)` phải GIỐNG HỆT
+ * `schemaVersion` ở trên, tới từng ký tự. Cube nhớ schema đã biên dịch theo cặp
+ * (tổ chức, `schemaVersion`); lệch một chữ số thập phân là hâm nóng một khoá
+ * KHÁC khoá mà truy vấn thật dùng — tức là trả tiền biên dịch hai lần và không
+ * ai nhanh hơn. Cột là `DATETIME(3)` nên giá trị có phần nghìn giây
+ * (`1795470006.889`), và mysql2 trả `DECIMAL` về dạng chuỗi: đừng đổi sang
+ * `Number`.
+ *
+ * Một truy vấn cho cả danh sách, không phải `listTenantsWithModels` rồi gọi
+ * `schemaVersion` từng tổ chức — cái sau là N+1 nằm đúng trên đường boot.
+ *
+ * Sắp theo SỬA GẦN NHẤT trước vì đó là tín hiệu "đang được dùng" duy nhất có
+ * sẵn mà không phải thêm bảng theo dõi nào; `gioiHan` là trần, xem
+ * `hamNongKhoiDong` để biết vì sao bắt buộc phải có trần.
+ */
+export async function tenantsDeHamNong(db: Db, gioiHan: number): Promise<TenantSchemaVersion[]> {
+  const [rows] = await db.query<RowDataPacket[]>(
+    `SELECT tenant_id, COALESCE(MAX(UNIX_TIMESTAMP(updated_at)), 0) AS v
+       FROM datamodels
+      WHERE deleted_at IS NULL
+      GROUP BY tenant_id
+      ORDER BY MAX(updated_at) DESC
+      LIMIT ?`,
+    [gioiHan],
+  );
+  return rows.map((r) => ({
+    tenantId: Number(r['tenant_id']),
+    schemaVersion: String(r['v'] ?? 0),
+  }));
 }
 
 // ─── Bộ dữ liệu trong mô hình ────────────────────────────────────────────────

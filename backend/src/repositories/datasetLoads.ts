@@ -1,5 +1,6 @@
 import type { DatasetLoadDto, DatasetLoadErrorDto, LoadRunStatus } from '@bi/shared';
 import type { ResultSetHeader, RowDataPacket } from 'mysql2';
+import type { PoolConnection } from 'mysql2/promise';
 import type { Db } from './db';
 
 /**
@@ -105,40 +106,57 @@ export interface ClaimedRun {
 /**
  * Nhặt MỘT việc từ hàng đợi — và đây là chỗ chống chạy trùng.
  *
- * ─── Vì sao là một câu UPDATE, không phải SELECT rồi UPDATE ─────────────────
+ * ─── Vì sao cần chống ───────────────────────────────────────────────────────
  *
  * Một cờ `busy` trong bộ nhớ không đủ. `tsx watch` restart mỗi lần lưu file, và
  * hai terminal cùng `npm run dev` là chuyện xảy ra thật — mỗi lần như vậy là một
  * TIẾN TRÌNH mới với bộ nhớ riêng, nên cờ của tiến trình này không nói gì được
- * với tiến trình kia.
+ * với tiến trình kia. Lên nhiều bản sao thì đó là mặc định, không phải tai nạn.
  *
- * `UPDATE … WHERE status='queued' … LIMIT 1` để chính InnoDB làm trọng tài:
- * người thắng là người đọc được `affectedRows === 1`. Không cần bảng khoá, không
- * cần Redis, không cần `SELECT … FOR UPDATE`.
+ * ─── Vì sao `FOR UPDATE SKIP LOCKED` chứ không `UPDATE` rồi `SELECT` ────────
  *
- * Hai bước (UPDATE rồi SELECT lại) chứ không một, vì MySQL không có
- * `UPDATE … RETURNING`. Câu SELECT ngay sau đó an toàn: dòng đã mang
- * `status='running'` nên không tiến trình nào khác chạm được nữa.
+ * Bản trước chạy `UPDATE … WHERE status='queued' … LIMIT 1` rồi đọc lại bằng
+ * `SELECT … WHERE status='running' ORDER BY started_at DESC LIMIT 1`. Câu UPDATE
+ * ấy nguyên tử thật — nhưng câu SELECT KHÔNG GẮN gì với dòng nó vừa chạm. Nó chỉ
+ * lấy dòng `running` mới nhất, mà "mới nhất" là của ai thì không ai bảo đảm.
+ *
+ * Hai bản sao nhận hai việc cách nhau vài mili giây là cả hai đọc ra CÙNG một
+ * dòng. ĐÃ TÁI HIỆN trên bảng nháp: cả hai nhận `id=2`. Hậu quả là một bộ dữ
+ * liệu được nạp hai lần (số liệu trong ClickHouse gấp đôi, không có gì báo), còn
+ * việc kia nằm `running` vĩnh viễn vì không tiến trình nào còn giữ `runId` của nó.
+ *
+ * `SELECT … FOR UPDATE SKIP LOCKED` khoá đúng dòng mình đọc và BỎ QUA dòng đang
+ * bị người khác khoá, nên hai bản sao nhận hai việc khác nhau, và mỗi bên biết
+ * chắc `runId` mình đang giữ. `SKIP LOCKED` chứ không phải chờ khoá: một bản sao
+ * đợi lượt chỉ để rồi thấy dòng đó đã `running` là một nhịp mất không.
+ *
+ * ⚠️ Nhận `PoolConnection`, KHÔNG phải `Db`. Khoá của `FOR UPDATE` chỉ sống
+ * trong transaction, và một `Pool` cấp connection khác nhau cho từng câu lệnh —
+ * câu UPDATE sẽ chạy ngoài transaction đã khoá dòng, tức là mất sạch tác dụng.
+ * Hẹp kiểu lại ở đây làm cho sai lầm đó không viết ra được; caller bọc bằng
+ * `withTransaction`.
  */
-export async function claimNext(db: Db): Promise<ClaimedRun | null> {
-  const [result] = await db.query<ResultSetHeader>(
-    `UPDATE dataset_load_runs
-        SET status = 'running', started_at = CURRENT_TIMESTAMP(3)
+export async function claimNext(conn: PoolConnection): Promise<ClaimedRun | null> {
+  const [rows] = await conn.query<RowDataPacket[]>(
+    `SELECT id, tenant_id, dataset_id FROM dataset_load_runs
       WHERE status = 'queued'
       ORDER BY id ASC
-      LIMIT 1`,
-  );
-  if (result.affectedRows !== 1) return null;
-
-  const [rows] = await db.query<RowDataPacket[]>(
-    `SELECT id, tenant_id, dataset_id FROM dataset_load_runs
-      WHERE status = 'running' ORDER BY started_at DESC, id DESC LIMIT 1`,
+      LIMIT 1
+      FOR UPDATE SKIP LOCKED`,
   );
   const row = rows[0];
   if (!row) return null;
 
+  const runId = Number(row['id']);
+  await conn.query<ResultSetHeader>(
+    `UPDATE dataset_load_runs
+        SET status = 'running', started_at = CURRENT_TIMESTAMP(3)
+      WHERE id = ?`,
+    [runId],
+  );
+
   return {
-    runId: Number(row['id']),
+    runId,
     tenantId: Number(row['tenant_id']),
     datasetId: Number(row['dataset_id']),
   };

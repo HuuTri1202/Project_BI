@@ -1,6 +1,7 @@
 import { chieuSoSanh, tuDoSoSanh, type ReportDataDto } from '@bi/shared';
 
 import { formatValue } from '../reports/nhanO';
+import { traLoiHuongDan } from './huongDan';
 import type { BangTho, DuKien, Nguon } from './nguCanh';
 
 export type YDinh =
@@ -1326,7 +1327,27 @@ function traCuu(
     return r;
   };
 
-  const diem = duKien.map((d) => ({ d, diem: demLap(d.nhan), khop: khopTu(d.nhan) }));
+  /*
+   * Bỏ hẳn những dữ kiện nói về LOẠI KHÁC — xem khối `LOAI_DOI_TUONG`.
+   *
+   * Lọc TRƯỚC khi chấm, không phủ quyết sau: xếp sau thì mấy nhãn sai loại vẫn
+   * tham gia luật hoà điểm và luật "chữ riêng mở thêm vế", nên chúng vẫn làm bỏ
+   * mất một nhãn ĐÚNG loại mà lẽ ra đã thắng.
+   *
+   * Lọc hết thì `traCuu` trả `null`, và đó đúng là câu trả lời: trang này không
+   * có dữ kiện nào về loại ấy. Khi đó `traLoiKhung` còn lớp xuyên hệ thống ở
+   * phía sau — và ở hai ca đo được, chính lớp đó giữ sẵn con số ĐÚNG.
+   */
+  const loaiHoi = loaiDoiTuong(cauHoi);
+  const ungVien =
+    loaiHoi === null
+      ? duKien
+      : duKien.filter((d) => {
+          const l = loaiDoiTuong(d.nhan);
+          return l === null || l === loaiHoi;
+        });
+
+  const diem = ungVien.map((d) => ({ d, diem: demLap(d.nhan), khop: khopTu(d.nhan) }));
   diem.sort((a, b) => b.diem - a.diem);
 
   const hopLe = uuTienSo ? diem.filter((x) => soVi(x.d.gia) !== null) : diem;
@@ -1922,6 +1943,29 @@ const TU_DEM = new Set([
   'it',
   'lon',
   'nho',
+  /*
+   * 'cao' và 'thap' — HAI CHỮ SO SÁNH, và chúng vào đây muộn hơn cả danh sách.
+   *
+   * LỖI ĐO ĐƯỢC, ảnh chụp 20/11/2026. Đứng ở Trang chủ hỏi "chi nhánh nào doanh
+   * thu cao nhất" và nhận về tên một MÔ HÌNH kèm số báo cáo của nó. Chữ bắc cầu
+   * là `cao`: `chuanHoa('cáo')` cũng ra `cao`, nên chữ "cao" của "cao nhất"
+   * khớp nhãn "Số báo CÁO đang dùng mô hình" và thắng một mình.
+   *
+   * Khung đã biết đúng cái bẫy này ở chỗ khác: `docYDinh` cố ý truyền câu hỏi
+   * CÒN DẤU cho `chieuSoSanh`, với ghi chú "bỏ dấu thì 'ít báo CÁO nhất' có
+   * `cao` và đọc ngược hẳn chiều". Phép chấm cột thì chưa.
+   *
+   * Chúng thuộc về danh sách này theo đúng luật của chính nó: `nhat`, `nhieu`,
+   * `it`, `lon`, `nho` đều đã ở đây vì chúng nói về PHÉP SO, không nói cột nào.
+   * "cao"/"thấp" cùng một vai.
+   *
+   * ⚠️ Bỏ chúng KHÔNG làm nhãn về báo cáo mất điểm: hai phía đều đi qua
+   * `tuNoiDung`, nên "báo cáo" trong câu hỏi cũng rụng chữ "cao" y hệt và vẫn
+   * khớp nhau bằng chữ "bao" — đúng cách 'nhieu' đang sống chung với "bao
+   * nhiêu" ở ngay bên trên.
+   */
+  'cao',
+  'thap',
   'max',
   'min',
   'chua',
@@ -1931,6 +1975,55 @@ const TU_DEM = new Set([
 ]);
 
 const CUM_LOAI = ['mo hinh du lieu', 'bo du lieu', 'mo hinh', 'du lieu'];
+
+/* ═══ LOẠI ĐỐI TƯỢNG: một cửa, KHÔNG phải một phép chấm điểm ════════════════
+ *
+ * `boCumLoai` ở dưới cắt mấy cụm chỉ loại khỏi câu hỏi trước khi chấm, và lý do
+ * của nó vẫn đúng: mấy cụm ấy có trong gần như mọi nhãn nên chúng không phân
+ * biệt được nhãn nào với nhãn nào. Nhưng nó cắt luôn thứ DUY NHẤT phân biệt hai
+ * câu hỏi khác hẳn nhau:
+ *
+ *   "có bao nhiêu BỘ DỮ LIỆU"  ─┐
+ *   "có bao nhiêu MÔ HÌNH dữ liệu" ─┴─ sau khi cắt, cả hai còn "co bao nhieu"
+ *
+ * LỖI ĐO ĐƯỢC ngày 24/11/2026, trên một tổ chức có 11 bộ dữ liệu và 3 mô hình:
+ *
+ *   ở trang Kho dữ liệu, "có bao nhiêu mô hình dữ liệu"
+ *      → "Số bộ dữ liệu trong workspace này: 11."        (đúng là 3)
+ *   ở trang Mô hình dữ liệu, "có bao nhiêu bộ dữ liệu"
+ *      → "Số mô hình dữ liệu trong workspace này: 3."    (đúng là 11)
+ *
+ * Đây là kiểu hỏng tệ nhất của cả khung: không phải bế tắc mà là một con số
+ * THẬT, của thứ KHÁC, kèm một cái nhãn đọc lên nghe rất thuyết phục. Người dùng
+ * không có cách nào biết, vì con số ấy có thật — chỉ là nó trả lời câu khác.
+ *
+ * ⚠️ Vì sao là CỬA mà không phải siết chấm điểm: khối chú thích của `TU_BO_QUA`
+ * ghi lại bốn lần siết chấm điểm trước đây, và cả bốn đều đổi ca này lấy ca
+ * khác. Cửa này không hỏi "nhãn nào hợp nhất" mà hỏi một câu khác hẳn: "nhãn
+ * này có nói về cùng LOẠI đối tượng mà câu hỏi gọi tên không". Một dữ kiện về
+ * bộ dữ liệu không bao giờ là câu trả lời cho một câu hỏi về mô hình, dù nó
+ * trùng bao nhiêu chữ.
+ *
+ * CHỈ hai loại này, và cố ý: chúng là cặp duy nhất mà `CUM_LOAI` làm sụp vào
+ * nhau. Thêm "báo cáo", "kết nối" vào đây là vô ích — chúng không bị cắt nên
+ * phép chấm điểm vẫn phân biệt được chúng.
+ */
+const LOAI_DOI_TUONG = ['mo hinh', 'bo du lieu'] as const;
+
+type LoaiDoiTuong = (typeof LOAI_DOI_TUONG)[number];
+
+/**
+ * Đoạn chữ này gọi tên loại nào, hay không gọi tên loại nào cả.
+ *
+ * `null` khi KHÔNG có loại nào, và cũng `null` khi có CẢ HAI — "mô hình nào
+ * dùng bộ dữ liệu Orders" nói về cả hai, nên ở đó không có gì để mà phủ quyết.
+ * Cửa chỉ đóng khi câu hỏi nói rõ một loại và nhãn nói rõ loại kia.
+ */
+function loaiDoiTuong(s: string): LoaiDoiTuong | null {
+  const q = chuanHoa(s);
+  const thay = LOAI_DOI_TUONG.filter((l) => q.includes(l));
+  return thay.length === 1 ? (thay[0] ?? null) : null;
+}
 
 const TU_HOI = new Set(['nao', 'gi', 'chua', 'may']);
 
@@ -2126,6 +2219,72 @@ interface Cot {
 interface ThuocTinh extends Cot {
   muc: Muc[];
   cot: Cot[];
+}
+
+/**
+ * Câu hỏi có gọi tên thứ gì khung CHƯA TỪNG THẤY không — `nhacThuLa` cho người ngoài.
+ *
+ * ═══ Vì sao lớp mô hình ngôn ngữ cũng phải đi qua cửa này ══════════════════
+ *
+ * Lớp ngoại tuyến đã hỏi câu đó từ lâu (xem `nhacThuLa`): một chữ từ bốn ký tự
+ * mà cả trang lẫn cả tổ chức chưa từng nhắc là tên một thứ không tồn tại, và
+ * mọi con số trả về cho nó đều là con số của câu hỏi khác. Lớp `hieuY` thì
+ * KHÔNG hỏi — nó nhận về một chỉ số rồi in thẳng con số của nhãn ấy ra.
+ *
+ * LỖI ĐO ĐƯỢC, ảnh chụp 20/11/2026. Đứng ở Trang chủ hỏi "chi nhánh nào doanh
+ * thu cao nhất":
+ *
+ *   "Chi nhánh có doanh thu cao nhất là don-hang-nha-go (2); số báo cáo đang
+ *    dùng mô hình là 1, tính trên 4 mục trong toàn bộ tổ chức."
+ *
+ * `don-hang-nha-go` là tên một MÔ HÌNH. Lớp ngoại tuyến đã từ chối đúng (chữ
+ * "doanh" không có trong vốn từ của khung); mô hình ngôn ngữ thì chọn đại nhãn
+ * "Số báo cáo đang dùng mô hình" dù lời nhắc dặn thẳng "thà trả về 0 còn hơn".
+ *
+ * Nên chốt không nằm ở lời nhắc — lời nhắc là thứ xin, không phải thứ bảo đảm —
+ * mà ở đây: cùng một luật, áp cho cả hai lớp. Trượt cửa này thì câu đi tiếp
+ * xuống đường đặt truy vấn MỚI trên mô hình, và đó chính là đường trả lời đúng
+ * câu ấy.
+ */
+export function hoiThuLa(tatCa: Nguon[], cauHoi: string): boolean {
+  return nhacThuLa(cauHoi, tuDaBiet(tatCa));
+}
+
+/**
+ * Câu hỏi có NÓI VỀ nhãn này không — chốt thứ hai của lớp `hieuY`.
+ *
+ * `hoiThuLa` hỏi "câu này có gọi tên thứ gì khung chưa từng thấy không", và nó
+ * KHÔNG đủ: ca thật trượt qua cửa đó vì mọi chữ đều có thật ở đâu đó trên khung
+ * — "nhánh" có trong tên một báo cáo, còn "doanh" thì có trong tên gói
+ * **Doanh** nghiệp ở bản tóm tắt thanh toán. Hai chữ có thật, ghép lại thành
+ * một câu hỏi mà nhãn được chọn không nói về.
+ *
+ * Nên cửa này hỏi một câu hẹp hơn hẳn: trong câu hỏi có chữ nào THẬT SỰ RIÊNG
+ * không, và nếu có thì nhãn được chọn có mang lấy một chữ nào trong số đó không.
+ *
+ *   "chi nhánh nào doanh thu cao nhất"  chữ riêng: nhánh, doanh
+ *      nhãn "Số báo cáo đang dùng mô hình don-hang-nha-go" → không chữ nào → BỎ
+ *
+ *   "cái này to cỡ nào"                 chữ riêng: (không có)
+ *      → người dùng đang TRỎ vào trang, không gọi tên gì → giữ
+ *
+ * Đúng hai hình dạng đó là ranh giới của cả lớp `hieuY`: nó sinh ra cho câu
+ * TRỎ, loại câu mà phép so từ khoá không có gì để bám. Câu gọi đích danh một
+ * chủ đề thì đã tự mang đủ bằng chứng để kiểm, và kiểm được thì phải kiểm.
+ *
+ * ⚠️ Cận BỐN ký tự, cùng con số và cùng lý lẽ với `nhacThuLa`: tiếng Việt tách
+ * theo âm tiết nên gần như mọi từ chức năng đều ngắn. Dài hơn bốn mà vẫn chung
+ * chung thì `TU_BO_QUA` đã kể tên.
+ *
+ * ⚠️ KHÔNG áp cho cặp VẼ — xem chỗ gọi trong `HoiDapPanel`.
+ */
+export function nhanNoiVeCauHoi(nhan: string, cauHoi: string): boolean {
+  const rieng = [...tuNoiDung(cauHoi, false)].filter(
+    (t) => t.length >= 4 && !/^\d+$/.test(t) && !TU_BO_QUA.has(t),
+  );
+  if (rieng.length === 0) return true;
+  const cua = tuNoiDung(nhan, false);
+  return rieng.some((t) => cua.has(t));
 }
 
 export function nhanDuyNhat(nguon: Nguon[]): string[] {
@@ -2826,7 +2985,32 @@ export function traLoiKhung(
   const motLuot = (hoi: string): TraLoi | null => {
     const tren = traLoiTrang(tatCa, chon, hoi);
     if (tren !== null && tren.chung !== true) return tren;
-    return traLoiHeThong(heThong, hoi) ?? tren;
+    /*
+     * Lớp HƯỚNG DẪN đứng SAU số liệu của trang và của hệ thống — có chủ ý.
+     *
+     * "Làm sao biết bộ nào nhiều dòng nhất" là một câu hỏi SỐ LIỆU dù nó mở
+     * đầu bằng "làm sao", và khung trả lời được nó từ lâu. Đặt hướng dẫn lên
+     * trước là thay một con số đúng bằng một câu chỉ đường lạc đề.
+     *
+     * `traLoiHuongDan` còn tự gác thêm hai lớp nữa (phải có từ HÀNH ĐỘNG, và
+     * phải KHÔNG có từ hỏi số liệu), nên mấy chốt này nói cùng một luật từ nhiều
+     * phía — xem `huongDan.ts`.
+     *
+     * ⚠️ THỨ TỰ NÀY KHÔNG CÓ CA NÀO PHÂN BIỆT ĐƯỢC — đã thử bằng đột biến: đảo
+     * hai lớp thì bảng điểm không nhúc nhích. Nguyên nhân đo được: thêm một cụm
+     * hỏi-cách-làm vào câu làm LOÃNG điểm khớp của lớp số liệu và nó trượt, nên
+     * hai lớp gần như rời nhau — câu nào lớp này ăn thì lớp kia vốn đã trượt.
+     *
+     * Giữ thứ tự có chủ ý, cùng lý do như chốt "câu tự đủ nghĩa" ở dưới: nó nói
+     * một luật ĐÚNG ("số liệu thắng trợ giúp") mà hôm nay chưa đo được, và ngày
+     * phép chấm điểm của lớp số liệu bớt loãng thì nó là thứ duy nhất đứng giữa
+     * một con số đúng và một câu chỉ đường.
+     *
+     * Đứng TRƯỚC `tren` khi `tren.chung === true`: một phép đếm chung chung
+     * không đọc câu hỏi thì nó không phải câu trả lời cho "làm sao xoá bộ dữ
+     * liệu", trong khi hướng dẫn thì đúng là câu trả lời.
+     */
+    return traLoiHeThong(heThong, hoi) ?? traLoiHuongDan(chuanHoa(hoi)) ?? tren;
   };
 
   const mot = motLuot(cauHoi);
@@ -2943,6 +3127,31 @@ export function moHinhTheoTen(tatCa: Nguon[], cauHoi: string): number | null {
   const id = nhat[0]?.moHinhId ?? null;
   // Cùng một mô hình lặp lại trong danh sách thì không phải là nhập nhằng.
   return nhat.every((n) => n.moHinhId === id) ? id : null;
+}
+
+/**
+ * Mọi mô hình dữ liệu mà ngữ cảnh xuyên hệ thống đang mang — vá B4.
+ *
+ * ═══ Lỗ đã đo khi dùng hệ thống như người thật ═════════════════════════════
+ *
+ * Ở Kho dữ liệu, hỏi "Doanh thu tháng 3 theo khu vực là bao nhiêu?" nhận về
+ * "không có mục nào trả lời được câu này" — trong khi trên trang báo cáo thì
+ * khung trả lời rất tốt. Tức là cửa vào tự nhiên nhất lại là cửa vô dụng nhất.
+ *
+ * Nguyên nhân KHÔNG phải thiếu khả năng: `hoiTrenMoHinh` đặt được một truy vấn
+ * mới trên kho từ bất kỳ trang nào. Nó chỉ cần biết hỏi trên MÔ HÌNH NÀO, và
+ * `moHinhTheoTen` đòi câu hỏi phải gọi đúng tên mô hình — một điều kiện người
+ * dùng không có cách nào biết.
+ *
+ * Hàm này cho nơi gọi hai đường thoát: tổ chức chỉ có MỘT mô hình thì không có
+ * gì để nhập nhằng, còn nhiều hơn thì HỎI LẠI kèm tên để chọn.
+ */
+export function moHinhTrongHeThong(heThong: Nguon[]): { id: number; ten: string }[] {
+  const theoId = new Map<number, string>();
+  for (const n of heThong) {
+    if (n.moHinhId !== undefined && !theoId.has(n.moHinhId)) theoId.set(n.moHinhId, n.ten);
+  }
+  return [...theoId].map(([id, ten]) => ({ id, ten }));
 }
 
 export function traLoiHeThong(heThong: Nguon[], cauHoi: string): TraLoi | null {

@@ -1,0 +1,231 @@
+# =============================================================================
+# Lớp phủ cho bản TRIỂN KHAI — dùng CÙNG với docker-compose.yml, không thay nó.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml \
+#     --profile data --profile bi up -d
+#
+# ═══ Vì sao phải có file này, chứ không chỉ đặt CUBEJS_DEV_MODE=false ═══════
+#
+# Playground của Cube tự soạn và chạy truy vấn mà KHÔNG đòi token, nên nó không
+# được phép sống trên một máy có IP công khai. Tắt nó là đặt `CUBEJS_DEV_MODE`
+# về `false` — và đó là mặc định trong `docker-compose.yml`.
+#
+# Nhưng tắt dev mode thì Cube ĐÒI một Cube Store chạy riêng. ĐÃ ĐO: dựng lại
+# container cube với `CUBEJS_DEV_MODE=false` mà không có gì thêm thì `/meta` vẫn
+# 200 (11 cube) trong khi MỌI `/cubejs-api/v1/load` trả 400:
+#
+#     Error: Cube Store was specified as queue/cache driver.
+#     Please set CUBEJS_CUBESTORE_HOST and CUBEJS_CUBESTORE_PORT
+#
+# Ở dev mode, Cube tự chạy Cube Store BÊN TRONG tiến trình của nó, nên trên máy
+# dev không ai thấy thiếu gì. Đó là lý do lỗi này chỉ hiện ra đúng lúc triển
+# khai — và hiện ra dưới dạng "mọi biểu đồ đều lỗi 400" chứ không nói gì về một
+# service còn thiếu.
+#
+# ═══ Vì sao là file riêng, không nhập vào docker-compose.yml ════════════════
+#
+# Cube Store tốn thêm bộ nhớ, mà máy dev KHÔNG cần nó: dev mode đã có bản chạy
+# trong tiến trình. Thêm vào file gốc là bắt mọi laptop cõng thêm một container
+# cho một thứ chỉ production dùng — ngược hẳn lý do `profiles` tồn tại.
+#
+# Máy dev giữ nguyên `CUBEJS_DEV_MODE=true` trong `infrastructure/.env` (xem
+# `.env.example`). Bản triển khai KHÔNG khai biến đó, nên nó nhận `false` theo
+# mặc định của file gốc, và file này cấp đúng thứ mà `false` cần.
+# =============================================================================
+
+services:
+  # ===========================================================================
+  # Cube Store — tầng xếp hàng + cache của Cube khi KHÔNG ở dev mode
+  # ===========================================================================
+  #
+  # Một node, vừa router vừa worker. Cube Store có chế độ nhiều node (một router
+  # + nhiều worker), nhưng đó là để chia tải pre-aggregation; ở đây chưa có
+  # pre-aggregation nào nên một node là đủ và là cấu hình được hỗ trợ sẵn.
+  #
+  # Phiên bản đi THÀNH CẶP với image cube. Cube và Cube Store nói với nhau bằng
+  # một giao thức nội bộ không cam kết tương thích ngược, nên lệch tag là lỗi
+  # lúc chạy chứ không phải cảnh báo lúc dựng.
+  cubestore:
+    image: cubejs/cubestore:v1.7.16
+    container_name: bi-cubestore
+    profiles: ['bi']
+    restart: unless-stopped
+    environment:
+      # Nơi Cube Store giữ metastore + dữ liệu pre-aggregation. Phải là thư mục
+      # có volume: mất nó là mất toàn bộ cache, Cube dựng lại từ đầu (chậm,
+      # không sai số).
+      CUBESTORE_DATA_DIR: /cube/data
+      TZ: Asia/Ho_Chi_Minh
+    volumes:
+      - cubestore_data:/cube/data
+    # KHÔNG publish cổng nào. Chỉ container `cube` gọi tới, và nó gọi qua
+    # `bi-network` bằng tên service. Một cổng publish ở đây là mở thêm một cửa
+    # cho đúng không ai cần.
+    deploy:
+      resources:
+        limits:
+          memory: 1g
+    networks:
+      - bi-network
+
+  cube:
+    environment:
+      # ⚠️ ÉP `false` Ở ĐÂY, không để `infrastructure/.env` quyết định.
+      #
+      # `docker-compose.yml` ghi `${CUBEJS_DEV_MODE:-false}`, nên thoạt nhìn chỉ
+      # cần "đừng khai biến" là xong. Nhưng compose ĐỌC `.env` của thư mục dự án
+      # cho MỌI lệnh, kể cả lệnh có lớp phủ này — mà `.env.example` ship sẵn
+      # `CUBEJS_DEV_MODE=true` và `npm run setup` chép y nguyên. ĐÃ ĐO
+      # 25/11/2026: `docker compose -f docker-compose.yml -f docker-compose.prod.yml
+      # config` trên một máy chưa sửa `.env` cho ra đúng `CUBEJS_DEV_MODE: "true"`.
+      #
+      # Hậu quả nếu lọt: Playground của Cube soạn và chạy truy vấn mà KHÔNG đòi
+      # token. Cổng 4100 chỉ bind `127.0.0.1` nên nó không lộ thẳng ra Internet,
+      # nhưng một chốt an toàn phụ thuộc vào việc người triển khai nhớ xoá một
+      # dòng thì không phải chốt. Một dòng ở đây biến "nhớ thì an toàn" thành
+      # "không sai được".
+      CUBEJS_DEV_MODE: 'false'
+      # Hai biến mà `CUBEJS_DEV_MODE=false` đòi. Cổng 3030 là cổng router mặc
+      # định của Cube Store.
+      CUBEJS_CUBESTORE_HOST: cubestore
+      CUBEJS_CUBESTORE_PORT: 3030
+    depends_on:
+      cubestore:
+        condition: service_started
+
+  # ===========================================================================
+  # API — Express đã build, chạy trong container
+  # ===========================================================================
+  api:
+    build:
+      # Context là thư mục GỐC của repo: `backend` phụ thuộc `@bi/shared` qua
+      # symlink workspace, nên ảnh phải thấy cả `shared/`.
+      context: ..
+      target: api
+    image: bi-platform-api:local
+    container_name: bi-api
+    restart: unless-stopped
+
+    # MỘT nguồn cấu hình: chính file `.env` mà backend vẫn đọc khi chạy ngoài
+    # Docker. Chép lại 40 biến vào đây là mời hai bản lệch nhau.
+    #
+    # ⚠️ Trên máy triển khai, `backend/.env` phải trỏ tới TÊN SERVICE chứ không
+    # phải localhost — container không có MySQL nào ở 127.0.0.1 của nó:
+    #
+    #     MYSQL_HOST=mysql          MYSQL_PORT=3306
+    #     REDIS_HOST=redis          REDIS_PORT=6379
+    #     CLICKHOUSE_HOST=clickhouse  CLICKHOUSE_PORT=8123
+    #     CUBEJS_URL=http://cube:4000
+    #
+    # Chú ý cổng: đây là cổng TRONG mạng docker, không phải cổng đã publish
+    # (3310, 4100...). Xem `docs/trien-khai.md`.
+    env_file:
+      - ../backend/.env
+    environment:
+      NODE_ENV: production
+      # Tuyệt đối, không tương đối: mặc định trong `config/env.ts` tính từ
+      # `process.cwd()`, và trong ảnh thì cwd là `/app/backend`.
+      CUBE_SCHEMA_DIR: /cube-schema
+      TZ: Asia/Ho_Chi_Minh
+
+    # ĐÂY là nợ kiến trúc đã ghi ở `services/datamodel/cubeSchemaStore.ts`:
+    # Express GHI file schema, Cube ĐỌC chúng, nên hai container phải nhìn vào
+    # CÙNG một thư mục trên máy chủ. Nó cũng là lý do bản triển khai này là MỘT
+    # máy chứ không phải nhiều service không chia sẻ đĩa.
+    #
+    # ⚠️ Thư mục phải tồn tại và thuộc uid 1000 TRƯỚC khi `up`. Docker tự tạo
+    # thư mục còn thiếu nhưng để nó thuộc root, còn tiến trình api chạy bằng user
+    # `node` (uid 1000) — và khi đó mọi lần lưu mô hình dữ liệu trả 503
+    # SchemaUnwritable. Lệnh dựng nằm trong `docs/trien-khai.md`.
+    volumes:
+      - ./cube/model/tenants:/cube-schema
+
+    # KHÔNG publish cổng nào: chỉ Caddy gọi tới, qua `bi-network`.
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      # `/health` là liveness — KHÔNG chạm MySQL/Redis. Dùng `/health/ready` ở
+      # đây sẽ khiến container bị coi là chết mỗi lần database chớp một nhịp.
+      test:
+        [
+          'CMD-SHELL',
+          'node -e "require(''http'').get(''http://127.0.0.1:4000/health'',r=>process.exit(r.statusCode===200?0:1)).on(''error'',()=>process.exit(1))"',
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+    deploy:
+      resources:
+        limits:
+          memory: 1g
+    networks:
+      - bi-network
+
+  # ===========================================================================
+  # CADDY — cửa duy nhất mở ra Internet: TLS, web tĩnh, proxy
+  # ===========================================================================
+  caddy:
+    build:
+      context: ..
+      target: web
+      args:
+        # Biến VITE_* bị NHÚNG vào bundle lúc build, không đọc được lúc chạy.
+        # Đổi chúng là phải `up -d --build caddy`, không phải restart.
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-/api}
+        VITE_GOOGLE_CLIENT_ID: ${VITE_GOOGLE_CLIENT_ID:-}
+    image: bi-platform-web:local
+    container_name: bi-caddy
+    restart: unless-stopped
+    environment:
+      DOMAIN: ${DOMAIN:?chua khai. Dat DOMAIN trong infrastructure/.env}
+      ACME_EMAIL: ${ACME_EMAIL:?chua khai. Dat ACME_EMAIL trong infrastructure/.env}
+      TZ: Asia/Ho_Chi_Minh
+    # Hai cổng DUY NHẤT mở ra 0.0.0.0 trong cả stack, và cố ý như vậy.
+    # Cổng 80 KHÔNG được bỏ: ACME của Let's Encrypt dùng nó để xác thực tên miền,
+    # và nó cũng là chỗ chuyển hướng http -> https.
+    ports:
+      - '80:80'
+      - '443:443'
+    volumes:
+      # ⚠️ `caddy_data` giữ CHỨNG CHỈ TLS. Mất volume này là phải xin lại chứng
+      # chỉ, và Let's Encrypt có hạn mức theo tên miền mỗi tuần — xoá nó vài lần
+      # là tên miền bị khoá cấp chứng chỉ trong nhiều ngày.
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      api:
+        condition: service_started
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+    networks:
+      bi-network:
+        # ═══ Alias này KHÔNG phải để cho gọn. Thiếu nó là NẠP TỆP HỎNG ═══════
+        #
+        # Backend đọc tệp từ object storage ở PHÍA SERVER, không chỉ ký URL cho
+        # trình duyệt: `services/ingest/readFileRows.ts` gọi `storage.getObject`
+        # để nạp vào ClickHouse. Nên container `api` cũng phải tới được
+        # `S3_ENDPOINT`, mà giá trị đó là `https://s3.<tên miền>` — tức là IP
+        # CÔNG KHAI của chính máy ảo này.
+        #
+        # Trên GCE, một máy ảo KHÔNG gọi được external IP của chính nó: gói tin
+        # đi ra rồi bị bỏ, không có hairpin NAT. Hậu quả: trình duyệt tải tệp lên
+        # thành công (nó đi từ Internet vào, đường đó bình thường), rồi vòng lặp
+        # nạp báo lỗi kết nối — một triệu chứng chỉ ra ở máy thật.
+        #
+        # Alias làm DNS nội bộ của Docker phân giải đúng cái tên ấy thành IP của
+        # container Caddy. `api` nối thẳng tới Caddy trong mạng `bi-network`,
+        # header `Host` vẫn là `s3.<tên miền>` nên chứng chỉ Let's Encrypt khớp
+        # và chữ ký SigV4 cũng khớp. Không đổi một dòng code nào.
+        aliases:
+          - s3.${DOMAIN}
+
+volumes:
+  cubestore_data:
+  caddy_data:
+  caddy_config:

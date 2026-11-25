@@ -6,7 +6,8 @@ import { kiemHanMuc } from '../billing/limits';
 import { queueAutoLoad } from '../ingest/autoLoad';
 import { HttpError } from '../../utils/httpError';
 import { analyzeDataset } from './analyze';
-import { defaultFieldName, defaultFieldRole, inferColumnType } from './inferType';
+import { banDoGop } from './chatLuong';
+import { defaultFieldName, defaultFieldRole, doanQuyUocSo, inferColumnType } from './inferType';
 import { normalizeCell } from './normalizeCell';
 import type { ParsedSheet } from './parseFile';
 
@@ -59,6 +60,44 @@ export interface CommitInput {
   /** Tên gốc; nhiều sheet thì nối thêm tên sheet cho phân biệt được. */
   name: string;
   sheetNames: readonly string[];
+  /**
+   * Gộp các nhóm chỉ khác nhau chữ hoa/thường và khoảng trắng — vá A2.
+   *
+   * Người dùng tích ở bước 2, sau khi đã đọc cảnh báo kèm ví dụ lấy từ chính
+   * tệp của họ (`CanhBaoCotDto` loại `hoa-thuong`). Không tích thì không có ô
+   * nào bị đổi, vì gộp là BIẾN ĐỔI dữ liệu: `aB12` và `Ab12` trong một cột mã
+   * phân biệt chữ hoa thường là hai thứ khác nhau thật.
+   */
+  gopHoaThuong: boolean;
+  /**
+   * Quy ước phân cách người dùng tự chốt cho từng cột — mong muốn D2.
+   *
+   * Thắng kết luận của `doanQuyUocSo`, và chỉ thắng ở những cột người dùng thật
+   * sự tích: ở đó hệ thống đã nói ra rằng nó không phân xử được, nên câu trả lời
+   * của người cầm tệp là câu trả lời đúng.
+   *
+   * Mang theo tên sheet vì mỗi sheet thành một bộ dữ liệu riêng với bảng cột
+   * riêng — `ordinal` một mình không chỉ ra được cột nào của sheet nào.
+   */
+  quyUocSo: readonly { sheet: string; ordinal: number; format: 'vn' | 'en' }[];
+  /**
+   * Đây là lần CẬP NHẬT một bộ đã có, không phải lần nhập mới — §B2.
+   *
+   * Đổi hai luật, và cả hai đều để bảo vệ thứ đang trỏ tới bộ này:
+   *
+   *   - Đúng MỘT sheet. Lần nhập mới tách N sheet thành N bộ; ở đây mà tách
+   *     thì bộ đang có bị thay bằng sheet đầu, còn N-1 bộ lạ xuất hiện trong
+   *     kho mà không ai xin.
+   *   - Tệp mới KHÔNG được THIẾU cột nào đang có. Mô hình và báo cáo trỏ tới
+   *     cột theo tên; mất một cột là mọi biểu đồ dùng nó hỏng, và hỏng SAU khi
+   *     dữ liệu cũ đã bị thay — không có đường lùi.
+   *
+   * Cột THÊM thì cho qua: tháng sau có thêm một cột là chuyện thường, và nó
+   * không làm hỏng gì đang chạy.
+   */
+  capNhat?: boolean;
+  /** Tên cột đang có, để kiểm luật trên. Chỉ cần khi `capNhat`. */
+  cotDangCo?: readonly string[];
 }
 
 export interface CommittedDataset {
@@ -94,6 +133,13 @@ export async function commitDatasets(input: CommitInput): Promise<CommittedDatas
     return found;
   });
 
+  if (input.capNhat === true) {
+    kiemCapNhat(
+      sheets.map((s) => s.header),
+      input.cotDangCo ?? [],
+    );
+  }
+
   const multi = sheets.length > 1;
 
   // MỘT transaction cho tất cả: nửa chừng mà hỏng thì để lại vài dataset ở trạng
@@ -128,7 +174,14 @@ export async function commitDatasets(input: CommitInput): Promise<CommittedDatas
     const created: CommittedDataset[] = [];
 
     for (const [index, sheet] of sheets.entries()) {
-      const columns = buildColumns(sheet);
+      const columns = buildColumns(
+        sheet,
+        input.gopHoaThuong,
+        // Lọc theo ĐÚNG sheet này; `Map` để `buildColumns` tra theo ordinal.
+        new Map(
+          input.quyUocSo.filter((q) => q.sheet === sheet.name).map((q) => [q.ordinal, q.format]),
+        ),
+      );
       const rows = buildRows(sheet, columns);
       const name = multi ? `${input.name} · ${sheet.name}` : input.name;
 
@@ -185,18 +238,88 @@ export async function commitDatasets(input: CommitInput): Promise<CommittedDatas
 }
 
 /**
+ * Hai luật của một lần CẬP NHẬT — §B2. Ném `HttpError` khi vi phạm.
+ *
+ * Tách ra khỏi `commitDatasets` để kiểm được bằng một bài test THUẦN: hàm kia
+ * phải tải tệp từ S3 và mở transaction, nên mọi luật nằm trong nó chỉ kiểm
+ * được qua bộ tích hợp — chậm hơn và chỉ chạy khi có container. Cùng lập luận
+ * với `buildQuery` bên `explorer`.
+ *
+ * ═══ Vì sao đúng MỘT sheet ═══════════════════════════════════════════════
+ *
+ * Lần nhập mới tách N sheet thành N bộ dữ liệu. Ở đây mà tách thì bộ đang có
+ * bị thay bằng sheet đầu, còn N-1 bộ lạ xuất hiện trong kho mà không ai xin.
+ *
+ * ═══ Vì sao cấm THIẾU cột, mà cho phép THÊM ══════════════════════════════
+ *
+ * Mô hình và báo cáo trỏ tới cột theo TÊN. Mất một cột là mọi biểu đồ dùng nó
+ * hỏng — và hỏng SAU khi dữ liệu cũ đã bị thay, tức không có đường lùi. Thêm
+ * một cột thì không làm hỏng gì đang chạy, mà tháng sau có thêm cột là chuyện
+ * thường.
+ */
+export function kiemCapNhat(
+  header: readonly (readonly string[])[],
+  cotDangCo: readonly string[],
+): void {
+  if (header.length !== 1) {
+    throw new HttpError(
+      400,
+      DATASET_ERROR_CODES.NO_COLUMNS_SELECTED,
+      'Cập nhật dữ liệu thì chọn đúng một sheet — sheet sẽ thay chỗ dữ liệu đang có.',
+    );
+  }
+
+  // So theo tên đã TRIM: tệp xuất lại từ Excel hay thêm một khoảng trắng cuối
+  // tiêu đề, và từ chối vì đúng một ký tự trắng là một câu lỗi không ai hiểu.
+  const coTrongTep = new Set((header[0] ?? []).map((h) => h.trim()));
+  const thieu = cotDangCo.filter((c) => !coTrongTep.has(c.trim()));
+  if (thieu.length > 0) {
+    throw new HttpError(
+      400,
+      DATASET_ERROR_CODES.NO_COLUMNS_SELECTED,
+      `Tệp mới thiếu ${String(thieu.length)} cột đang có: ${thieu.slice(0, 5).join(', ')}` +
+        `${thieu.length > 5 ? '…' : ''}. Mô hình và báo cáo đang gọi tên những cột này, ` +
+        'nên thay dữ liệu bằng tệp thiếu chúng sẽ làm biểu đồ hỏng. ' +
+        'Hãy xuất lại tệp với đủ cột, hoặc tạo một bộ dữ liệu mới.',
+    );
+  }
+}
+
+/**
  * Mọi cột của sheet đều được nhập, kiểu và vai trò suy ra từ nội dung.
  *
  * Cột trùng tên được đánh số cho khác nhau: khoá của document JSON là
  * `fieldName`, nên hai cột cùng tên thì cột sau đè cột trước và dữ liệu biến mất
  * trong im lặng. File thật rất hay có hai cột "Ghi chú".
  */
-function buildColumns(sheet: ParsedSheet): datasetsRepo.ColumnInput[] {
+function buildColumns(
+  sheet: ParsedSheet,
+  gopHoaThuong: boolean,
+  quyUocSo: ReadonlyMap<number, 'vn' | 'en'>,
+): datasetsRepo.ColumnInput[] {
   const used = new Set<string>();
 
   return sheet.header.map((sourceName, columnIndex) => {
     const values = sheet.rows.slice(0, SAMPLE_ROWS).map((row) => row[columnIndex] ?? '');
     const semanticType = inferColumnType(values);
+    /*
+     * Chỉ cột SỐ mới có quy ước phân cách để mà suy — xem `doanQuyUocSo`.
+     *
+     * Người dùng tích tay thì lời họ THẮNG lời hàm đoán (mong muốn D2): ô tích
+     * chỉ hiện ở những cột hệ thống đã nói ra rằng nó không phân xử được, và ở
+     * đó người cầm tệp biết rõ hơn mọi quy tắc.
+     */
+    const numberFormat =
+      semanticType === 'number' ? (quyUocSo.get(columnIndex) ?? doanQuyUocSo(values)) : null;
+    /*
+     * Bản đồ gộp chỉ dựng cho cột CHỮ, và chỉ khi người dùng đã đồng ý.
+     *
+     * Dựng ở đây rồi LƯU, không suy lại ở bước nạp: `banDoGop` chọn cách viết
+     * đại diện theo số lần xuất hiện trong MẪU này, còn `readFileRows` đọc cả
+     * tệp. Suy lại ở đó thì cùng một ô có thể mang hai nhãn khác nhau giữa bảng
+     * xem trước và kho phân tích — đúng cái bẫy mà `number_format` đã tránh.
+     */
+    const valueMap = gopHoaThuong && semanticType === 'text' ? banDoGop(values) : null;
 
     let fieldName = defaultFieldName(sourceName, columnIndex);
     if (used.has(fieldName)) {
@@ -213,6 +336,8 @@ function buildColumns(sheet: ParsedSheet): datasetsRepo.ColumnInput[] {
       name: sourceName,
       ordinal: columnIndex,
       dataType: semanticType,
+      numberFormat,
+      valueMap,
       // Ô trống trong file là chuyện thường, nên mọi cột đều cho phép null.
       isNullable: true,
       fieldName,
@@ -248,6 +373,7 @@ function buildRows(
       doc[column.fieldName ?? column.name] = normalizeCell(
         row[column.ordinal] ?? '',
         column.semanticType ?? 'text',
+        { numberFormat: column.numberFormat, valueMap: column.valueMap },
       );
     }
     return doc;

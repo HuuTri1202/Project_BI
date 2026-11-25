@@ -2,13 +2,16 @@ import {
   MEASURE_AGG_HINTS,
   MEASURE_AGG_LABELS,
   moTaThuocDo,
+  type ChartType,
   type ExplorerFieldDto,
   type ExplorerQueryDto,
+  type ExplorerResultDto,
   type ExplorerSqlDto,
   type MeasureAgg,
   type MeasureFormat,
+  type ReportDataDto,
 } from '@bi/shared';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useOutletContext } from 'react-router-dom';
 
 import type { NgoaiCanhMoHinh } from '../DataModelPage';
@@ -18,6 +21,7 @@ import { Button } from '../../../components/ui/Button';
 import { TBody, Td, Th, THead, TableWrap, Tr } from '../../../components/ui/Table';
 import { EmptyState, ErrorState, TableSkeleton } from '../../../components/ui/states';
 import { CubeOfflineNotice } from '../../../features/datamodels/CubeOfflineNotice';
+import { ReportChart } from '../../../features/reports/ReportChart';
 import { groupBySheet, shortName, type LoaiTruong } from '../../../features/datamodels/sheets';
 import { TypeGlyph } from '../../../features/datamodels/TypeGlyph';
 import {
@@ -63,12 +67,45 @@ import { getApiError } from '../../../services/apiClient';
  * vừa đủ cho tiền, và nó là thứ cắt đuôi `…6019382` vốn chỉ là sai số dấu phẩy
  * động chứ không mang thông tin nào.
  */
+/**
+ * Mốc thời gian Cube trả về, dạng ISO không múi giờ.
+ *
+ * Cube trả `2026-10-26T00:00:00.000` cho một cột ngày, và cả bảng lẫn trục
+ * biểu đồ đều in nguyên chuỗi đó. Trên bảng nó chỉ rườm; trên trục hoành nó
+ * thành hai mươi mấy chuỗi dựng đứng ăn gần nửa chiều cao chỗ vẽ, tức biểu đồ
+ * mất đúng cái nó sinh ra để cho xem.
+ *
+ * Chỉ nhận ĐÚNG khuôn này: một chiều mang tên chi nhánh hay mã đơn không khớp
+ * nên không bị đụng tới. Cùng luật `MOC_ISO` mà backend dùng cho khung hỏi đáp.
+ */
+const MOC_ISO = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):\d{2}(?:\.\d+)?Z?$/;
+
+/**
+ * Nhãn của một ô CHIỀU — dùng chung cho bảng và cho trục biểu đồ.
+ *
+ * Một hàm cho cả hai chỗ là có chủ đích: hai bản sao sẽ lệch nhau ở lần sửa
+ * đầu tiên, và khi đó trục biểu đồ gọi một nhóm bằng một cái tên mà bảng ngay
+ * dưới nó không có.
+ */
+function nhanChieu(cell: string | number | null): string {
+  if (cell === null) return '—';
+  const chu = String(cell);
+  const m = MOC_ISO.exec(chu);
+  if (m === null) return chu;
+
+  const [, nam, thang, ngay, gio, phut] = m;
+  const d = `${ngay ?? ''}/${thang ?? ''}/${nam ?? ''}`;
+  // Nửa đêm = một cột NGÀY, không phải một mốc. Giữ lại giờ ở đó là bịa thêm
+  // một độ chính xác mà dữ liệu không có.
+  return gio === '00' && phut === '00' ? d : `${d} ${gio ?? ''}:${phut ?? ''}`;
+}
+
 function formatCell(
   cell: string | number,
   measure: boolean,
   format: MeasureFormat | undefined,
 ): React.ReactNode {
-  if (!measure) return String(cell);
+  if (!measure) return nhanChieu(cell);
 
   const n = typeof cell === 'number' ? cell : Number(cell);
   if (!Number.isFinite(n)) return String(cell);
@@ -542,6 +579,121 @@ function AggBar({
   );
 }
 
+/**
+ * Kết quả Explorer → số liệu MỘT biểu đồ. `null` khi hình dạng không vẽ được.
+ *
+ * ═══ Vì sao tab này cần một biểu đồ ════════════════════════════════════════
+ *
+ * ĐO ĐƯỢC 24/11/2026, khi dùng sản phẩm như một người dùng thật: chọn Chi nhánh
+ * + Thành tiền, bấm Chạy, và nhận về một bảng bốn dòng. Đúng số — nhưng nơi
+ * mang tên "Khám phá" lại không vẽ được gì, nên muốn thấy HÌNH thì phải thoát
+ * ra dựng hẳn một báo cáo. Hơn nửa màn hình dưới bảng bỏ trống đúng lúc đó.
+ *
+ * ═══ Vì sao dùng lại `ReportChart` chứ không vẽ riêng ══════════════════════
+ *
+ * `ReportChart` đã mang sẵn mọi thứ quanh một biểu đồ: chọn spec theo loại, đo
+ * khung vẽ cả hai chiều, nhánh "không có dòng nào", và locale Việt. Vẽ riêng ở
+ * đây là chép lại cả bốn thứ đó để chúng lệch nhau ở lần sửa đầu tiên.
+ *
+ * Giá phải trả là một phép ÁNH XẠ: `ReportDataDto` mô tả đúng MỘT chiều, MỘT
+ * thước đo, và tuỳ chọn một chiều tách chuỗi — còn Explorer cho chọn bao nhiêu
+ * cũng được. Nên ở đây chọn cột đầu mỗi loại, và `chuThich` NÓI RA phần không
+ * được vẽ. Im lặng ở chỗ này là đúng hạng lỗi tệ nhất: một biểu đồ thật, đẹp,
+ * vẽ một cột mà người xem tưởng là cột khác.
+ */
+function soLieuBieuDo(
+  kq: ExplorerResultDto,
+  chieuCuaMoHinh: readonly ExplorerFieldDto[],
+): { loai: ChartType; data: ReportDataDto; chuThich: string | null } | null {
+  const viTri = (kind: 'dimension' | 'measure'): number[] =>
+    kq.columns.flatMap((c, i) => (c.kind === kind ? [i] : []));
+
+  const iChieu = viTri('dimension');
+  const iDo = viTri('measure');
+
+  // Thiếu một trong hai vai thì không có biểu đồ nào: một bảng chỉ có nhãn
+  // không có gì để vẽ cao thấp, còn một con số trơ thì không cần trục nào.
+  const cot = iChieu[0];
+  const cotDo = iDo[0];
+  if (cot === undefined || cotDo === undefined) return null;
+
+  const cChieu = kq.columns[cot];
+  const cDo = kq.columns[cotDo];
+  if (cChieu === undefined || cDo === undefined) return null;
+
+  const cotChuoi = iChieu[1];
+  const cChuoi = cotChuoi === undefined ? undefined : kq.columns[cotChuoi];
+
+  /*
+   * ═══ Cột THỜI GIAN: vẽ đường, và PHẢI sắp lại theo ngày ═══════════════════
+   *
+   * Loại biểu đồ theo kiểu cột là cùng luật mà `loaiHop` của khung hỏi đáp dùng
+   * để gợi ý. Nhưng một đường thì KHÔNG được vẽ trên thứ tự Explorer trả về.
+   *
+   * ĐO ĐƯỢC 24/11/2026, ngay trên bản vừa thêm biểu đồ này: chọn Ngày bán +
+   * Thành tiền thì truy vấn sắp theo THƯỚC ĐO giảm dần (mặc định của Explorer),
+   * nên đường vẽ ra đi xuống đều từ trái sang phải — trông y hệt một đà giảm
+   * doanh thu suốt tháng, trong khi nó chỉ là một bảng xếp hạng được nối lại
+   * bằng một nét. Đúng hạng lỗi tệ nhất: một hình vẽ thật, đẹp, nói điều sai.
+   *
+   * Thanh thì không mắc lỗi đó — một dãy thanh xếp theo độ lớn đọc ra đúng cái
+   * nó là, một bảng xếp hạng. Chỉ ĐƯỜNG mới hứa hẹn một trục liên tục.
+   *
+   * ⚠️ Sắp trên Ô GỐC, không trên nhãn đã qua `nhanChieu`. Ô gốc là mốc ISO
+   * (`2026-10-26T00:00:00.000`) nên thứ tự chữ cái TRÙNG thứ tự thời gian; nhãn
+   * thì đã thành `26/10/2026`, và sắp chuỗi dạng đó là xếp theo NGÀY TRONG
+   * THÁNG — đúng cái bẫy mà `sortOf` ở `chartSpec` cảnh báo.
+   *
+   * `theoChieu` là cách nói với `chartSpec` rằng thứ tự trong `rows` đã đúng rồi
+   * và đừng sắp lại — xem `sortOf`.
+   */
+  const laThoiGian = chieuCuaMoHinh.find((f) => f.id === cChieu.id)?.cubeType === 'time';
+  const dong = laThoiGian
+    ? [...kq.rows].sort((a, b) => String(a[cot] ?? '').localeCompare(String(b[cot] ?? '')))
+    : kq.rows;
+
+  const rows = dong.flatMap((d) => {
+    // ClickHouse trả số qua JSON dưới dạng CHUỖI — cùng cái bẫy mà
+    // `formatCell` đã ghi lại. Ô không đọc ra số (null, chuỗi rác) thì bỏ
+    // dòng, không đổi thành 0: một cột 0 giả nói rằng nhóm đó bán được 0.
+    const v = Number(d[cotDo]);
+    if (!Number.isFinite(v)) return [];
+    return [
+      {
+        label: nhanChieu(d[cot] ?? null),
+        value: v,
+        ...(cotChuoi === undefined ? {} : { series: nhanChieu(d[cotChuoi] ?? null) }),
+      },
+    ];
+  });
+  if (rows.length === 0) return null;
+
+  const bo = [
+    iDo.length > 1 ? `vẽ ${cDo.label}, không vẽ ${String(iDo.length - 1)} thước đo còn lại` : null,
+    iChieu.length > 2 ? `tách chuỗi theo ${cChuoi?.label ?? ''} thôi` : null,
+  ].filter((c): c is string => c !== null);
+
+  return {
+    loai: laThoiGian ? 'line' : 'bar',
+    data: {
+      rows,
+      dimensionLabel: cChieu.label,
+      measureLabel: cDo.label,
+      ...(cChuoi === undefined ? {} : { seriesLabel: cChuoi.label }),
+      ...(cDo.format === undefined ? {} : { format: cDo.format }),
+      ...(laThoiGian ? { theoChieu: 'asc' as const } : {}),
+      /*
+       * `false`: Explorer KHÔNG gộp nhóm nào vào "Khác" và không chia trang —
+       * nó lấy tối đa `limit` dòng rồi vẽ đúng chúng. Bật cờ này sẽ làm
+       * `TruncationNote` nói một câu về cột "Khác" không hề tồn tại. Phần bị
+       * cắt vì chạm trần đã có `Badge` riêng của tab này nói ra.
+       */
+      grouped: false,
+    },
+    chuThich: bo.length === 0 ? null : `Biểu đồ ${bo.join('; ')} — bảng dưới có đủ.`,
+  };
+}
+
 export default function ExplorerTab(): React.ReactElement {
   const { moHinh: model, ghiKetQua } = useOutletContext<NgoaiCanhMoHinh>();
 
@@ -562,6 +714,22 @@ export default function ExplorerTab(): React.ReactElement {
   const [queryError, setQueryError] = useState<string | null>(null);
   const [showSql, setShowSql] = useState(false);
   const sql = useQuerySql(model.id);
+
+  /*
+   * Số liệu biểu đồ — xem `soLieuBieuDo`.
+   *
+   * Khai ở ĐÂY, cạnh các hook khác, chứ không ở chỗ dùng: thân hàm này có ba
+   * `return` sớm bên dưới (Cube tắt, lỗi trường, đang nạp), và một hook đứng
+   * sau chúng là một hook chạy không đều giữa các lần render.
+   *
+   * `useMemo` chứ không tính thẳng trong JSX: `ReportChart` nhận `data` làm
+   * prop, nên một object mới ở mỗi lần render sẽ bắt nó dựng lại spec Vega mỗi
+   * lần người dùng tích một ô trên bộ chọn.
+   */
+  const bieuDo = useMemo(
+    () => (run.data === undefined ? null : soLieuBieuDo(run.data, fields.data?.dimensions ?? [])),
+    [run.data, fields.data],
+  );
 
   /*
    * Báo bảng vừa chạy lên trang cha, để khung hỏi đáp trả lời được về NÓ.
@@ -666,8 +834,8 @@ export default function ExplorerTab(): React.ReactElement {
         onRetry={() => void status.refetch()}
         retrying={status.isFetching}
       >
-        Hai tab <strong>Schemas</strong> và <strong>Relationship</strong> vẫn dùng được bình thường
-        — chúng không cần Cube.
+        Hai tab <strong>Cấu trúc</strong> và <strong>Quan hệ</strong> vẫn dùng được bình thường —
+        chúng không cần Cube.
       </CubeOfflineNotice>
     );
   }
@@ -770,7 +938,7 @@ export default function ExplorerTab(): React.ReactElement {
             </div>
             <p className="mt-2 text-xs text-slate-500">
               Chỉ áp cho truy vấn này. Muốn đổi cho cả mô hình thì sửa ở tab{' '}
-              <strong>Schemas</strong>.
+              <strong>Cấu trúc</strong>.
             </p>
           </div>
         )}
@@ -795,6 +963,24 @@ export default function ExplorerTab(): React.ReactElement {
                 {/* Chạm trần nghĩa là RẤT CÓ THỂ còn dữ liệu. Nói ra chứ không
                     để người dùng tin rằng họ đang nhìn toàn bộ. */}
                 <Badge tone="warning">đã cắt bớt — còn dữ liệu chưa lấy hết</Badge>
+              </div>
+            )}
+            {bieuDo !== null && (
+              /*
+               * Chiều cao CỐ ĐỊNH + `shrink-0`, và bảng giữ phần còn lại.
+               *
+               * `fit` của `ReportChart` tự đo hộp này rồi bảo Vega vẽ vừa vào —
+               * nên phải là một con số, không phải `flex-1`: để hộp cao theo nội
+               * dung thì phép đo chạy vòng (hộp cao theo biểu đồ, biểu đồ cao
+               * theo hộp). Cùng lý do mà cờ `fit` tồn tại.
+               */
+              <div className="shrink-0">
+                <div className="h-64 rounded-lg border border-slate-200 bg-white p-3">
+                  <ReportChart chartType={bieuDo.loai} data={bieuDo.data} fit />
+                </div>
+                {bieuDo.chuThich !== null && (
+                  <p className="mt-1 text-xs text-slate-500">{bieuDo.chuThich}</p>
+                )}
               </div>
             )}
             <TableWrap fill>

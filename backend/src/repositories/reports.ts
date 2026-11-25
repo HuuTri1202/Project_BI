@@ -4,6 +4,12 @@ import {
   CHART_TYPES,
   type ChartType,
   type DatasetSource,
+  type ExplorerFilterDto,
+  FILTER_OPERATORS,
+  FILTER_OPERATORS_NO_VALUE,
+  type FilterOperator,
+  MEASURE_AGGS,
+  type MeasureAgg,
   PAGE_NAME_MAX,
   parseAnnotations,
   type ReportCanvasDto,
@@ -177,16 +183,75 @@ function parseModelConfig(raw: unknown): ReportModelConfigDto | null {
   // `config` thì nó nằm im ở đó — dọn nó đòi một migration ghi lại toàn bộ JSON
   // của mọi báo cáo, để đổi lấy đúng một trường không ai đọc nữa.
 
+  /*
+   * ⚠️ HÀM NÀY LÀ MỘT DANH SÁCH TRẮNG, và mọi trường quên ở đây đều hỏng theo
+   * CÙNG MỘT KIỂU: lưu được, xem lại thì mất.
+   *
+   * Lỗi đo được ngày 20/11/2026 với `filters`: lọc "Kênh bán = GrabFood" trong
+   * trình dựng, biểu đồ đổi đúng, bấm Lưu, JSON trong MySQL có đủ điều kiện —
+   * rồi mở trang xem thì hiện lại con số của TOÀN BỘ dữ liệu. Không lỗi, không
+   * cảnh báo: chỉ là một con số khác, lớn hơn, cho đúng cái tiêu đề cũ.
+   *
+   * `measureAgg` đang hỏng y hệt và CHƯA ai gặp — chỉ vì chưa báo cáo nào được
+   * lưu với một phép gộp chọn lại (mọi bản ghi đang có đều là `null`). Một ô
+   * khai "Trung bình" sẽ vẽ ra Tổng ở trang xem.
+   *
+   * Nên ba trường dưới đây đọc cùng một luật KHOAN DUNG với `pick`: hình dạng
+   * lạ thì bỏ qua từng trường, không làm hỏng cả ô.
+   */
+  const measureAgg = MEASURE_AGGS.includes(obj.measureAgg as MeasureAgg)
+    ? (obj.measureAgg as MeasureAgg)
+    : null;
+  const theoChieu = obj.theoChieu === 'asc' || obj.theoChieu === 'desc' ? obj.theoChieu : null;
+  const filters = parseFilters(obj.filters);
+
   return {
     dimensionId: Number(obj.dimensionId),
     measureId: Number(obj.measureId),
     limit: typeof obj.limit === 'number' ? obj.limit : 20,
     pick,
     seriesDimensionId: Number.isInteger(series) ? Number(series) : null,
+    measureAgg,
+    ...(theoChieu === null ? {} : { theoChieu }),
+    ...(filters.length === 0 ? {} : { filters }),
     // `exactOptionalPropertyTypes` phân biệt "vắng mặt" với "có mà undefined",
     // nên không gán thẳng `options` được — phải chọn một trong hai hình dạng.
     ...(options !== null && typeof options === 'object' ? { options } : {}),
   };
+}
+
+/**
+ * Điều kiện lọc đã lưu — §B1.
+ *
+ * Đây là đường ĐỌC, nên nó không tin gì cả: cột `canvas` là JSON tự do và có
+ * thể mang bản ghi của một phiên bản khác. Điều kiện nào không đủ hình dạng thì
+ * bị bỏ RIÊNG nó, cùng luật với `parseVisuals`.
+ *
+ * ⚠️ Bỏ một điều kiện là làm biểu đồ rộng ra chứ không hẹp lại — tức là hiện ra
+ * NHIỀU dữ liệu hơn người dùng đã chọn. Nên luật ở đây chặt: thiếu `dimensionId`
+ * hợp lệ, toán tử lạ, hay `values` không phải mảng chuỗi thì bỏ.
+ */
+function parseFilters(raw: unknown): ExplorerFilterDto[] {
+  if (!Array.isArray(raw)) return [];
+
+  return raw.flatMap((item) => {
+    if (item === null || typeof item !== 'object') return [];
+    const f = item as Partial<ExplorerFilterDto>;
+    if (!Number.isInteger(f.dimensionId)) return [];
+    if (!FILTER_OPERATORS.includes(f.operator as FilterOperator)) return [];
+    const values = Array.isArray(f.values) ? f.values.filter((v) => typeof v === 'string') : [];
+    // `set`/`notSet` là hai toán tử DUY NHẤT không cần giá trị — cùng luật với
+    // `explorerFilterSchema` ở đường ghi.
+    const canGiaTri = !FILTER_OPERATORS_NO_VALUE.includes(f.operator as FilterOperator);
+    if (canGiaTri && values.length === 0) return [];
+    return [
+      {
+        dimensionId: Number(f.dimensionId),
+        operator: f.operator as FilterOperator,
+        values,
+      },
+    ];
+  });
 }
 
 /**
@@ -210,7 +275,15 @@ function parseModelConfig(raw: unknown): ReportModelConfigDto | null {
  * ghi đúng, và một câu `UPDATE` chạy trên mọi báo cáo của mọi tổ chức để đổi
  * đúng một tầng lồng nhau là rủi ro đổi lấy con số không.
  */
-function parseCanvas(raw: unknown): ReportCanvasDto | null {
+/**
+ * XUẤT ra để kiểm được bằng một bài test THUẦN — cùng lập luận với `buildQuery`.
+ *
+ * Hàm này là một DANH SÁCH TRẮNG đọc JSON tự do, và mọi trường quên ở đây đều
+ * hỏng theo cùng một kiểu im lặng: lưu được, xem lại thì mất. Nó đã hỏng hai
+ * lần như thế (`filters`, `measureAgg`). Để nó private nghĩa là luật duy nhất
+ * giữ nó phải chạy qua MySQL thật, tức chậm hơn và chỉ chạy khi có container.
+ */
+export function parseCanvas(raw: unknown): ReportCanvasDto | null {
   const value = readJson(raw);
   if (value === null) return null;
 

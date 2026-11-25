@@ -1,27 +1,36 @@
 import type { RegisterResponseDto, TenantRole } from '@bi/shared';
 import type { PoolConnection, ResultSetHeader } from 'mysql2/promise';
 import { withTransaction } from '../../db/tx';
-import { toPublicUser, type UserRow } from '../../repositories/users';
+import { createUser, toPublicUser, type UserRow } from '../../repositories/users';
 import { HttpError } from '../../utils/httpError';
 import {
   DEFAULT_WORKSPACE_NAME,
   DEFAULT_WORKSPACE_SLUG,
+  personalTenantName,
   provisionTenant,
 } from '../tenant/provisionTenant';
-import { hashPassword } from './password';
+import { generateTempPassword, hashPassword } from './password';
 
 /** Người tạo tổ chức là quản trị viên của chính tổ chức đó. */
 const FOUNDER_ROLE: TenantRole = 'admin';
 
 export interface RegisterAccountInput {
   fullName: string;
-  companyName: string;
   /** Đã chuẩn hoá về chữ thường ở tầng schema. */
   email: string;
-  password: string;
-  /** Đã chuẩn hoá về dạng +84XXXXXXXXX ở tầng schema. */
-  phone: string;
-  jobTitle: string;
+  /**
+   * Vắng mặt -> tổ chức là KHÔNG GIAN RIÊNG mang tên người dùng
+   * (`owner_user_id` = chính họ). Có -> tổ chức là công ty thật
+   * (`owner_user_id = NULL`), y như trước.
+   */
+  companyName?: string | undefined;
+  /** Vắng mặt -> tài khoản không có mật khẩu dùng được (đăng ký bằng Google). */
+  password?: string | undefined;
+  /**
+   * `true` chỉ khi nơi gọi THỰC SỰ bảo đảm được hộp thư, và phải nói ra tại chỗ
+   * gọi vì sao — xem `CreateUserInput.emailVerified`.
+   */
+  emailVerified?: boolean | undefined;
 }
 
 /**
@@ -42,22 +51,54 @@ export interface RegisterAccountInput {
  * cần `userId`. Đổi thứ tự còn được thêm một thứ: email trùng nay thất bại
  * TRƯỚC khi kịp đốt một slug tenant trong không gian tên toàn cục.
  *
- * Tổ chức tạo ở đây có `owner_user_id = NULL` — nó là công ty thật do người dùng
- * khai, không phải không gian cá nhân. Người tự đăng ký KHÔNG được cấp thêm một
- * tổ chức cá nhân thứ hai: công ty họ vừa lập đã là nơi họ làm chủ rồi.
+ * ─── Một tổ chức, hai loại ──────────────────────────────────────────────────
+ *
+ * Khai tên công ty -> `owner_user_id = NULL`, công ty thật, và người đăng ký làm
+ * quản trị viên ở đó. Không khai -> `owner_user_id` trỏ về chính họ, tức một
+ * KHÔNG GIAN RIÊNG, đúng loại mà `createMember` cấp cho người được mời.
+ *
+ * Phân biệt hai loại bằng `owner_user_id` chứ không bằng một cột riêng vì đó là
+ * định nghĩa đã dùng khắp hệ thống: console hệ thống đếm "số tổ chức" bằng đúng
+ * `owner_user_id IS NULL`, và bộ chuyển tổ chức gắn nhãn "không gian riêng" bằng
+ * `owner_user_id <=> user_id`. Thêm một cột nữa là mời hai nguồn sự thật lệch
+ * nhau.
+ *
+ * Dù loại nào thì cũng CHỈ MỘT tổ chức cho một lần đăng ký: người tự đăng ký
+ * không được cấp thêm một tổ chức thứ hai, và `uq_tenants_owner` chặn ở tầng
+ * database việc một người có hai không gian riêng.
  */
 export async function registerAccount(input: RegisterAccountInput): Promise<RegisterResponseDto> {
   // Băm mật khẩu TRƯỚC khi mở transaction. bcrypt cost 12 mất ~300 ms; giữ một
   // connection và một transaction mở suốt quãng đó là chiếm chỗ vô ích trong
   // pool 10 connection, và đủ để vài request đồng thời làm cạn pool.
-  const passwordHash = await hashPassword(input.password);
+  /*
+   * ─── Không có mật khẩu thì băm một chuỗi NGẪU NHIÊN, không để trống ────────
+   *
+   * `users.password_hash` là NOT NULL, nên đường đăng ký bằng Google vẫn phải
+   * ghi một cái gì vào đó. Ghi hash của một chuỗi ngẫu nhiên mà KHÔNG AI BIẾT
+   * nguyên bản chính là nghĩa của "tài khoản này không có mật khẩu": không ai
+   * đoán ra, và `/login` vẫn chạy `verifyPassword` bình thường rồi từ chối.
+   *
+   * Nhét một chuỗi canh ('', 'google', 'khong-co') vào đây thì bcrypt gặp một
+   * hash SAI DẠNG, và chuyện đó trả về `false` hay NÉM LỖI là tuỳ thư viện và
+   * tuỳ phiên bản — một ngõ cụt khác hẳn, lộ ra dưới dạng 500 ở màn đăng nhập.
+   *
+   * Người đăng ký bằng Google muốn có thêm mật khẩu thì đi qua "Quên mật khẩu":
+   * họ kiểm soát hộp thư đó (Google vừa chứng minh), nên thư đặt lại tới đúng
+   * tay họ.
+   */
+  const passwordHash = await hashPassword(input.password ?? generateTempPassword(32));
 
   return withTransaction(async (conn) => {
     const userId = await insertUser(conn, { ...input, passwordHash });
+    // Tên và chủ sở hữu phải đi CÙNG NHAU: tên mang họ tên người dùng thì
+    // `ownerUserId` cũng phải trỏ về họ, không thì ta có một "Không gian của
+    // Mai" bị cả hệ thống đếm như một công ty.
+    const tenantName = input.companyName ?? personalTenantName(input.fullName);
     const tenant = await provisionTenant(conn, {
-      name: input.companyName,
+      name: tenantName,
       createdBy: userId,
-      ownerUserId: null,
+      ownerUserId: input.companyName === undefined ? userId : null,
     });
     await insertMembership(conn, userId, tenant.tenantId, FOUNDER_ROLE);
 
@@ -65,7 +106,7 @@ export async function registerAccount(input: RegisterAccountInput): Promise<Regi
 
     return {
       user,
-      tenant: { id: tenant.tenantId, name: input.companyName, slug: tenant.slug },
+      tenant: { id: tenant.tenantId, name: tenantName, slug: tenant.slug },
       workspace: {
         id: tenant.workspaceId,
         name: DEFAULT_WORKSPACE_NAME,
@@ -81,12 +122,15 @@ async function insertUser(
   input: RegisterAccountInput & { passwordHash: string },
 ): Promise<number> {
   try {
-    const [result] = await conn.query<ResultSetHeader>(
-      `INSERT INTO users (email, password_hash, full_name, phone, job_title, role)
-       VALUES (?, ?, ?, ?, ?, 'user')`,
-      [input.email, input.passwordHash, input.fullName, input.phone, input.jobTitle],
-    );
-    return result.insertId;
+    // Dùng `createUser` của repository chứ không tự viết câu INSERT: danh sách
+    // cột chỉ được có MỘT bản. Bản cũ ở đây đã bỏ sót `email_verified_at`, nên
+    // thêm `emailVerified` vào input là phải sửa hai chỗ mới đúng.
+    return await createUser(conn, {
+      email: input.email,
+      passwordHash: input.passwordHash,
+      fullName: input.fullName,
+      emailVerified: input.emailVerified === true,
+    });
   } catch (err) {
     // ĐÂY mới là chỗ chặn trùng email thật sự. Câu SELECT kiểm tra trước ở tầng
     // route chỉ để trả thông báo tử tế; giữa nó và câu INSERT này luôn có khe

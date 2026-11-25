@@ -186,10 +186,58 @@ export const createUploadBodySchema = z.object({
  */
 export const commitDatasetsBodySchema = z.object({
   name: z.string().trim().min(1, 'Tên bộ dữ liệu không được để trống').max(DATASET_NAME_MAX),
+  /**
+   * Lần CẬP NHẬT một bộ đã có, không phải lần nhập mới — §B2. Xem `CommitInput`.
+   */
+  capNhat: z.boolean().optional(),
   sheets: z
     .array(z.string().min(1))
     .min(1, 'Hãy chọn ít nhất một sheet')
     .max(50, 'Chọn tối đa 50 sheet một lần'),
+  /**
+   * Gộp các nhóm chỉ khác chữ hoa/thường — người dùng tích ở bước 2.
+   *
+   * Mặc định `false`: client im lặng thì KHÔNG biến đổi dữ liệu. Giao diện mới
+   * là nơi đặt mặc định bật, vì ở đó người dùng vừa đọc xong cảnh báo kèm ví dụ
+   * từ chính tệp của họ.
+   */
+  gopHoaThuong: z.boolean().optional().default(false),
+  /**
+   * Quy ước phân cách người dùng tự chốt cho một cột — mong muốn D2.
+   *
+   * Trần 200: nó chỉ chứa những cột hệ thống đã cảnh báo là MƠ HỒ, nên một
+   * danh sách dài hơn thế là client gửi bừa, không phải người dùng tích tay.
+   */
+  quyUocSo: z
+    .array(
+      z.object({
+        sheet: z.string().min(1),
+        ordinal: z.number().int().nonnegative(),
+        format: z.enum(['vn', 'en']),
+      }),
+    )
+    .max(200)
+    .optional()
+    .default([]),
+});
+
+/* ─── Chia sẻ báo cáo bằng liên kết — mong muốn D5 ─────────────────────── */
+
+/**
+ * `soNgay === null` = liên kết KHÔNG hết hạn.
+ *
+ * Cho phép, nhưng không phải mặc định của giao diện: một liên kết vĩnh viễn là
+ * một đường vào vĩnh viễn tới số liệu, và người tạo nó phải chọn điều đó một
+ * cách tường minh. Trần 365 ngày để "vĩnh viễn" chỉ có một cách diễn đạt duy
+ * nhất (`null`), thay vì hai cách nói cùng một chuyện.
+ */
+export const createShareBodySchema = z.object({
+  soNgay: z.number().int().positive().max(365).nullable().optional().default(7),
+});
+
+export const shareIdParamSchema = z.object({
+  id: z.coerce.number().int().positive(),
+  shareId: z.coerce.number().int().positive(),
 });
 
 // ─── Báo cáo (§7.6) ──────────────────────────────────────────────────────────
@@ -292,6 +340,27 @@ export const reportModelConfigSchema = z.object({
    * chứ không nhận 400.
    */
   pick: z.enum(GROUP_PICKS).optional(),
+  /**
+   * Sắp theo CHÍNH CHIỀU thay vì theo thước đo — xem `ReportModelConfigDto`.
+   *
+   * Cùng hạng với `pick`: nó đổi câu hỏi gửi xuống Cube, nên nó ở trong
+   * `config` và đi vào khoá cache.
+   */
+  theoChieu: z.enum(['asc', 'desc']).nullish(),
+  /**
+   * Điều kiện lọc của riêng ô — §B1. Dùng lại nguyên `explorerFilterSchema`.
+   *
+   * Trần 10: một ô biểu đồ cần vài điều kiện, không cần một câu SQL. Trần này
+   * cũng chặn một thân request bơm phồng đi thẳng xuống Cube.
+   *
+   * ⚠️ `z.lazy`: `explorerFilterSchema` khai Ở DƯỚI trong cùng tệp này, và một
+   * `const` thì không được nâng lên. Đọc thẳng ở đây là `ReferenceError` ngay
+   * lúc nạp module — tức cả API chết, không phải một route chết.
+   */
+  filters: z
+    .array(z.lazy(() => explorerFilterSchema))
+    .max(10)
+    .optional(),
   /**
    * Chiều thứ hai — tách chuỗi (§10.9). Router kiểm nó có thật trong mô hình và
    * kiểm nó KHÁC chiều chính; zod chỉ lo hình dạng.
@@ -1031,8 +1100,27 @@ export const explorerQueryBodySchema = z
  * `kiemForm` chặn, cho client quyết "mô hình được thấy những trường nào" vẫn là
  * một cái cửa không có lý do gì để mở.
  */
+/**
+ * Câu hỏi của người dùng gửi vào khung hỏi đáp — dùng cho CẢ NĂM endpoint chat.
+ *
+ * ⚠️ Câu báo lỗi phải là TIẾNG VIỆT. Mặc định của zod đi thẳng ra giao diện:
+ * ĐO ĐƯỢC 24/11/2026, một câu hỏi rỗng trả về `"String must contain at least 1
+ * character(s)"` và một câu 900 ký tự trả về `"String must contain at most 500
+ * character(s)"`. Khung chat là chỗ người dùng gõ tự do nhất trong cả sản phẩm,
+ * nên nó là chỗ hai câu đó hiện ra thường nhất — và cả sản phẩm còn lại nói
+ * tiếng Việt.
+ *
+ * `.trim()` cho cả năm chỗ: ba endpoint trước đây không trim, nên một câu chỉ
+ * gồm dấu cách đi được tới tận lớp gọi mô hình rồi mới rơi ra rỗng.
+ */
+const cauHoiNguoiDung = z
+  .string()
+  .trim()
+  .min(1, 'Bạn chưa nhập câu hỏi.')
+  .max(500, 'Câu hỏi dài quá 500 ký tự. Bạn rút ngắn lại giúp tôi.');
+
 export const chatCauHoiBodySchema = z.object({
-  cauHoi: z.string().trim().min(1).max(500),
+  cauHoi: cauHoiNguoiDung,
   /**
    * Lượt hỏi trước — bộ nhớ hội thoại. Vắng mặt = câu hỏi độc lập.
    *
@@ -1046,7 +1134,7 @@ export const chatCauHoiBodySchema = z.object({
    */
   boiCanh: z
     .object({
-      cauHoi: z.string().trim().min(1).max(500),
+      cauHoi: cauHoiNguoiDung,
       truyVan: explorerQueryBodySchema,
     })
     .optional(),
@@ -1110,7 +1198,7 @@ export const renameDatasetBodySchema = z.object({
  * chỉ thị lạ vào prompt.
  */
 export const dienDatBodySchema = z.object({
-  cauHoi: z.string().min(1).max(500),
+  cauHoi: cauHoiNguoiDung,
   cau: z.string().min(1).max(2000),
   so: z.array(z.string().min(1).max(100)).max(20),
 });
@@ -1126,7 +1214,7 @@ export const dienDatBodySchema = z.object({
  * nhãn không đi tới tận nơi mới bị cắt.
  */
 export const hieuYBodySchema = z.object({
-  cauHoi: z.string().min(1).max(500),
+  cauHoi: cauHoiNguoiDung,
   nhan: z.array(z.string().min(1).max(300)).min(1).max(60),
 });
 
@@ -1163,7 +1251,7 @@ export const hieuYBodySchema = z.object({
  * vì lớp dưới cắt ngay.
  */
 export const chonCotBodySchema = z.object({
-  cauHoi: z.string().min(1).max(500),
+  cauHoi: cauHoiNguoiDung,
   cot: z
     .array(
       z.object({

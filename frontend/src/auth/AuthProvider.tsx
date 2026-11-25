@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react
 import { useNavigate } from 'react-router-dom';
 import { setUnauthorizedHandler } from '../services/apiClient';
 import * as authApi from '../services/authApi';
-import type { Membership, PublicUser, Tenant, TenantRole } from '../types/auth';
+import type { LoginResponse, Membership, PublicUser, Tenant, TenantRole } from '../types/auth';
 import {
   AuthContext,
   type AuthContextValue,
@@ -11,6 +11,7 @@ import {
   type LoginOutcome,
 } from './authContext';
 import { clearSnapshots } from '../services/querySnapshots';
+import { ghiGhiNho } from './ghiNhoDangNhap';
 import { clearToken, readToken, writeToken } from './tokenStorage';
 
 interface Session {
@@ -114,6 +115,33 @@ export function AuthProvider({ children }: { children: ReactNode }): React.React
     return () => setUnauthorizedHandler(null);
   }, [clearSession, navigate]);
 
+  /**
+   * Dựng phiên từ gói trả về của BẤT KỲ đường đăng nhập nào.
+   *
+   * `/auth/login` và `/auth/google` trả về cùng một hình dạng (backend gom
+   * chúng vào một hàm `moPhien`), nên chỗ này chỉ được viết một lần. Hai bản
+   * sao của đoạn ghi token + đặt state là hai đường phiên lệch nhau chờ xảy ra.
+   */
+  const nhanPhien = useCallback((res: LoginResponse): LoginOutcome => {
+    // Ghi token TRƯỚC khi đổi state: request đầu tiên phát ra ngay sau khi
+    // render lại đã có sẵn header Authorization.
+    writeToken(res.token);
+    setSession({
+      status: 'authenticated',
+      user: res.user,
+      tenant: res.tenant,
+      role: res.role,
+      memberships: res.memberships,
+    });
+    return { user: res.user, role: res.role };
+  }, []);
+
+  const loginWithGoogle = useCallback(
+    async (credential: string): Promise<LoginOutcome> =>
+      nhanPhien(await authApi.loginWithGoogle(credential)),
+    [nhanPhien],
+  );
+
   const login = useCallback(async (email: string, password: string): Promise<LoginOutcome> => {
     const res = await authApi.login(email, password);
     // Ghi token TRƯỚC khi đổi state: request đầu tiên phát ra ngay sau khi
@@ -163,6 +191,16 @@ export function AuthProvider({ children }: { children: ReactNode }): React.React
 
   const logout = useCallback(async () => {
     await authApi.logout();
+    /*
+     * Xoá cờ "ghi nhớ đăng nhập" — mong muốn D7.
+     *
+     * Ở ĐÂY chứ không trong `clearSession`: `clearSession` cũng chạy khi gặp
+     * 401, tức là khi token hết hạn sau 7 ngày. Xoá cờ ở đó thì người dùng máy
+     * riêng phải tích lại mỗi tuần một lần mà không hiểu vì sao. Còn người bấm
+     * ĐĂNG XUẤT đang nói "tôi xong rồi", và giữ lại một lựa chọn ghi nhớ sau
+     * câu đó là hiểu sai câu đó.
+     */
+    ghiGhiNho(false);
     clearSession();
     navigate('/login', { replace: true });
   }, [clearSession, navigate]);
@@ -208,13 +246,23 @@ export function AuthProvider({ children }: { children: ReactNode }): React.React
     () => ({
       ...session,
       login,
+      loginWithGoogle,
       logout,
       switchTenant,
       markPasswordChanged,
       applyProfile,
       applyTenant,
     }),
-    [session, login, logout, switchTenant, markPasswordChanged, applyProfile, applyTenant],
+    [
+      session,
+      login,
+      loginWithGoogle,
+      logout,
+      switchTenant,
+      markPasswordChanged,
+      applyProfile,
+      applyTenant,
+    ],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

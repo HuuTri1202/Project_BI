@@ -101,7 +101,7 @@ export function useDataModel(id: number | null): UseQueryResult<DataModelDetailD
   });
 }
 
-/** Tab Schemas — đọc lại ClickHouse, nên đắt hơn `useDataModel`. */
+/** Tab Cấu trúc — đọc lại ClickHouse, nên đắt hơn `useDataModel`. */
 export function useModelSchema(id: number | null): UseQueryResult<DataModelDetailDto> {
   return useQuery({
     queryKey: dataModelKeys.schema(id ?? 0),
@@ -244,10 +244,19 @@ export function useModelReportPreview(
 }
 
 /**
- * Cube có đang chạy không.
+ * Cube có trả lời được truy vấn chưa.
  *
  * `retry: false` — khi Cube tắt thì nó tắt, và ba lần thử lại chỉ làm người
  * dùng chờ thêm sáu giây trước khi thấy đúng câu họ cần đọc.
+ *
+ * `refetchInterval` CHỈ khi còn đỏ, và nó làm hai việc cùng lúc. Backend nay
+ * hỏi `/meta` với hạn chờ 5 giây thay vì hỏi `/readyz` (xem `pingCube`), nên
+ * mỗi lượt hỏi lại vừa đo lại trạng thái vừa HÂM cho Cube biên dịch thêm —
+ * Cube không dừng biên dịch khi ta ngắt kết nối. Hỏi một lần rồi ngồi im là
+ * người dùng nhìn một cái nhãn đỏ suốt hai phút trong khi nó đã xanh từ lâu.
+ *
+ * Xanh rồi thì DỪNG hẳn: trạng thái này không đổi ngược lại trong một phiên,
+ * và một vòng hỏi vô hạn là một vòng hỏi không ai tắt được.
  */
 export function useExplorerStatus(id: number | null): UseQueryResult<api.ExplorerStatusDto> {
   return useQuery({
@@ -256,6 +265,7 @@ export function useExplorerStatus(id: number | null): UseQueryResult<api.Explore
     enabled: id !== null,
     retry: false,
     staleTime: 30_000,
+    refetchInterval: (q) => (q.state.data?.cubeReady === true ? false : 5_000),
   });
 }
 
@@ -355,7 +365,7 @@ export function useRemoveDataset(id: number): UseMutationResult<void, unknown, n
 /*
  * Không có `useCreateMeasure`/`useUpdateMeasure` ở đây, và đó là có chủ đích.
  *
- * Thước đo dựng-trên-cột được khai ở tab Schemas, đi chung nút "Lưu thay đổi"
+ * Thước đo dựng-trên-cột được khai ở tab Cấu trúc, đi chung nút "Lưu thay đổi"
  * với tên hiển thị và vai trò — tức là qua `useSaveSchema`, một lần ghi cho cả
  * bảng. Hai hook tạo/sửa từng thước đo là tàn dư của tab Measures đã bỏ; giữ
  * lại thì lần sau có người gọi chúng và ghi đè mất phần cột trong cùng lần lưu.

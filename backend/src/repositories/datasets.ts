@@ -7,6 +7,7 @@ import type {
   DatasetStatus,
   FieldRole,
   FileExt,
+  NumberFormat,
   SemanticType,
 } from '@bi/shared';
 import type { ResultSetHeader, RowDataPacket } from 'mysql2';
@@ -66,10 +67,12 @@ interface DatasetRow extends RowDataPacket {
   loaded_at: Date | null;
   datamodel_count: number | null;
   datamodel_id: number | null;
+  created_at: Date;
 }
 
 const SELECT_LIST = `
   SELECT d.id, d.source, d.workspace_id, d.folder_id, f.name AS folder_name,
+         d.created_at,
          d.name, d.column_count,
          d.source_schema, d.source_table, d.synced_at, d.connection_id,
          c.name AS connection_name, c.kind AS connection_kind,
@@ -119,23 +122,19 @@ function toDto(row: DatasetRow): DatasetDto {
     truncated: row.truncated === 1,
 
     datamodelCount: Number(row.datamodel_count ?? 0),
-    datamodelId: row.datamodel_id === null || row.datamodel_id === undefined
-      ? null
-      : Number(row.datamodel_id),
+    datamodelId:
+      row.datamodel_id === null || row.datamodel_id === undefined ? null : Number(row.datamodel_id),
 
     loadStatus: row.load_status,
     loadedRowCount: Number(row.loaded_row_count),
     loadedAt: row.loaded_at?.toISOString() ?? null,
+
+    createdAt: row.created_at.toISOString(),
   };
 }
 
 export type DatasetSortKey =
-  | 'name'
-  | 'sourceTable'
-  | 'columnCount'
-  | 'syncedAt'
-  | 'rowCount'
-  | 'createdAt';
+  'name' | 'sourceTable' | 'columnCount' | 'syncedAt' | 'rowCount' | 'createdAt';
 
 export const DATASET_SORT_KEYS: readonly DatasetSortKey[] = [
   'name',
@@ -363,9 +362,38 @@ export async function findOneAnyWorkspace(
   return row ? toDto(row) : null;
 }
 
+/**
+ * Đọc `value_map` về đúng hình dạng `khoá -> cách viết đại diện`.
+ *
+ * Chịu được cả ba thứ có thể nằm trong cột đó: object mysql2 đã parse hộ, chuỗi
+ * JSON (một số cấu hình driver trả về vậy), và `NULL` của mọi cột có trước
+ * migration 44. Giá trị không phải chuỗi thì bỏ — một bản đồ hỏng không được
+ * phép làm cả lần nạp chết.
+ */
+function docBanDoGop(raw: unknown): Record<string, string> | null {
+  if (raw === null || raw === undefined) return null;
+
+  let obj: unknown = raw;
+  if (typeof raw === 'string') {
+    try {
+      obj = JSON.parse(raw);
+    } catch {
+      return null;
+    }
+  }
+  if (typeof obj !== 'object' || obj === null) return null;
+
+  const map: Record<string, string> = {};
+  for (const [khoa, gia] of Object.entries(obj as Record<string, unknown>)) {
+    if (typeof gia === 'string') map[khoa] = gia;
+  }
+  return Object.keys(map).length === 0 ? null : map;
+}
+
 export async function listColumns(db: Db, datasetId: number): Promise<DatasetColumnDto[]> {
   const [rows] = await db.query<RowDataPacket[]>(
-    `SELECT name, data_type, is_nullable, ordinal, field_name, semantic_type, field_role, included
+    `SELECT name, data_type, is_nullable, ordinal, field_name, semantic_type, field_role,
+            included, number_format, value_map
        FROM dataset_columns WHERE dataset_id = ? ORDER BY ordinal ASC`,
     [datasetId],
   );
@@ -378,6 +406,10 @@ export async function listColumns(db: Db, datasetId: number): Promise<DatasetCol
     semanticType: (r['semantic_type'] as SemanticType | null) ?? null,
     fieldRole: (r['field_role'] as FieldRole | null) ?? null,
     included: Number(r['included']) === 1,
+    numberFormat: (r['number_format'] as NumberFormat | null) ?? null,
+    // Cột JSON: mysql2 trả về object đã parse, nhưng một bản ghi cũ hoặc một
+    // chuỗi rỗng thì không — `docBanDoGop` nhận cả hai hình dạng.
+    valueMap: docBanDoGop(r['value_map']),
   }));
 }
 
@@ -517,6 +549,8 @@ export interface ColumnInput {
   semanticType?: SemanticType | null;
   fieldRole?: FieldRole | null;
   included?: boolean;
+  numberFormat?: NumberFormat | null;
+  valueMap?: Record<string, string> | null;
 }
 
 export async function replaceColumns(
@@ -530,7 +564,7 @@ export async function replaceColumns(
   await db.query<ResultSetHeader>(
     `INSERT INTO dataset_columns
        (dataset_id, name, data_type, is_nullable, ordinal,
-        field_name, semantic_type, field_role, included)
+        field_name, semantic_type, field_role, included, number_format, value_map)
      VALUES ?`,
     [
       columns.map((c) => [
@@ -543,17 +577,16 @@ export async function replaceColumns(
         c.semanticType ?? null,
         c.fieldRole ?? null,
         c.included === false ? 0 : 1,
+        c.numberFormat ?? null,
+        // `JSON.stringify` tay: driver bọc mảng-của-mảng cho `VALUES ?` nên một
+        // object đi vào đó thành `[object Object]`.
+        c.valueMap === undefined || c.valueMap === null ? null : JSON.stringify(c.valueMap),
       ]),
     ],
   );
 }
 
-export async function rename(
-  db: Db,
-  tenantId: number,
-  id: number,
-  name: string,
-): Promise<number> {
+export async function rename(db: Db, tenantId: number, id: number, name: string): Promise<number> {
   const [result] = await db.query<ResultSetHeader>(
     `UPDATE datasets SET name = ? WHERE tenant_id = ? AND id = ? AND deleted_at IS NULL`,
     [name, tenantId, id],
@@ -725,6 +758,35 @@ export async function findStorageKey(
   const row = rows[0];
   if (!row || row['s3_key'] === null) return null;
   return { key: String(row['s3_key']), ext: row['file_ext'] as FileExt };
+}
+
+/**
+ * Trỏ một bộ dữ liệu đã có sang một TỆP MỚI — §B2.
+ *
+ * ═══ Vì sao nó phải tồn tại ═══════════════════════════════════════════════
+ *
+ * Trước bản này, một bộ dữ liệu từ file là ảnh chụp một lần: tháng sau có số
+ * mới thì phải tạo bộ mới, mô hình mới, báo cáo mới — còn báo cáo cũ treo số
+ * tháng 8 đến hết đời. Đổi khoá lưu trữ ngay trên bản ghi cũ giữ nguyên `id`,
+ * nên mọi mô hình và báo cáo đang trỏ tới nó vẫn chạy.
+ *
+ * ⚠️ KHÔNG xoá tệp cũ ở đây. Lần nạp mới có thể hỏng (tệp hỏng, sai sheet), và
+ * lúc đó tệp cũ là thứ duy nhất dựng lại được. Dọn tệp mồ côi là việc của
+ * `sweepOrphanFiles` (janitor, mỗi giờ, chỉ đụng tệp quá 24 giờ) — không phải
+ * của đường ghi này.
+ */
+export async function doiTepNguon(
+  db: Db,
+  tenantId: number,
+  id: number,
+  input: { s3Key: string; originalFilename: string; fileExt: FileExt },
+): Promise<void> {
+  await db.query(
+    `UPDATE datasets
+        SET s3_key = ?, original_filename = ?, file_ext = ?
+      WHERE tenant_id = ? AND id = ? AND source = 'file' AND deleted_at IS NULL`,
+    [input.s3Key, input.originalFilename, input.fileExt, tenantId, id],
+  );
 }
 
 export async function markReady(
@@ -920,7 +982,6 @@ export async function capNhatDungLuongKho(
   return doi + res.changedRows;
 }
 
-
 /**
  * Mọi id bộ dữ liệu MySQL còn biết tới — nguồn sự thật của janitor §9.
  *
@@ -943,6 +1004,24 @@ export async function capNhatDungLuongKho(
 export async function listKnownIds(db: Db): Promise<Set<number>> {
   const [rows] = await db.query<RowDataPacket[]>('SELECT id FROM datasets');
   return new Set(rows.map((r) => Number(r['id'])));
+}
+
+/**
+ * Mọi khoá lưu trữ mà MySQL còn nhận — cho `sweepOrphanFiles`.
+ *
+ * ⚠️ KHÔNG lọc `deleted_at`, đúng cùng lý lẽ với `listKnownIds` ngay trên: tệp
+ * của một bộ dữ liệu đã xoá mềm phải ở lại, nếu không thì khôi phục trả về một
+ * bản ghi trỏ vào một khoá không còn gì.
+ *
+ * Nhiều dòng có thể dùng CHUNG một khoá — một file xlsx nhiều sheet sinh ra mỗi
+ * sheet một dòng, cả lô trỏ về một object (xem `commit.ts`). Nên đây là tập
+ * hợp, và một khoá còn đúng một dòng nhận cũng là còn được dùng.
+ */
+export async function listKnownS3Keys(db: Db): Promise<Set<string>> {
+  const [rows] = await db.query<RowDataPacket[]>(
+    "SELECT DISTINCT s3_key FROM datasets WHERE s3_key IS NOT NULL AND s3_key <> ''",
+  );
+  return new Set(rows.map((r) => String(r['s3_key'])));
 }
 /**
  * Dọn những lần tải file BỎ DỞ đã quá hạn — janitor §9.6.

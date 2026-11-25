@@ -1,4 +1,5 @@
 import { clearSnapshots } from '../services/querySnapshots';
+import { docGhiNho } from './ghiNhoDangNhap';
 import { clearToken } from './tokenStorage';
 
 /**
@@ -24,6 +25,11 @@ import { clearToken } from './tokenStorage';
  *
  * Không rơi vào cả hai nghĩa là app đã đóng hẳn từ lần trước: xoá token, và
  * trang đăng nhập hiện ra.
+ *
+ *   3. HOẶC người dùng đã tích "Ghi nhớ đăng nhập trên máy này" — mong muốn D7.
+ *      Đó là một lựa chọn TƯỜNG MINH để tắt luật trên, cho người dùng máy
+ *      riêng. Xem `ghiNhoDangNhap.ts`: mặc định vẫn là KHÔNG ghi nhớ, nên hành
+ *      vi của một máy chưa ai tích gì đúng y như trước bản vá.
  *
  * ═══ Vì sao là khoá, không phải hỏi nhau qua BroadcastChannel ══════════════
  *
@@ -69,9 +75,10 @@ export interface AppSessionEnv {
 
 /**
  * `resumed` — luật 1 (F5); `joined` — luật 2 (tab mới khi app đang mở);
+ * `remembered` — luật 3 (người dùng đã tích ghi nhớ trên máy này);
  * `fresh` — app đã đóng hẳn, phiên cũ vừa bị xoá.
  */
-export type AppSessionStart = 'resumed' | 'joined' | 'fresh';
+export type AppSessionStart = 'resumed' | 'joined' | 'fresh' | 'remembered';
 
 /**
  * Chạy ĐÚNG MỘT LẦN, TRƯỚC lần render đầu tiên (`main.tsx`).
@@ -84,7 +91,9 @@ export async function beginAppSession(env: AppSessionEnv = browserEnv()): Promis
     ? 'resumed'
     : (await otherTabAlive(env.locks))
       ? 'joined'
-      : 'fresh';
+      : docGhiNho()
+        ? 'remembered'
+        : 'fresh';
 
   if (start === 'fresh') {
     clearToken();

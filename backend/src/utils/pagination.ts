@@ -1,7 +1,14 @@
-import type { PageResult } from '@bi/shared';
+import { MAX_PAGE_SIZE, type PageResult } from '@bi/shared';
 import { z } from 'zod';
 
-export const MAX_PAGE_SIZE = 100;
+/**
+ * Re-export, KHÔNG khai lại con số.
+ *
+ * Nó chuyển sang `@bi/shared` để frontend đọc được cùng một trần — xem ghi chú
+ * ở đó về lỗi mà việc nhân đôi con số này đã gây ra. Re-export để những chỗ
+ * đang import từ file này không phải sửa.
+ */
+export { MAX_PAGE_SIZE };
 
 /**
  * `PageResult` đã chuyển sang `@bi/shared` để frontend dùng đúng một kiểu với

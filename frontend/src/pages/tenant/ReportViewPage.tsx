@@ -8,6 +8,7 @@ import { ErrorState, TableSkeleton } from '../../components/ui/states';
 import { useReport, useReportCanvasData } from '../../features/datasets/hooks';
 import { ReportShell } from '../../features/reports/ReportShell';
 import { XuatBaoCao } from '../../features/reports/export/XuatBaoCao';
+import { ChiaSeBaoCao } from '../../features/reports/share/ChiaSeBaoCao';
 import { ReportViewer } from '../../features/reports/ReportViewer';
 import { getApiError } from '../../services/apiClient';
 
@@ -156,6 +157,20 @@ export default function ReportViewPage(): React.ReactElement {
           {coTheXuat && (
             <XuatBaoCao report={loaded} activePageId={activePageId} vungRef={vungXuatRef} />
           )}
+          {/*
+           * Chia sẻ bằng liên kết — mong muốn D5.
+           *
+           * Gác bằng `report:modify`, KHÔNG phải `report:read`: mở báo cáo ra
+           * cho người ngoài tổ chức là một quyết định VỀ báo cáo, không phải
+           * một cách xem nó. Phần cưỡng chế thật nằm ở backend (ba route
+           * `/shares` đều gác `report:modify`); ẩn nút ở đây chỉ là để không
+           * mời người dùng vào một cú bấm sẽ bị từ chối.
+           *
+           * Chỉ báo cáo dạng KHUNG chia sẻ được — xem ghi chú ở
+           * `api/public/index.ts`. Báo cáo dựng trên bộ dữ liệu không có nút
+           * này, thay vì có một nút tạo ra liên kết mở lên thành lỗi 409.
+           */}
+          {canEdit && loaded.canvas !== null && <ChiaSeBaoCao reportId={loaded.id} />}
           {editable ? (
             <Button variant="primary" onClick={() => void navigate('edit')}>
               Chỉnh sửa

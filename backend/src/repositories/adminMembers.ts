@@ -31,6 +31,15 @@ export interface AdminContext {
   platformRole: PlatformRole;
   memberActive: boolean;
   userActive: boolean;
+  /**
+   * `users.must_change_password` — tài khoản đang cầm một mật khẩu TẠM.
+   *
+   * Đọc ở đây chứ không thêm một truy vấn riêng: câu SELECT dưới đây đã JOIN
+   * đúng dòng `users` ấy ở MỖI request của `/api/v1` và `/api/admin`. Thêm một
+   * cột vào một câu đã chạy sẵn là không tốn gì; một `SELECT must_change_password`
+   * riêng là một round trip nữa trên mọi request của cả hệ thống.
+   */
+  mustChangePassword: boolean;
 }
 
 interface AdminContextRow extends RowDataPacket {
@@ -38,6 +47,7 @@ interface AdminContextRow extends RowDataPacket {
   platform_role: PlatformRole;
   member_active: number;
   user_active: number;
+  must_change_password: number;
 }
 
 /**
@@ -56,7 +66,8 @@ export async function findAdminContext(
 ): Promise<AdminContext | null> {
   const [rows] = await db.query<AdminContextRow[]>(
     `SELECT m.role, u.role AS platform_role,
-            m.is_active AS member_active, u.is_active AS user_active
+            m.is_active AS member_active, u.is_active AS user_active,
+            u.must_change_password
        FROM memberships m
        JOIN users   u ON u.id = m.user_id   AND u.deleted_at IS NULL
        JOIN tenants t ON t.id = m.tenant_id AND t.deleted_at IS NULL AND t.is_active = 1
@@ -74,6 +85,7 @@ export async function findAdminContext(
     platformRole: row.platform_role,
     memberActive: row.member_active === 1,
     userActive: row.user_active === 1,
+    mustChangePassword: row.must_change_password === 1,
   };
 }
 

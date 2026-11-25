@@ -34,7 +34,18 @@ export function cellStyle(box: {
     // nội dung rộng làm ô phình ra thay vì cuộn bên trong.
     minWidth: 0,
     minHeight: 0,
-  };
+    /*
+     * Thứ tự ĐỌC khi khung xếp dọc trên điện thoại — vá B5.
+     *
+     * Chỉ luật `@media (max-width: 1023px)` trong `index.css` đọc biến này; ở
+     * desktop không có `order` nào được đặt, nên thứ tự xếp chồng của những ô
+     * đè nhau vẫn là thứ tự DOM.
+     *
+     * `y * 100 + x`: trên xuống trước, rồi trái sang phải. Trăm là trần an toàn
+     * vì lưới chỉ có 12 cột.
+     */
+    ['--doc-thu-tu' as string]: String(box.y * 100 + box.x),
+  } as React.CSSProperties;
 }
 
 /**

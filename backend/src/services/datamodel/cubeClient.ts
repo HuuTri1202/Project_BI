@@ -141,8 +141,9 @@ export async function loadFromCube(
 
   if (!response.ok) throw explain(response.status, text);
 
+  let than: unknown;
   try {
-    return JSON.parse(text) as CubeLoadResult;
+    than = JSON.parse(text);
   } catch (cause) {
     console.error('[datamodel] Cube trả về JSON hỏng:', cause, text.slice(0, 300));
     throw new HttpError(
@@ -151,6 +152,37 @@ export async function loadFromCube(
       'Tầng ngữ nghĩa trả về dữ liệu không đọc được.',
     );
   }
+
+  /*
+   * ═══ HTTP 200 KHÔNG hứa rằng thân phản hồi có `data` ════════════════════
+   *
+   * Cube trả 200 kèm `{"error":"Continue wait"}` khi truy vấn chưa tính xong —
+   * đúng giao thức của nó, client phải hỏi lại. Bản trước ép cả thân đó thành
+   * `CubeLoadResult` rồi `runExplorerQuery` gọi `.data.map(...)` trên
+   * `undefined`.
+   *
+   * LỖI ĐO ĐƯỢC hai lần trong một buổi thử, 24/11/2026 — và nó không rơi ra
+   * dạng một câu tiếng Việt mà dạng một lỗi JavaScript lộ nguyên ra client:
+   *
+   *     HTTP 500 {"error":"InternalServerError",
+   *               "detail":"Cannot read properties of undefined (reading 'map')"}
+   *
+   * Chốt ở ĐÂY chứ không ở `runExplorerQuery`: đây là chỗ duy nhất đọc phong bì
+   * của Cube, nên mọi nơi gọi đều đi qua một lần kiểm. Và 503 `CubeUnavailable`
+   * là mã ĐÚNG, không phải 502 `SchemaInvalid`: mô hình không có gì sai, tầng
+   * ngữ nghĩa chỉ chưa tính xong — khung hỏi đáp đã biết nói ra câu cho mã này.
+   */
+  const data = (than as { data?: unknown }).data;
+  if (!Array.isArray(data)) {
+    console.error('[datamodel] Cube trả 200 nhưng không có `data`:', text.slice(0, 300));
+    throw new HttpError(
+      503,
+      DATAMODEL_ERROR_CODES.CUBE_UNAVAILABLE,
+      'Tầng ngữ nghĩa (Cube.js) chưa tính xong truy vấn này. Chờ vài giây rồi hỏi lại.',
+    );
+  }
+
+  return { data: data as Record<string, unknown>[] };
 }
 
 /**
@@ -220,12 +252,114 @@ export async function sqlFromCube(
   }
 }
 
-/** Cube có sống không — dùng cho `/health` và cho tab Explorer hỏi trước. */
-export async function pingCube(): Promise<boolean> {
+/**
+ * Ngữ cảnh của một lần HÂM NÓNG — hẹp hơn hẳn `CubeSecurityContext`.
+ *
+ * `cube.js` chỉ đọc hai trường này để chọn ngữ cảnh biên dịch (`contextToAppId`
+ * dùng `tenantId`, `schemaVersion` dùng `schemaVersion`); `userId` và
+ * `dataModelId` không được đọc ở bất cứ đâu trong đó. Nên token hâm nóng mang
+ * ĐÚNG hai trường đó: nó không cần quyền chạy truy vấn, và một token mang ít
+ * hơn là một token hỏng được ít hơn.
+ */
+export interface CubeWarmContext {
+  tenantId: number;
+  schemaVersion: string;
+}
+
+/**
+ * Hâm nóng ngữ cảnh biên dịch của Cube — ĐO ĐƯỢC, không phải phỏng đoán.
+ *
+ * ─── Vì sao cái này tồn tại ─────────────────────────────────────────────────
+ *
+ * Cube nhớ schema đã biên dịch theo cặp (tổ chức, `schemaVersion`), và
+ * `schemaVersion` là `MAX(updated_at)` của mọi mô hình còn sống. Nên truy vấn
+ * ĐẦU TIÊN sau mỗi lần sửa mô hình phải chờ biên dịch xong — và cái chờ đó đo
+ * được:
+ *
+ *     /load đầu tiên của một phiên bản mới, KHÔNG hâm:   4555 / 5193 / 10283ms
+ *     /load đầu tiên sau khi /meta đã hâm:                216 /  658 /   635ms
+ *
+ * Biên dịch không biến mất, nó chỉ đổi người trả: `regenerateTenant` chạy ngay
+ * sau một lần LƯU, còn cái giá cũ rơi vào lần MỞ BIỂU ĐỒ kế tiếp. Người vừa bấm
+ * Lưu đang chờ sẵn; người mở báo cáo thì không, và với khung nhiều ô thì cả
+ * khung xếp hàng sau đúng một lần biên dịch đó.
+ *
+ * Chi phí này KHÔNG tỉ lệ với schema, nên không gỡ được bằng cách chia nhỏ
+ * ngữ cảnh — đo trên chính máy này, mỗi phiên bản mới:
+ *
+ *     schema rỗng (0 cube)     36 – 244ms
+ *     1 file,  1 cube        2746 – 3016ms
+ *     3 file, 11 cube        3165 – 4515ms
+ *
+ * Cube đầu tiên tốn ~2,7 giây; cube thứ hai trở đi gần như miễn phí. Vì vậy thu
+ * hẹp `repositoryFactory` xuống một mô hình một ngữ cảnh KHÔNG cứu được gì — đó
+ * là giả thuyết đầu tiên và bảng số trên là thứ đã loại nó.
+ *
+ * ─── Hàm này NÉM, và đó là chủ ý ───────────────────────────────────────────
+ *
+ * Bản đầu tự nuốt mọi lỗi ngay tại đây. Nghe hợp lý — hâm nóng là tối ưu, hỏng
+ * thì chỉ chậm lại như cũ — và nó SAI vì một lý do đo được: chỗ gọi cũng phải
+ * nuốt lỗi (nó `void` một promise), nên thành HAI chỗ nuốt cho MỘT chính sách,
+ * và chỗ thứ hai không bài test nào bẻ được — đã thử bằng đột biến: gỡ `.catch`
+ * của nó đi thì cả ba bài vẫn xanh.
+ *
+ * Nên chính sách "cố hết sức, hỏng thì thôi" nằm ĐÚNG MỘT chỗ: `regenerateTenant`,
+ * nơi quyết định không chờ. Hàm này chỉ làm việc của nó và ném như mọi hàm khác.
+ */
+export async function hamNongNguCanh(context: CubeWarmContext): Promise<void> {
+  const token = jwt.sign(context, env.CUBEJS_API_SECRET, { expiresIn: TOKEN_TTL_SECONDS });
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 3000);
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   try {
-    const res = await fetch(`${env.CUBEJS_URL}/readyz`, { signal: controller.signal });
+    // `/meta` biên dịch schema rồi trả danh sách cube — nó làm đúng phần việc
+    // đắt mà không chạy một truy vấn nào xuống ClickHouse.
+    await fetch(`${env.CUBEJS_URL}/cubejs-api/v1/meta`, {
+      headers: { Authorization: token },
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Cube có TRẢ LỜI ĐƯỢC TRUY VẤN chưa — không phải "tiến trình Cube có sống".
+ *
+ * ═══ Vì sao KHÔNG hỏi `/readyz` nữa ════════════════════════════════════════
+ *
+ * Bản trước hỏi `/readyz`, và nó xanh sớm hơn sự thật rất nhiều. Đo ngày
+ * 24/11/2026, `docker restart bi-cube` rồi hỏi liên tục:
+ *
+ *     /readyz xanh         sau 36,0s     <- giao diện báo "đã sẵn sàng"
+ *     truy vấn 1    503    sau 30,8s
+ *     truy vấn 2    503    sau 32,4s
+ *     truy vấn 3    500    sau 23,5s
+ *     truy vấn 4    503    sau 40,5s
+ *     truy vấn 5    200    sau 12,5s     <- ~2 phút 7 giây SAU khi đèn xanh
+ *
+ * Tức là có một cửa sổ hơn hai phút mà hệ thống KHẲNG ĐỊNH Cube sẵn sàng trong
+ * khi mọi câu hỏi số liệu đều hỏng. Đó đúng là hai phút đầu của một buổi demo:
+ * mở máy, `npm run infra:up:bi`, thấy đèn xanh, hỏi câu đầu tiên, và hỏng.
+ *
+ * `/readyz` chỉ nói tiến trình đã nhận kết nối. Phần đắt là BIÊN DỊCH SCHEMA
+ * cho (tổ chức, `schemaVersion`), và chỉ có `/meta` bắt Cube làm đúng phần việc
+ * đó — xem bảng số ở `hamNongNguCanh`. Nên câu hỏi đúng là "/meta của tổ chức
+ * này có trả lời trong vài giây không", và nó cần một ngữ cảnh đã ký.
+ *
+ * ⚠️ Hạn chờ NGẮN (5 giây), không phải 30 giây như truy vấn thật, và lượt gọi
+ * bị cắt vẫn CÓ ÍCH: Cube không dừng biên dịch khi ta ngắt kết nối, nên mỗi
+ * lượt hỏi trạng thái lại hâm thêm. Giao diện hỏi lại vài lần là đèn xanh đúng
+ * lúc truy vấn thật sự chạy được, chứ không xanh trước hai phút.
+ */
+export async function pingCube(context: CubeWarmContext): Promise<boolean> {
+  const token = jwt.sign(context, env.CUBEJS_API_SECRET, { expiresIn: TOKEN_TTL_SECONDS });
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 5000);
+  try {
+    const res = await fetch(`${env.CUBEJS_URL}/cubejs-api/v1/meta`, {
+      headers: { Authorization: token },
+      signal: controller.signal,
+    });
     return res.ok;
   } catch {
     return false;
@@ -244,6 +378,26 @@ export async function pingCube(): Promise<boolean> {
  */
 function unavailable(cause: unknown): HttpError {
   console.error('[datamodel] không gọi được Cube.js:', cause);
+
+  /*
+   * QUÁ HẠN và KHÔNG NỐI ĐƯỢC là hai sự cố khác nhau, và gộp chúng vào một câu
+   * là đưa một lời khuyên SAI.
+   *
+   * Đo ngày 24/11/2026: Cube đang chạy, chỉ đang biên dịch schema, nên `fetch`
+   * bị `AbortSignal` cắt ở giây thứ 30 và người dùng nhận đúng câu "Hãy chạy
+   * npm run infra:up:bi rồi thử lại". Họ chạy lệnh đó, nó dựng lại hạ tầng, và
+   * đồng hồ biên dịch bắt đầu lại từ đầu — câu khuyên vừa vô ích vừa làm tình
+   * hình xấu hơn. Thứ cần nói ở đây chỉ là "chờ một chút rồi hỏi lại".
+   */
+  if (cause instanceof Error && cause.name === 'AbortError') {
+    return new HttpError(
+      503,
+      DATAMODEL_ERROR_CODES.CUBE_UNAVAILABLE,
+      'Tầng ngữ nghĩa (Cube.js) đang khởi động hoặc đang quá tải nên chưa trả kết quả ' +
+        'trong 30 giây. Chờ khoảng một phút rồi hỏi lại — những câu sau sẽ nhanh.',
+    );
+  }
+
   return new HttpError(
     503,
     DATAMODEL_ERROR_CODES.CUBE_UNAVAILABLE,

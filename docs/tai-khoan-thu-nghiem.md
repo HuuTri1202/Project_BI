@@ -10,7 +10,50 @@
 > Khi triển khai thật: đổi `Admin@12345` trong `backend/.env` trước khi chạy
 > `npm run db:seed` lần đầu, và xoá mọi tài khoản trong file này.
 
-Cập nhật lần cuối: 11/08/2026 — bổ sung phần **Không gian cá nhân**.
+Cập nhật lần cuối: 20/11/2026 — thêm mục **Trước khi demo** ngay dưới đây.
+
+---
+
+## ⚠️ Trước khi demo hoặc nộp: hai giá trị VẬN HÀNH phải đổi lại
+
+Cả hai đều là dữ liệu trong database dev, **không phải mã nguồn** — migration
+gieo đúng giá thật (299.000 ₫ / 899.000 ₫) và cố ý để trống số tài khoản. Nên
+sửa chúng ở console quản trị, không sửa trong code.
+
+| Chỗ | Đang là gì trên máy này | Sửa ở đâu |
+|---|---|---|
+| **Giá gói** | `pro` và `business` **cùng 200 ₫** — đặt để chuyển khoản thử SePay cho rẻ. Bảng giá hiện ra hai gói khác nhau cùng một giá. | `/admin` → **Gói dịch vụ** |
+| **Tài khoản nhận tiền** | Số tài khoản và tên **cá nhân thật** của chủ dự án, hiện nguyên văn trên trang thanh toán của mọi tổ chức. | `/admin` → **Phương thức thanh toán** |
+
+Kiểm nhanh trước khi mở màn hình cho người khác xem:
+
+```bash
+docker exec bi-mysql mysql -uroot -prootpassword bi_platform   -e "SELECT code, price_vnd FROM plans WHERE deleted_at IS NULL;"
+```
+
+---
+
+## ⚠️ Từ §1.10: tài khoản MỚI đăng ký phải xác minh email mới vào được
+
+Mọi tài khoản trong file này vẫn đăng nhập bình thường — migration 42 đánh dấu
+sẵn toàn bộ tài khoản đã tồn tại là đã xác minh.
+
+Nhưng **tài khoản bạn tự đăng ký từ bây giờ** thì không: `/login` trả 403
+`EmailNotVerified` cho tới khi email được xác minh. Trên máy dev không có SMTP,
+nên làm thế này:
+
+1. Đăng ký như thường.
+2. Xem **log của backend** — `services/mail/mailer.ts` in cả lá thư ra đó khi chưa
+   cấu hình SMTP.
+3. Copy liên kết dạng `http://localhost:5173/xac-minh-email?token=…` trong log,
+   dán vào trình duyệt.
+4. Quay lại `/login` và đăng nhập.
+
+Nếu lỡ mất lá thư: bấm **"Gửi lại thư xác minh"** ngay trong hộp lỗi ở trang đăng
+nhập, rồi xem log lần nữa.
+
+Tài khoản do Admin tạo qua **Quản lý tổ chức → Thành viên** thì *không* cần bước
+này — chúng được coi là đã xác minh vì Admin tự khai email (xem `createMember.ts`).
 
 ---
 
@@ -232,17 +275,13 @@ thử §5.9 cho đủ ba bậc thì đăng nhập bằng `hanh@saomai.vn`, vào 
 đổi vai trò của `nam@saomai.vn` thành **Người tạo báo cáo**, rồi đăng nhập lại
 bằng Nam.
 
-## Database test
+## Không còn database test
 
-Bộ test tích hợp chạy trên database **riêng** `bi_platform_test` và
-`TRUNCATE` sạch trước mỗi ca, nên `npm run test:integration` không bao giờ đụng
-tới các tài khoản ở trên. Database đó phải tồn tại và đã migrate:
+Bộ test tự động đã được gỡ khỏi mã nguồn ngày 20/11/2026, và hai database dành
+riêng cho nó (`bi_platform_test` ở MySQL, `bi_analytics_test` ở ClickHouse) đã
+được xoá. Mọi tài khoản ở trên nằm trong `bi_platform` — database dev thật.
 
-```bash
-docker exec bi-mysql mysql -uroot -prootpassword \
-  -e "CREATE DATABASE IF NOT EXISTS bi_platform_test
-      CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-      GRANT ALL PRIVILEGES ON bi_platform_test.* TO 'bi_user'@'%'; FLUSH PRIVILEGES;"
-
-MYSQL_DATABASE=bi_platform_test npm --workspace backend run migrate
-```
+Hệ quả cần biết: **không còn lớp nào tự động chạm vào các tài khoản này, và cũng
+không còn lớp nào tự dọn sau khi bạn thử.** Kiểm thử bây giờ là bấm tay theo
+[bộ test case](kiem-thu/bo-test-case.md), và phần `§15` của tài liệu đó nói cách
+dọn lại sân kiểm thử.

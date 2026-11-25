@@ -1,4 +1,5 @@
 import {
+  type NumberFormat,
   ADMIN_ERROR_CODES,
   allVisuals,
   MAX_FOLDERS,
@@ -27,10 +28,9 @@ import {
   type HomeDataDto,
   type PermissionMatrixDto,
   type ReportConfigDto,
-  type ReportCanvasDataDto,
   type ReportDataDto,
-  type ReportPageDto,
-  type ReportVisualDataDto,
+  type ReportShareCreatedDto,
+  type ReportShareDto,
   type TenantRole,
   type WorkspaceOptionDto,
 } from '@bi/shared';
@@ -56,6 +56,8 @@ import type { Db } from '../../repositories/db';
 import * as membershipsRepo from '../../repositories/memberships';
 import * as reportFoldersRepo from '../../repositories/reportFolders';
 import * as reportsRepo from '../../repositories/reports';
+import * as sharesRepo from '../../repositories/reportShares';
+import * as usersRepo from '../../repositories/users';
 import * as tenantsRepo from '../../repositories/tenants';
 import { createMember } from '../../services/admin/createMember';
 import { createWorkspace } from '../../services/admin/createWorkspace';
@@ -111,7 +113,8 @@ import {
   deleteMeasure,
 } from '../../services/datamodel/measures';
 import { aggregateFromModel } from '../../services/datamodel/modelReportData';
-import { loadModelContext } from '../../services/datamodel/explorer';
+import { soLieuTrangKhung } from '../../services/report/canvasData';
+import { taoLienKet } from '../../services/report/chiaSe';
 import { aggregateInWarehouse } from '../../services/dataset/aggregateWarehouse';
 import { analyzeDataset, clearAnalyzeCache } from '../../services/dataset/analyze';
 import { commitDatasets } from '../../services/dataset/commit';
@@ -132,6 +135,8 @@ import {
   hieuYBodySchema,
   addDatasetsBodySchema,
   commitDatasetsBodySchema,
+  createShareBodySchema,
+  shareIdParamSchema,
   createDatasetFolderBodySchema,
   moveDatasetBodySchema,
   moveDatasetsBodySchema,
@@ -373,10 +378,29 @@ v1Router.get(
       pageSize: 1,
     });
 
+    /*
+     * Hai con số cho lời hướng dẫn ba bước ở trang chủ — vá C1.
+     *
+     * Vẫn tuần tự, cùng lý do đã ghi ở trên. Hai câu `COUNT(*)` theo `tenant_id`
+     * trên bảng có chỉ mục, chỉ chạy ở lần mở trang.
+     */
+    // `sort`/`order` không ảnh hưởng `COUNT(*)` nhưng là trường bắt buộc của bộ
+    // lọc dùng chung với `list` — giữ một kiểu cho cả hai nơi thì không có đường
+    // nào để chúng lệch bộ lọc.
+    const demMotDong = { page: 1, pageSize: 1, order: 'desc' } as const;
+    const datasets = await datasetsRepo.count(mysqlPool, phamVi(req), {
+      ...demMotDong,
+      sort: 'name',
+    });
+    const datamodels = await datamodelsRepo.count(mysqlPool, phamVi(req), {
+      ...demMotDong,
+      sort: 'name',
+    });
+
     const body: HomeDataDto = {
       workspace,
       reports,
-      stats: { reports: reportTotal, members },
+      stats: { reports: reportTotal, members, datasets, datamodels },
     };
     res.json(body);
   }),
@@ -484,6 +508,77 @@ v1Router.post(
 );
 
 /**
+ * Xin chỗ tải lên một TỆP MỚI cho bộ dữ liệu ĐÃ CÓ — §B2.
+ *
+ * ═══ Vì sao không dùng lại `POST /datasets/uploads` ═══════════════════════
+ *
+ * Đường kia TẠO một bản ghi mới. Ở đây mục đích ngược lại: giữ nguyên `id` để
+ * mọi mô hình và báo cáo đang trỏ tới bộ này vẫn chạy, chỉ đổi tệp nguồn. Tháng
+ * sau có số mới thì người dùng cập nhật tại chỗ thay vì dựng lại cả chuỗi.
+ *
+ * Sau bước này, `/analyze` và `/commit` chạy y như lúc tạo — `commitDatasets`
+ * vốn đã dùng lại `input.datasetId` cho sheet đầu tiên, nên nó thay cột, thay
+ * dòng mẫu rồi xếp hàng nạp lại. Thứ duy nhất còn thiếu là chỗ này.
+ */
+v1Router.post(
+  '/datasets/:id/uploads',
+  authorize('dataset', 'modify'),
+  asyncHandler(async (req, res) => {
+    const auth = requireAuth(req);
+    const { id } = idParamSchema.parse(req.params);
+    const body = createUploadBodySchema.omit({ workspaceId: true, folderId: true }).parse(req.body);
+
+    const dataset = await datasetsRepo.findOne(mysqlPool, phamVi(req), id);
+    if (!dataset) throw notFound('Không tìm thấy bộ dữ liệu này.');
+    if (dataset.source !== 'file') {
+      throw badRequest(
+        'Bộ dữ liệu này đọc thẳng từ CSDL nguồn, không có tệp để thay. ' +
+          'Dùng nút "Nạp lại" ở tab Kho phân tích để đọc lại số mới nhất.',
+      );
+    }
+
+    const ext = extensionOf(body.filename);
+    if (ext === null) {
+      throw new HttpError(
+        400,
+        DATASET_ERROR_CODES.UNSUPPORTED_FORMAT,
+        'Chỉ nhận file .csv hoặc .xlsx.',
+      );
+    }
+    const s3Key = buildStorageKey(auth.tenantId, dataset.workspaceId, body.filename, ext);
+
+    await datasetsRepo.doiTepNguon(mysqlPool, auth.tenantId, id, {
+      s3Key,
+      originalFilename: body.filename,
+      fileExt: ext,
+    });
+
+    /*
+     * DỌN CACHE PHÂN TÍCH — và thiếu dòng này thì cả tính năng im lặng vô dụng.
+     *
+     * `analyzeDataset` nhớ kết quả theo `dataset:analyze:v2:<id>` trong 30 phút,
+     * một khoá KHÔNG mang theo tệp nào. Đúng ở đường tạo (một bản ghi `pending`
+     * chỉ có một tệp trong đời), sai hẳn từ lúc có đường này: bộ dữ liệu vừa trỏ
+     * sang tệp khác mà bước `/analyze` ngay sau đó vẫn đọc ra CỘT CỦA TỆP CŨ.
+     *
+     * ĐO ĐƯỢC ngày 20/11/2026: tải lên một tệp thiếu cột (bị chặn, đúng), rồi
+     * tải lên tệp đủ cột — vẫn nhận đúng câu "thiếu 5 cột" của lần trước, và nút
+     * Thay dữ liệu khoá cứng. Không có gì trên màn hình nói tại sao.
+     */
+    await clearAnalyzeCache(id);
+
+    const presigned = await storage.presignPut(s3Key, contentTypeOf(ext), env.UPLOAD_MAX_BYTES);
+
+    const result: CreateUploadResultDto = {
+      datasetId: id,
+      uploadUrl: presigned.url,
+      expiresAt: presigned.expiresAt,
+    };
+    res.status(201).json(result);
+  }),
+);
+
+/**
  * §7.5: đọc schema của file vừa tải lên. KHÔNG ghi gì.
  *
  * Là POST chứ không phải GET dù chỉ đọc: nó tải một file 50MB từ S3 và parse —
@@ -555,6 +650,12 @@ v1Router.post(
       createdBy: auth.userId,
       name: body.name,
       sheetNames: body.sheets,
+      gopHoaThuong: body.gopHoaThuong,
+      quyUocSo: body.quyUocSo,
+      // §B2 — cập nhật tại chỗ. Danh sách cột đang có đọc từ DATABASE chứ không
+      // nhận từ client: client không có gì mới để nói, và nhận lại là mở một
+      // đường để chốt an toàn bị tắt bằng một thân request.
+      ...(body.capNhat === true ? await luatCapNhat(id, body) : {}),
     });
 
     const details: DatasetDetailDto[] = [];
@@ -564,6 +665,58 @@ v1Router.post(
     res.json(details);
   }),
 );
+
+/**
+ * Hai thứ một lần CẬP NHẬT phải mang theo từ bộ dữ liệu cũ — §B2.
+ *
+ * ═══ Cột đang có: để CHẶN ════════════════════════════════════════════════
+ *
+ * Đọc từ DATABASE chứ không nhận từ client: client không có gì mới để nói ở
+ * bước này, và nhận lại là mở một đường để chốt an toàn bị tắt bằng một thân
+ * request.
+ *
+ * ═══ Quy ước đọc SỐ: để KHÔNG ĐỔI NGHĨA DỮ LIỆU ══════════════════════════
+ *
+ * ĐO ĐƯỢC ngày 20/11/2026, và nó im lặng hoàn toàn: bộ dữ liệu được chốt với
+ * "dấu chấm là phân cách nghìn" cho cột Thành tiền (người dùng tự tích ở bước
+ * 2, sau khi đọc cảnh báo). Cập nhật bằng tệp tháng sau thì `quyUocSo` rỗng,
+ * `doanQuyUocSo` đoán lại từ đầu, và `29.000` vào kho thành `29`. Cùng một cột,
+ * cùng một người, hai cách đọc khác nhau — và không có gì trên màn hình nói ra.
+ *
+ * Quy ước là một quyết định của NGƯỜI DÙNG đã được lưu (`dataset_columns.
+ * number_format`, migration 44). Một lần cập nhật dữ liệu không phải lúc hỏi
+ * lại nó, cũng không phải lúc đoán lại. Khớp theo TÊN cột vì đó cũng là thứ
+ * `capNhat` dùng để kiểm thiếu/thừa.
+ *
+ * Client vẫn gửi `quyUocSo` được và nó THẮNG: đó là đường cho một màn hình sau
+ * này muốn hỏi lại, và nó không thể lỡ tay xoá quy ước cũ — chỗ này chỉ điền
+ * vào những cột client không nhắc tới.
+ */
+async function luatCapNhat(
+  id: number,
+  body: { sheets: string[]; quyUocSo?: { sheet: string; ordinal: number; format: NumberFormat }[] },
+): Promise<{
+  capNhat: true;
+  cotDangCo: string[];
+  quyUocSo: { sheet: string; ordinal: number; format: NumberFormat }[];
+}> {
+  const cot = await datasetsRepo.listColumns(mysqlPool, id);
+  const sheet = body.sheets[0] ?? '';
+  const daGui = new Set((body.quyUocSo ?? []).map((q) => q.ordinal));
+
+  return {
+    capNhat: true,
+    cotDangCo: cot.map((c) => c.name),
+    quyUocSo: [
+      ...(body.quyUocSo ?? []),
+      ...cot.flatMap((c) =>
+        c.numberFormat === null || daGui.has(c.ordinal)
+          ? []
+          : [{ sheet, ordinal: c.ordinal, format: c.numberFormat }],
+      ),
+    ],
+  };
+}
 
 /**
  * Bộ dữ liệu kèm cột.
@@ -894,6 +1047,20 @@ function assertChartConfigAgainst(
       `${CHART_TYPE_LABELS[chartType]} cần hai chiều: một cho trục và một cho nhóm màu.`,
     );
   }
+
+  /*
+   * Chiều của mỗi ĐIỀU KIỆN LỌC cũng phải còn trong mô hình — §B1.
+   *
+   * Cùng lý do với hai chiều ở trên: xoá một cột khỏi mô hình rồi mở báo cáo
+   * cũ ra thì `buildQuery` ném `FIELD_UNKNOWN`, một câu nói về `dimensionId`
+   * chứ không nói về cái ô người dùng đang nhìn. Bắt ở đây để câu lỗi gọi tên
+   * đúng thứ đã mất.
+   */
+  for (const f of config.filters ?? []) {
+    if (!fields.dimensions.some((d) => d.id === f.dimensionId)) {
+      throw fieldGone('Chiều trong một điều kiện lọc');
+    }
+  }
 }
 
 v1Router.post(
@@ -1143,58 +1310,17 @@ v1Router.get(
     const report = await reportsRepo.findById(mysqlPool, phamVi(req), id);
     if (!report) throw notFound('Không tìm thấy báo cáo này.');
 
-    if (report.canvas === null || report.datamodelId === null) {
-      throw new HttpError(
-        409,
-        REPORT_ERROR_CODES.REPORT_NOT_CONFIGURED,
-        'Báo cáo này không phải khung nhiều biểu đồ.',
-      );
-    }
-
-    const datamodelId = report.datamodelId;
-    const page: ReportPageDto | undefined =
-      report.canvas.pages.find((p) => p.id === query.pageId) ?? report.canvas.pages[0];
-    const cells = page?.visuals ?? [];
-
-    /*
-     * Chỉ mục mô hình nạp MỘT lần cho cả trang — §10.14.
-     *
-     * Trước bản này mỗi ô tự nạp: `findOne` + ba truy vấn danh sách + một truy
-     * vấn `schemaVersion`. Mười hai ô là 60 vòng MySQL cho một thứ không đổi
-     * giữa chúng, và pool 10 kết nối biến chúng thành một hàng đợi.
-     *
-     * Nạp TRƯỚC `Promise.allSettled` chứ không để ô đầu tiên nạp hộ: các ô chạy
-     * song song, nên cả mười hai đều xuất phát trước khi ô nào kịp nạp xong.
-     */
-    const ctx = await loadModelContext(auth.tenantId, datamodelId);
-
-    const settled = await Promise.allSettled(
-      cells.map((visual) =>
-        aggregateFromModel(auth.tenantId, auth.userId, datamodelId, visual.config, 0, ctx),
-      ),
+    // Phép tính nằm ở `services/report/canvasData.ts`: đường công khai của mong
+    // muốn D5 gọi ĐÚNG hàm này, và hai bản cài đặt sẽ cho hai con số khác nhau
+    // trên cùng một báo cáo mà không có lỗi nào báo.
+    res.json(
+      await soLieuTrangKhung({
+        tenantId: auth.tenantId,
+        userId: auth.userId,
+        report,
+        pageId: query.pageId,
+      }),
     );
-
-    const visuals: ReportVisualDataDto[] = cells.map((visual, index) => {
-      const outcome = settled[index];
-      if (outcome !== undefined && outcome.status === 'fulfilled') {
-        return { visualId: visual.id, data: outcome.value };
-      }
-      const reason = outcome?.status === 'rejected' ? outcome.reason : undefined;
-      return {
-        visualId: visual.id,
-        data: null,
-        // Câu chữ của lỗi nghiệp vụ (`HttpError` mang câu tiếng Việt) đi thẳng
-        // ra. Lỗi không lường trước thì KHÔNG: thông điệp của nó là chi tiết nội
-        // bộ, và một ô biểu đồ không phải chỗ để rò rỉ chúng.
-        error:
-          reason instanceof HttpError
-            ? reason.message
-            : 'Không đọc được số liệu cho ô này. Thử mở lại báo cáo.',
-      };
-    });
-
-    const body: ReportCanvasDataDto = { visuals };
-    res.json(body);
   }),
 );
 
@@ -1246,6 +1372,110 @@ v1Router.get(
       page ?? 0,
     );
     res.json(body);
+  }),
+);
+
+/* ─── Chia sẻ báo cáo bằng liên kết — mong muốn D5 ─────────────────────── */
+
+/**
+ * Ba route dưới đây gác `report:modify`, KHÔNG phải `report:read`.
+ *
+ * Mở một báo cáo ra cho người ngoài tổ chức xem là một quyết định về báo cáo
+ * đó, không phải một cách xem nó. Một `viewer` đọc được báo cáo (đó là việc của
+ * họ) nhưng không được quyết định ai khác trên internet cũng đọc được.
+ *
+ * Phần CƯỠNG CHẾ thật của luật đó nằm ở đây, không ở giao diện: nút Chia sẻ có
+ * ẩn hay không chỉ là chuyện thẩm mỹ.
+ */
+async function baoCaoCuaToi(req: Request, id: number): Promise<void> {
+  // Tra qua phạm vi của người gọi: id của tổ chức khác (hoặc của workspace họ
+  // không được vào) cho ra 404, không phải 403 — 403 là một lời xác nhận rằng
+  // id đó có tồn tại.
+  const report = await reportsRepo.findById(mysqlPool, phamVi(req), id);
+  if (!report) throw notFound('Không tìm thấy báo cáo này.');
+}
+
+v1Router.get(
+  '/reports/:id/shares',
+  authorize('report', 'modify'),
+  asyncHandler(async (req, res) => {
+    const auth = requireAuth(req);
+    const { id } = idParamSchema.parse(req.params);
+    await baoCaoCuaToi(req, id);
+
+    const rows: sharesRepo.ShareRow[] = await sharesRepo.theoBaoCao(mysqlPool, auth.tenantId, id);
+    const nguoiTao = new Map<number, string>();
+    for (const r of rows) {
+      if (!nguoiTao.has(r.createdBy)) {
+        const u = await usersRepo.findById(r.createdBy);
+        nguoiTao.set(r.createdBy, u?.fullName ?? '');
+      }
+    }
+
+    const items: ReportShareDto[] = rows.map((r) => ({
+      id: r.id,
+      createdAt: r.createdAt.toISOString(),
+      createdByName: nguoiTao.get(r.createdBy) ?? null,
+      expiresAt: r.expiresAt === null ? null : r.expiresAt.toISOString(),
+      revokedAt: r.revokedAt === null ? null : r.revokedAt.toISOString(),
+      viewCount: r.viewCount,
+      lastViewedAt: r.lastViewedAt === null ? null : r.lastViewedAt.toISOString(),
+    }));
+    res.json({ items });
+  }),
+);
+
+v1Router.post(
+  '/reports/:id/shares',
+  authorize('report', 'modify'),
+  // Mỗi liên kết là một đường vào vĩnh viễn tới số liệu của tổ chức, nên tạo
+  // hàng loạt không phải một thao tác người dùng thật làm.
+  rateLimit({ bucket: 'report-share', max: 20, windowSeconds: 600 }),
+  asyncHandler(async (req, res) => {
+    const auth = requireAuth(req);
+    const { id } = idParamSchema.parse(req.params);
+    const body = createShareBodySchema.parse(req.body);
+    await baoCaoCuaToi(req, id);
+
+    const moi = await taoLienKet({
+      tenantId: auth.tenantId,
+      reportId: id,
+      createdBy: auth.userId,
+      soNgay: body.soNgay,
+    });
+
+    const u = await usersRepo.findById(auth.userId);
+    const share: ReportShareDto = {
+      id: moi.id,
+      createdAt: new Date().toISOString(),
+      createdByName: u?.fullName ?? null,
+      expiresAt:
+        body.soNgay === null
+          ? null
+          : new Date(Date.now() + body.soNgay * 24 * 60 * 60 * 1000).toISOString(),
+      revokedAt: null,
+      viewCount: 0,
+      lastViewedAt: null,
+    };
+    // `url` CHỈ có ở đây: database giữ băm, nên không đường nào đọc lại chuỗi.
+    const out: ReportShareCreatedDto = { share, url: moi.url };
+    res.status(201).json(out);
+  }),
+);
+
+v1Router.delete(
+  '/reports/:id/shares/:shareId',
+  authorize('report', 'modify'),
+  asyncHandler(async (req, res) => {
+    const auth = requireAuth(req);
+    const { id, shareId } = shareIdParamSchema.parse(req.params);
+    await baoCaoCuaToi(req, id);
+
+    const doi = await sharesRepo.thuHoi(mysqlPool, auth.tenantId, id, shareId);
+    // 404 khi không có dòng nào đổi: id của tổ chức khác, hoặc liên kết đã thu
+    // hồi rồi. Cả hai đều không phải chuyện người dùng cần phân biệt.
+    if (doi === 0) throw notFound('Không tìm thấy liên kết này.');
+    res.status(204).end();
   }),
 );
 
@@ -1769,10 +1999,10 @@ v1Router.post(
   authorize('member', 'invite'),
   rateLimit({ bucket: 'tenant-invite', max: 20, windowSeconds: 600 }),
   asyncHandler(async (req, res) => {
-    const { tenantId } = requireAuth(req);
+    const { tenantId, userId } = requireAuth(req);
     const body = createMemberBodySchema.parse(req.body);
 
-    const result = await createMember({ tenantId, ...body });
+    const result = await createMember({ tenantId, actorId: userId, ...body });
     res.status(201).json(result);
   }),
 );
@@ -2823,6 +3053,28 @@ v1Router.delete(
     const { tenantId } = requireAuth(req);
     const { id } = idParamSchema.parse(req.params);
 
+    /*
+     * Chặn khi còn báo cáo dựng trên mô hình này — CÙNG luật với
+     * `DELETE /datasets/:id` ngay dưới, và vì cùng một lý do.
+     *
+     * Không có chốt này thì xoá mô hình để lại báo cáo SỐNG mà không mở nổi:
+     * danh sách vẫn hiện nó, mở ra thì "Không tìm thấy mô hình dữ liệu này",
+     * còn trình sửa bắn bốn request 404. Đo ngày 25/11/2026 trên database dev:
+     * 14 báo cáo đang ở đúng tình trạng đó.
+     *
+     * Chặn chứ KHÔNG xoá lan sang báo cáo: xoá mềm dây chuyền không có nút hoàn
+     * tác là cách nhanh nhất làm mất báo cáo của người khác. Người xoá mô hình
+     * thường không phải người dựng báo cáo trên nó.
+     */
+    const conBaoCao = await datamodelsRepo.countLiveReports(mysqlPool, tenantId, id);
+    if (conBaoCao > 0) {
+      throw new HttpError(
+        409,
+        ADMIN_ERROR_CODES.WORKSPACE_NOT_EMPTY,
+        `Còn ${conBaoCao} báo cáo đang dùng mô hình dữ liệu này. Hãy xoá chúng trước.`,
+      );
+    }
+
     const affected = await datamodelsRepo.softDelete(mysqlPool, tenantId, id);
     if (affected === 0) throw notFound('Không tìm thấy mô hình dữ liệu này.');
 
@@ -3399,10 +3651,18 @@ v1Router.get(
   authorize('datamodel', 'read'),
   asyncHandler(async (req, res) => {
     const { id } = idParamSchema.parse(req.params);
-    await requireDataModel(phamVi(req), id);
+    const scope = phamVi(req);
+    await requireDataModel(scope, id);
+
+    /*
+     * `pingCube` cần NGỮ CẢNH vì nó hỏi `/meta` — xem khối chú thích ở đó cho
+     * bảng số giải thích vì sao `/readyz` không còn được dùng. `schemaVersion`
+     * là một truy vấn MySQL duy nhất, cùng cách `hamNongSauKhiGhi` lấy nó.
+     */
+    const schemaVersion = await datamodelsRepo.schemaVersion(mysqlPool, scope.tenantId);
 
     res.json({
-      cubeReady: await pingCube(),
+      cubeReady: await pingCube({ tenantId: scope.tenantId, schemaVersion }),
       command: 'npm run infra:up:bi',
     });
   }),
@@ -3811,10 +4071,20 @@ function asDuplicateName(err: unknown): unknown {
 // ngoài không tiêu lượt gọi của hệ thống.
 v1Router.post(
   '/chat/dien-dat',
-  rateLimit({ bucket: 'chat-dien-dat', max: 60, windowSeconds: 600 }),
+  rateLimit({
+    bucket: 'chat-dien-dat',
+    max: 60,
+    windowSeconds: 600,
+    // Theo người dùng, không theo IP — xem `chat-cau-hoi` ở dưới.
+    theoNguoiDung: true,
+    thongBao: (cho) => `Tôi đã dùng hết lượt viết lại câu trả lời cho mượt. Thử lại sau ${cho}.`,
+  }),
   asyncHandler(async (req, res) => {
     const body = dienDatBodySchema.parse(req.body);
-    res.json({ cau: await dienDat(body) });
+    // `pham` chỉ cần tổ chức: phần biến thiên của khoá là chính câu gốc. Xem
+    // `services/chat/dem.ts`.
+    const { tenantId } = requireAuth(req);
+    res.json({ cau: await dienDat({ ...body, pham: String(tenantId) }) });
   }),
 );
 
@@ -3831,10 +4101,18 @@ v1Router.post(
  */
 v1Router.post(
   '/chat/hieu-y',
-  rateLimit({ bucket: 'chat-hieu-y', max: 40, windowSeconds: 600 }),
+  rateLimit({
+    bucket: 'chat-hieu-y',
+    max: 40,
+    windowSeconds: 600,
+    // Theo người dùng, không theo IP — xem `chat-cau-hoi` ở dưới.
+    theoNguoiDung: true,
+    thongBao: (cho) => `Tôi đã dùng hết lượt nhờ mô hình đọc câu hỏi. Thử lại sau ${cho}.`,
+  }),
   asyncHandler(async (req, res) => {
     const body = hieuYBodySchema.parse(req.body);
-    const kq = await hieuY(body);
+    const { tenantId } = requireAuth(req);
+    const kq = await hieuY({ ...body, pham: String(tenantId) });
     /*
      * Sổ câu người THẬT hỏi mà lớp ngoại tuyến bó tay — xem `ghiTruot`.
      *
@@ -3870,7 +4148,14 @@ v1Router.post(
  */
 v1Router.post(
   '/chat/chon-cot',
-  rateLimit({ bucket: 'chat-chon-cot', max: 40, windowSeconds: 600 }),
+  rateLimit({
+    bucket: 'chat-chon-cot',
+    max: 40,
+    windowSeconds: 600,
+    // Theo người dùng, không theo IP — xem `chat-cau-hoi` ở dưới.
+    theoNguoiDung: true,
+    thongBao: (cho) => `Tôi đã dùng hết lượt nhờ mô hình chọn cột. Thử lại sau ${cho}.`,
+  }),
   asyncHandler(async (req, res) => {
     const body = chonCotBodySchema.parse(req.body);
     const { truyVan, daHoi } = await datCauHoi({ cauHoi: body.cauHoi, truong: body.cot });
@@ -3936,7 +4221,26 @@ v1Router.get(
 v1Router.post(
   '/datamodels/:id/chat/cau-hoi',
   authorize('datamodel', 'read'),
-  rateLimit({ bucket: 'chat-cau-hoi', max: 20, windowSeconds: 600 }),
+  rateLimit({
+    bucket: 'chat-cau-hoi',
+    /*
+     * 20 -> 60, và đếm theo NGƯỜI thay vì theo IP.
+     *
+     * Con số 20 đặt ra khi mỗi lượt là một lần gọi mô hình thật. Giờ `datCauHoi`
+     * đệm form một tiếng, nên hỏi lại một câu đã hỏi không tốn lượt gọi nào —
+     * chỉ còn một truy vấn ClickHouse. Cái cần chặn vẫn là khối lượng, nhưng
+     * trần cũ chặn cả người dùng thật: đo ngày 24/11/2026, hai mươi câu trong
+     * mười phút là mức một người hỏi bình thường trong một buổi demo, và họ bị
+     * khoá đúng lúc đang trình bày. 60 lượt là một câu mỗi mười giây, liên tục
+     * suốt mười phút — quá mức của người gõ tay, vẫn chặn được vòng lặp tự động.
+     */
+    max: 60,
+    windowSeconds: 600,
+    theoNguoiDung: true,
+    thongBao: (cho) =>
+      `Tôi đã dùng hết lượt đặt câu hỏi mới trên kho dữ liệu (60 câu mỗi 10 phút). ` +
+      `Thử lại sau ${cho}. Trong lúc đó tôi vẫn trả lời được mọi câu về số liệu đang hiện trên màn hình.`,
+  }),
   asyncHandler(async (req, res) => {
     const auth = requireAuth(req);
     const { id } = idParamSchema.parse(req.params);

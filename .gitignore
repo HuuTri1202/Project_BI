@@ -41,13 +41,6 @@ out/
 *.tsbuildinfo
 .vite/
 
-# --- Test / coverage ---
-coverage/
-.nyc_output/
-*.lcov
-test-results/
-playwright-report/
-
 # --- Cache ---
 .cache/
 .parcel-cache/
@@ -80,6 +73,12 @@ infrastructure/cube/model/views/
 # Chúng mang dữ liệu thật của khách hàng (tên bảng, tên cột) và được dựng lại từ
 # database mỗi lần backend khởi động, nên không có lý do gì để nằm trong Git.
 infrastructure/cube/model/tenants/
+
+# `foundryctl` SINH RA compose của SigNoz vào đây, và tài liệu SigNoz dặn thẳng
+# là đừng sửa tay vì lần `forge`/`cast` sau sẽ ghi đè. File duy nhất cần giữ
+# trong Git là `infrastructure/signoz/casting.yaml` — nguồn sinh ra cả thư mục
+# này. Xem `docs/quan-trac.md`.
+infrastructure/signoz/pours/
 
 
 # Dump database

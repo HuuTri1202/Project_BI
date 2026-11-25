@@ -1,5 +1,6 @@
-import type { SemanticType } from '@bi/shared';
+import type { NumberFormat, SemanticType } from '@bi/shared';
 
+import { khoaNhom } from './chatLuong';
 import { parseNumber } from './inferType';
 
 /**
@@ -20,7 +21,26 @@ import { parseNumber } from './inferType';
  * kiểu Việt Nam sẽ thành `NULL` kèm một dòng "Không đọc được thành số" — hồi quy
  * im lặng đúng ở dữ liệu của người dùng Việt.
  */
-export function normalizeCell(raw: string, semanticType: SemanticType): unknown {
+
+/**
+ * Quy ước của CỘT, do §7 suy ra lúc chốt sheet và LƯU lại trên `dataset_columns`.
+ *
+ * Gom thành một object chứ không thêm tham số vị trí thứ tư: hai trường này đều
+ * nullable, và `normalizeCell(x, 'text', null, map)` thì không ai đọc ra được
+ * `null` kia là gì.
+ */
+export interface QuyUocCot {
+  /** `null` = không đủ bằng chứng, và khi đó mỗi ô đọc đúng như luật cũ. */
+  numberFormat?: NumberFormat | null | undefined;
+  /** `null` = không gộp cách viết nào. Xem `chatLuong.banDoGop`. */
+  valueMap?: Record<string, string> | null | undefined;
+}
+
+export function normalizeCell(
+  raw: string,
+  semanticType: SemanticType,
+  quyUoc: QuyUocCot = {},
+): unknown {
   const trimmed = raw.trim();
   // Ô trống lưu thành `null` chứ không phải chuỗi rỗng: `null` phân biệt được với
   // "giá trị là chuỗi rỗng", và cả `aggregate` lẫn ClickHouse đều bỏ qua nó đúng
@@ -29,11 +49,28 @@ export function normalizeCell(raw: string, semanticType: SemanticType): unknown 
 
   switch (semanticType) {
     case 'number':
-      return parseNumber(trimmed);
+      return parseNumber(trimmed, quyUoc.numberFormat ?? null);
     case 'boolean':
       return ['true', 'yes', 'có', 'x'].includes(trimmed.toLowerCase());
     case 'date':
-    case 'text':
       return trimmed;
+    case 'text':
+      return gopCachViet(trimmed, quyUoc.valueMap ?? null);
   }
+}
+
+/**
+ * Đưa một ô chữ về cách viết ĐẠI DIỆN của nhóm nó thuộc về — vá A2.
+ *
+ * Ô không nằm trong nhóm nào thì giữ nguyên TỪNG KÝ TỰ, kể cả khoảng trắng kép:
+ * bản đồ chỉ nói về những nhóm đã thật sự có hai cách viết trong tệp, và sửa
+ * những ô khác là biến đổi dữ liệu mà người dùng không hề đồng ý.
+ *
+ * ⚠️ Khoá tra là `khoaNhom(ô)`, không phải chính ô đó. Nhờ vậy một cách viết
+ * KHÔNG có trong mẫu 200 dòng (`MIỀN NAM` xuất hiện lần đầu ở dòng 5.000) vẫn
+ * gộp đúng, miễn là nhóm của nó đã được thấy.
+ */
+function gopCachViet(trimmed: string, map: Record<string, string> | null): string {
+  if (map === null) return trimmed;
+  return map[khoaNhom(trimmed)] ?? trimmed;
 }

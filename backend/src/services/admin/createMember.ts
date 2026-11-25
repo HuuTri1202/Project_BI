@@ -9,11 +9,12 @@ import { mysqlPool } from '../../config/mysql';
 import { withTransaction } from '../../db/tx';
 import * as adminMembersRepo from '../../repositories/adminMembers';
 import * as membershipsRepo from '../../repositories/memberships';
+import * as workspaceMembersRepo from '../../repositories/workspaceMembers';
 import * as usersRepo from '../../repositories/users';
 import { HttpError } from '../../utils/httpError';
 import { generateTempPassword, hashPassword } from '../auth/password';
 import { kiemHanMuc } from '../billing/limits';
-import { provisionTenant } from '../tenant/provisionTenant';
+import { personalTenantName, provisionTenant } from '../tenant/provisionTenant';
 
 export interface CreateMemberInput {
   tenantId: number;
@@ -21,6 +22,14 @@ export interface CreateMemberInput {
   fullName: string;
   role: TenantRole;
   jobTitle?: JobTitle | undefined;
+  /**
+   * Ai đang tạo — ghi vào `workspace_members.created_by` (§B5).
+   *
+   * `null` khi không biết: cột đó `ON DELETE SET NULL`, tức dòng phân quyền
+   * sống lâu hơn người đã gán nó, nên "không biết ai gán" là một trạng thái
+   * bảng này vốn đã chịu được.
+   */
+  actorId?: number | null | undefined;
 }
 
 /**
@@ -28,11 +37,16 @@ export interface CreateMemberInput {
  *
  * ─── Vì sao "mời" lại là "tạo tài khoản + mật khẩu tạm" ──────────────────────
  *
- * Hệ thống chưa có kênh gửi mail nào. Lời mời qua link thì cần bảng token, cần
- * trang nhận lời mời, và vẫn phải nhờ Admin tự chuyển link đi. Cách này dùng
- * đúng những thứ đã có sẵn trong schema: `must_change_password` và trang đổi mật
- * khẩu bắt buộc. Admin đọc mật khẩu tạm cho người kia qua Zalo/Teams, người kia
- * đăng nhập và bị buộc đổi ngay.
+ * Khi viết hàm này, hệ thống chưa có kênh gửi mail nào, nên lời mời qua link
+ * đồng nghĩa với dựng cả một hạ tầng mới. Cách này dùng đúng những thứ đã có sẵn
+ * trong schema: `must_change_password` và trang đổi mật khẩu bắt buộc. Admin đọc
+ * mật khẩu tạm cho người kia qua Zalo/Teams, người kia đăng nhập và bị buộc đổi.
+ *
+ * ⚠️ LÝ LẼ TRÊN ĐÃ CŨ. `services/mail/mailer.ts` có từ lúc làm quên-mật-khẩu, và
+ * migration 42 đã để lại sẵn khuôn bảng vé dùng-một-lần. Nghĩa là mời-bằng-liên-kết
+ * giờ chỉ còn thiếu một trang đặt mật khẩu lần đầu, và nó là cách đúng: Admin sẽ
+ * không còn biết mật khẩu của ai, và chính lá thư mời trở thành bằng chứng sở hữu
+ * hộp thư (xem `emailVerified` ở dưới).
  *
  * ─── Hai luồng, và vì sao email đã tồn tại thì GẮN chứ không báo lỗi ─────────
  *
@@ -97,6 +111,8 @@ export async function createMember(input: CreateMemberInput): Promise<CreateAdmi
       await conn.query('SELECT id FROM tenants WHERE id = ? FOR UPDATE', [input.tenantId]);
       await kiemHanMuc(conn, input.tenantId, 'members', new Date());
       await membershipsRepo.upsert(conn, input.tenantId, existing.user.id, input.role);
+      // §B5 — thấy được workspace nào. Xem `ganWorkspaceMacDinh`.
+      await ganWorkspaceMacDinh(conn, input.tenantId, existing.user.id, input.actorId ?? null);
     });
 
     const attached = await adminMembersRepo.findMember(mysqlPool, input.tenantId, existing.user.id);
@@ -137,6 +153,29 @@ export async function createMember(input: CreateMemberInput): Promise<CreateAdmi
       // Điểm mấu chốt của cả luồng này: Admin biết mật khẩu tạm, nên nó phải
       // chết ngay sau lần đăng nhập đầu tiên.
       mustChangePassword: true,
+      /*
+       * ─── Vì sao tài khoản do Admin tạo được coi là ĐÃ xác minh (§1.10) ─────
+       *
+       * Vì không có đường nào khác mà vẫn giữ được luồng này. `/login` chặn tài
+       * khoản chưa xác minh; để `null` ở đây thì người vừa được mời không đăng
+       * nhập được bằng mật khẩu tạm, và cả chức năng "Admin thêm thành viên"
+       * ngừng hoạt động.
+       *
+       * Cái ta dựa vào là: Admin tự gõ email ấy vào và chịu trách nhiệm về nó.
+       * Yếu hơn một lá thư xác minh, nhưng không phải không có gì — và muốn tới
+       * được đây đã phải là admin của một tổ chức thật, tức đã qua một lần đăng
+       * ký có xác minh.
+       *
+       * ⚠️ RỦI RO CÒN LẠI: một admin xấu bụng squat được email của người khác
+       * trong phạm vi tổ chức của mình. Cách sửa thật là MỜI BẰNG LIÊN KẾT thay
+       * cho mật khẩu tạm — lúc đó chính lá thư mời là bằng chứng sở hữu hộp thư,
+       * và `email_verified_at` ghi khi người ta bấm vào nó. Hạ tầng đã có đủ
+       * (`guiMail` + khuôn vé của migration 42); việc còn lại là trang đặt mật
+       * khẩu lần đầu.
+       *
+       * ponytail: tin Admin thay cho thư mời; nâng lên khi làm mời-bằng-liên-kết.
+       */
+      emailVerified: true,
     });
 
     // ⚠️ THỨ TỰ HAI CÂU `upsert` DƯỚI ĐÂY LÀ CÓ NGHĨA, đừng hoán đổi.
@@ -147,6 +186,13 @@ export async function createMember(input: CreateMemberInput): Promise<CreateAdmi
     // nơi họ được mời tới. Đảo lại thì họ mở ra một không gian cá nhân trống
     // rỗng và tưởng mình bị mời nhầm.
     await membershipsRepo.upsert(conn, input.tenantId, id, input.role);
+
+    /*
+     * Thấy được workspace nào — §B5. Ngay sau `upsert` membership và trong cùng
+     * transaction: hai dòng cùng trả lời một câu hỏi ("người này vào được đâu"),
+     * nên chúng phải cùng sống hoặc cùng chết.
+     */
+    await ganWorkspaceMacDinh(conn, input.tenantId, id, input.actorId ?? null);
 
     // ─── Không gian riêng, ngang hàng với người tự đăng ký ────────────────────
     //
@@ -186,15 +232,39 @@ export async function createMember(input: CreateMemberInput): Promise<CreateAdmi
 }
 
 /**
- * Tên tổ chức cá nhân, suy từ họ tên.
+ * Workspace mặc định của người vừa được thêm — §B5.
  *
- * Không hỏi Admin đặt tên: đây là không gian của NGƯỜI KIA, để người mời đặt tên
- * hộ là sai chủ thể. Cũng không lấy trơn họ tên làm tên tổ chức — trong console
- * hệ thống, một dòng tên "Trần Thị Thu" nằm giữa các công ty thật trông như dữ
- * liệu lỗi. Tiền tố "Không gian của" nói rõ nó là loại gì ngay ở chỗ đọc.
+ * ═══ Chỉ gán khi tổ chức có ĐÚNG MỘT workspace ════════════════════════════
+ *
+ * Hai hành vi sai nằm hai bên, và luật này đi giữa.
+ *
+ * Bên trái là hành vi CŨ: không gán gì cả. Người được mời đăng nhập vào và
+ * thấy "Chưa có workspace — hãy nhờ quản trị viên thêm bạn vào một workspace",
+ * kèm `409` ở trang chủ; còn Admin thì không được nhắc gì lúc tạo vì hộp thoại
+ * không có ô workspace nào. Đo được ngày 20/11/2026 trên một tổ chức chỉ có
+ * MỘT workspace — tức là trên mọi tổ chức gói Miễn phí. Một tài khoản vừa tạo
+ * ra đã là ngõ cụt cho cả hai phía.
+ *
+ * Bên phải là "gán hết": nó xoá sạch lý do `workspace_members` ra đời
+ * (migration 40) — thêm một nhân viên nhân sự thì họ thấy luôn dữ liệu của
+ * Sale, của Kế toán, của Ban giám đốc.
+ *
+ * Luật ở giữa: chỉ gán khi KHÔNG CÓ GÌ ĐỂ CHỌN. Một workspace thì "chọn
+ * workspace nào" không phải một câu hỏi, và bắt Admin trả lời nó là bắt họ làm
+ * một thao tác chỉ có một đáp án. Từ hai workspace trở lên thì đó là một quyết
+ * định thật về phạm vi dữ liệu, và hệ thống không đoán hộ — hộp thoại tạo nói
+ * thẳng điều đó.
  */
-function personalTenantName(fullName: string): string {
-  return `Không gian của ${fullName}`;
+async function ganWorkspaceMacDinh(
+  conn: Parameters<typeof membershipsRepo.upsert>[0],
+  tenantId: number,
+  userId: number,
+  actorId: number | null,
+): Promise<void> {
+  const ws = await workspaceMembersRepo.liveWorkspaceIds(conn, tenantId);
+  const duyNhat = ws.length === 1 ? ws[0] : undefined;
+  if (duyNhat === undefined) return;
+  await workspaceMembersRepo.grant(conn, tenantId, duyNhat, userId, actorId);
 }
 
 function isDuplicateEntry(err: unknown, indexName: string): boolean {

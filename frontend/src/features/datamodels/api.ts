@@ -73,7 +73,7 @@ export async function fetchDataModel(id: number): Promise<DataModelDetailDto> {
  * Cấu trúc ĐỌC LẠI từ ClickHouse — §10.3.
  *
  * Khác `fetchDataModel` ở chỗ nó hỏi kho, nên nó phát hiện được cột đã đổi kiểu
- * sau một lần nạp lại. Đắt hơn, nên chỉ tab Schemas gọi.
+ * sau một lần nạp lại. Đắt hơn, nên chỉ tab Cấu trúc gọi.
  */
 export async function fetchModelSchema(id: number): Promise<DataModelDetailDto> {
   const { data } = await apiClient.get<DataModelDetailDto>(`/v1/datamodels/${id}/schema`);

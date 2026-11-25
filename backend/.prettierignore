@@ -2,3 +2,8 @@ node_modules/
 dist/
 coverage/
 package-lock.json
+
+# Cube schema do lane test sinh ra (xem CUBE_SCHEMA_DIR trong vitest.config.ts).
+# Mã của máy, không phải mã của ta — và 411 cảnh báo từ đây sẽ chôn vùi
+# những cảnh báo thật.
+tmp/

@@ -205,6 +205,13 @@ export type SemanticType = (typeof SEMANTIC_TYPES)[number];
 export const FIELD_ROLES = ['dimension', 'measure'] as const;
 export type FieldRole = (typeof FIELD_ROLES)[number];
 
+/**
+ * Dấu phân cách của một cột số: `vn` là `1.234.567,89`, `en` là `1,234,567.89`.
+ *
+ * Suy từ cả cột chứ không từ một ô — xem `inferType.doanQuyUocSo`.
+ */
+export type NumberFormat = 'vn' | 'en';
+
 export interface DatasetColumnDto {
   name: string;
   /**
@@ -224,6 +231,25 @@ export interface DatasetColumnDto {
   fieldRole: FieldRole | null;
   /** Người dùng có chọn nhập cột này không. */
   included: boolean;
+  /**
+   * Quy ước phân cách số của CỘT — `null` khi cột không đủ bằng chứng.
+   *
+   * Quyết định ở §7 lúc chốt sheet và LƯU LẠI, chứ không suy lại ở §9: hai
+   * đường cùng đọc một file (`commit` ghi mẫu xem trước, `readFileRows` nạp vào
+   * ClickHouse) và chúng lấy mẫu khác nhau, nên suy lại ở mỗi nơi là mở đường
+   * cho bảng xem trước và kho phân tích nói hai điều khác nhau về cùng một ô.
+   */
+  numberFormat: NumberFormat | null;
+  /**
+   * Bản đồ GỘP các cách viết của cùng một giá trị: `khoá nhóm -> cách viết đại
+   * diện`. `null` = không gộp gì (mặc định, và là trạng thái của mọi cột có
+   * trước migration 44).
+   *
+   * Khoá nhóm là giá trị đã bỏ khoảng trắng hai đầu, co chuỗi trắng thành một
+   * dấu cách và hạ chữ thường — xem `services/dataset/chatLuong.ts`. Cùng lý lẽ
+   * "quyết định một lần rồi LƯU" như `numberFormat` ngay trên.
+   */
+  valueMap: Record<string, string> | null;
 }
 
 /**
@@ -319,6 +345,28 @@ export interface DatasetDto {
   /** Số dòng thật sự nằm trong kho sau lần nạp gần nhất. */
   loadedRowCount: number;
   loadedAt: string | null;
+
+  /**
+   * Lúc bộ dữ liệu được TẠO, dạng ISO.
+   *
+   * ═══ Vì sao nó cần có mặt, dù không ô nào trên màn hình hiện nó ═══════════
+   *
+   * `datasets.created_at` có từ migration 1 nhưng chưa bao giờ ra tới client.
+   * Hệ quả đo được ở khung hỏi đáp: _"Orders được tạo ngày nào"_ và _"bộ dữ liệu
+   * nào cũ nhất"_ đều bế tắc, và bộ đánh giá ghi thẳng lý do —
+   * `vi: 'DatasetDto KHÔNG có createdAt'`.
+   *
+   * Khung trả lời bằng dữ kiện dựng từ DTO mà trang ĐÃ tải về, nên trần của nó
+   * là bề mặt DTO này, không phải khả năng hiểu tiếng Việt. Thêm một trường ở
+   * đây mở ra cả một lớp câu hỏi mà không sửa một dòng xử lý ngôn ngữ nào.
+   *
+   * ⚠️ KHÁC `loadedAt`/`syncedAt`, và khác biệt đó quan trọng: hai cái kia nói
+   * "lần cuối con số đổi", trường này nói "có từ bao giờ". `mocCapNhat` của
+   * `duKienTrang.ts` cố ý KHÔNG dùng trường này — một bộ dữ liệu tạo hôm qua mà
+   * nạp lại sáng nay thì "cũ nhất" và "cập nhật gần nhất" là hai câu trả lời
+   * khác nhau, cả hai đều đúng.
+   */
+  createdAt: string;
 }
 
 export interface DatasetDetailDto extends DatasetDto {
@@ -502,10 +550,27 @@ export interface WarehousePageDto {
 }
 
 /**
+ * Số dòng TỐI ĐA một trang danh sách được xin.
+ *
+ * ⚠️ MỘT nguồn sự thật, và lý do nó phải ở `@bi/shared` là một lỗi có thật.
+ *
+ * Trước bản này con số 100 nằm trong `backend/src/utils/pagination.ts`, còn
+ * frontend tự đoán. `features/chat/nguCanhHeThong.ts` đoán 200, nên CẢ BA truy
+ * vấn ngữ cảnh của khung hỏi đáp (kho dữ liệu, mô hình, đơn hàng) trả 400 và
+ * khung hỏi đáp không thấy gì về dữ liệu của người dùng — im lặng, vì nó chỉ
+ * trả lời "không có dữ liệu" thay vì báo lỗi. Không một bài test nào bắt được:
+ * test frontend mock API, test backend không gọi màn hình.
+ *
+ * Nên đừng viết lại số 100 ở bất kỳ đâu. Cả `paginationSchema` của backend lẫn
+ * mọi lời gọi của frontend đều đọc hằng số này.
+ */
+export const MAX_PAGE_SIZE = 100;
+
+/**
  * Các cỡ trang cho bảng dữ liệu.
  *
- * Trần 100 trùng `MAX_PAGE_SIZE` của backend — để một lựa chọn trên giao diện
- * không bao giờ dẫn tới 400 từ máy chủ.
+ * Cỡ lớn nhất KHÔNG được vượt `MAX_PAGE_SIZE`, nếu không một lựa chọn trên giao
+ * diện sẽ dẫn thẳng tới 400 từ máy chủ.
  */
 export const DATA_PAGE_SIZES = [20, 50, 100] as const;
 
@@ -535,12 +600,76 @@ export interface SheetColumnDto {
   samples: string[];
 }
 
+/**
+ * Một vấn đề CHẤT LƯỢNG dữ liệu phát hiện ở bước xem trước — §7.5.
+ *
+ * Hai lỗi đã đo trên hệ thống đang chạy, và cả hai đều im lặng tuyệt đối trước
+ * bản vá này:
+ *
+ *   `hoa-thuong`   biểu đồ "doanh thu theo khu vực" hiện NĂM cột cho BA khu
+ *                  vực, vì `MIỀN NAM` và `Miền Nam` là hai nhóm riêng;
+ *   `so-mo-ho`     cột có ô `750.000` mà hệ thống sắp đọc thành 750, vì dấu
+ *                  chấm ở đó có thể là dấu thập phân (xem `doanQuyUocSo`);
+ *   `gan-giong`    hai nhóm chỉ khác nhau ở DẤU (`Miền Nam` / `Mien Nam`).
+ *                  Loại này CHỈ cảnh báo, không gộp: bỏ dấu là mất thông tin,
+ *                  và "Miền" với "Miên" có thể là hai thứ khác nhau thật.
+ */
+export interface CanhBaoCotDto {
+  columnIndex: number;
+  sourceName: string;
+  loai: 'hoa-thuong' | 'so-mo-ho' | 'gan-giong';
+  /** Cách viết THẬT lấy từ tệp của người dùng — không phải ví dụ bịa. */
+  viDu: string[];
+  /** `hoa-thuong`: số nhóm sẽ gộp. `gan-giong`: số cặp phát hiện được. */
+  soNhom?: number;
+  /**
+   * `viDu[0]` sẽ vào kho dưới dạng con số này. Chỉ có ở `so-mo-ho`.
+   *
+   * Nói con số thật thay vì nói "có thể không chính xác": người dùng đối chiếu
+   * được bằng mắt với ô trong tệp và tự quyết trong một giây.
+   */
+  docThanh?: string;
+  /**
+   * Mọi ô mơ hồ của cột đều tròn nghìn (`.000`) — §B3. Chỉ có ở `so-mo-ho`.
+   *
+   * Giao diện TÍCH SẴN ô "dấu chấm là phân cách nghìn" khi cờ này bật: một cột
+   * mà mọi giá trị đều tròn nghìn thì gần như chắc chắn là cột tiền viết theo
+   * lối Việt, không phải cột thập phân (cột thập phân thật có phần lẻ biến
+   * thiên: `.765`, `.155`, `.402`).
+   *
+   * Vẫn là một ô TÍCH chứ không phải một quyết định sau lưng: người dùng nhìn
+   * thấy cả hai cách đọc ngay cạnh nhau rồi bấm.
+   */
+  goiYVn?: boolean;
+  /**
+   * Con số `viDu[0]` sẽ thành NẾU người dùng nói dấu chấm là phân cách nghìn —
+   * mong muốn D2 ("xem trước giá trị sau khi đổi").
+   *
+   * Tính ở BACKEND bằng chính `parseNumber`, không tính lại ở giao diện: luật
+   * đọc số là thứ đã có một nguồn duy nhất (xem `normalizeCell`), và một bản
+   * sao ở frontend chỉ để hiện xem trước sẽ lệch khỏi thứ thật sự được ghi vào
+   * kho ngay lần sửa đầu tiên.
+   */
+  docThanhKhiVn?: string;
+}
+
 export interface SheetPreviewDto {
   name: string;
   columns: SheetColumnDto[];
   /** Số dòng dữ liệu, không tính hàng tiêu đề. */
   rowCount: number;
+  /**
+   * Số dòng bị BỎ QUA trước hàng tiêu đề — §B4. Vắng mặt = không bỏ dòng nào.
+   *
+   * Tệp Excel người Việt hầu như luôn có một dòng tên báo cáo ở trên cùng. Hệ
+   * thống tự nhận ra và bỏ nó, nhưng PHẢI nói ra: bỏ dòng mà im lặng là tự ý
+   * đổi hình dạng dữ liệu của người ta, và nếu đoán sai thì không ai biết vì
+   * sao cột lại ra như vậy.
+   */
+  boQuaDong?: number;
   previewRows: string[][];
+  /** Rỗng = không phát hiện vấn đề nào trong mẫu đã soi. */
+  canhBao: CanhBaoCotDto[];
 }
 
 /**
@@ -577,6 +706,31 @@ export interface AnalyzeResultDto {
 export interface CommitDatasetsInput {
   sheets: string[];
   name: string;
+  /**
+   * Gộp các nhóm chỉ khác nhau chữ hoa/thường và khoảng trắng — người dùng tích
+   * ở bước 2, và chỉ thấy ô tích đó khi hệ thống đã PHÁT HIỆN nhóm trùng
+   * (`CanhBaoCotDto` loại `hoa-thuong`).
+   *
+   * Bỏ trống = không gộp. Mặc định nằm ở giao diện chứ không ở đây: một API mặc
+   * định BIẾN ĐỔI dữ liệu khi client im lặng là một API đáng sợ.
+   */
+  gopHoaThuong?: boolean;
+  /**
+   * Người dùng tự chốt quy ước phân cách cho MỘT cột — mong muốn D2.
+   *
+   * Chỉ hiện ở những cột hệ thống đã cảnh báo `so-mo-ho`, nên danh sách này
+   * luôn ngắn. Mang theo tên sheet vì mỗi sheet thành một bộ dữ liệu riêng với
+   * bảng cột riêng: thiếu nó thì ô tích ở sheet này đổi cách đọc của sheet kia.
+   */
+  quyUocSo?: { sheet: string; ordinal: number; format: NumberFormat }[];
+  /**
+   * Lần CẬP NHẬT một bộ đã có, không phải lần nhập mới — §B2.
+   *
+   * Bật thì backend đòi đúng một sheet và từ chối tệp THIẾU cột đang có: mô
+   * hình và báo cáo gọi tên cột, nên thay dữ liệu bằng tệp thiếu cột là làm
+   * biểu đồ hỏng sau khi dữ liệu cũ đã mất.
+   */
+  capNhat?: boolean;
 }
 
 export const DATASET_NAME_MAX = 255;

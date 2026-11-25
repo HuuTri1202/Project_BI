@@ -4,6 +4,7 @@ import { mysqlPool } from '../config/mysql';
 import * as adminMembersRepo from '../repositories/adminMembers';
 import { forbidden, unauthorized } from '../utils/httpError';
 import { requireAuth } from './authenticate';
+import { loiMatKhauTam } from './requireFreshMembership';
 
 /**
  * Đọc lại quyền quản trị TỪ DATABASE ở mỗi request của khu quản trị.
@@ -52,6 +53,13 @@ export const requireFreshAdmin: RequestHandler = (req, _res, next) => {
       // trang đăng nhập, đúng việc cần làm.
       if (!ctx || !ctx.userActive) {
         next(unauthorized('Phiên đăng nhập không còn hiệu lực.'));
+        return;
+      }
+      // Chốt mật khẩu tạm áp cho CẢ console vận hành, và ở đây nó còn cần hơn:
+      // một superadmin đang cầm mật khẩu tạm là lối vào thẳng tới dữ liệu của
+      // mọi tổ chức. Xem lý lẽ đầy đủ ở `requireFreshMembership.ts`.
+      if (ctx.mustChangePassword) {
+        next(loiMatKhauTam());
         return;
       }
       if (ctx.platformRole !== 'superadmin') {

@@ -380,10 +380,15 @@ export function OrderDetailPage(): React.ReactElement {
    * (`cancelOrder` chỉ đụng đơn `pending`, cố ý, vì tiền đã vào tài khoản), nên
    * họ nhận một nút chết mà không hiểu vì sao.
    *
-   * Không nói con số cụ thể ở đây. Hệ thống biết số tiền nhận được ít hơn, nhưng
-   * "bạn chuyển thiếu 50.000đ" có thể sai — khách chuyển làm hai lần, hoặc ngân
-   * hàng trừ phí, và đổ lỗi nhầm cho người vừa trả tiền là cách nhanh nhất biến
-   * một việc nhỏ thành một cuộc tranh cãi.
+   * Không TỰ TÍNH con số thiếu ở đây. "Bạn chuyển thiếu 50.000đ" có thể sai —
+   * khách chuyển làm hai lần, hoặc ngân hàng trừ phí, và đổ lỗi nhầm cho người
+   * vừa trả tiền là cách nhanh nhất biến một việc nhỏ thành một cuộc tranh cãi.
+   *
+   * Nhưng CÓ hiện `don.note`, do `confirmPayment` ghi lúc chuyển sang trạng thái
+   * này: "đã ghi nhận Xđ trên tổng Yđ". Đó là hai con số hệ thống đang giữ, đã
+   * cộng mọi lần chuyển — một sự việc, không phải một phán xét. Thiếu chúng,
+   * câu "số tiền chưa khớp" không dẫn tới hành động nào: khách không biết hệ
+   * thống thấy bao nhiêu nên không biết nên chuyển bù hay nên đi hỏi.
    */
   if (hienTai === 'awaiting_confirmation') {
     return (
@@ -395,6 +400,9 @@ export function OrderDetailPage(): React.ReactElement {
             số tiền chưa khớp với đơn nên cần quản trị viên đối chiếu. Gói sẽ bật ngay sau đó —
             màn hình này tự cập nhật, bạn không cần tải lại trang.
           </p>
+          {don.note !== null && (
+            <p className="mt-2 text-sm font-medium text-amber-900">{don.note}</p>
+          )}
           <div className="mt-4 flex justify-center gap-2">
             <Link to="/billing/orders">
               <Button>Xem lịch sử đơn</Button>

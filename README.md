@@ -27,6 +27,8 @@ mà **không cần viết SQL**.
 | **Thư mục báo cáo** (§10.25) — gom báo cáo theo chủ đề, mặc định nằm ở Chung                 | ✅ xong — xem mục _Thư mục báo cáo_                    |
 | **Gói cước & thanh toán** (§11) — VietQR, đối soát Sepay, hạn mức theo gói                   | ✅ xong — xem [docs/thanh-toan.md](docs/thanh-toan.md) |
 | **Trợ lý hỏi đáp dữ liệu** — khung nổi ở mọi trang, trả lời theo trang đang mở và cả tổ chức | ✅ xong — xem mục _Trợ lý hỏi đáp_                     |
+| **Triển khai** — Dockerfile, Caddy + TLS, overlay compose cho production                     | ✅ xong — xem [docs/trien-khai.md](docs/trien-khai.md) |
+| **Quan trắc hiệu năng** — OpenTelemetry trong backend, SigNoz thu thập và vẽ                 | ✅ xong — xem [docs/quan-trac.md](docs/quan-trac.md)   |
 | Bộ lọc dùng chung cả khung, chia sẻ báo cáo ra ngoài                                         | ⏳ chưa làm                                            |
 
 Xem lộ trình đầy đủ và phân công theo tính năng trong tài liệu kế hoạch của nhóm.
@@ -134,9 +136,12 @@ Muốn khỏi gõ cờ profile mỗi lần: đặt `COMPOSE_PROFILES=data,bi` tr
 > **Backend và frontend cố ý KHÔNG chạy trong Docker khi dev.** Mã nguồn nằm
 > trên ổ Windows, bind mount vào container phải đi qua lớp 9p/drvfs của WSL2 nên
 > sự kiện `inotify` không truyền qua được — `tsx watch` và Vite HMR sẽ mù. Chữa
-> bằng polling thì HMR trễ 2–5 giây và CPU chạy nền liên tục. Dockerfile cho
-> backend/frontend sẽ được thêm ở giai đoạn triển khai K8s, dùng cho **chạy**
-> chứ không dùng để **code**.
+> bằng polling thì HMR trễ 2–5 giây và CPU chạy nền liên tục.
+>
+> Bản **triển khai** thì ngược lại: `Dockerfile` ở thư mục gốc đóng gói cả hai
+> (`--target api` cho Express, `--target web` cho Caddy + bản tĩnh), và
+> `infrastructure/docker-compose.prod.yml` ghép chúng vào stack. Dùng cho **chạy**
+> chứ không dùng để **code** — xem [docs/trien-khai.md](docs/trien-khai.md).
 
 ---
 
@@ -180,7 +185,7 @@ bi-flatform/
     ├── ports.md              # bản đồ cổng — đọc trước khi thêm service
     ├── thanh-toan.md         # gói cước, VietQR, webhook Sepay, hạn mức (§11)
     ├── tai-khoan-thu-nghiem.md
-    └── kiem-thu/             # bộ test case + kịch bản trình duyệt
+    └── kiem-thu/             # bộ test case bấm tay + dữ liệu mẫu
 ```
 
 ---
@@ -243,8 +248,10 @@ npm run lint           # ESLint cả 2
 npm run typecheck      # tsc --noEmit cả 2
 npm run format         # Prettier ghi đè cả 2
 npm run build          # build production cả 2
-npm test               # Vitest (backend)
 npm run verify         # lint + typecheck + build — CHẠY TRƯỚC KHI MỞ PR
+
+npm run quet           # quét hồi quy (~2,5 phút, cần `npm run dev` đang chạy)
+npm run quet -- --help # chọn mục, đổi tài khoản, đổi địa chỉ
 
 npm run infra:up       # service lõi: MySQL + Redis
 npm run infra:up:data  # + MinIO, ClickHouse
@@ -449,8 +456,154 @@ buộc mạnh hơn mọi lớp kiểm tra trong ứng dụng vì nó không quê
 | GET    | `/api/auth/me`              | Khôi phục phiên khi F5 — đọc lại từ DB, không tin payload token                 |
 | POST   | `/api/auth/logout`          | 204 (JWT vô trạng thái, client tự bỏ token)                                     |
 | POST   | `/api/auth/change-password` | 204                                                                             |
+| POST   | `/api/auth/google`          | Đăng nhập bằng ID token Google — trả về ĐÚNG hình dạng của `/login`             |
+| POST   | `/api/auth/verify-email`    | 204 — xác minh email bằng vé trong thư                                          |
+| POST   | `/api/auth/resend-verification` | 202 — gửi lại thư xác minh; LUÔN cùng một câu                               |
 
 Mọi lỗi có cùng hình dạng `{ error, message, fields? }`.
+
+### Xác minh email (§1.10)
+
+**Tài khoản chưa xác minh email thì không đăng nhập được** — không bằng mật khẩu,
+không bằng Google. Đây không phải một thủ tục cho đẹp; nó là thứ chặn một đường
+tấn công thật, và đường đó chỉ xuất hiện khi §1.9 mở đăng nhập Google.
+
+**Lỗ hổng mà nó bịt: pre-hijacking.** Cột `users.email_verified_at` có từ
+migration 1 nhưng tới §1.9 thì **chưa ai ghi và chưa ai đọc**. Ghép với tự-liên-kết
+theo email, chuỗi sự việc là:
+
+1. Kẻ tấn công đăng ký `ketoan@congty.vn` — không phải chứng minh gì. Nó được tài
+   khoản + một tổ chức, làm admin, và biết mật khẩu.
+2. Người thật sau đó bấm "Đăng nhập bằng Google". Google xác nhận email, hệ thống
+   tự liên kết, họ vào được và **tin đó là workspace của mình**.
+3. Họ nạp dữ liệu công ty lên. Kẻ tấn công đăng nhập bằng mật khẩu nó tự đặt và
+   đọc toàn bộ.
+
+Nghịch lý phải sửa: hệ thống **đòi Google chứng minh** quyền sở hữu hộp thư trước
+khi liên kết, nhưng `/register` của chính nó **không đòi gì**.
+
+**Chặn ở hai chỗ, không phải một.** `/login` chặn tài khoản chưa xác minh, và
+`/google` từ chối tự-liên-kết vào tài khoản chưa xác minh. Chỉ chặn `/login` thì
+kẻ squat vẫn thắng qua đường Google; chỉ chặn `/google` thì nó vẫn đăng nhập bằng
+mật khẩu. Mỗi chốt có một bài test khẳng định **cả hai vế** — bị từ chối *và*
+không để lại dòng liên kết nào.
+
+**Chốt chưa-xác-minh đứng SAU `verifyPassword`**, cùng chỗ với chốt `isActive`.
+Đặt trước là biến `/login` thành máy dò "email nào đã đăng ký mà chưa xác minh" —
+đúng thứ mà một thông báo lỗi duy nhất đang cẩn thận che. Có một bài test giữ lấy
+điều này: mật khẩu sai trên tài khoản chưa xác minh phải ra `InvalidCredentials`,
+không phải `EmailNotVerified`.
+
+**Lá thư là một phần của lớp phòng thủ.** Pre-hijacking sống nhờ im lặng: thư này
+đi tới hộp thư của **người thật**, nên nạn nhân biết trong vòng vài giây. Vì vậy
+thân thư phải nêu rõ tài khoản nào vừa được tạo (họ tên, công ty) và cảnh báo đừng
+bấm nếu không tự đăng ký. Đó là nội dung được test, không phải câu chữ trang trí.
+
+**"Quên mật khẩu" cũng xác minh email — và đó là đường lấy lại tài khoản bị squat.**
+Bấm được liên kết trong thư đặt-lại là bằng chứng sở hữu hộp thư, **cùng một cơ
+chế và cùng một bằng chứng** với liên kết xác minh. Nên `datLaiMatKhau` ghi luôn
+`email_verified_at`. Nhờ vậy nạn nhân của một tài khoản squat có một đường tự phục
+vụ, không cần endpoint mới nào: bấm "Quên mật khẩu" → mật khẩu của kẻ kia chết →
+email được xác minh → vào được. Thiếu dòng đó thì họ đổi được mật khẩu mà **vẫn**
+không đăng nhập được, một ngõ cụt không có cách nào tự ra. Thứ tự có nghĩa: xác
+minh đặt **sau** `updatePassword`, vì đảo lại là có một khoảnh khắc tài khoản đã
+xác minh mà mật khẩu vẫn là của kẻ squat.
+
+**Rủi ro còn lại, nói thẳng.** Người bấm liên kết trong thư **xác minh** về một
+tài khoản họ *không* tạo sẽ xác minh hộ kẻ tấn công, và mật khẩu của kẻ đó sống
+lại. Chặn hẳn đòi bước xác minh kiêm luôn việc **đặt** mật khẩu — tức `/register`
+không nhận mật khẩu nữa và trang đăng ký phải làm lại. Đã cân và để ngoài phạm vi;
+cảnh báo trong thư là phần bù, và "Quên mật khẩu" ở trên là đường sửa sai nếu họ
+nhận ra sau. Tương tự, tài khoản do Admin tạo (`createMember`) được coi là đã xác
+minh vì Admin tự khai email ấy — cách sửa thật là **mời bằng liên kết** thay cho
+mật khẩu tạm.
+
+**Migration 42 ân xá mọi tài khoản đang có** (`email_verified_at = created_at`).
+Không có bước đó thì luật mới khoá sạch cơ sở dữ liệu đang chạy, kể cả tài khoản
+seed, và không còn ai vào được để sửa.
+
+⚠️ **SMTP phải chạy được**, nếu không người mới đăng ký không bao giờ vào được hệ
+thống. Chưa cấu hình SMTP thì `services/mail/mailer.ts` in thư ra log backend —
+copy liên kết trong log là chạy dev được. Ở **production** thì khác hẳn: thiếu
+`SMTP_HOST`, máy chủ API từ chối mở cổng ngay lúc boot (`chanThieuSmtp` trong
+`index.ts`), vì một hệ thống lên xanh mà không ai đăng ký được là hạng hỏng im
+lặng nhất của cả luồng này.
+
+### Chốt mật khẩu tạm ở backend
+
+`must_change_password` bật lên khi Admin tạo thành viên bằng mật khẩu **tạm** — một
+chứng thực mà **người khác đang biết**. Trước đây thứ duy nhất buộc đổi nó là một
+lệnh điều hướng của React Router (`auth/redirectTarget.ts` tự gọi mình là "cổng
+CỨNG"), trong khi `/login` vẫn cấp một token 7 ngày đầy quyền. Ai gọi API trực
+tiếp — hoặc chỉ cần copy token khỏi `localStorage` — là đi thẳng qua cổng.
+
+Giờ `requireFreshMembership` và `requireFreshAdmin` trả **403 `PasswordChangeRequired`**
+cho mọi request của `/api/v1` và `/api/admin`. Cờ đọc từ **database**, không từ
+token: nó hạ xuống ngay khi người dùng đổi mật khẩu, mà token trong tay họ vẫn là
+token cũ còn mang cờ bật.
+
+Không tốn thêm truy vấn nào: `findAdminContext` đã JOIN đúng dòng `users` ở mỗi
+request, chỉ thêm một cột vào câu đã chạy sẵn.
+
+**Lối ra luôn mở.** `/api/auth/*` cố ý không đi qua hai middleware này, nên
+`POST /auth/change-password` vẫn gọi được — người bị chặn có đúng một việc làm
+được, và đó là việc ta muốn họ làm. Mất luôn mật khẩu tạm thì đi `forgot-password`:
+`datLaiMatKhau` hạ cờ xuống. Ai định thêm một middleware "tươi" cho cả
+`authRouter` phải đọc đoạn này trước: làm vậy là đẩy người dùng vào một vòng lặp
+không cửa thoát.
+
+### Đăng nhập và đăng ký bằng Google (§1.9)
+
+Tuỳ chọn. Không khai `GOOGLE_CLIENT_ID` thì nút biến mất khỏi **cả hai** trang
+đăng nhập và đăng ký, còn endpoint trả 503 — cùng khuôn với lớp mô hình ngôn ngữ
+của khung hỏi đáp.
+
+**Email chưa có tài khoản thì được tạo luôn**, thay vì nhận `404 NoAccount` như
+trước. Lý do bản cũ không tạo được chưa bao giờ nằm ở Google: `registerAccount`
+đòi tên công ty, số điện thoại, chức danh — ba thứ Google không biết. Hệ quả là
+trang đăng nhập có nút Google mà trang đăng ký thì không, và ai bấm nút đó bằng
+một email chưa đăng ký thì bị đẩy sang một form hỏi đúng những thứ họ vừa định bỏ
+qua. Nay đăng ký chỉ tạo **một danh tính** (`registerFields` của `@bi/shared`:
+họ tên, email, mật khẩu, và tên công ty **tuỳ ý**), nên một cú bấm là đủ.
+
+Tài khoản sinh ra ở đường này có hai điểm riêng. `email_verified_at` đặt ngay —
+Google vừa xác nhận hộp thư đó, một bằng chứng mạnh hơn lá thư xác minh của ta,
+và không đặt thì tài khoản vừa tạo rơi vào chính chốt §1.10 rồi mắc kẹt vĩnh
+viễn. Và `password_hash` là hash của một chuỗi **ngẫu nhiên không ai biết** — cột
+đó NOT NULL, còn nhét một chuỗi canh vào thì bcrypt gặp hash sai dạng và trả về
+`false` hay ném lỗi là tuỳ thư viện. Muốn thêm mật khẩu thì đi `forgot-password`:
+họ kiểm soát hộp thư ấy nên lá thư tới đúng tay họ.
+
+Tổ chức sinh ra ở đường này luôn là **không gian riêng** mang tên người dùng
+(`owner_user_id` trỏ về chính họ) — không khai tên công ty thì không có gì để
+đặt. Đổi tên được ở trang Tổ chức.
+
+**Khoá tra cứu là `sub`, không phải email.** Email của một tài khoản Google đổi
+được (đổi tên miền công ty, đổi alias); `sub` thì không bao giờ. Lấy email làm
+khoá nghĩa là người dùng đổi email bên Google xong thì mất lối vào, và một người
+khác nhận được email cũ ấy thì vào được tài khoản của họ. Bảng `user_identities`
+(migration 41) đặt `UNIQUE (provider, provider_user_id)` vì lý do đó.
+
+**Tự liên kết, và một chốt duy nhất giữ cho nó an toàn.** Email đã có tài khoản
+mật khẩu, nay bấm nút Google thì hệ thống tự lập liên kết — nhưng **chỉ khi**
+`email_verified === true`, tức Google đã chứng minh người này kiểm soát hộp thư.
+Thiếu chốt đó thì bất kỳ ai khai được một địa chỉ đều nhận được tài khoản của
+người khác. Không có ngoại lệ, kể cả với tên miền "tin được".
+
+**Vì sao ở đây không sợ lộ danh sách email.** `/register` phải trả 409 khi email
+trùng, và đó là một kênh liệt kê email. `/google` thì không: muốn hỏi "email X có
+tài khoản không" thì phải có một ID token Google hợp lệ **của chính email X**,
+nghĩa là phải đang nắm hộp thư đó. Nên ở đây nói thẳng được.
+
+**Một dependency, và chỉ một.** `jose` để xác minh ID token. Đây là chỗ không nên
+tự viết: phải tải bộ khoá công khai của Google, chọn đúng khoá theo `kid`, cache,
+và xử lý việc Google xoay khoá — sai một trong mấy việc đó thì hoặc hệ thống chết
+lúc Google xoay khoá, hoặc nó nhận một token không ai ký.
+
+Cấu hình: `GOOGLE_CLIENT_ID` ở `backend/.env` và `VITE_GOOGLE_CLIENT_ID` ở
+`frontend/.env` — **hai nơi phải cùng một giá trị**, vì backend kiểm `aud` của ID
+token khớp đúng giá trị ấy. Cả hai đều không phải bí mật; client ID vốn công khai
+trong mã trang. Client _secret_ của Google thì luồng này không dùng tới.
 
 ### Route phía giao diện
 
@@ -532,7 +685,9 @@ Giới hạn, ghi ra chứ không giấu:
 
 - **Tự đăng ký** — `POST /api/auth/register` dựng một lượt: tổ chức + tài khoản
   - tư cách thành viên + workspace, và người đăng ký làm quản trị tổ chức mình
-    vừa lập. Cố ý KHÔNG tự đăng nhập sau đó: lần đăng nhập đầu tiên là lần duy
+    vừa lập. Form chỉ hỏi họ tên, email, mật khẩu; **tên công ty tuỳ ý** — để
+    trống thì tổ chức là một không gian riêng mang tên người dùng, đổi tên sau
+    được. Cố ý KHÔNG tự đăng nhập sau đó: lần đăng nhập đầu tiên là lần duy
     nhất chứng minh mật khẩu vừa đặt đúng như người dùng nghĩ.
 - **Quên mật khẩu** — `POST /api/auth/forgot-password` gửi liên kết đặt lại;
   `/reset-password/verify` kiểm liên kết lúc mở trang, `/reset-password` đổi mật
@@ -770,7 +925,8 @@ chất và khác biệt đó cố ý để lộ ra:
 - **Excel không streaming ở bước phân tích**: `workbook.xlsx.load()` dựng cả
   workbook trong RAM. Nhánh nạp thì có (`WorkbookReader`). CSV đã streaming cả
   hai đầu.
-- **`dataset_rows` của bộ đã xoá mềm không được dọn.** Janitor chỉ dọn ClickHouse.
+- **`dataset_rows` của bộ đã xoá mềm không được dọn.** Janitor dọn bảng
+  ClickHouse và tệp trong kho đối tượng, nhưng không đụng tới dòng MySQL nào.
 
 ### Gỡ nút thắt `dataset_rows`
 
@@ -900,6 +1056,18 @@ Janitor đi chung `tick()` với việc nạp thay vì có bộ đếm giờ ri�
 quét không bao giờ chạy song song với một lần nạp trong cùng tiến trình — nó
 không thể drop trúng bảng tạm `__new` đang được ghi dở.
 
+Cùng nhịp đó còn một lượt thứ hai, `sweepOrphanFiles`, dọn **tệp** trong kho đối
+tượng mà MySQL không còn dòng nào nhận. Ba chỗ sinh ra tệp mồ côi — thay tệp
+nguồn (`doiTepNguon` cố ý giữ bản cũ để còn lùi được), tải lên rồi bỏ dở, và xoá
+cứng theo dây chuyền — trước đây không có ai dọn. Đo được 25/11/2026: **81 tệp /
+224 MiB trên tổng 259 MiB** là tệp không còn ai trỏ tới.
+
+⚠️ Nó chỉ đụng tệp **quá 24 giờ**, và đó là chốt quan trọng nhất: trình duyệt PUT
+thẳng lên S3 rồi mới gọi `/commit`, nên giữa hai việc đó tệp đã nằm trong kho mà
+MySQL chưa biết gì. Đừng hạ ngưỡng xuống hàng phút — phép so tuổi bắc qua hai
+đồng hồ (kho đối tượng và Node), và đo được container MinIO chạy nhanh hơn máy
+chủ 450 ms.
+
 ⚠️ Regex `^raw_t(\d+)_d(\d+)(?:__new)?$` neo **cả hai đầu**. `bi_analytics` là
 database dùng chung — máy dev cũ còn `spike_orders` từ tuần đầu, và người khác
 vẫn tạo bảng tay ở đây; nới nó thành tiền tố `raw_` là đủ để một tác vụ nền xoá
@@ -952,14 +1120,8 @@ SELECT uniqExact(_row_index) FROM raw_t4_d22;
 ### Kiểm chứng
 
 ```bash
-npm run verify                                   # unit: ánh xạ kiểu, quoteIdent, DDL
-npm run test:integration                         # 12 ca chỉ cần MySQL
-INGEST_CH_TESTS=1 npm run test:integration       # + 4 ca nạp thật vào ClickHouse
+npm run verify                                   # lint + typecheck + build
 ```
-
-Nhánh chạm ClickHouse nằm sau một biến khai **tường minh**, không phải sau một
-phép "ping rồi lặng lẽ skip": skip ngầm thì một lần chạy bỏ qua phần quan trọng
-nhất vẫn hiện màu xanh, và đó là kiểu hỏng tệ nhất.
 
 Đối chiếu tay:
 
@@ -2618,7 +2780,7 @@ mất hộp.
 
 #### Đo trên Chromium thật
 
-Báo cáo hai biểu đồ trên file `docs/kiem-thu/du-lieu-thu/kiem-thu-ban-hang.csv`,
+Báo cáo hai biểu đồ trên file `kiem-thu-ban-hang.csv` (tệp mẫu cũ, nay chỉ còn trong lịch sử git),
 40 phép kiểm, tất cả xanh. Những phép đáng kể:
 
 ```
@@ -2714,7 +2876,7 @@ hình đã mất.
 
 #### Đo trên Chromium thật
 
-Báo cáo hai biểu đồ trên `docs/kiem-thu/du-lieu-thu/kiem-thu-ban-hang.csv`, hai
+Báo cáo hai biểu đồ trên `kiem-thu-ban-hang.csv` (tệp mẫu cũ, nay chỉ còn trong lịch sử git), hai
 tab trong cùng một phiên trình duyệt, 36 phép kiểm, tất cả xanh:
 
 ```
@@ -2834,7 +2996,7 @@ vừa rời.
 
 #### Đo trên Chromium thật
 
-Báo cáo hai biểu đồ trên `docs/kiem-thu/du-lieu-thu/kiem-thu-ban-hang.csv`. Mỗi
+Báo cáo hai biểu đồ trên `kiem-thu-ban-hang.csv` (tệp mẫu cũ, nay chỉ còn trong lịch sử git). Mỗi
 vòng có ba cú kéo (dời mũi tên, co giãn mũi tên, dời biểu đồ), mỗi cú 90 nhịp chuột
 16 ms. Chạy 6 vòng, cùng một kịch bản cho cả hai bản:
 
@@ -3182,6 +3344,60 @@ việc, và **không việc nào cho phép nó tạo ra nội dung**:
    thứ chặn không nằm ở câu chữ. Mấy kiểu hỏng khác (mất mạng, hết lượt, chưa
    cấu hình) thì vẫn là "chưa hiểu", vì chúng tạm thời.
 
+**Trần của khung là bề mặt DTO, không phải khả năng hiểu tiếng Việt.** Khung trả
+lời bằng dữ kiện dựng từ DTO mà trang **đã** tải về, nên một trường không ra tới
+client là một lớp câu hỏi bế tắc — kể cả khi cột đó có trong database từ đầu.
+Đo được: _"Orders được tạo ngày nào"_ và _"bộ dữ liệu nào cũ nhất"_ bế tắc chỉ vì
+`DatasetDto` thiếu `createdAt`, trong khi `datasets.created_at` có từ migration 1.
+Thêm một trường vào DTO mở ra cả lớp câu hỏi đó mà **không sửa một dòng xử lý
+ngôn ngữ nào**.
+
+Cùng hạng, nhưng còn rẻ hơn: _"ai là người tạo báo cáo này"_ bế tắc trên trang xem
+báo cáo trong khi `ReportDto` **đã mang sẵn** `creatorName` và trang danh sách báo
+cáo trả lời được từ lâu — chỉ `duKienNguonBaoCao` quên khai. Cùng một DTO, hai
+hàm, một hàm quên.
+
+⚠️ Thêm dữ kiện **không** miễn phí: mỗi nhãn là một đường khớp nhầm mới. Dữ kiện
+_"Ngày tạo của báo cáo X"_ đã được thêm rồi **gỡ**, vì nó hoà điểm {tạo, báo, cáo}
+với _"Người tạo báo cáo X"_ và làm **mất** câu trả lời cho _"ai tạo báo cáo này"_ —
+luật "phải hơn hẳn ứng viên nhì" bỏ cả hai khi hoà. Nên mọi dữ kiện thêm vào đều
+phải đi qua bộ đánh giá, và `traLoi.test.ts` khẳng định **đủ** danh sách nhãn của
+trang xem báo cáo chứ không chỉ nhãn đầu.
+
+**Hỏi cách làm — lớp dữ kiện thứ hai, và nó không phải dữ liệu.** Mọi nguồn dữ
+kiện khác đều là dữ liệu, nên _"làm sao để xoá một bộ dữ liệu"_ bế tắc ở mọi lớp.
+Đó không phải giới hạn của phép so từ khoá; đó là một **loại** câu hỏi chưa có
+nguồn nào. `huongDan.ts` là nguồn đó: nội dung **đóng, viết tay, không con số
+nào** — nên nó không sinh ra được kết cục SAI.
+
+Cái giá là một kiểu hỏng khác: hướng dẫn **mục rữa**, chỉ người ta tới một chỗ
+không còn tồn tại. Hai thứ bịt nó: câu chữ nói tới **trang và hành động**, không
+nói nhãn nút (nhãn nút mục rữa trước nhất); và mỗi mục khai `duong`, với một bài
+test đọc thẳng `App.tsx` để khẳng định route đó còn.
+
+Ba chốt giữ cho lớp này không ăn vào lớp số liệu, và cả ba đều có bài test bẻ
+được:
+
+1. Phải có một từ **hành động**. Thiếu nó, _"làm sao biết bộ nào nhiều dòng
+   nhất"_ — một câu hỏi **số liệu** — nhận về hướng dẫn tải tệp.
+2. Phải **không** có từ hỏi số liệu (`ai`, `bao nhiêu`, `mấy`). Thiếu nó, _"làm
+   sao biết **ai** tạo báo cáo này"_ nhận về hướng dẫn tạo một báo cáo mới.
+3. Phải **hơn hẳn** ứng viên nhì. Thiếu nó, một câu hoà điểm nhận về mục đứng
+   trước trong mảng — một câu trả lời quyết định bởi thứ tự khai báo.
+
+⚠️ Từ khoá trong cùng một vế **không được lồng nhau**, và một bài test canh điều
+đó. Lý do đo được: mục "tạo mô hình" từng khai cả `mo hinh` lẫn `mo hinh du lieu`,
+nên mọi câu nhắc "mô hình dữ liệu" cộng cho nó **2 điểm thay vì 1** — và _"làm sao
+tạo **báo cáo** từ mô hình dữ liệu"_ nhận về hướng dẫn tạo **mô hình**, thắng 3–2
+bằng một điểm không có thật. Năm trong mười một mục mắc lỗi này khi mới viết.
+
+**Giới hạn đã biết, ghi lại chứ không che.** _"Ai tạo báo cáo này"_ trả lời được;
+thêm tiền tố _"làm sao biết"_ thì không — mấy chữ ấy làm **loãng** điểm khớp của
+lớp số liệu và nó trượt, còn lớp hướng dẫn thì bị chốt (2) gạt. Kết cục là "chưa
+hiểu", và đó là kết cục đúng trong hai kết cục còn lại. Sửa cho đúng cần lớp số
+liệu bỏ qua được cụm hỏi-cách-làm khi tính điểm — một thay đổi trong **phép chấm**,
+không phải thêm một dữ kiện.
+
 **Hỏi tiếp được.** _"Doanh thu Miền Bắc"_ → _"còn tháng 4 thì sao"_. Thứ được
 nhớ là **cái form của lượt trước**, không phải đoạn chat: một lượt hỏi tiếp gần
 như luôn là "form cũ, sửa một ô", nên bộ nhớ có kích thước **không đổi** và mô
@@ -3351,6 +3567,164 @@ riêng câu trả lời — không gửi bảng số liệu, không gửi số t
 | `backend/src/services/chat/goiYTiep.ts`        | Câu hỏi TIẾP, sinh từ form vừa chạy              |
 | `backend/tests/danhGiaTruyVan.test.ts`         | Bộ ĐO đường mô hình dựng truy vấn                |
 | `backend/tests/khoangThoiGian.test.ts`         | Mốc ngày: vắt qua biên năm, tuần bắt đầu thứ Hai |
+
+---
+
+## Hiệu suất — ba chỗ chậm, và hai giả thuyết đã bị số đo loại
+
+Mục này ghi **số đo**, không ghi cảm giác. Mọi con số dưới đây đo trên máy phát
+triển (Windows + Docker Desktop), và điều đáng nói nhất không phải chúng nhanh
+hơn bao nhiêu, mà là **cả ba chỗ chậm đều không nằm ở nơi ai cũng đoán**.
+
+Chỗ ai cũng đoán — Vega và ClickHouse — hoá ra đã nhanh:
+
+| Đo gì                                           | Kết quả    |
+| ----------------------------------------------- | ---------- |
+| ClickHouse gộp 51.290 dòng, 1 chiều, trả 100 dòng | **~45ms**  |
+| Vega cập nhật view tại chỗ (`view.data()`)       | 7 – 22ms   |
+| `vega-embed` trong chunk riêng, nạp động         | 297 kB gzip |
+
+### 1. Dọn database trong test: 96% thời gian nằm ở `TRUNCATE`
+
+Triệu chứng KHÔNG giống nguyên nhân, và đó là phần đáng học: một lần chạy cho
+**20 ca đỏ** ở `admin` và `tenant` — gồm cả `không token -> 401` và
+`chỉ superadmin -> 403`, nghe như lỗi phân quyền — nhưng trong cả tệp log
+**không có một `AssertionError` nào**. Cả 20 là hệ quả của đúng hai dòng
+`Hook timed out in 10000ms` ở `beforeEach`.
+
+Đo tại chỗ, 114 lượt `resetDatabase()` thật trong `admin.integration.test.ts`:
+
+| Phase                   | Trung bình | Max      |
+| ----------------------- | ---------- | -------- |
+| khối `TRUNCATE` (20 bảng) | **941ms**  | 1681ms   |
+| khối `DELETE` (9 bảng)  | 21ms       | 37ms     |
+| gieo lại bảng giá       | 11ms       | 21ms     |
+| dọn khoá Redis          | 2ms        | 5ms      |
+
+`TRUNCATE` của InnoDB là DDL: nó dựng lại tablespace trên đĩa, và qua Docker
+trên Windows mỗi lần là một vòng ra filesystem thật. Khi đĩa host đứng một nhịp,
+941ms thành hơn 10 giây và hook chết — mỗi lần ở một bài khác.
+
+Đổi hết sang `DELETE` (29 bảng: 1447ms → 31ms) không nén cái đỏ đó lại, nó làm
+cái đỏ **hết chỗ xảy ra**: trần 10 giây giờ dư hai bậc độ lớn. Thứ `TRUNCATE`
+cho mà `DELETE` không cho là đặt lại `AUTO_INCREMENT`, và không bài nào cần —
+mọi id thật đều lấy từ bộ cố định hoặc từ body phản hồi.
+
+**Toàn bộ bộ tích hợp: 2301s → 224s.** Thứ tự xoá con → cha được kiểm bằng
+`information_schema` chứ không đọc bằng mắt, và nó lộ ra `tenants` là **con** của
+`users` (`fk_tenants_owner`) — bản cũ dọn `users` ở giữa, chỉ không nổ vì khoá
+ngoại đang tắt.
+
+### 2. "Load biểu đồ chậm" là Cube BIÊN DỊCH SCHEMA, không phải truy vấn
+
+Cube nhớ schema đã biên dịch theo cặp (tổ chức, `schemaVersion`), và
+`schemaVersion` là `MAX(updated_at)` của mọi mô hình còn sống — nên truy vấn đầu
+tiên sau **mỗi** lần sửa mô hình phải chờ biên dịch xong.
+
+| Schema                | Mỗi `schemaVersion` mới |
+| --------------------- | ----------------------- |
+| rỗng (0 cube)         | 36 – 244ms              |
+| 1 file, 1 cube        | **2746 – 3016ms**       |
+| 3 file, 11 cube       | 3165 – 4515ms           |
+
+Cách sửa là đổi **ai phải chờ**: `regenerateTenant` kết thúc bằng một lời gọi
+`/cubejs-api/v1/meta` **không `await`** — `/meta` làm đúng phần việc đắt (biên
+dịch) mà không chạy truy vấn nào xuống ClickHouse.
+
+| `/load` đầu tiên của một phiên bản schema mới | |
+| --------------------------------------------- | ------------------- |
+| không hâm nóng                                | 4555 / 5193 / 10283ms |
+| sau khi `/meta` đã hâm                        | **216 / 658 / 635ms** |
+
+Người vừa bấm Lưu đang chờ sẵn; người mở báo cáo thì không — và với khung 12 ô
+thì cả 12 ô xếp hàng sau đúng một lần biên dịch đó.
+
+Chỗ đó bịt được một nguyên nhân trong hai. Nguyên nhân còn lại là **Cube khởi
+động lại**, và nó do `startHamNongKhoiDong` lo: nối ngay sau
+`regenerateAllTenants` (phải sau, không song song — hâm vào một thư mục schema
+còn trống thì Cube nhớ luôn ngữ cảnh RỖNG dưới đúng `schemaVersion` đó), hâm
+tối đa 5 tổ chức, tuần tự, và thử lại tới 5 phút vì Cube cần tới 2 phút 7 giây
+sau khi `/readyz` xanh mới đáp nổi.
+
+| `/load` đầu tiên của một `schemaVersion` mới, Cube đã ổn định | |
+| ------------------------------------------------------------- | ------------------- |
+| không hâm                                                     | 903 / 1438 / 820ms  |
+| có `/meta` hâm trước                                          | **264 / 169 / 71ms** |
+
+⚠️ Và nó **không** làm biểu đồ đầu tiên sau `docker restart bi-cube` nhanh lên.
+Ngay sau restart còn một cái chậm thứ hai nằm trong hàng đợi Cube Store mà
+`/meta` không chạm tới: đo ở phút thứ 2 sau restart, cả hai nhánh đều ~5–6 giây
+dù ngữ cảnh đã hâm xong, phải tới khoảng phút thứ 5 mới về bảng trên. Trần 5 tổ
+chức và tính tuần tự là bắt buộc — hâm cả 63 tổ chức lúc boot chính là giả
+thuyết mà `regenerateAllTenants` đã loại.
+
+**Ngồi im KHÔNG làm nguội ngữ cảnh**, nên đừng thêm vòng ping định kỳ: cùng
+`schemaVersion`, nghỉ 150 giây mất 531ms và nghỉ 5 phút mất 351ms, so với
+1702–2972ms của một lần biên dịch thật. Ngữ cảnh chỉ nguội vì đúng hai nguyên
+nhân ở trên.
+
+### 3. JS lần tải đầu: 364 → 154 kB gzip
+
+Cả 43 trang từng nằm trong một chunk, nên trang **đăng nhập** cũng kéo về console
+vận hành, khung mô hình, wizard tải tệp và trang thanh toán. Trong đó có `exifr`
+(28 kB) đọc EXIF của **ảnh** — hệ thống này nhận Excel và CSV, nên nó không bao
+giờ chạy một dòng nào.
+
+| Bước                                        | Chunk vào cổng  |
+| ------------------------------------------- | --------------- |
+| trước                                       | 364,44 kB gzip  |
+| `lazy()` 31 trang trong `App.tsx`           | 233,01 kB       |
+| + `UploadWizard` nạp lười sau lần mở đầu    | 173,88 kB       |
+| + khung hỏi đáp nạp lười                    | **153,95 kB**   |
+
+Việc thứ hai là việc quyết định, và sourcemap chỉ ra vì sao: `HomePage` giữ nạp
+sẵn (nó là trang đầu tiên người đã đăng nhập thấy) → dùng `CreateReportMenu` →
+`import` tĩnh `UploadWizard` → toàn bộ Uppy ở lại, để phục vụ một hộp thoại chỉ
+mở khi bấm.
+
+Việc thứ ba từng bị **trả lại một lần** — xem mục dưới.
+
+### Một giả thuyết bị số đo loại, và một lần trả lại rồi làm được
+
+Ghi lại vì chúng nghe hợp lý, và vì cái giá của việc tin chúng là code tệ hơn mà
+không nhanh hơn:
+
+1. **Chia nhỏ ngữ cảnh Cube theo từng mô hình** — để sửa mô hình A không bắt B
+   biên dịch lại. Bảng ở §2 loại nó: 1 cube mất 2746ms, 11 cube mất 3165ms. Chi
+   phí là của mỗi **lần** biên dịch, gần như không tỉ lệ với số cube — nên chia
+   nhỏ chỉ tạo ra **nhiều lần** biên dịch hơn.
+
+2. **Nạp lười khung hỏi đáp** — KHÔNG bị loại, nhưng đáng ghi vì nó bị trả lại
+   một lần. Lần đầu: đo được 20,8 kB gzip, rồi trả lại vì nó làm đỏ 82 ca trong
+   `hoiDapPanel.test.tsx` — và 82 ca đó không đỏ vì viết dở, helper `dung()` của
+   chúng `render` rồi query ngay trong cùng một nhịp đồng bộ, đúng cách một bài
+   test nên viết.
+
+   Lần sau làm được, và chỗ sửa **không phải 82 ca**: cho `dung()` một đường
+   chờ, đúng một dòng `await import(...)`, rồi thêm chữ `await` ở lời gọi. Mỗi ca
+   vẫn render-rồi-query-đồng-bộ y như trước. Bài học là chẩn đoán đầu tiên —
+   "phải sửa 82 chỗ" — đã đếm đúng số lời gọi mà nhìn sai chỗ phải sửa.
+
+   Một dòng `await act(async () => {})` cũng từng có trong helper; bỏ ra rồi
+   chạy lại thì 84/84 vẫn xanh, không cảnh báo `act` nào, nên nó bị xoá. Giữ
+   một dòng không làm gì sẽ dạy người đọc sau rằng nó cần thiết.
+
+### Đo lại bằng gì
+
+| Muốn đo gì                      | Làm thế nào                                                                 |
+| ------------------------------- | --------------------------------------------------------------------------- |
+| Thời gian từng request          | `morgan('dev')` đã bật sẵn ở mọi môi trường khác production (`app.ts`)       |
+| Kích thước chunk                | `npm run build` — Vite in cả bản thô và bản gzip                            |
+| Cái gì nằm trong một chunk      | Đọc `dist/assets/*.js.map`, nhóm `sources` theo gói — xem cảnh báo dưới      |
+| Chi phí biên dịch của Cube      | `GET /cubejs-api/v1/meta` với một `schemaVersion` chưa từng dùng            |
+| Thời gian dọn database          | Đặt đồng hồ tạm quanh từng khối trong `resetDatabase`, ghi ra một tệp        |
+
+⚠️ Sourcemap đếm **byte nguồn, kể cả chú thích**. File trong repo này chú thích
+rất dày, nên những dòng `app: src/...` bị thổi lên nhiều lần so với byte thật ra
+chunk — `traLoi.ts` 145 kB nguồn nhưng chunk của panel chỉ 21 kB thô. Dùng nó để
+biết *cái gì* đang nằm trong chunk; còn *bao nhiêu* thì đọc con số gzip của
+`npm run build`.
+
 
 ---
 

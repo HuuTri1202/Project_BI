@@ -74,11 +74,21 @@ export function FolderRail({
   return (
     <nav
       aria-label={`Thư mục ${danhTu}`}
-      // `w-56` chứ không `w-60`: 16px trả lại cho bảng bên phải, và cột này
-      // không mất gì — tên thư mục vốn đã `truncate`, và 224px vẫn thừa cho
-      // những cái tên người ta thật sự đặt. Bảng Kho dữ liệu có mười cột và
-      // thiếu đúng chừng đó chỗ để nút "⋮" của dòng không bị cắt.
-      className="flex w-56 shrink-0 flex-col gap-0.5 overflow-y-auto pr-3"
+      /*
+       * `w-56` chứ không `w-60`: 16px trả lại cho bảng bên phải, và cột này
+       * không mất gì — tên thư mục vốn đã `truncate`, và 224px vẫn thừa cho
+       * những cái tên người ta thật sự đặt. Bảng Kho dữ liệu có mười cột và
+       * thiếu đúng chừng đó chỗ để nút "⋮" của dòng không bị cắt.
+       *
+       * ⚠️ Nhưng 224px CỐ ĐỊNH + `shrink-0` trên màn 390px thì chỉ còn ~150px
+       * cho một cái bảng khai `min-w-[52rem]` — vá B5. Đo trên điện thoại thật:
+       * Kho dữ liệu gần như không dùng được, tên bộ dữ liệu bị cắt giữa chừng,
+       * nút "Sau" của phân trang bị xén, và bốn cột cuối nằm ngoài tầm.
+       *
+       * Dưới `lg` thì cột này nằm TRÊN bảng, rộng hết khung và cao có trần: một
+       * danh sách thư mục dài không được phép đẩy cả bảng xuống dưới màn hình.
+       */
+      className="flex max-h-44 w-full shrink-0 flex-col gap-0.5 overflow-y-auto lg:max-h-none lg:w-56 lg:pr-3"
     >
       {/* Tiêu đề nhóm + nút thêm. Luôn có mặt kể cả khi chưa có thư mục nào:
           đây là chỗ DUY NHẤT tạo được thư mục, nên ẩn nó đi lúc danh sách rỗng

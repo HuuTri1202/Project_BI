@@ -1,4 +1,4 @@
-import type { FileExt, SemanticType } from '@bi/shared';
+import type { FileExt, NumberFormat, SemanticType } from '@bi/shared';
 import ExcelJS from 'exceljs';
 import { Readable } from 'node:stream';
 import Papa from 'papaparse';
@@ -46,6 +46,10 @@ export interface FileColumnRef {
   ordinal: number;
   /** Kiểu suy ra ở §7, quyết định cách chuẩn hoá ô. */
   semanticType: SemanticType;
+  /** Quy ước phân cách số của cột — `null` thì đọc từng ô như luật cũ. */
+  numberFormat?: NumberFormat | null;
+  /** Bản đồ gộp cách viết — `null` thì giữ nguyên từng ký tự của ô. */
+  valueMap?: Record<string, string> | null;
 }
 
 export interface ReadFileOptions {
@@ -83,7 +87,14 @@ export async function* readFileRows(
       if (read >= opts.maxRows) break outer;
       read += 1;
 
-      batch.push(opts.columns.map((c) => normalizeCell(raw[c.ordinal] ?? '', c.semanticType)));
+      batch.push(
+        opts.columns.map((c) =>
+          normalizeCell(raw[c.ordinal] ?? '', c.semanticType, {
+            numberFormat: c.numberFormat,
+            valueMap: c.valueMap,
+          }),
+        ),
+      );
 
       if (batch.length >= opts.batchSize) {
         yield batch;

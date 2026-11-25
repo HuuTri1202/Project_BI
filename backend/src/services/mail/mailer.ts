@@ -1,3 +1,4 @@
+import { type CheDoMail } from '@bi/shared';
 import nodemailer, { type Transporter } from 'nodemailer';
 
 import { env, isProduction, isTest } from '../../config/env';
@@ -37,8 +38,6 @@ export interface Thu {
   text: string;
   html?: string;
 }
-
-export type CheDoMail = 'smtp' | 'log' | 'tat';
 
 export function cheDoMail(): CheDoMail {
   if (env.SMTP_HOST !== undefined) return 'smtp';

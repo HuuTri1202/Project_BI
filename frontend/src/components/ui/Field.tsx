@@ -5,6 +5,17 @@ interface FieldShellProps {
   label: string;
   error?: string | undefined;
   hint?: string;
+  /**
+   * Đánh dấu ô BẮT BUỘC — vá B1.
+   *
+   * Lỗi đã đo khi dùng hệ thống như người thật: form đăng ký có 7 ô, không ô
+   * nào được đánh dấu, nên điền 6 ô rồi thấy nút vẫn xám mà không hiểu vì sao.
+   *
+   * Đặt ở `FieldShell` chứ không rắc dấu hoa thị vào từng chuỗi nhãn: nhãn là
+   * câu chữ, còn "bắt buộc" là một thuộc tính của ô — nhét nó vào chuỗi nghĩa
+   * là mọi chỗ ĐỌC nhãn (câu "còn thiếu", `aria-label`) đều mang theo dấu sao.
+   */
+  required?: boolean;
   /** Nhận id và id của phần mô tả để gắn vào control — xem giải thích useId bên dưới. */
   children: (ids: { id: string; describedBy: string | undefined }) => ReactNode;
 }
@@ -17,7 +28,7 @@ interface FieldShellProps {
  * trang (đăng nhập ở modal chẳng hạn) thì `htmlFor` sẽ trỏ nhầm ô, và lỗi đó im
  * lặng — bấm vào nhãn lại nhảy con trỏ sang ô của form kia.
  */
-function FieldShell({ label, error, hint, children }: FieldShellProps) {
+function FieldShell({ label, error, hint, required = false, children }: FieldShellProps) {
   const id = useId();
   const describedById = `${id}-desc`;
   const describedBy = error || hint ? describedById : undefined;
@@ -26,6 +37,16 @@ function FieldShell({ label, error, hint, children }: FieldShellProps) {
     <div className="space-y-1.5">
       <label htmlFor={id} className="block text-sm font-medium text-slate-700">
         {label}
+        {required && (
+          // `aria-hidden` + chữ "bắt buộc" cho trình đọc màn hình: một dấu hoa
+          // thị đọc lên thành "sao" thì không nói được gì.
+          <>
+            <span aria-hidden="true" className="ml-0.5 text-red-500">
+              *
+            </span>
+            <span className="sr-only"> (bắt buộc)</span>
+          </>
+        )}
       </label>
 
       {children({ id, describedBy })}
@@ -109,6 +130,8 @@ interface FieldProps extends ControlBinding {
    * nới hằng này.
    */
   suffix?: ReactNode;
+  /** Xem `FieldShellProps.required`. */
+  required?: boolean;
 }
 
 export function Field({
@@ -123,12 +146,13 @@ export function Field({
   placeholder,
   revealable = false,
   suffix,
+  required = false,
 }: FieldProps) {
   const [revealed, setRevealed] = useState(false);
   const inputType = revealable && revealed ? 'text' : type;
 
   return (
-    <FieldShell label={label} error={error} hint={hint}>
+    <FieldShell label={label} error={error} hint={hint} required={required}>
       {({ id, describedBy }) => (
         <div className="relative">
           <input
@@ -137,6 +161,7 @@ export function Field({
             autoComplete={autoComplete}
             placeholder={placeholder}
             aria-invalid={Boolean(error)}
+            aria-required={required || undefined}
             aria-describedby={describedBy}
             className={controlClass(
               error,
@@ -212,6 +237,8 @@ interface SelectFieldProps {
   allowEmpty?: boolean;
   error?: string | undefined;
   hint?: string;
+  /** Xem `FieldShellProps.required`. */
+  required?: boolean;
 }
 
 function normalizeOptions(
@@ -232,14 +259,16 @@ export function SelectField({
   allowEmpty = false,
   error,
   hint,
+  required = false,
 }: SelectFieldProps) {
   return (
-    <FieldShell label={label} error={error} hint={hint}>
+    <FieldShell label={label} error={error} hint={hint} required={required}>
       {({ id, describedBy }) => (
         <div className="relative">
           <select
             id={id}
             aria-invalid={Boolean(error)}
+            aria-required={required || undefined}
             aria-describedby={describedBy}
             // appearance-none + mũi tên tự vẽ: mũi tên mặc định của <select> khác
             // nhau hẳn giữa Chrome/Firefox/Safari và không đổi màu theo trạng

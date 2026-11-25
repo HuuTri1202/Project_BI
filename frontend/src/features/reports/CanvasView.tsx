@@ -40,6 +40,7 @@ export function CanvasView({
   data,
   refreshing = false,
   onRows,
+  congKhai = false,
 }: {
   page: ReportPageDto;
   /** Để từng ô tự hỏi trang nhóm tiếp theo của mình — xem `useReportVisualData`. */
@@ -54,6 +55,19 @@ export function CanvasView({
    * số của lúc nào trước khi kết luận gì từ nó.
    */
   refreshing?: boolean;
+  /**
+   * Đang vẽ cho người cầm LIÊN KẾT CHIA SẺ, không có phiên đăng nhập — mong
+   * muốn D5.
+   *
+   * Nó tắt đúng MỘT thứ: hai nút lật trang nhóm của từng ô. Chúng gọi
+   * `GET /v1/reports/:id/visuals/:visualId/data`, một route CÓ xác thực, nên
+   * trên trang công khai chúng sẽ 401 — một cú bấm hứa hẹn rồi không làm gì.
+   *
+   * KHÔNG dựng một bản vẽ riêng cho trang công khai: hai bản cài đặt của cùng
+   * một bố cục là thứ `CanvasGrid` sinh ra để tránh, và ở đây còn tệ hơn —
+   * người gửi liên kết sẽ không biết người nhận đang thấy cái gì.
+   */
+  congKhai?: boolean;
   /**
    * Ô khai lại bảng nó đang vẽ khi nó KHÔNG ở trang nhóm đầu — xem `trangNhom`
    * trong `ReportViewer`. `null` = ô đã về trang đầu, hoặc vừa rời màn hình.
@@ -80,7 +94,19 @@ export function CanvasView({
           Số liệu lần trước — đang cập nhật…
         </p>
       )}
-      <CanvasGrid minRows={rowsNeeded([...page.visuals, ...page.annotations])}>
+      {/* Chú thích bị ẩn khi khung xếp dọc (xem `index.css`), nên NÓI RA. Một
+          mũi tên biến mất không lời nào là một câu hỏi người đọc không trả lời
+          được: "máy mình hỏng, hay báo cáo vốn không có?" */}
+      {page.annotations.length > 0 && (
+        <p className="mb-2 text-xs text-slate-400 lg:hidden">
+          Màn hình hẹp nên các ô xếp dọc; {page.annotations.length} chú thích vẽ trên khung chỉ
+          hiện trên màn rộng.
+        </p>
+      )}
+      <CanvasGrid
+        className="khung-xem-doc"
+        minRows={rowsNeeded([...page.visuals, ...page.annotations])}
+      >
         {page.visuals.map((visual) => {
           const cell = byId.get(visual.id);
           return (
@@ -100,6 +126,7 @@ export function CanvasView({
               cell={cell}
               loading={data === undefined}
               onRows={onRows}
+              congKhai={congKhai}
             />
           );
         })}
@@ -142,6 +169,7 @@ function ViewCard({
   cell,
   loading,
   onRows,
+  congKhai,
 }: {
   /** `${mã trang}:${mã ô}` — cùng chuỗi đang làm `key`, xem `onRows`. */
   khoa: string;
@@ -150,6 +178,8 @@ function ViewCard({
   cell: ReportCanvasDataDto['visuals'][number] | undefined;
   loading: boolean;
   onRows?: ((khoa: string, bang: ReportDataDto | null) => void) | undefined;
+  /** Xem `CanvasView.congKhai`. */
+  congKhai: boolean;
 }): React.ReactElement {
   /**
    * Trang NHÓM của riêng ô này — trạng thái của một lượt xem, không được lưu.
@@ -225,6 +255,21 @@ function ViewCard({
             {title}
           </h3>
         )}
+        {/*
+          Ô ĐÃ LỌC thì nói ra, ngay cạnh tiêu đề — §B1.
+          Không có dòng này thì "Thành tiền theo Chi nhánh" đọc là doanh thu
+          của chi nhánh, trong khi nó có thể chỉ là doanh thu GrabFood tháng
+          10. Nằm trong DOM nên ảnh PNG/PDF (chụp từ chính DOM này) cũng mang
+          theo; tệp Excel thì chưa — xem ghi chú ở `excelBaoCao`.
+        */}
+        {rows?.locMoTa !== undefined && rows.locMoTa !== '' && (
+          <span
+            className="max-w-[45%] shrink-0 truncate rounded bg-amber-50 px-1.5 py-0.5 text-[10px] text-amber-800"
+            title={`Đang lọc: ${rows.locMoTa}`}
+          >
+            lọc: {rows.locMoTa}
+          </span>
+        )}
         {/* Lật trang nhóm là một vòng tới Cube. Nói ra, nếu không thì một cú bấm
             không thấy gì đổi trong nửa giây đọc ra như một cú bấm trượt. */}
         {paged.isFetching && (
@@ -263,7 +308,9 @@ function ViewCard({
               chartType={visual.chartType}
               data={rows}
               options={visual.config.options}
-              onPage={setGroupPage}
+              // `undefined` = `Pager` không vẽ gì (xem `ReportChart`). Trang
+              // công khai không có token để lật trang nhóm.
+              onPage={congKhai ? undefined : setGroupPage}
               fit
             />
           </div>

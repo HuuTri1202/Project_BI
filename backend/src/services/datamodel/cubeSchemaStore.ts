@@ -63,6 +63,8 @@ export interface GeneratedCubeFile {
  * mount nó sẽ vui vẻ đọc một file đang ghi dở rồi báo lỗi cú pháp không tài nào
  * tái hiện được. `rename` trong cùng một thư mục là thao tác nguyên tử ở mọi hệ
  * thống file thực tế.
+ *
+ * ⚠️ Nguyên tử KHÔNG có nghĩa là luôn thực hiện được — xem `doiTenCoThuLai`.
  */
 export async function writeTenantSchema(
   tenantId: number,
@@ -77,7 +79,7 @@ export async function writeTenantSchema(
       const target = path.join(dir, file.fileName);
       const temp = `${target}.tmp`;
       await writeFile(temp, file.content, 'utf8');
-      await rename(temp, target);
+      await doiTenCoThuLai(temp, target);
     }
 
     const keep = new Set(files.map((f) => f.fileName));
@@ -93,12 +95,94 @@ export async function writeTenantSchema(
   }
 }
 
+/**
+ * Mã lỗi nghĩa là "một tiến trình khác đang giữ file, thử lại sau" — xem dưới.
+ *
+ * `EPERM` là mã Windows trả về cho chuyện này; `EACCES` và `EBUSY` cùng họ và đã
+ * được báo ở các dự án khác với cùng nguyên nhân. Mọi mã khác (`ENOENT`,
+ * `ENOSPC`, `EROFS`) là lỗi THẬT và phải ném ngay — thử lại chỉ làm chậm một lỗi
+ * sẽ không bao giờ tự hết.
+ */
+const LOI_GIU_FILE = new Set(['EPERM', 'EACCES', 'EBUSY']);
+
+/** Năm lần, giãn dần 20/40/60/80ms — tổng xấu nhất 200ms trước khi ném. */
+const SO_LAN_DOI_TEN = 5;
+
+/**
+ * `rename` có THỬ LẠI — và đây là lỗi thật đã đo được, không phải đề phòng.
+ *
+ * ═══ Triệu chứng ════════════════════════════════════════════════════════════
+ *
+ *     EPERM: operation not permitted,
+ *     rename '...	enants\dm155.js.tmp' -> '...	enants\dm155.js'
+ *
+ * Người dùng nhận 503 kèm câu "Kiểm tra biến CUBE_SCHEMA_DIR trong backend/.env"
+ * — chỉ sai hoàn toàn chỗ cần sửa, vì biến đó đúng và thư mục ghi được. Lần tạo
+ * mô hình ngay sau đó thành công. Đã gặp 4 lần trong một buổi chạy bộ e2e.
+ *
+ * ═══ Nguyên nhân ════════════════════════════════════════════════════════════
+ *
+ * Trên Windows, `rename` thất bại khi tiến trình khác đang GIỮ handle của file
+ * nguồn hoặc file đích. Thư mục này nằm trong bind mount `./cube:/cube/conf` của
+ * container Cube, và Cube theo dõi cả cây `model/` — nên cứ ghi xong một file là
+ * có một bộ theo dõi mở nó ra đọc, đúng vào khoảnh khắc ta gọi `rename`. Trình
+ * quét virus của Windows làm y như vậy với mọi file mới tạo.
+ *
+ * Tức là: CÀNG ĐÚNG về mặt nguyên tử thì càng dễ gặp: chính cái file tạm mà ta
+ * tạo ra để tránh đọc dở là cái bị bộ theo dõi chộp lấy.
+ *
+ * ═══ Vì sao thử lại là cách ĐÚNG ở đây, không phải vá tạm ══════════════════
+ *
+ * Điều kiện gây lỗi tự hết sau vài mili giây, và không có API nào để xin hệ điều
+ * hành đợi: Win32 không cho mở file với "đợi tới khi hết tranh chấp". Mọi lựa
+ * chọn khác đều tệ hơn — ghi thẳng vào file đích thì bỏ mất tính nguyên tử (Cube
+ * đọc file ghi dở, đúng cái mà `.tmp` sinh ra để tránh), còn khoá riêng thì
+ * không ràng buộc được tiến trình nằm ngoài ứng dụng.
+ *
+ * Trần 200ms là CÓ HẠN có chủ ý: một lỗi quyền thật vẫn phải ném, chỉ chậm thêm
+ * một nhịp — chứ không treo một request vô hạn.
+ */
+async function doiTenCoThuLai(tu: string, den: string): Promise<void> {
+  for (let lan = 1; ; lan += 1) {
+    try {
+      await rename(tu, den);
+      return;
+    } catch (cause) {
+      const code = (cause as { code?: string }).code;
+      if (lan >= SO_LAN_DOI_TEN || code === undefined || !LOI_GIU_FILE.has(code)) throw cause;
+      await new Promise((xong) => setTimeout(xong, lan * 20));
+    }
+  }
+}
+
 /** Tổ chức không còn mô hình nào — xoá cả thư mục thay vì để lại một thư mục rỗng. */
 export async function removeTenantSchema(tenantId: number): Promise<void> {
   try {
     await rm(tenantDir(tenantId), { recursive: true, force: true });
   } catch (cause) {
     throw unwritable(cause, tenantDir(tenantId));
+  }
+}
+
+/**
+ * Xoá thư mục của những tổ chức KHÔNG còn trong danh sách — gọi một lần lúc boot.
+ *
+ * Thư mục mồ côi không vô hại. `repositoryFactory` không đọc nó, nên không truy
+ * vấn nào sai; nhưng Cube theo dõi cả cây `model/`, và chu kỳ làm mới của nó cứ
+ * thế thử biên dịch lại một schema trỏ tới bảng đã bị DROP — lặp vô hạn trong
+ * log và đốt CPU cho tới khi ai đó xoá tay.
+ *
+ * Chỉ xoá thư mục có tên là SỐ NGUYÊN. Thứ gì người ta đặt tay vào đây thì để
+ * nguyên — một lần `rm -rf` chạy theo tên lạ là chuyện không sửa lại được.
+ */
+export async function pruneUnknownTenants(tenantIds: readonly number[]): Promise<void> {
+  const root = path.resolve(process.cwd(), env.CUBE_SCHEMA_DIR);
+  const keep = new Set(tenantIds.map(String));
+
+  for (const entry of await readdir(root, { withFileTypes: true })) {
+    if (entry.isDirectory() && /^\d+$/.test(entry.name) && !keep.has(entry.name)) {
+      await rm(path.join(root, entry.name), { recursive: true, force: true });
+    }
   }
 }
 

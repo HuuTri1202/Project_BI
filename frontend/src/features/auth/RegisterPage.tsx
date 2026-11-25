@@ -1,13 +1,16 @@
-import { JOB_TITLES, registerSchema, type JobTitle, type RegisterInput } from '@bi/shared';
+import { registerSchema, type RegisterInput } from '@bi/shared';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { Link, useNavigate } from 'react-router-dom';
 
+import { redirectTargetFor } from '../../auth/redirectTarget';
+import { useAuth } from '../../auth/useAuth';
 import { getApiError } from '../../services/apiClient';
 import { register as registerAccount } from '../../services/authApi';
 import { AuthLayout, FormError, SubmitButton } from './AuthLayout';
-import { Field, SelectField } from '../../components/ui/Field';
+import { Field } from '../../components/ui/Field';
+import { NutGoogle } from './NutGoogle';
 
 /**
  * Form đăng ký.
@@ -17,8 +20,36 @@ import { Field, SelectField } from '../../components/ui/Field';
  * dùng bị từ chối bởi một luật server không hề có) hay lỏng hơn (form báo hợp lệ
  * rồi server trả 400).
  */
+/**
+ * Tên NGẮN của từng ô — vá B1.
+ *
+ * Một bảng, hai nơi dùng: nhãn trên ô, và câu "Còn thiếu: …" dưới nút. Viết tay
+ * hai lần thì lần sửa đầu tiên làm chúng lệch nhau, và khi đó câu "còn thiếu"
+ * gọi tên một ô không tồn tại trên màn hình.
+ *
+ * Thứ tự các khoá là thứ tự ĐỌC của form, nên câu "còn thiếu" liệt kê theo đúng
+ * chiều mắt người dùng đang đi.
+ */
+const NHAN_O: Record<keyof RegisterInput, string> = {
+  fullName: 'Họ và tên',
+  email: 'Email',
+  password: 'Mật khẩu',
+  confirmPassword: 'Nhập lại mật khẩu',
+  companyName: 'Tên công ty',
+};
+
+/**
+ * Những ô BẮT BUỘC, theo thứ tự đọc của form.
+ *
+ * `companyName` cố ý KHÔNG có trong danh sách này dù nó có nhãn ở trên: nó là ô
+ * tuỳ ý, và liệt kê nó trong câu "Còn thiếu: …" sẽ nói với người dùng rằng họ
+ * phải điền một thứ mà hệ thống không đòi.
+ */
+const O_BAT_BUOC = ['fullName', 'email', 'password', 'confirmPassword'] as const;
+
 export function RegisterPage() {
   const navigate = useNavigate();
+  const { loginWithGoogle } = useAuth();
   const [formError, setFormError] = useState<string | null>(null);
 
   const { register, handleSubmit, setError, watch, formState } = useForm<RegisterInput>({
@@ -33,16 +64,14 @@ export function RegisterPage() {
     // là "chưa hợp lệ, chưa ai chạm vào" — đúng nghĩa "Submit disabled mặc định".
     defaultValues: {
       fullName: '',
-      companyName: '',
       email: '',
       password: '',
       confirmPassword: '',
-      phone: '',
-      // Ép kiểu ở đây là CỐ Ý: '' không phải một chức danh hợp lệ, và đúng như
-      // vậy — nó là trạng thái "chưa chọn" mà schema phải từ chối để nút Submit
-      // còn khoá. Kiểu của zod mô tả dữ liệu ĐÃ HỢP LỆ, không mô tả trạng thái
-      // dở dang của form.
-      jobTitle: '' as JobTitle,
+      // `undefined` chứ không `''`: ô tuỳ ý để trống nghĩa là KHÔNG KHAI, và
+      // `companyNameRule` sẽ từ chối chuỗi rỗng. Để `''` ở đây thì form không
+      // bao giờ hợp lệ cho tới khi người dùng gõ một tên công ty — đúng thứ vừa
+      // được bỏ khỏi phần bắt buộc.
+      companyName: undefined,
     },
   });
 
@@ -97,6 +126,30 @@ export function RegisterPage() {
     }
   });
 
+  /**
+   * Đăng ký bằng Google — cùng MỘT endpoint với đăng nhập.
+   *
+   * `/auth/google` tự tạo tài khoản khi email chưa có ai dùng, nên ở đây không
+   * cần đường riêng nào cho "đăng ký". Lợi thêm một điều: người đã có tài khoản
+   * mà lạc vào trang này vẫn vào được bằng một cú bấm, thay vì nhận một lỗi
+   * "email đã được đăng ký" cho thao tác đúng đắn của họ.
+   *
+   * Khác đăng nhập ở đúng một chỗ: KHÔNG có `from` để quay về, vì người ở trang
+   * đăng ký chưa từng bị chặn ở một trang nào cả.
+   *
+   * ⚠️ NÉM LẠI lỗi thay vì tự hiện. `NutGoogle` hiện thông báo ngay dưới nút,
+   * cạnh chỗ người dùng vừa bấm.
+   */
+  async function dangKyGoogle(credential: string): Promise<void> {
+    setFormError(null);
+    try {
+      const outcome = await loginWithGoogle(credential);
+      navigate(redirectTargetFor(outcome.user, outcome.role, null), { replace: true });
+    } catch (err) {
+      throw new Error(getApiError(err).message);
+    }
+  }
+
   /** Chỉ hiện lỗi khi người dùng đã chạm vào ô — không quát họ trước khi họ gõ. */
   const errorOf = (field: keyof RegisterInput): string | undefined =>
     touchedFields[field] ? errors[field]?.message : undefined;
@@ -112,6 +165,20 @@ export function RegisterPage() {
    * Đây thuần tuý là lớp hiển thị: `isValid` (và do đó nút Submit) vẫn do
    * resolver quyết định, và backend vẫn kiểm lại bằng chính schema đó.
    */
+  /*
+   * Những ô CÒN TRỐNG, để nói thẳng vì sao nút Đăng ký còn xám — vá B1.
+   *
+   * Lỗi đã đo khi dùng hệ thống như người thật: điền 6 trong 7 ô, nút vẫn xám,
+   * và KHÔNG có chữ nào nói vì sao. Lỗi của từng ô thì chỉ hiện sau khi ô đó
+   * được chạm vào (`touchedFields`), nên một ô chưa ai bấm vào thì im lặng hoàn
+   * toàn — người dùng không có cách nào biết mình còn thiếu cái gì.
+   *
+   * `watch()` không tham số nên component render lại mỗi lần gõ. Với một form
+   * bảy ô thì đó là cái giá đúng để trả.
+   */
+  const dangNhapLieu = watch();
+  const oConTrong = O_BAT_BUOC.filter((field) => (dangNhapLieu[field] ?? '') === '');
+
   const password = watch('password');
   const confirmPassword = watch('confirmPassword');
   const confirmMismatch =
@@ -121,8 +188,8 @@ export function RegisterPage() {
 
   return (
     <AuthLayout
-      title="Tạo tổ chức mới"
-      subtitle="Bạn sẽ là quản trị viên của tổ chức vừa lập."
+      title="Tạo tài khoản"
+      subtitle="Không gian làm việc của bạn được dựng ngay cùng tài khoản."
       footer={
         <>
           Đã có tài khoản?{' '}
@@ -143,7 +210,7 @@ export function RegisterPage() {
        * thật, nhiều lần — chữ nhỏ dưới ô "Tên công ty" không đủ để ai đọc.
        */}
       <div className="mb-5 rounded-lg border border-brand-200 bg-brand-50 px-4 py-3 text-sm text-brand-900">
-        <p className="font-medium">Đăng ký ở đây là lập một tổ chức MỚI.</p>
+        <p className="font-medium">Đăng ký ở đây tạo một tổ chức MỚI của riêng bạn.</p>
         <p className="mt-1 text-brand-700">
           Nếu bạn được mời vào một tổ chức đã có, đừng dùng form này — hãy hỏi quản trị viên
           của tổ chức đó để họ tạo tài khoản và gửi bạn mật khẩu tạm.
@@ -152,13 +219,15 @@ export function RegisterPage() {
 
       <form onSubmit={onSubmit} noValidate className="space-y-4">
         <Field
-          label="Họ và tên"
+          label={NHAN_O.fullName}
+          required
           autoComplete="name"
           error={errorOf('fullName')}
           registration={register('fullName')}
         />
         <Field
-          label="Email"
+          label={NHAN_O.email}
+          required
           type="email"
           autoComplete="email"
           error={errorOf('email')}
@@ -172,7 +241,8 @@ export function RegisterPage() {
 
         <div className="grid gap-4 sm:grid-cols-2">
           <Field
-            label="Mật khẩu"
+            label={NHAN_O.password}
+            required
             type="password"
             autoComplete="new-password"
             revealable
@@ -180,7 +250,8 @@ export function RegisterPage() {
             registration={register('password')}
           />
           <Field
-            label="Nhập lại mật khẩu"
+            label={NHAN_O.confirmPassword}
+            required
             type="password"
             autoComplete="new-password"
             revealable
@@ -194,27 +265,20 @@ export function RegisterPage() {
           </p>
         )}
 
+        {/*
+          Ô TUỲ Ý duy nhất của form, và nó được đặt cuối cùng là có lý: ba ô trên
+          là danh tính, ô này là một quyết định về tổ chức mà người mới chưa cần
+          phải có ngay. `setValueAs` đổi ô trống thành `undefined` để backend
+          hiểu là "không khai" chứ không phải "tên công ty rỗng".
+        */}
         <Field
-          label="Số điện thoại"
-          type="tel"
-          autoComplete="tel"
-          hint="Gõ kiểu nào cũng được: 0901234567, +84 901 234 567…"
-          error={errorOf('phone')}
-          registration={register('phone')}
-        />
-        <Field
-          label="Tên công ty (tổ chức sẽ được tạo)"
+          label={`${NHAN_O.companyName} (không bắt buộc)`}
           autoComplete="organization"
-          hint="Đây là tên tổ chức mới mà bạn làm quản trị viên."
+          hint="Để trống thì chúng tôi dựng một không gian riêng mang tên bạn — đổi tên sau ở trang Tổ chức."
           error={errorOf('companyName')}
-          registration={register('companyName')}
-        />
-        <SelectField
-          label="Chức danh"
-          options={JOB_TITLES}
-          placeholder="— Chọn chức danh —"
-          error={errorOf('jobTitle')}
-          registration={register('jobTitle')}
+          registration={register('companyName', {
+            setValueAs: (v: string) => (v.trim() === '' ? undefined : v.trim()),
+          })}
         />
 
         <SubmitButton
@@ -224,7 +288,25 @@ export function RegisterPage() {
         >
           Đăng ký
         </SubmitButton>
+
+        {/* Nút xám thì phải nói vì sao xám. `role="status"` chứ không `alert`:
+            đây là tình trạng của form, không phải một lỗi người dùng vừa gây
+            ra — `alert` sẽ cắt ngang trình đọc màn hình ở mỗi ký tự được gõ. */}
+        {!isValid && !isSubmitting && (
+          <p role="status" className="text-center text-sm text-slate-500">
+            {oConTrong.length > 0
+              ? `Còn thiếu: ${oConTrong.map((field) => NHAN_O[field]).join(', ')}.`
+              : 'Hãy sửa những ô đang báo đỏ để tiếp tục.'}
+          </p>
+        )}
       </form>
+
+      {/* NGOÀI thẻ <form>: nút của Google không phải một control của form này, và
+          để trong đó thì Enter khi đang gõ mật khẩu có thể kích hoạt nhầm nó
+          thay vì nút Đăng ký. Cùng lý lẽ với trang đăng nhập. */}
+      <div className="mt-6">
+        <NutGoogle onCredential={dangKyGoogle} disabled={isSubmitting} text="signup_with" />
+      </div>
     </AuthLayout>
   );
 }

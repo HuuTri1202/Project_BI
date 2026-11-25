@@ -825,7 +825,9 @@ function Builder({
   function addByClick(field: DragField): void {
     if (selected === null) return;
     const slot = slotForClick(selected, field, new Set(dimensions.map((f) => f.id)));
-    const changes = assignField(selected, slot, field);
+    // Kiểu của trường quyết định cách sắp mặc định — xem `assignField`.
+    const kieu = [...dimensions, ...measures].find((f) => f.id === field.id)?.cubeType;
+    const changes = assignField(selected, slot, field, kieu);
     if (changes !== null) patch(selected.id, changes);
   }
 

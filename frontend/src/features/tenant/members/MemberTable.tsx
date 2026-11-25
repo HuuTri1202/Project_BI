@@ -1,5 +1,6 @@
 import {
   memberStatusOf,
+  nhanChucDanh,
   MEMBER_STATUS_LABELS,
   TENANT_ROLE_LABELS,
   type AdminUserDto,
@@ -69,7 +70,9 @@ export function MemberTable({
             <Tr key={user.userId}>
               <Td>
                 <div className="font-medium text-slate-900">{user.fullName}</div>
-                {user.jobTitle && <div className="text-xs text-slate-500">{user.jobTitle}</div>}
+                {nhanChucDanh(user.jobTitle) !== null && (
+                  <div className="text-xs text-slate-500">{nhanChucDanh(user.jobTitle)}</div>
+                )}
               </Td>
               <Td>
                 <span className="text-slate-600">{user.email}</span>

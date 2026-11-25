@@ -39,9 +39,14 @@ apiClient.interceptors.request.use((config: InternalAxiosRequestConfig) => {
  *   trạng thái ẩn danh; để interceptor chen vào sẽ mất `location.state.from`,
  *   người dùng đăng nhập xong không quay lại được trang đang định vào.
  *
- * Nói gọn: hai endpoint này THIẾT LẬP phiên, không phải SỬ DỤNG phiên.
+ * `/auth/google` — cùng lý do với `/auth/login`, và nó còn dễ mắc hơn: endpoint
+ *   này trả 401 cho "Google chưa xác nhận email" và cho ID token hỏng. Thiếu nó
+ *   ở đây thì người dùng bị đá khỏi trang đăng nhập đúng lúc cần đọc câu giải
+ *   thích vì sao không vào được.
+ *
+ * Nói gọn: ba endpoint này THIẾT LẬP phiên, không phải SỬ DỤNG phiên.
  */
-const SESSION_ENDPOINTS = ['/auth/login', '/auth/me'];
+const SESSION_ENDPOINTS = ['/auth/login', '/auth/google', '/auth/me'];
 
 type UnauthorizedHandler = () => void;
 let onUnauthorized: UnauthorizedHandler | null = null;

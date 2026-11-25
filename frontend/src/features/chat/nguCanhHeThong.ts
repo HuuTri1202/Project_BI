@@ -1,3 +1,4 @@
+import { MAX_PAGE_SIZE } from '@bi/shared';
 import { useQuery } from '@tanstack/react-query';
 import { useMemo } from 'react';
 
@@ -15,6 +16,7 @@ import {
   duKienKhoDuLieu,
   duKienDonHang,
   duKienThanhToan,
+  duKienToChuc,
   duKienTrangChu,
   duKienWorkspace,
   tomTatBoDuLieu,
@@ -22,7 +24,19 @@ import {
 } from './duKienTrang';
 import type { Nguon } from './nguCanh';
 
-const TRAN = 200;
+/**
+ * Trần của MÁY CHỦ, không phải một con số chọn ở đây.
+ *
+ * Trước bản này nó là `200`, và `paginationSchema` của backend chặn ở 100 — nên
+ * cả ba truy vấn dưới đây trả 400 và khung hỏi đáp không thấy gì về kho dữ
+ * liệu, mô hình hay đơn hàng của người dùng. Nó không báo lỗi, chỉ trả lời như
+ * thể tổ chức chưa có gì.
+ *
+ * Bắt được bằng `e2e/dang-nhap.spec.ts`: ca đó thu mọi phản hồi >= 400 của
+ * chính ta trong lúc mở khung hỏi đáp trên trình duyệt thật. Test frontend mock
+ * API nên không thấy, test backend không mở màn hình nên cũng không thấy.
+ */
+const TRAN = MAX_PAGE_SIZE;
 
 const HOI_DATASET = {
   page: 1,
@@ -184,6 +198,21 @@ export function useNguCanhHeThong(dangMo: boolean): Nguon[] {
     const tomTat: Nguon = {
       ten: 'Tổng quan toàn tổ chức',
       duKien: [
+        /*
+         * TÊN TỔ CHỨC — thứ hiện ngay chân sidebar mà khung không trả lời được.
+         *
+         * Đo ngày 24/11/2026: "tổ chức tôi tên gì" bế tắc ở MỌI trang, kể cả
+         * khi ngữ cảnh xuyên hệ thống đã tải xong 18 dữ kiện. Nó không nằm
+         * trong dữ kiện nào cả — `duKienToChuc` chỉ được khai ở trang Tổ chức.
+         * Khung nói không biết một thứ người dùng đang nhìn thẳng vào là kiểu
+         * hỏng khó tha nhất; chú thích của `duKienDanhSachBaoCao` đã viết đúng
+         * câu đó cho loại biểu đồ, và đây là cùng một lỗi ở một chỗ khác.
+         *
+         * Lấy từ `useAuth` chứ không gọi thêm endpoint: `GET /auth/me` đã trả
+         * tổ chức đang mở từ lúc khôi phục phiên, nên đây là dữ kiện duy nhất
+         * trong bản tóm tắt không tốn một lượt gọi mạng nào.
+         */
+        ...(tenant === null ? [] : (duKienToChuc(tenant)[0]?.duKien ?? [])),
         ...(kd === undefined ? [] : tomTatBoDuLieu(kd.items, kd.total, PHAM)),
         ...(mh === undefined ? [] : tomTatMoHinh(mh.items, mh.total, PHAM)),
         ...(dsKetNoi[0]?.duKien ?? []),
@@ -230,5 +259,5 @@ export function useNguCanhHeThong(dangMo: boolean): Nguon[] {
       ...dsKetNoi.slice(1),
       ...trangChu.slice(1),
     ];
-  }, [kho.data, moHinh.data, ketNoi.data, nha.data, workspace.data, goi.data, donHang.data]);
+  }, [kho.data, moHinh.data, ketNoi.data, nha.data, workspace.data, goi.data, donHang.data, tenant]);
 }

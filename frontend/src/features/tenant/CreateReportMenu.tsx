@@ -1,10 +1,24 @@
-import { useEffect, useRef, useState } from 'react';
+import { Suspense, lazy, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 
 import { useDatDoc } from '../../components/ui/viTriNoi';
 import { usePermissions } from '../../auth/usePermissions';
 import { useHetHanMuc } from '../billing/hooks';
-import { UploadWizard } from '../datasets/wizard/UploadWizard';
+/**
+ * Wizard tải tệp nạp LƯỜI — đây là thứ kéo Uppy ra khỏi lần tải đầu.
+ *
+ * `HomePage` nạp SẴN (nó là trang đầu tiên người đã đăng nhập thấy), và nó
+ * dùng nút này, nên một `import` tĩnh ở đây đủ để giữ cả Uppy trong chunk vào
+ * cổng. Đo bằng sourcemap của chunk đó: `@uppy/dashboard` 163 kB nguồn,
+ * `@uppy/core` 80 kB, `@uppy/aws-s3` 50 kB, `@uppy/utils` 39 kB, cùng `exifr`
+ * 28 kB mà Uppy kéo theo để đọc EXIF của ẢNH — hệ thống này tải lên Excel và
+ * CSV, nên 28 kB đó không bao giờ chạy một dòng nào.
+ *
+ * Tất cả để phục vụ một hộp thoại chỉ mở khi người ta BẤM vào.
+ */
+const UploadWizard = lazy(() =>
+  import('../datasets/wizard/UploadWizard').then((m) => ({ default: m.UploadWizard })),
+);
 
 /**
  * Nút "Tạo báo cáo" — §4.9, nay chọn theo NGUỒN SỐ LIỆU (§10.8).
@@ -46,6 +60,18 @@ import { UploadWizard } from '../datasets/wizard/UploadWizard';
  * `UploadWizard` để biết vì sao việc này KHÔNG phải là mang cơ chế tự sinh mô
  * hình (migration 19/20) trở lại.
  *
+ * ═══ Mục thứ ba: bộ dữ liệu ĐÃ CÓ trong kho (vá B2) ════════════════════════
+ *
+ * Đo khi dùng hệ thống như người thật: người vừa tải dữ liệu lên hôm trước đứng
+ * trước menu này và không có mục nào dành cho họ. "Dùng file Excel/CSV" mở lại
+ * wizard tải lên — tức là bảo họ tải tệp đó lên lần nữa — còn "từ mô hình có
+ * sẵn" thì đòi một mô hình mà họ chưa từng tạo.
+ *
+ * Mục mới chỉ ĐIỀU HƯỚNG tới Kho dữ liệu, nơi menu dòng có "Tạo báo cáo" thật.
+ * Không dựng một bộ chọn bộ dữ liệu ở đây: hai chỗ chọn cho cùng một việc là
+ * hai bộ luật sẽ lệch nhau ngay lần thêm một lựa chọn — đúng lý lẽ đã xoá
+ * `PickDataModelModal` ở §10.10.
+ *
  * ═══ Không còn hộp thoại hỏi cấu hình ══════════════════════════════════════
  *
  * Tới §10.8, nút này mở một hộp thoại hỏi chiều, thước đo, loại biểu đồ và tên,
@@ -60,6 +86,12 @@ const ITEMS = [
     label: 'Tạo nhanh với file Excel/CSV',
     hint: 'Tải file lên rồi vào thẳng trình dựng — không phải cấu hình mô hình',
     icon: 'M13 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9l-6-6Zm0 0v6h6',
+  },
+  {
+    key: 'dataset' as const,
+    label: 'Từ bộ dữ liệu đã có trong kho',
+    hint: 'Mở Kho dữ liệu rồi bấm "Tạo báo cáo" trên dòng của bộ cần dùng',
+    icon: 'M4 20V10m5 10V4m5 16v-7m5 7V8',
   },
   {
     key: 'model' as const,
@@ -87,6 +119,14 @@ export function CreateReportMenu({
   const duoiThuMuc = folder === '' ? '' : `?folder=${encodeURIComponent(folder)}`;
   const [open, setOpen] = useState(false);
   const [wizardOpen, setWizardOpen] = useState(false);
+  /** Đã bấm mở wizard lần nào chưa — cổng nạp lười, xem chỗ gắn ở dưới. */
+  const [daMoWizard, setDaMoWizard] = useState(false);
+
+  /** Một chỗ duy nhất bật cả hai cờ — hai chỗ gọi sẽ lệch nhau một ngày nào đó. */
+  const moWizard = (): void => {
+    setDaMoWizard(true);
+    setWizardOpen(true);
+  };
   const rootRef = useRef<HTMLDivElement>(null);
   /*
    * Hộp bung ra mở XUỐNG hay LÊN — xem `viTriNoi.ts`.
@@ -184,7 +224,15 @@ export function CreateReportMenu({
               role="menuitem"
               onClick={() => {
                 setOpen(false);
-                if (item.key === 'file') setWizardOpen(true);
+                if (item.key === 'file') moWizard();
+                // Vá B2 — KHÔNG mở hộp thoại chọn bộ dữ liệu ở đây. Trước bản
+                // này mục "dùng file" là đường duy nhất cho người đã có dữ liệu
+                // trong kho, và nó bảo họ tải tệp đó lên lần nữa. Mục mới đưa
+                // họ tới chỗ có hành động thật (menu dòng của Kho dữ liệu) thay
+                // vì dựng một bộ chọn thứ hai cho cùng một việc — hai chỗ chọn
+                // là hai bộ luật sẽ lệch nhau, đúng lý lẽ đã xoá
+                // `PickDataModelModal` ở §10.10.
+                else if (item.key === 'dataset') void navigate('/datasets');
                 else void navigate(`/reports/new${duoiThuMuc}`);
               }}
               className="flex w-full items-start gap-3 rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-slate-50"
@@ -213,12 +261,21 @@ export function CreateReportMenu({
       {/* `goal="report"` là toàn bộ điểm khác của nhánh này: wizard nạp file
           như thường, rồi dựng hộ một mô hình ẩn trên đúng các sheet vừa tích và
           đi thẳng vào trình dựng. Xem `UploadWizard`. */}
-      <UploadWizard
-        open={wizardOpen}
-        onClose={() => setWizardOpen(false)}
-        goal="report"
-        folder={folder}
-      />
+      {/* Gắn sau lần mở ĐẦU TIÊN, rồi giữ gắn — chứ không gỡ mỗi lần đóng.
+          `daMoWizard` không bao giờ về false, nên từ lần thứ hai trở đi hộp
+          thoại hành xử đúng như trước bản này: vẫn nhận `open={false}` và vẫn
+          chạy effect dọn trạng thái của nó. Gỡ hẳn khi đóng sẽ bỏ qua effect ấy
+          và đổi hành vi, chứ không chỉ đổi lúc nào tải code. */}
+      {daMoWizard && (
+        <Suspense fallback={null}>
+          <UploadWizard
+            open={wizardOpen}
+            onClose={() => setWizardOpen(false)}
+            goal="report"
+            folder={folder}
+          />
+        </Suspense>
+      )}
     </div>
   );
 }
