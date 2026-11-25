@@ -35,6 +35,35 @@
 #
 # TAG: mọi image đều pin phiên bản cụ thể, KHÔNG dùng :latest — hai máy pull ở
 # hai thời điểm khác nhau sẽ ra hai bản khác nhau, và lỗi kiểu đó rất khó tìm.
+#
+# ─── CỔNG chỉ nghe 127.0.0.1 ────────────────────────────────────────────────
+#
+# Mọi dòng `ports:` dưới đây đều có tiền tố `127.0.0.1:`. Không có nó, Docker
+# bind ra 0.0.0.0, tức là MySQL/Redis/MinIO/ClickHouse/Cube nghe trên MỌI card
+# mạng của máy — trên laptop thì là mạng LAN, trên một máy ảo có IP công khai thì
+# là cả Internet, và thứ duy nhất còn che là tường lửa của nhà cung cấp.
+#
+# Backend KHÔNG chạy trong Docker khi dev, nó gọi vào qua localhost nên vẫn thấy
+# đủ. Container gọi nhau thì đi qua `bi-network` bằng tên service
+# (`CUBEJS_DB_HOST: clickhouse`), không qua cổng đã publish. Nên tiền tố này
+# không chặn đường của ai.
+#
+# ⚠️ MỘT NGOẠI LỆ ở production: trình duyệt tải tệp THẲNG lên MinIO bằng
+# presigned URL (§7.4), nên cổng 9000 phải tới được từ máy người dùng. Dùng một
+# TÊN MIỀN CON trỏ qua reverse proxy — KHÔNG phải một đường dẫn con, vì chữ ký
+# SigV4 ký cả đường dẫn nên `/s3/bucket/key` sẽ không khớp `/bucket/key`. Xem
+# `infrastructure/Caddyfile` và `docs/trien-khai.md`.
+#
+# ─── BÍ MẬT không có mặc định ───────────────────────────────────────────────
+#
+# Sáu mật khẩu dùng `${VAR:?...}` thay vì `${VAR:-giatri}`. Mặc định yếu là thứ
+# âm thầm theo code lên production: quên file `.env` thì stack vẫn lên, bằng
+# chuỗi nằm công khai trong Git. Giờ nó dừng ngay kèm tên biến còn thiếu.
+#
+# Lần xuất hiện THỨ HAI của cùng một bí mật (healthcheck, minio-init, cube) viết
+# `${VAR}` trần, không mặc định: dòng `:?` phía trên đã dừng compose nếu thiếu,
+# nên một mặc định ở đây chỉ có thể LỆCH với giá trị thật — và hỏng kiểu đó hiện
+# ra dưới dạng "container không healthy" chứ không nói gì về mật khẩu.
 # =============================================================================
 
 services:
@@ -48,18 +77,18 @@ services:
     restart: unless-stopped
     command: --default-authentication-plugin=caching_sha2_password --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
     environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-rootpassword}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?chua khai trong infrastructure/.env - chay npm run setup}
       MYSQL_DATABASE: ${MYSQL_DATABASE:-bi_platform}
       MYSQL_USER: ${MYSQL_USER:-bi_user}
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-bi_password}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?chua khai trong infrastructure/.env - chay npm run setup}
       TZ: Asia/Ho_Chi_Minh
     ports:
-      - "${MYSQL_PORT:-3310}:3306"
+      - "127.0.0.1:${MYSQL_PORT:-3310}:3306"
     volumes:
       - mysql_data:/var/lib/mysql
       - ./mysql/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-p${MYSQL_ROOT_PASSWORD:-rootpassword}"]
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-p${MYSQL_ROOT_PASSWORD}"]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -75,15 +104,15 @@ services:
     image: redis:7-alpine
     container_name: bi-redis
     restart: unless-stopped
-    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-redispassword}
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:?chua khai trong infrastructure/.env - chay npm run setup}
     environment:
       TZ: Asia/Ho_Chi_Minh
     ports:
-      - "${REDIS_PORT:-6379}:6379"
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
     volumes:
       - redis_data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-redispassword}", "ping"]
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -106,11 +135,11 @@ services:
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin123}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?chua khai trong infrastructure/.env - chay npm run setup}
       TZ: Asia/Ho_Chi_Minh
     ports:
-      - "${MINIO_API_PORT:-9000}:9000"       # API — @aws-sdk/client-s3 gọi vào đây
-      - "${MINIO_CONSOLE_PORT:-9001}:9001"   # Giao diện web quản trị
+      - "127.0.0.1:${MINIO_API_PORT:-9000}:9000"       # API — @aws-sdk/client-s3 gọi vào đây
+      - "127.0.0.1:${MINIO_CONSOLE_PORT:-9001}:9001"   # Giao diện web quản trị
     volumes:
       - minio_data:/data
     healthcheck:
@@ -139,7 +168,7 @@ services:
         condition: service_healthy
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin123}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
       BI_BUCKET: ${S3_BUCKET:-bi-datasets}
     entrypoint: ["/bin/sh", "/scripts/init-bucket.sh"]
     volumes:
@@ -157,12 +186,12 @@ services:
     environment:
       CLICKHOUSE_DB: ${CLICKHOUSE_DB:-bi_analytics}
       CLICKHOUSE_USER: ${CLICKHOUSE_USER:-bi_user}
-      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-clickhouse_password}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:?chua khai trong infrastructure/.env - chay npm run setup}
       CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
       TZ: Asia/Ho_Chi_Minh
     ports:
-      - "${CLICKHOUSE_HTTP_PORT:-8123}:8123"     # HTTP — @clickhouse/client và Cube dùng cổng này
-      - "${CLICKHOUSE_NATIVE_PORT:-9002}:9000"   # Native — mặc định 9000 ĐỤNG MinIO, nên map ra 9002
+      - "127.0.0.1:${CLICKHOUSE_HTTP_PORT:-8123}:8123"     # HTTP — @clickhouse/client và Cube dùng cổng này
+      - "127.0.0.1:${CLICKHOUSE_NATIVE_PORT:-9002}:9000"   # Native — mặc định 9000 ĐỤNG MinIO, nên map ra 9002
     volumes:
       - clickhouse_data:/var/lib/clickhouse
       # Mount TỪNG FILE, tuyệt đối không mount cả thư mục config.d / users.d.
@@ -209,16 +238,19 @@ services:
     profiles: ["bi"]
     restart: unless-stopped
     environment:
-      CUBEJS_DEV_MODE: "true"
+      # Playground tự chạy truy vấn mà KHÔNG đòi token, nên mặc định TẮT: một
+      # bản triển khai không khai gì cả thì không mở sẵn cửa đó. Máy dev bật lại
+      # bằng CUBEJS_DEV_MODE=true trong infrastructure/.env (có trong .env.example).
+      CUBEJS_DEV_MODE: ${CUBEJS_DEV_MODE:-false}
       CUBEJS_DB_TYPE: clickhouse
       CUBEJS_DB_HOST: clickhouse       # tên service, không phải localhost
       CUBEJS_DB_PORT: 8123             # cổng HTTP của ClickHouse
       CUBEJS_DB_NAME: ${CLICKHOUSE_DB:-bi_analytics}
       CUBEJS_DB_USER: ${CLICKHOUSE_USER:-bi_user}
-      CUBEJS_DB_PASS: ${CLICKHOUSE_PASSWORD:-clickhouse_password}
+      CUBEJS_DB_PASS: ${CLICKHOUSE_PASSWORD}
       # Secret này để Express ký JWT ngắn hạn mang securityContext ở F7.
       # Cube TUYỆT ĐỐI không được expose thẳng ra trình duyệt.
-      CUBEJS_API_SECRET: ${CUBEJS_API_SECRET:-cube-api-secret-change-me}
+      CUBEJS_API_SECRET: ${CUBEJS_API_SECRET:?chua khai trong infrastructure/.env - chay npm run setup}
       # Đồng hồ Windows và đồng hồ máy ảo Docker trôi xa nhau sau mỗi lần máy
       # ngủ. 300 giây là dung sai cho việc đó — xem CLOCK_TOLERANCE trong
       # cube/cube.js để biết vì sao nới ra không phải là hạ tiêu chuẩn an toàn.
@@ -236,7 +268,7 @@ services:
       CUBEJS_LOG_LEVEL: info
       TZ: Asia/Ho_Chi_Minh
     ports:
-      - "${CUBEJS_PORT:-4100}:4000"    # Cube mặc định 4000 — ĐỤNG Express, nên map ra 4100
+      - "127.0.0.1:${CUBEJS_PORT:-4100}:4000"    # Cube mặc định 4000 — ĐỤNG Express, nên map ra 4100
     volumes:
       # Express sinh file schema vào ./cube/model/tenants/<tenantId>/ — xem
       # CUBE_SCHEMA_DIR ở backend và repositoryFactory trong cube.js. KHÔNG phải

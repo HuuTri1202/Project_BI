@@ -1,3 +1,4 @@
+import { datLoiTiengViet } from '@bi/shared';
 import compression from 'compression';
 import cors from 'cors';
 import express, { type Express } from 'express';
@@ -21,13 +22,48 @@ import { originGuard } from './middleware/originGuard';
  * (supertest) mà không cần mở cổng thật.
  */
 export function createApp(): Express {
+  /*
+   * Câu báo lỗi của zod bằng TIẾNG VIỆT — đặt trước khi có bất kỳ `parse` nào.
+   *
+   * Phần lớn rule trong `api/v1/schemas.ts` không khai câu chữ riêng, nên không
+   * có dòng này thì `fields` của lỗi 400 trả ra tiếng Anh ("Required",
+   * "Expected number, received nan") và giao diện gắn thẳng câu đó vào ô của
+   * form. Xem `loiTiengViet.ts` ở gói chung cho bảng đo.
+   */
+  datLoiTiengViet();
+
   const app = express();
 
   // Express tự thêm header X-Powered-By: Express — không có lợi ích gì ngoài
   // việc quảng cáo stack cho người quét lỗ hổng.
   app.disable('x-powered-by');
 
-  app.use(helmet());
+  /*
+   * `helmet()` lo phần phản hồi của API — và CHỈ phần đó.
+   *
+   * ⚠️ Đừng nhầm nó là lớp chống clickjacking của sản phẩm. Thứ bị nhúng vào
+   * iframe để lừa người dùng bấm là TRANG HTML, mà trang đó do Vite (dev) hoặc
+   * Caddy (production) phục vụ — helmet không chạy qua đó. Lớp thật nằm ở
+   * `frontend/vite.config.ts` và `infrastructure/Caddyfile`; cả hai đặt
+   * `frame-ancestors 'none'`. Không ai nhúng `/health` vào iframe để lừa ai cả.
+   *
+   * `frameguard: deny` ở đây là siết mặc định `SAMEORIGIN` của helmet xuống
+   * `DENY`, cùng một lập luận: API này không tự nhúng chính nó ở đâu, nên
+   * `'self'` chỉ là một cánh cửa không ai dùng mà vẫn mở.
+   */
+  app.use(
+    helmet({
+      frameguard: { action: 'deny' },
+      contentSecurityPolicy: {
+        useDefaults: true,
+        directives: {
+          // Mặc định của helmet là `frame-ancestors 'self'`. Phản hồi JSON
+          // không có lý do gì để nhúng được, kể cả bởi chính mình.
+          'frame-ancestors': ["'none'"],
+        },
+      },
+    }),
+  );
   // Origin cụ thể, không phải '*': phiên đăng nhập dùng header Authorization
   // nên về mặt kỹ thuật wildcard vẫn chạy, nhưng khai đúng origin giữ cho API
   // không bị trang lạ gọi bằng token mà người dùng vô tình để lộ.

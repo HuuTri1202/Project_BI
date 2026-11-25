@@ -295,6 +295,24 @@ export async function listLoadErrors(
   page: number,
   pageSize: number,
 ): Promise<{ items: DatasetLoadErrorDto[]; total: number; savedCap: number }> {
+  /*
+   * Bộ dữ liệu phải TỒN TẠI và thuộc tổ chức này.
+   *
+   * Thiếu chốt này thì endpoint trả `200 {items:[]}` cho bộ dữ liệu của tổ chức
+   * khác VÀ cho id không tồn tại, trong khi cả sáu endpoint `/datasets/:id/*`
+   * còn lại đều trả 404 — đo được ngày 25/11/2026. Hôm nay chưa rò dữ liệu vì
+   * `findLatestRun` tự lọc `tenant_id`, nhưng chốt an toàn khi đó nằm ở MỘT câu
+   * `WHERE` cách đây hai tầng: ai sửa `listErrors` sang tra theo `runId` mà quên
+   * mang `tenantId` theo là biến chỗ này thành đường đọc dữ liệu chéo tổ chức,
+   * và không có gì ở đây báo.
+   *
+   * KHÔNG dùng `requireLoadedTable`: nó đòi `loadStatus === 'loaded'` và trả
+   * 409. Lỗi nạp lại đáng xem nhất đúng vào lúc lần nạp KHÔNG trọn vẹn, nên cái
+   * 409 ấy sẽ che đi thứ người dùng mở trang này để tìm.
+   */
+  const dataset = await datasetsRepo.findOneAnyWorkspace(mysqlPool, tenantId, datasetId);
+  if (!dataset) throw notFound('Không tìm thấy tập dữ liệu này.');
+
   const run = await loadsRepo.findLatestRun(mysqlPool, tenantId, datasetId);
   if (!run || run.runId === null) {
     return { items: [], total: 0, savedCap: loadsRepo.MAX_LOAD_ERRORS };

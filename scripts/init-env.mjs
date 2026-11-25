@@ -18,46 +18,130 @@ const root = dirname(dirname(fileURLToPath(import.meta.url)));
 /**
  * Bí mật phải SINH RIÊNG cho từng máy, không dùng giá trị mẫu.
  *
- * `CONNECTION_ENCRYPTION_KEY` bắt buộc phải giải base64 ra ĐÚNG 32 byte, nên
- * giá trị mẫu trong `.env.example` không thể vừa là chỗ giữ chỗ đọc được vừa
- * hợp lệ — backend sẽ chết ngay lúc boot với thông báo về độ dài khoá. Sinh
- * thật ở đây thì `npm run setup` xong là chạy được luôn.
+ * ═══ Vì sao mọi mật khẩu hạ tầng đều nằm ở đây ══════════════════════════════
  *
- * `JWT_SECRET` thì mẫu vẫn boot được, nhưng để nguyên nghĩa là mọi máy trong
- * nhóm ký token bằng cùng một secret nằm trong Git. Sinh riêng luôn.
+ * Trước đây chỉ `JWT_SECRET` và `CONNECTION_ENCRYPTION_KEY` được sinh; sáu cái
+ * còn lại chép y nguyên từ `.env.example` — tức là mọi máy đã cài đều dùng
+ * `bi_password`, `redispassword`, `minioadmin123`, `cube-api-secret-change-me`,
+ * và cả bốn chuỗi đó nằm công khai trong Git. Trên máy dev với cổng chỉ nghe
+ * 127.0.0.1 thì không sao. Ngày đem lên một máy có IP công khai thì đó là cả
+ * tầng dữ liệu mở sẵn.
+ *
+ * `CUBEJS_API_SECRET` là cái nặng nhất: ai biết nó thì tự ký được JWT với
+ * `tenantId` bất kỳ, và `repositoryFactory` của Cube sẽ phục vụ dữ liệu của tổ
+ * chức đó. Toàn bộ cách ly đa tổ chức của §10 đứng trên đúng một chuỗi này.
+ *
+ * ═══ `keys` — MỘT giá trị, nhiều tên biến ═══════════════════════════════════
+ *
+ * Mật khẩu hạ tầng xuất hiện ở HAI file và phải khớp nhau: `MYSQL_PASSWORD` có
+ * ở cả `backend/.env` (bên kết nối) và `infrastructure/.env` (bên tạo user).
+ * Sinh riêng cho từng file là hai giá trị khác nhau, và triệu chứng là
+ * "ER_ACCESS_DENIED" ở một chỗ không ai nghĩ tới việc so hai file.
+ *
+ * Nên mỗi dòng dưới đây là MỘT giá trị được ghi vào MỌI tên biến nó liệt kê.
+ * MinIO còn đổi cả tên: ta kết nối bằng `S3_SECRET_KEY`, container tạo tài
+ * khoản bằng `MINIO_ROOT_PASSWORD` — cùng một mật khẩu, hai cái tên.
+ *
+ * ═══ Vì sao `hex` cho hạn tầng, không phải base64 ═══════════════════════════
+ *
+ * Bốn chuỗi này đi vào DÒNG LỆNH của container, không chỉ vào biến môi trường:
+ * `redis-server --requirepass X`, `redis-cli -a X`, `mysqladmin -pX`. base64url
+ * sinh ra được chuỗi bắt đầu bằng `-`, và khi đó nó bị đọc thành một CỜ chứ
+ * không phải mật khẩu. `hex` chỉ có `0-9a-f` nên an toàn ở mọi chỗ — kể cả XML
+ * của ClickHouse. 24 byte = 48 ký tự, thừa sức cho trần `min(16)` của
+ * `CUBEJS_API_SECRET`.
  *
  * `bytes` là số byte NGẪU NHIÊN, không phải độ dài chuỗi kết quả.
  */
 const GENERATED_SECRETS = [
-  { key: 'JWT_SECRET', bytes: 48, encoding: 'base64url' },
-  { key: 'CONNECTION_ENCRYPTION_KEY', bytes: 32, encoding: 'base64' },
+  // Chỉ backend dùng.
+  { keys: ['JWT_SECRET'], bytes: 48, encoding: 'base64url' },
+  { keys: ['CONNECTION_ENCRYPTION_KEY'], bytes: 32, encoding: 'base64' },
+  // Dùng chéo backend ↔ infrastructure. Lệch nhau là hạ tầng không lên nổi.
+  { keys: ['MYSQL_PASSWORD'], bytes: 24, encoding: 'hex' },
+  { keys: ['MYSQL_ROOT_PASSWORD'], bytes: 24, encoding: 'hex' },
+  { keys: ['REDIS_PASSWORD'], bytes: 24, encoding: 'hex' },
+  { keys: ['CLICKHOUSE_PASSWORD'], bytes: 24, encoding: 'hex' },
+  { keys: ['CUBEJS_API_SECRET'], bytes: 24, encoding: 'hex' },
+  { keys: ['S3_SECRET_KEY', 'MINIO_ROOT_PASSWORD'], bytes: 24, encoding: 'hex' },
 ];
 
-/**
- * Thay giá trị mẫu bằng giá trị ngẫu nhiên, giữ nguyên mọi thứ khác.
- *
- * Khớp theo `^KEY=` ở đầu dòng nên chú thích phía trên biến (kể cả dòng có chứa
- * tên biến đó) không bị đụng tới.
- *
- * `only` giới hạn phạm vi, và nó BẮT BUỘC phải có ở nhánh bổ sung biến thiếu:
- * sinh lại `CONNECTION_ENCRYPTION_KEY` cho một file đã dùng nghĩa là mọi mật
- * khẩu kết nối đã lưu không giải mã được nữa, và không có đường khôi phục.
- */
-function fillSecrets(path, only = null) {
-  let text = readFileSync(path, 'utf8');
-  const filled = [];
+/** Giá trị của một biến trong nội dung .env; `null` khi chưa khai hoặc để trống. */
+function readValue(text, key) {
+  const found = new RegExp(`^${key}=(.*)$`, 'm').exec(text)?.[1]?.trim();
+  return found === undefined || found === '' ? null : found;
+}
 
-  for (const { key, bytes, encoding } of GENERATED_SECRETS) {
-    if (only !== null && !only.has(key)) continue;
-    const pattern = new RegExp(`^${key}=.*$`, 'm');
-    if (!pattern.test(text)) continue;
-    text = text.replace(pattern, `${key}=${randomBytes(bytes).toString(encoding)}`);
-    filled.push(key);
+/**
+ * Ghi bí mật vào những chỗ ĐƯỢC PHÉP ghi.
+ *
+ * ─── Luật một dòng ──────────────────────────────────────────────────────────
+ *
+ * Một giá trị đang dùng ở chỗ KHÔNG được phép ghi là chân lý; mọi chỗ được phép
+ * ghi phải chép theo nó. Chỉ khi không tìm thấy ở đâu cả thì mới sinh ngẫu
+ * nhiên.
+ *
+ * Một luật đó phủ cả ba tình huống, nên không có nhánh nào phải nhớ riêng:
+ *
+ *   - Cài mới toàn bộ: không file nào có giá trị cũ -> sinh ngẫu nhiên, ghi vào
+ *     cả hai file nên chúng khớp nhau ngay từ đầu.
+ *   - Đã có `backend/.env`, mất `infrastructure/.env`: lấy mật khẩu từ file còn
+ *     lại chứ KHÔNG sinh mới — sinh mới là container MySQL dựng user bằng mật
+ *     khẩu mà backend không biết.
+ *   - `.env.example` thêm một biến bí mật mới: chỉ chỗ VỪA được bổ sung là được
+ *     phép ghi, nên file đang dùng không bị đụng tới.
+ *
+ * ⚠️ Vì sao luật "không được phép ghi thì tuyệt đối không đụng" quan trọng hơn
+ * mọi thứ khác ở đây: sinh lại `CONNECTION_ENCRYPTION_KEY` cho một file đã dùng
+ * nghĩa là MỌI mật khẩu kết nối CSDL khách hàng đã lưu không giải mã được nữa,
+ * và không có đường khôi phục.
+ *
+ * ⚠️ MySQL chỉ đọc `MYSQL_PASSWORD` LÚC KHỞI TẠO volume. Xoá
+ * `infrastructure/.env` trong khi volume `mysql_data` vẫn còn, rồi để file này
+ * sinh mật khẩu mới, thì container lên nhưng user cũ giữ mật khẩu cũ. Luật trên
+ * đã tránh được chuyện đó khi `backend/.env` còn sống; mất cả hai file thì phải
+ * `docker compose down -v`.
+ */
+function fillSecrets(targets) {
+  const noiDung = new Map(targets.map((t) => [t.path, readFileSync(t.path, 'utf8')]));
+  const sinhMoi = [];
+  const dongBo = [];
+
+  for (const { keys, bytes, encoding } of GENERATED_SECRETS) {
+    let giaTri = null;
+    for (const t of targets) {
+      for (const key of keys) {
+        if (t.replaceable.has(key)) continue;
+        giaTri ??= readValue(noiDung.get(t.path), key);
+      }
+    }
+
+    const laGiaTriCu = giaTri !== null;
+    giaTri ??= randomBytes(bytes).toString(encoding);
+
+    const daGhi = [];
+    for (const t of targets) {
+      for (const key of keys) {
+        if (!t.replaceable.has(key)) continue;
+        const text = noiDung.get(t.path);
+        const pattern = new RegExp(`^${key}=.*$`, 'm');
+        if (!pattern.test(text)) continue;
+        noiDung.set(t.path, text.replace(pattern, `${key}=${giaTri}`));
+        daGhi.push(key);
+      }
+    }
+
+    if (daGhi.length === 0) continue;
+    (laGiaTriCu ? dongBo : sinhMoi).push([...new Set(daGhi)].join(' = '));
   }
 
-  if (filled.length > 0) {
-    writeFileSync(path, text);
-    console.log(`[setup]   ↳ đã sinh bí mật ngẫu nhiên: ${filled.join(', ')}`);
+  for (const t of targets) writeFileSync(t.path, noiDung.get(t.path));
+
+  if (sinhMoi.length > 0) {
+    console.log(`[setup]   ↳ đã sinh bí mật ngẫu nhiên: ${sinhMoi.join(', ')}`);
+  }
+  if (dongBo.length > 0) {
+    console.log(`[setup]   ↳ đã chép lại giá trị đang dùng: ${dongBo.join(', ')}`);
   }
 }
 
@@ -83,6 +167,9 @@ function keysIn(text) {
  * nguyên giá trị dù `.env.example` có ghi khác — đó là chỗ người dùng để cấu
  * hình riêng của máy mình (đổi cổng vì bị trùng, mật khẩu khác…), và ghi đè lên
  * nó là làm hỏng đúng thứ file này sinh ra để giữ.
+ *
+ * Trả về danh sách biến vừa thêm: đó chính là tập được phép ghi bí mật — xem
+ * `fillSecrets`.
  */
 function addMissingKeys(src, dest) {
   const example = readFileSync(src, 'utf8');
@@ -98,15 +185,13 @@ function addMissingKeys(src, dest) {
 
   writeFileSync(
     dest,
-    `${current.replace(/\s*$/, '')}\n\n` +
-      `# ─── Biến mới, thêm tự động bởi \`npm run setup\` ───\n` +
-      `# Giá trị lấy từ .env.example. Kiểm lại nếu máy bạn dùng cấu hình riêng.\n` +
+    `${current.trimEnd()}\n\n` +
+      '# ─── Biến mới, thêm tự động bởi `npm run setup` ───\n' +
+      '# Giá trị lấy từ .env.example. Kiểm lại nếu máy bạn dùng cấu hình riêng.\n' +
       `${lines.join('\n')}\n`,
   );
 
   console.log(`[setup]   ↳ đã bổ sung ${missing.length} biến mới: ${missing.join(', ')}`);
-  // Chỉ sinh bí mật cho những biến VỪA thêm — xem ghi chú của `fillSecrets`.
-  fillSecrets(dest, new Set(missing));
   return missing;
 }
 
@@ -117,6 +202,13 @@ const pairs = [
   ['infrastructure/.env.example', 'infrastructure/.env'],
 ];
 
+/**
+ * `replaceable` = những biến mà `fillSecrets` ĐƯỢC PHÉP ghi lên.
+ *
+ * File vừa tạo: tất cả, vì mọi giá trị trong đó là giá trị mẫu lấy từ Git.
+ * File đã có: chỉ những biến vừa được bổ sung ở lượt này.
+ */
+const targets = [];
 let created = 0;
 let kept = 0;
 
@@ -130,19 +222,19 @@ for (const [from, to] of pairs) {
   }
   if (existsSync(dest)) {
     console.log(`[setup] = giữ nguyên ${to} (đã có)`);
-    // File đã có KHÔNG bị ghi đè, nhưng vẫn được đối chiếu để bổ sung biến mới.
-    addMissingKeys(src, dest);
+    targets.push({ path: dest, replaceable: new Set(addMissingKeys(src, dest)) });
     kept++;
     continue;
   }
 
   copyFileSync(src, dest);
   console.log(`[setup] + tạo ${to}`);
-  // Chỉ chạy trên file VỪA TẠO. File đã có thì tuyệt đối không đụng — sinh
-  // khoá mới đè lên khoá cũ sẽ khiến mọi mật khẩu kết nối đã lưu không giải mã
-  // được nữa, và không có đường khôi phục.
-  fillSecrets(dest);
+  targets.push({ path: dest, replaceable: keysIn(readFileSync(dest, 'utf8')) });
   created++;
 }
+
+// MỘT lượt cho cả ba file, không phải mỗi file một lượt: một giá trị bí mật có
+// thể phải ghi vào hai file, nên quyết định phải nhìn thấy đủ cả ba.
+fillSecrets(targets);
 
 console.log(`[setup] Xong: tạo mới ${created}, giữ nguyên ${kept}.`);

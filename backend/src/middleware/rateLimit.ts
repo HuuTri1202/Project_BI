@@ -48,6 +48,28 @@ interface RateLimitOptions {
    * khẩu thì lại đúng là lỗi vừa sửa, chỉ mang bộ mặt khác.
    */
   demMaLoi?: readonly number[] | undefined;
+  /**
+   * Đếm theo NGƯỜI DÙNG thay vì theo IP.
+   *
+   * Mặc định theo IP, và với `/auth/*` thì đó là cách duy nhất đúng: ở đó chưa
+   * biết người gọi là ai, và thứ cần chặn chính là một máy thử nhiều tài khoản.
+   *
+   * Sau khi đã đăng nhập thì IP là đơn vị SAI. Đo được 24/11/2026: khung hỏi
+   * đáp dùng bucket theo IP, nên một phòng demo sau cùng một NAT — hoặc chỉ hai
+   * người ngồi cùng wifi — chia nhau 20 lượt, và người thứ hai bị khoá vì người
+   * thứ nhất vừa hỏi. Chỉ bật cho những route nằm SAU `authenticate`; không có
+   * `req.auth` thì vẫn rơi về IP, nên bật nhầm không mở toang hạn mức.
+   */
+  theoNguoiDung?: boolean | undefined;
+  /**
+   * Câu báo khi hết lượt, nhận số giây còn lại đã diễn giải.
+   *
+   * Có vì câu mặc định ("Bạn thao tác quá nhanh") đổ lỗi cho người dùng, mà ở
+   * khung hỏi đáp thì điều đó vừa sai vừa vô ích: giới hạn ở đó bảo vệ hạn mức
+   * gọi mô hình của HỆ THỐNG, không phải trừng phạt ai gõ nhanh. Câu chữ của
+   * mỗi route nói đúng việc của route đó.
+   */
+  thongBao?: ((conLai: string) => string) | undefined;
 }
 
 function canhBao(err: unknown): void {
@@ -115,7 +137,9 @@ export function rateLimit(options: RateLimitOptions) {
     // `req.ip` phụ thuộc `trust proxy`; sau reverse proxy phải bật nó, nếu không
     // mọi request trông như đến từ cùng một IP và hạn mức thành hạn mức chung.
     const ip = req.ip ?? 'unknown';
-    const key = `ratelimit:${options.bucket}:${ip}`;
+    const userId = options.theoNguoiDung === true ? req.auth?.userId : undefined;
+    const dinhDanh = userId === undefined ? ip : `u${String(userId)}`;
+    const key = `ratelimit:${options.bucket}:${dinhDanh}`;
 
     void (async () => {
       // Hai chế độ chỉ khác nhau ở THỜI ĐIỂM tăng bộ đếm, không khác ở cách
@@ -130,11 +154,14 @@ export function rateLimit(options: RateLimitOptions) {
         // Đặt header TRƯỚC khi chuyển lỗi: `errorHandler` chỉ gọi res.status().json(),
         // nên header đã đặt ở đây vẫn đi theo phản hồi 429.
         res.setHeader('Retry-After', String(conLai));
+        const cho = dienGiai(conLai);
         next(
           new HttpError(
             429,
             ERROR_CODES.RATE_LIMITED,
-            `Bạn thao tác quá nhanh. Vui lòng thử lại sau ${dienGiai(conLai)}.`,
+            options.thongBao === undefined
+              ? `Bạn thao tác quá nhanh. Vui lòng thử lại sau ${cho}.`
+              : options.thongBao(cho),
           ),
         );
         return;

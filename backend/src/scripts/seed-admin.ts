@@ -10,7 +10,7 @@
  * Đây là lối vào DUY NHẤT để có tài khoản đầu tiên: hệ thống chưa có form đăng
  * ký, và mọi tài khoản sau đều do Admin tạo (§3.4).
  */
-import { env } from '../config/env';
+import { env, isProduction, MAT_KHAU_SEED_MAU } from '../config/env';
 import { closeMysql, mysqlPool } from '../config/mysql';
 import { closeRedis } from '../config/redis';
 import { runMigrations } from '../db/migrate';
@@ -23,7 +23,39 @@ import { hashPassword } from '../services/auth/password';
 const DEFAULT_WORKSPACE_NAME = 'Không gian mặc định';
 const DEFAULT_WORKSPACE_SLUG = 'mac-dinh';
 
+/**
+ * Ở production, mật khẩu mẫu là KHÔNG CHẠY ĐƯỢC, không phải một lời nhắc.
+ *
+ * Script này tạo một tài khoản `superadmin` — quyền cao nhất của cả nền tảng.
+ * `SEED_ADMIN_PASSWORD` có giá trị mặc định nên không khai gì vẫn chạy, và giá
+ * trị đó nằm công khai trong `config/env.ts`. Nghĩa là `npm run db:seed` trên
+ * một máy production mà quên đặt biến sẽ dựng sẵn một cửa hậu ai đọc repo cũng
+ * mở được.
+ *
+ * Chú thích "nhớ đổi trước khi deploy" đã nằm trong file này từ đầu và không
+ * chặn được gì — nên đổi thành một chốt. Dev KHÔNG bị chặn: ở đó mật khẩu mẫu
+ * chính là thứ làm `npm run setup` xong là đăng nhập được ngay.
+ */
+function chanMatKhauMau(): void {
+  if (!isProduction || env.SEED_ADMIN_PASSWORD !== MAT_KHAU_SEED_MAU) return;
+
+  console.error(`
+[seed] TỪ CHỐI chạy: SEED_ADMIN_PASSWORD vẫn là mật khẩu mẫu.
+
+       Đây là tài khoản superadmin của cả nền tảng, và mật khẩu mẫu nằm công
+       khai trong mã nguồn. Đặt một mật khẩu thật rồi chạy lại:
+
+         SEED_ADMIN_PASSWORD=<chuoi-ngau-nhien> npm run db:seed
+
+       Sinh nhanh một chuỗi:
+
+         openssl rand -base64 18
+`);
+  process.exit(1);
+}
+
 async function main(): Promise<void> {
+  chanMatKhauMau();
   await runMigrations();
 
   // --- Tổ chức ---

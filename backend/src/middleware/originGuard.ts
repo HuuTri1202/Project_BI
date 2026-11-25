@@ -8,9 +8,19 @@ const MUTATING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 /**
  * Chặn CSRF ở mức tối thiểu, không cần thư viện và không cần kho token.
  *
- * Bối cảnh: phiên đăng nhập nằm trong cookie httpOnly, tức là một "credential
- * môi trường" — trình duyệt tự đính kèm vào cả những request mà app này không
- * khởi tạo. `SameSite=Lax` lo phần lớn, ba thứ còn lại là:
+ * ⚠️ Bối cảnh HIỆN TẠI: phiên đăng nhập KHÔNG nằm trong cookie. Token ở
+ * `localStorage` và đi lên bằng header `Authorization` — xem
+ * `frontend/src/auth/tokenStorage.ts`. Một header thì trình duyệt KHÔNG tự đính
+ * kèm, nên CSRF kinh điển hiện không áp dụng được vào API này.
+ *
+ * Vậy middleware này để làm gì? Nó là chốt cho ngày phiên đăng nhập chuyển sang
+ * cookie — một đổi thay hoàn toàn có thể xảy ra, vì `localStorage` đọc được bởi
+ * XSS và đó là đánh đổi đã ghi ra ở `tokenStorage.ts`. Ngày đó, cookie trở thành
+ * "credential môi trường": trình duyệt tự gửi nó kèm cả những request mà app này
+ * không khởi tạo. Chốt đặt sẵn từ giờ tốn ba dòng và không đòi ai phải nhớ gì;
+ * đặt sau thì nó là một việc phải nhớ giữa một lần đổi kiến trúc xác thực.
+ *
+ * Khi đó `SameSite=Lax` lo phần lớn, và ba thứ còn lại là:
  *
  *   1. Không endpoint GET nào được đổi trạng thái (Lax vẫn gửi cookie khi điều
  *      hướng top-level GET). Mọi mutation trong repo này là POST.
