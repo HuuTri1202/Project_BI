@@ -1,0 +1,56 @@
+# =============================================================================
+# Thứ KHÔNG được đi vào context của `docker build`.
+#
+# Hai lý do, và lý do thứ hai quan trọng hơn:
+#
+#   1. Tốc độ. `node_modules` của monorepo này là hàng trăm MB; Docker phải gửi
+#      cả context sang daemon TRƯỚC khi chạy dòng `FROM` đầu tiên.
+#   2. An toàn. `.env` chứa JWT_SECRET, CONNECTION_ENCRYPTION_KEY, mật khẩu
+#      MySQL/Redis/ClickHouse và khoá LLM. Một `COPY . .` vô tình là đưa hết số
+#      đó vào một tầng ảnh — và tầng ảnh thì còn đó kể cả khi dòng sau xoá file.
+#      Ảnh ấy đẩy lên registry là bí mật đi theo.
+# =============================================================================
+
+# --- Phụ thuộc: ảnh tự chạy `npm ci` từ package-lock.json ---
+node_modules
+*/node_modules
+
+# --- Kết quả build trên máy dev: ảnh tự build lại ---
+dist
+*/dist
+*.tsbuildinfo
+.vite
+
+# --- BÍ MẬT ---
+.env
+.env.*
+!.env.example
+!*/.env.example
+*.pem
+*.key
+*.crt
+secrets/
+
+# --- Git & công cụ ---
+.git
+.github
+.vscode
+.idea
+.claude
+.cursor
+.history
+
+# --- Hạ tầng: compose và schema do Cube sinh KHÔNG thuộc ảnh ---
+# `Caddyfile` là ngoại lệ — `--target web` chép nó vào, nên phải để lọt.
+infrastructure/*
+!infrastructure/Caddyfile
+
+# --- Tài liệu, log, file tạm ---
+docs
+*.log
+*.md
+!README.md
+coverage
+.DS_Store
+Thumbs.db
+chua-hieu.tsv
