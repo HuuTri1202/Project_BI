@@ -251,7 +251,7 @@ function BatDauTuDay({
     {
       to: '/reports',
       nhan: 'Dựng báo cáo đầu tiên',
-      moTa: 'Kéo chiều và thước đo vào ô, chọn kiểu biểu đồ, rồi lưu lại.',
+      moTa: 'Bấm hoặc kéo chiều và thước đo vào ô, chọn kiểu biểu đồ, rồi lưu lại.',
       xong: false,
     },
   ];

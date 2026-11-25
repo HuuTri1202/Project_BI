@@ -261,7 +261,7 @@ export function cauGoiY(g: GoiYBieuDo): TraLoi {
 
   return {
     cau:
-      `Kéo ${bang(g.chieu)} vào ô ${o.dimension}, ${bang(g.thuocDo)} vào ô ${o.measure}, ` +
+      `Bấm hoặc kéo ${bang(g.chieu)} vào ô ${o.dimension}, ${bang(g.thuocDo)} vào ô ${o.measure}, ` +
       `rồi chọn ${ten}.\n${ten} — ${CHART_TYPE_HINTS[g.loai]}`,
     so: [g.chieu.label, g.thuocDo.label, ten],
   };

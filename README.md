@@ -27,6 +27,8 @@ mà **không cần viết SQL**.
 | **Thư mục báo cáo** (§10.25) — gom báo cáo theo chủ đề, mặc định nằm ở Chung                 | ✅ xong — xem mục _Thư mục báo cáo_                    |
 | **Gói cước & thanh toán** (§11) — VietQR, đối soát Sepay, hạn mức theo gói                   | ✅ xong — xem [docs/thanh-toan.md](docs/thanh-toan.md) |
 | **Trợ lý hỏi đáp dữ liệu** — khung nổi ở mọi trang, trả lời theo trang đang mở và cả tổ chức | ✅ xong — xem mục _Trợ lý hỏi đáp_                     |
+| **Triển khai** — Dockerfile, Caddy + TLS, overlay compose cho production                     | ✅ xong — xem [docs/trien-khai.md](docs/trien-khai.md) |
+| **Quan trắc hiệu năng** — OpenTelemetry trong backend, SigNoz thu thập và vẽ                 | ✅ xong — xem [docs/quan-trac.md](docs/quan-trac.md)   |
 | Bộ lọc dùng chung cả khung, chia sẻ báo cáo ra ngoài                                         | ⏳ chưa làm                                            |
 
 Xem lộ trình đầy đủ và phân công theo tính năng trong tài liệu kế hoạch của nhóm.
@@ -134,9 +136,12 @@ Muốn khỏi gõ cờ profile mỗi lần: đặt `COMPOSE_PROFILES=data,bi` tr
 > **Backend và frontend cố ý KHÔNG chạy trong Docker khi dev.** Mã nguồn nằm
 > trên ổ Windows, bind mount vào container phải đi qua lớp 9p/drvfs của WSL2 nên
 > sự kiện `inotify` không truyền qua được — `tsx watch` và Vite HMR sẽ mù. Chữa
-> bằng polling thì HMR trễ 2–5 giây và CPU chạy nền liên tục. Dockerfile cho
-> backend/frontend sẽ được thêm ở giai đoạn triển khai K8s, dùng cho **chạy**
-> chứ không dùng để **code**.
+> bằng polling thì HMR trễ 2–5 giây và CPU chạy nền liên tục.
+>
+> Bản **triển khai** thì ngược lại: `Dockerfile` ở thư mục gốc đóng gói cả hai
+> (`--target api` cho Express, `--target web` cho Caddy + bản tĩnh), và
+> `infrastructure/docker-compose.prod.yml` ghép chúng vào stack. Dùng cho **chạy**
+> chứ không dùng để **code** — xem [docs/trien-khai.md](docs/trien-khai.md).
 
 ---
 
@@ -244,6 +249,9 @@ npm run typecheck      # tsc --noEmit cả 2
 npm run format         # Prettier ghi đè cả 2
 npm run build          # build production cả 2
 npm run verify         # lint + typecheck + build — CHẠY TRƯỚC KHI MỞ PR
+
+npm run quet           # quét hồi quy (~2,5 phút, cần `npm run dev` đang chạy)
+npm run quet -- --help # chọn mục, đổi tài khoản, đổi địa chỉ
 
 npm run infra:up       # service lõi: MySQL + Redis
 npm run infra:up:data  # + MinIO, ClickHouse
@@ -516,7 +524,10 @@ seed, và không còn ai vào được để sửa.
 
 ⚠️ **SMTP phải chạy được**, nếu không người mới đăng ký không bao giờ vào được hệ
 thống. Chưa cấu hình SMTP thì `services/mail/mailer.ts` in thư ra log backend —
-copy liên kết trong log là chạy dev được.
+copy liên kết trong log là chạy dev được. Ở **production** thì khác hẳn: thiếu
+`SMTP_HOST`, máy chủ API từ chối mở cổng ngay lúc boot (`chanThieuSmtp` trong
+`index.ts`), vì một hệ thống lên xanh mà không ai đăng ký được là hạng hỏng im
+lặng nhất của cả luồng này.
 
 ### Chốt mật khẩu tạm ở backend
 
@@ -914,7 +925,8 @@ chất và khác biệt đó cố ý để lộ ra:
 - **Excel không streaming ở bước phân tích**: `workbook.xlsx.load()` dựng cả
   workbook trong RAM. Nhánh nạp thì có (`WorkbookReader`). CSV đã streaming cả
   hai đầu.
-- **`dataset_rows` của bộ đã xoá mềm không được dọn.** Janitor chỉ dọn ClickHouse.
+- **`dataset_rows` của bộ đã xoá mềm không được dọn.** Janitor dọn bảng
+  ClickHouse và tệp trong kho đối tượng, nhưng không đụng tới dòng MySQL nào.
 
 ### Gỡ nút thắt `dataset_rows`
 
@@ -1043,6 +1055,18 @@ Hai lớp, và lớp thứ hai không phải thừa:
 Janitor đi chung `tick()` với việc nạp thay vì có bộ đếm giờ riêng, để một lần
 quét không bao giờ chạy song song với một lần nạp trong cùng tiến trình — nó
 không thể drop trúng bảng tạm `__new` đang được ghi dở.
+
+Cùng nhịp đó còn một lượt thứ hai, `sweepOrphanFiles`, dọn **tệp** trong kho đối
+tượng mà MySQL không còn dòng nào nhận. Ba chỗ sinh ra tệp mồ côi — thay tệp
+nguồn (`doiTepNguon` cố ý giữ bản cũ để còn lùi được), tải lên rồi bỏ dở, và xoá
+cứng theo dây chuyền — trước đây không có ai dọn. Đo được 25/11/2026: **81 tệp /
+224 MiB trên tổng 259 MiB** là tệp không còn ai trỏ tới.
+
+⚠️ Nó chỉ đụng tệp **quá 24 giờ**, và đó là chốt quan trọng nhất: trình duyệt PUT
+thẳng lên S3 rồi mới gọi `/commit`, nên giữa hai việc đó tệp đã nằm trong kho mà
+MySQL chưa biết gì. Đừng hạ ngưỡng xuống hàng phút — phép so tuổi bắc qua hai
+đồng hồ (kho đối tượng và Node), và đo được container MinIO chạy nhanh hơn máy
+chủ 450 ms.
 
 ⚠️ Regex `^raw_t(\d+)_d(\d+)(?:__new)?$` neo **cả hai đầu**. `bi_analytics` là
 database dùng chung — máy dev cũ còn `spike_orders` từ tuần đầu, và người khác
@@ -3614,6 +3638,30 @@ dịch) mà không chạy truy vấn nào xuống ClickHouse.
 
 Người vừa bấm Lưu đang chờ sẵn; người mở báo cáo thì không — và với khung 12 ô
 thì cả 12 ô xếp hàng sau đúng một lần biên dịch đó.
+
+Chỗ đó bịt được một nguyên nhân trong hai. Nguyên nhân còn lại là **Cube khởi
+động lại**, và nó do `startHamNongKhoiDong` lo: nối ngay sau
+`regenerateAllTenants` (phải sau, không song song — hâm vào một thư mục schema
+còn trống thì Cube nhớ luôn ngữ cảnh RỖNG dưới đúng `schemaVersion` đó), hâm
+tối đa 5 tổ chức, tuần tự, và thử lại tới 5 phút vì Cube cần tới 2 phút 7 giây
+sau khi `/readyz` xanh mới đáp nổi.
+
+| `/load` đầu tiên của một `schemaVersion` mới, Cube đã ổn định | |
+| ------------------------------------------------------------- | ------------------- |
+| không hâm                                                     | 903 / 1438 / 820ms  |
+| có `/meta` hâm trước                                          | **264 / 169 / 71ms** |
+
+⚠️ Và nó **không** làm biểu đồ đầu tiên sau `docker restart bi-cube` nhanh lên.
+Ngay sau restart còn một cái chậm thứ hai nằm trong hàng đợi Cube Store mà
+`/meta` không chạm tới: đo ở phút thứ 2 sau restart, cả hai nhánh đều ~5–6 giây
+dù ngữ cảnh đã hâm xong, phải tới khoảng phút thứ 5 mới về bảng trên. Trần 5 tổ
+chức và tính tuần tự là bắt buộc — hâm cả 63 tổ chức lúc boot chính là giả
+thuyết mà `regenerateAllTenants` đã loại.
+
+**Ngồi im KHÔNG làm nguội ngữ cảnh**, nên đừng thêm vòng ping định kỳ: cùng
+`schemaVersion`, nghỉ 150 giây mất 531ms và nghỉ 5 phút mất 351ms, so với
+1702–2972ms của một lần biên dịch thật. Ngữ cảnh chỉ nguội vì đúng hai nguyên
+nhân ở trên.
 
 ### 3. JS lần tải đầu: 364 → 154 kB gzip
 

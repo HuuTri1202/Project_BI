@@ -180,8 +180,20 @@ export function blockerOf(draft: VisualDraft): string | null {
   // và của bản đồ nhiệt đi tìm "Nhóm màu" trong khi ô đó tên "Trục Y".
   const tenO = CHART_SHELF_LABELS[draft.chartType];
 
-  if (draft.dimensionId === null) return `Kéo một chiều vào ô ${tenO.dimension}.`;
-  if (draft.measureId === null) return `Kéo một thước đo vào ô ${tenO.measure}.`;
+  /*
+   * "Bấm hoặc kéo", không chỉ "Kéo".
+   *
+   * `FieldPill` dựng mỗi trường bằng `<button draggable>` và chú thích ở đó nói
+   * rõ: "Kéo thả là lối tắt cho chuột; bấm là lối chính". Nhưng câu hướng dẫn
+   * duy nhất mà người dùng ĐỌC ĐƯỢC lại chỉ nói tới lối tắt.
+   *
+   * ĐO ĐƯỢC 24/11/2026: bấm vào trường "Chi nhánh" điền nó vào ô ngay — đường
+   * chính chạy tốt, chỉ là không ai được bảo. Người dùng trên màn hình cảm ứng,
+   * hay người khó thao tác kéo thả, đọc câu này rồi kết luận mình không dùng
+   * được trình dựng.
+   */
+  if (draft.dimensionId === null) return `Bấm hoặc kéo một chiều vào ô ${tenO.dimension}.`;
+  if (draft.measureId === null) return `Bấm hoặc kéo một thước đo vào ô ${tenO.measure}.`;
   if (CHART_SERIES_SUPPORT[draft.chartType] === 'required' && seriesUsed(draft) === null) {
     return `${CHART_TYPE_LABELS[draft.chartType]} cần thêm một chiều ở ô ${tenO.series}.`;
   }
