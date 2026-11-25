@@ -2,6 +2,7 @@ import { Router, type Request, type Response } from 'express';
 import { env } from '../config/env';
 import { pingMysql } from '../config/mysql';
 import { pingRedis } from '../config/redis';
+import { moTaLoi } from '../utils/moTaLoi';
 
 export const healthRouter = Router();
 
@@ -11,32 +12,12 @@ const startedAt = Date.now();
  *  `exactOptionalPropertyTypes` và để `status` luôn thu hẹp được kiểu. */
 type CheckResult = { status: 'ok' } | { status: 'error'; message: string };
 
-/**
- * Rút một thông báo lỗi CÓ ÍCH ra khỏi err.
- *
- * Không thể chỉ dùng `err.message`: khi không kết nối được, Node gộp các lần thử
- * IPv4/IPv6 thành một `AggregateError` có `message` RỖNG — readiness sẽ báo
- * "error" mà không nói vì sao. Ở đây ta mở lớp lỗi con và lấy thêm `code`
- * (ECONNREFUSED, ETIMEDOUT, ER_ACCESS_DENIED_ERROR...).
- */
-function describeError(err: unknown): string {
-  if (err instanceof AggregateError) {
-    const inner = err.errors.map(describeError).filter(Boolean);
-    return inner.length > 0 ? [...new Set(inner)].join('; ') : err.name;
-  }
-  if (err instanceof Error) {
-    const { code } = err as NodeJS.ErrnoException;
-    return err.message || code || err.name;
-  }
-  return String(err);
-}
-
 async function check(ping: () => Promise<void>): Promise<CheckResult> {
   try {
     await ping();
     return { status: 'ok' };
   } catch (err: unknown) {
-    return { status: 'error', message: describeError(err) };
+    return { status: 'error', message: moTaLoi(err) };
   }
 }
 

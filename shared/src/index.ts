@@ -30,6 +30,12 @@ export * from './datamodel';
 export * from './datasetFolder';
 export * from './dto';
 export * from './folder';
+/**
+ * `loiTiengViet` là bản đồ dịch câu báo lỗi MẶC ĐỊNH của zod. Nó ở gói chung vì
+ * cùng một ô được kiểm hai lần — frontend trước khi gửi, backend khi nhận — và
+ * hai bản dịch chép tay sẽ lệch nhau.
+ */
+export * from './loiTiengViet';
 export * from './platform';
 export * from './rbac';
 /**

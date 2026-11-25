@@ -1,3 +1,4 @@
+import { datLoiTiengViet } from '@bi/shared';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
@@ -8,6 +9,15 @@ import { AuthProvider } from './auth/AuthProvider';
 import { syncModelChangesAcrossTabs } from './features/datamodels/modelChanges';
 import { createQueryClient } from './services/queryClient';
 import './index.css';
+
+/*
+ * Câu báo lỗi của zod bằng TIẾNG VIỆT — trước lần render đầu tiên.
+ *
+ * Form ở frontend kiểm bằng CÙNG mấy rule của `@bi/shared` mà backend dùng, nên
+ * thiếu dòng này thì người dùng thấy một câu tiếng Anh ngay khi chưa gửi gì cả.
+ * Cùng một bản đồ với backend, vì hai bản dịch chép tay sẽ lệch nhau.
+ */
+datLoiTiengViet();
 
 const rootEl = document.getElementById('root');
 if (!rootEl) throw new Error('Root element #root not found');
