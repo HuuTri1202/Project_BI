@@ -16,6 +16,7 @@ import {
   duKienKhoDuLieu,
   duKienDonHang,
   duKienThanhToan,
+  duKienToChuc,
   duKienTrangChu,
   duKienWorkspace,
   tomTatBoDuLieu,
@@ -197,6 +198,21 @@ export function useNguCanhHeThong(dangMo: boolean): Nguon[] {
     const tomTat: Nguon = {
       ten: 'Tổng quan toàn tổ chức',
       duKien: [
+        /*
+         * TÊN TỔ CHỨC — thứ hiện ngay chân sidebar mà khung không trả lời được.
+         *
+         * Đo ngày 24/11/2026: "tổ chức tôi tên gì" bế tắc ở MỌI trang, kể cả
+         * khi ngữ cảnh xuyên hệ thống đã tải xong 18 dữ kiện. Nó không nằm
+         * trong dữ kiện nào cả — `duKienToChuc` chỉ được khai ở trang Tổ chức.
+         * Khung nói không biết một thứ người dùng đang nhìn thẳng vào là kiểu
+         * hỏng khó tha nhất; chú thích của `duKienDanhSachBaoCao` đã viết đúng
+         * câu đó cho loại biểu đồ, và đây là cùng một lỗi ở một chỗ khác.
+         *
+         * Lấy từ `useAuth` chứ không gọi thêm endpoint: `GET /auth/me` đã trả
+         * tổ chức đang mở từ lúc khôi phục phiên, nên đây là dữ kiện duy nhất
+         * trong bản tóm tắt không tốn một lượt gọi mạng nào.
+         */
+        ...(tenant === null ? [] : (duKienToChuc(tenant)[0]?.duKien ?? [])),
         ...(kd === undefined ? [] : tomTatBoDuLieu(kd.items, kd.total, PHAM)),
         ...(mh === undefined ? [] : tomTatMoHinh(mh.items, mh.total, PHAM)),
         ...(dsKetNoi[0]?.duKien ?? []),
@@ -243,5 +259,5 @@ export function useNguCanhHeThong(dangMo: boolean): Nguon[] {
       ...dsKetNoi.slice(1),
       ...trangChu.slice(1),
     ];
-  }, [kho.data, moHinh.data, ketNoi.data, nha.data, workspace.data, goi.data, donHang.data]);
+  }, [kho.data, moHinh.data, ketNoi.data, nha.data, workspace.data, goi.data, donHang.data, tenant]);
 }

@@ -2,11 +2,20 @@ import { appendFileSync } from 'node:fs';
 
 import { isTest } from '../../config/env';
 
+import { docDem, ghiDem, khoaDem } from './dem';
 import { coCauHinhLlm, goiMoHinh } from './dienDat';
 
 export interface HieuYInput {
   cauHoi: string;
   nhan: string[];
+  /**
+   * Phạm vi đệm — `"<tenantId>"`. Vắng mặt thì KHÔNG đệm.
+   *
+   * Danh sách nhãn nằm trong phần biến thiên của khoá, nên một chỉ số đọc ra từ
+   * đệm luôn trỏ vào đúng danh sách đã sinh ra nó — kể cả khi người dùng đã
+   * chuyển sang trang khác.
+   */
+  pham?: string | undefined;
 }
 
 export type TrangThaiHoi = 'chua-cau-hinh' | 'da-doc' | 'goi-hong';
@@ -71,6 +80,24 @@ export async function hieuY(input: HieuYInput): Promise<HieuYKetQua> {
   const nhan = input.nhan.slice(0, TRAN_NHAN);
   if (!coCauHinhLlm() || nhan.length === 0) return { chon: null, trangThai: 'chua-cau-hinh' };
 
+  /*
+   * Đọc đệm TRƯỚC khi gọi mô hình — xem `dem.ts` cho luật chung.
+   *
+   * `trangThai: 'da-doc'` là đúng: mô hình ĐÃ đọc câu này thật, chỉ là nó đọc ở
+   * một lượt trước. Giao diện dùng cờ đó để phân biệt "đã đọc hết mà không
+   * thấy" với "chưa gọi được mô hình".
+   *
+   * Giữ nguyên văn chuỗi mô hình trả về rồi đọc lại bằng `chonHopLe` ở mỗi lượt
+   * đọc đệm, không đệm chỉ số đã đọc: cùng lập luận với `datCauHoi`, luật đọc
+   * phải chạy lại chứ không được bỏ qua vì "đã từng hợp lệ".
+   */
+  const khoa =
+    input.pham === undefined ? null : khoaDem('hieu-y', input.pham, [input.cauHoi, nhan]);
+  if (khoa !== null) {
+    const daCo = await docDem(khoa);
+    if (daCo !== null) return { chon: chonHopLe(daCo, nhan.length), trangThai: 'da-doc' };
+  }
+
   const danhSach = nhan.map((n, i) => `${String(i + 1)}. ${n}`).join('\n');
 
   const { noiDung, daGoi } = await goiMoHinh(
@@ -86,6 +113,10 @@ export async function hieuY(input: HieuYInput): Promise<HieuYKetQua> {
      */
     400,
   );
+
+  // CHỈ ghi khi lượt gọi thành công — đệm một lượt hỏng là khoá chặt câu hỏi
+  // này ở trạng thái bế tắc suốt một tiếng.
+  if (khoa !== null && daGoi && noiDung !== null) await ghiDem(khoa, noiDung.trim());
 
   return {
     chon: noiDung === null ? null : chonHopLe(noiDung, nhan.length),

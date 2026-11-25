@@ -182,6 +182,86 @@ export const MUC_HUONG_DAN: MucHuongDan[] = [
   },
 ];
 
+
+/*
+ * ═══ XÃ GIAO và "BẠN LÀM ĐƯỢC GÌ" ══════════════════════════════════════════
+ *
+ * ĐO ĐƯỢC 24/11/2026: "xin chào" trả về "Tôi chưa hiểu câu này".
+ *
+ * Đó là câu đầu tiên của mọi buổi demo, và đường nó đi hôm nay dài một cách vô
+ * ích: trượt hết lớp ngoại tuyến, TỐN MỘT LƯỢT GỌI mô hình ngôn ngữ sang
+ * `/chat/hieu-y` (lượt đó trả `chon: null` — đúng, nó không bịa), rồi bế tắc.
+ * Tức một lời chào vừa ăn một slice hạn mức token vừa ra một câu từ chối.
+ *
+ * `nhacThuLa` là thứ chốt nó lại, và nó chốt ĐÚNG: "chao" là một chữ bốn ký tự
+ * mà khung chưa từng thấy trong dữ kiện nào, nên mọi nhãn số liệu mô hình chọn
+ * cho câu này đều bị bác. Không được nới chốt đó — cái cần là một câu trả lời
+ * có sẵn cho một loại câu hỏi không phải số liệu, đúng việc của tệp này.
+ *
+ * ⚠️ Luật "CÒN LẠI TỐI ĐA HAI CHỮ" là thứ giữ cho lớp này không chiếm câu khác.
+ * "Xin chào, cho tôi biết doanh thu theo chi nhánh" phải đi tiếp xuống lớp số
+ * liệu; chỉ "xin chào" trơn mới dừng ở đây. Không có luật đó thì một chữ "chào"
+ * lịch sự ở đầu câu đủ để giết cả câu hỏi.
+ */
+const XA_GIAO: { cum: readonly string[]; cau: string }[] = [
+  /*
+   * "Làm được gì" xếp TRƯỚC lời chào, dù luật hai chữ đã tách được hai ca:
+   * "xin chào bạn làm được gì" thì câu đáng trả lời là câu thứ hai, và một ngày
+   * ai nới luật kia ra thì thứ tự này vẫn giữ đúng lựa chọn.
+   */
+  {
+    cum: [
+      'ban lam duoc gi',
+      'ban lam duoc nhung gi',
+      'ban giup duoc gi',
+      'ban co the lam gi',
+      'ban biet lam gi',
+      'ban la ai',
+      'ban giup gi duoc toi',
+    ],
+    cau:
+      'Tôi trả lời ba loại câu hỏi. Một, số liệu mới trên mô hình dữ liệu — ví dụ ' +
+      '"doanh thu theo chi nhánh", "top 3 sản phẩm bán nhiều nhất", "doanh thu tháng 10"; ' +
+      'tôi dựng truy vấn rồi chạy thật trên kho, nên con số là số thật chứ không phải tôi ' +
+      'đoán. Hai, số liệu đang hiện trên trang bạn đang xem — "có bao nhiêu bộ dữ liệu", ' +
+      '"bộ nào nhiều dòng nhất". Ba, cách dùng hệ thống — "làm sao tạo mô hình mới". ' +
+      'Bạn hỏi tiếp bằng câu ngắn cũng được: sau một câu trả lời, gõ "còn theo sản phẩm ' +
+      'thì sao" là tôi hiểu.',
+  },
+  {
+    cum: ['xin chao', 'chao ban', 'chao buoi sang', 'hello', 'xin chao ban'],
+    cau:
+      'Chào bạn. Tôi là trợ lý hỏi đáp dữ liệu của hệ thống — bạn hỏi thẳng bằng tiếng ' +
+      'Việt, ví dụ "doanh thu theo chi nhánh" hay "top 3 sản phẩm bán nhiều nhất". Gõ ' +
+      '"bạn làm được gì" nếu muốn xem đủ những việc tôi làm được.',
+  },
+  {
+    cum: ['cam on', 'thanks', 'thank you', 'cam on ban'],
+    cau: 'Không có gì. Cần thêm số nào bạn hỏi tiếp nhé.',
+  },
+];
+
+/**
+ * Lời chào, lời cảm ơn, và câu "bạn làm được gì" — xem khối chú thích trên.
+ *
+ * `so: []` như mọi câu của tệp này: không có con số nào để lớp đối chiếu phải
+ * giữ, nên lớp này KHÔNG THỂ sinh ra một con số sai.
+ */
+function traLoiXaGiao(cauHoiDaChuan: string): TraLoi | null {
+  const q = ` ${cauHoiDaChuan} `;
+  for (const m of XA_GIAO) {
+    for (const c of m.cum) {
+      if (!q.includes(` ${c} `)) continue;
+      const con = cauHoiDaChuan
+        .replace(c, ' ')
+        .split(/\s+/)
+        .filter((t) => t !== '');
+      if (con.length <= 2) return { cau: m.cau, so: [] };
+    }
+  }
+  return null;
+}
+
 /**
  * Trả lời một câu HỎI CÁCH LÀM, hoặc `null`.
  *
@@ -193,6 +273,9 @@ export const MUC_HUONG_DAN: MucHuongDan[] = [
  * chưa phân biệt được hai việc, và lúc đó đoán là đoán.
  */
 export function traLoiHuongDan(cauHoiDaChuan: string): TraLoi | null {
+  const xaGiao = traLoiXaGiao(cauHoiDaChuan);
+  if (xaGiao !== null) return xaGiao;
+
   const q = ` ${cauHoiDaChuan} `;
   if (!DAU_HOI_CACH.some((d) => q.includes(` ${d} `))) return null;
   if (TU_HOI_SO_LIEU.some((t) => q.includes(` ${t} `))) return null;

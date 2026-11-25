@@ -1327,7 +1327,27 @@ function traCuu(
     return r;
   };
 
-  const diem = duKien.map((d) => ({ d, diem: demLap(d.nhan), khop: khopTu(d.nhan) }));
+  /*
+   * Bỏ hẳn những dữ kiện nói về LOẠI KHÁC — xem khối `LOAI_DOI_TUONG`.
+   *
+   * Lọc TRƯỚC khi chấm, không phủ quyết sau: xếp sau thì mấy nhãn sai loại vẫn
+   * tham gia luật hoà điểm và luật "chữ riêng mở thêm vế", nên chúng vẫn làm bỏ
+   * mất một nhãn ĐÚNG loại mà lẽ ra đã thắng.
+   *
+   * Lọc hết thì `traCuu` trả `null`, và đó đúng là câu trả lời: trang này không
+   * có dữ kiện nào về loại ấy. Khi đó `traLoiKhung` còn lớp xuyên hệ thống ở
+   * phía sau — và ở hai ca đo được, chính lớp đó giữ sẵn con số ĐÚNG.
+   */
+  const loaiHoi = loaiDoiTuong(cauHoi);
+  const ungVien =
+    loaiHoi === null
+      ? duKien
+      : duKien.filter((d) => {
+          const l = loaiDoiTuong(d.nhan);
+          return l === null || l === loaiHoi;
+        });
+
+  const diem = ungVien.map((d) => ({ d, diem: demLap(d.nhan), khop: khopTu(d.nhan) }));
   diem.sort((a, b) => b.diem - a.diem);
 
   const hopLe = uuTienSo ? diem.filter((x) => soVi(x.d.gia) !== null) : diem;
@@ -1955,6 +1975,55 @@ const TU_DEM = new Set([
 ]);
 
 const CUM_LOAI = ['mo hinh du lieu', 'bo du lieu', 'mo hinh', 'du lieu'];
+
+/* ═══ LOẠI ĐỐI TƯỢNG: một cửa, KHÔNG phải một phép chấm điểm ════════════════
+ *
+ * `boCumLoai` ở dưới cắt mấy cụm chỉ loại khỏi câu hỏi trước khi chấm, và lý do
+ * của nó vẫn đúng: mấy cụm ấy có trong gần như mọi nhãn nên chúng không phân
+ * biệt được nhãn nào với nhãn nào. Nhưng nó cắt luôn thứ DUY NHẤT phân biệt hai
+ * câu hỏi khác hẳn nhau:
+ *
+ *   "có bao nhiêu BỘ DỮ LIỆU"  ─┐
+ *   "có bao nhiêu MÔ HÌNH dữ liệu" ─┴─ sau khi cắt, cả hai còn "co bao nhieu"
+ *
+ * LỖI ĐO ĐƯỢC ngày 24/11/2026, trên một tổ chức có 11 bộ dữ liệu và 3 mô hình:
+ *
+ *   ở trang Kho dữ liệu, "có bao nhiêu mô hình dữ liệu"
+ *      → "Số bộ dữ liệu trong workspace này: 11."        (đúng là 3)
+ *   ở trang Mô hình dữ liệu, "có bao nhiêu bộ dữ liệu"
+ *      → "Số mô hình dữ liệu trong workspace này: 3."    (đúng là 11)
+ *
+ * Đây là kiểu hỏng tệ nhất của cả khung: không phải bế tắc mà là một con số
+ * THẬT, của thứ KHÁC, kèm một cái nhãn đọc lên nghe rất thuyết phục. Người dùng
+ * không có cách nào biết, vì con số ấy có thật — chỉ là nó trả lời câu khác.
+ *
+ * ⚠️ Vì sao là CỬA mà không phải siết chấm điểm: khối chú thích của `TU_BO_QUA`
+ * ghi lại bốn lần siết chấm điểm trước đây, và cả bốn đều đổi ca này lấy ca
+ * khác. Cửa này không hỏi "nhãn nào hợp nhất" mà hỏi một câu khác hẳn: "nhãn
+ * này có nói về cùng LOẠI đối tượng mà câu hỏi gọi tên không". Một dữ kiện về
+ * bộ dữ liệu không bao giờ là câu trả lời cho một câu hỏi về mô hình, dù nó
+ * trùng bao nhiêu chữ.
+ *
+ * CHỈ hai loại này, và cố ý: chúng là cặp duy nhất mà `CUM_LOAI` làm sụp vào
+ * nhau. Thêm "báo cáo", "kết nối" vào đây là vô ích — chúng không bị cắt nên
+ * phép chấm điểm vẫn phân biệt được chúng.
+ */
+const LOAI_DOI_TUONG = ['mo hinh', 'bo du lieu'] as const;
+
+type LoaiDoiTuong = (typeof LOAI_DOI_TUONG)[number];
+
+/**
+ * Đoạn chữ này gọi tên loại nào, hay không gọi tên loại nào cả.
+ *
+ * `null` khi KHÔNG có loại nào, và cũng `null` khi có CẢ HAI — "mô hình nào
+ * dùng bộ dữ liệu Orders" nói về cả hai, nên ở đó không có gì để mà phủ quyết.
+ * Cửa chỉ đóng khi câu hỏi nói rõ một loại và nhãn nói rõ loại kia.
+ */
+function loaiDoiTuong(s: string): LoaiDoiTuong | null {
+  const q = chuanHoa(s);
+  const thay = LOAI_DOI_TUONG.filter((l) => q.includes(l));
+  return thay.length === 1 ? (thay[0] ?? null) : null;
+}
 
 const TU_HOI = new Set(['nao', 'gi', 'chua', 'may']);
 

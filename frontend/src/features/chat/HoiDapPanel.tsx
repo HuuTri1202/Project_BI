@@ -1,4 +1,9 @@
-import { CHART_TYPE_LABELS, ERROR_CODES, type ExplorerQueryDto } from '@bi/shared';
+import {
+  CHART_TYPE_LABELS,
+  DATAMODEL_ERROR_CODES,
+  ERROR_CODES,
+  type ExplorerQueryDto,
+} from '@bi/shared';
 import { useEffect, useRef, useState } from 'react';
 
 import { KHONG_XUAT } from '../../services/danhDauXuat';
@@ -680,7 +685,7 @@ export function HoiDapPanel(): React.ReactElement | null {
     );
 
     void hoiTrenMoHinh(moHinhId, q, truoc)
-      .then(({ cau, so, hieuLa, truyVan, lyDo, goiY }) => {
+      .then(({ cau, so, hieuLa, truyVan, lyDo, goiY, daHoi }) => {
         /*
          * ═══ Câu xin một BIỂU ĐỒ thì thứ cần trả về là CẶP TRƯỜNG ════════
          *
@@ -726,7 +731,25 @@ export function HoiDapPanel(): React.ReactElement | null {
          * đúng là chưa trả lời được, nó chỉ nói thêm được vì sao.
          */
         if (cau === null) {
-          hetDuong(q, idBot, lyDo ?? undefined);
+          /*
+           * ⚠️ "Chưa gọi được mô hình" KHÁC HẲN "chưa hiểu câu này".
+           *
+           * `daHoi: false` nghĩa là lượt gọi tới nhà cung cấp đã HỎNG — hết hạn
+           * mức token mỗi phút, mất mạng, hoặc quá hạn chờ. Backend đã nói ra
+           * điều đó từ lâu (xem khối chú thích về `daGoi` trong
+           * `services/chat/dienDat.ts`), chỉ có chỗ này là bỏ đi không đọc.
+           *
+           * Hậu quả đo được 24/11/2026: hỏi tám câu liên tiếp thì hết hạn mức
+           * token của nhà cung cấp, và từ câu thứ chín khung nói "Tôi chưa hiểu
+           * câu này" cho đúng những câu nó vừa trả lời đúng ba mươi giây trước.
+           * Người dùng đọc ra là khung dốt nên gõ lại bằng cách khác, cách nào
+           * cũng trượt — vì thứ chặn không nằm ở câu chữ. Và trước hội đồng thì
+           * nó còn tệ hơn: sản phẩm trông như hỏng ngẫu nhiên.
+           *
+           * Dùng lại ĐÚNG câu của `cauTrangThai('goi-hong')` để hai đường của
+           * khung nói cùng một chuyện bằng cùng một câu.
+           */
+          hetDuong(q, idBot, lyDo ?? (daHoi === false ? cauTrangThai('goi-hong') : undefined));
           return;
         }
 
@@ -790,15 +813,39 @@ export function HoiDapPanel(): React.ReactElement | null {
          * vẫn đúng: chúng tạm thời, và câu trả lời bằng dữ liệu trên màn hình
          * vẫn là thứ tốt nhất khung làm được lúc đó.
          */
+        const loi = getApiError(err);
         hetDuong(
           q,
           idBot,
-          getApiError(err).error === ERROR_CODES.FORBIDDEN
+          loi.error === ERROR_CODES.FORBIDDEN
             ? 'Câu này cần chạy một truy vấn mới trên kho dữ liệu, mà vai trò của bạn ' +
                 'không được phép đọc mô hình dữ liệu. Tôi vẫn trả lời được mọi câu về số ' +
                 'liệu đang hiện trên màn hình. Cần hỏi số mới thì nhờ quản trị tổ chức đổi ' +
                 'vai trò giúp.'
-            : undefined,
+            : /*
+               * ═══ Hai mã nữa mà "chưa hiểu" là nói sai ═════════════════════
+               *
+               * 429 (hết lượt): câu của server đã nói đủ — hết bao nhiêu lượt,
+               * chờ bao lâu, và trong lúc chờ còn làm được gì (xem `thongBao`
+               * của bucket `chat-cau-hoi`). Cùng lý lẽ với `daHoi: false` ở
+               * nhánh trên.
+               *
+               * `CubeUnavailable`: ĐO ĐƯỢC 24/11/2026 — khởi động lại container
+               * Cube rồi hỏi ngay thì backend trả đúng câu cần thiết ("Hãy chạy
+               * npm run infra:up:bi rồi thử lại"), còn khung nuốt nó và nói
+               * "chưa hiểu". Trong khoảng gần một phút Cube chưa sẵn sàng sau
+               * mỗi lần dựng hạ tầng, MỌI câu hỏi số liệu đều nhận câu sai ấy —
+               * đúng khoảng thời gian người ta vừa mở máy để demo.
+               *
+               * Chỉ hai mã này, liệt kê tường minh: mấy mã khác (mất mạng, chưa
+               * cấu hình) thì câu của server nói về hạ tầng chứ không nói được
+               * cho người dùng cuối phải làm gì, nên "chưa hiểu" kèm số liệu
+               * trên màn hình vẫn là thứ tốt nhất khung làm được.
+               */
+              loi.error === ERROR_CODES.RATE_LIMITED ||
+                loi.error === DATAMODEL_ERROR_CODES.CUBE_UNAVAILABLE
+              ? loi.message
+              : undefined,
         );
       });
   }

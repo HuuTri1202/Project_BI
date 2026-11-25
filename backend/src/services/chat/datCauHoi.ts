@@ -8,6 +8,7 @@ import {
   type TimeGranularity,
 } from '@bi/shared';
 
+import { docDem, ghiDem, khoaDem } from './dem';
 import { coCauHinhLlm, goiMoHinh } from './dienDat';
 import { CUM_CO_DINH, giaiCum } from './khoangThoiGian';
 
@@ -24,17 +25,55 @@ export interface DatCauHoiInput {
   truong: readonly TruongChon[];
   boiCanh?: { cauHoi: string; truyVan: ExplorerQueryDto } | undefined;
   moc?: Date | undefined;
+  /**
+   * Phạm vi của bộ nhớ đệm — `"<tenantId>:<dataModelId>"`.
+   *
+   * Vắng mặt thì KHÔNG đệm. Nơi gọi phải tự khai, vì cùng một câu hỏi trên hai
+   * mô hình khác nhau cho ra hai form khác nhau (id trường khác nhau), và trộn
+   * chúng vào một khoá là trả lời tổ chức này bằng form của tổ chức kia.
+   */
+  pham?: string | undefined;
 }
 
 export interface DatCauHoiKetQua {
   truyVan: ExplorerQueryDto | null;
   daHoi: boolean;
   lyDo: LyDoBoForm | null;
+  /**
+   * Thứ câu hỏi đòi mà mô hình dữ liệu KHÔNG có trường nào tương ứng, gọi bằng
+   * đúng chữ của người dùng. Xem `docThieu`.
+   */
+  thieu: string[];
 }
 
 export const TRAN_TRUONG = 120;
 
 const TRAN_LIMIT = 500;
+
+/**
+ * Phạm vi và khoá đệm của lớp này. Luật chung — đệm cái gì thì an toàn, vì sao
+ * chỉ ghi khi thành công, hạn mức token của nhà cung cấp — nằm ở `dem.ts`.
+ *
+ * ═══ Riêng lớp này: đệm FORM, KHÔNG đệm câu trả lời ════════════════════════
+ *
+ * Đệm câu trả lời (có cả con số) là sai: dữ liệu được nạp lại hàng ngày, nên
+ * một tiếng sau khung sẽ đọc một con số đã cũ bằng giọng rất chắc chắn. Form
+ * thì chỉ nói "nhóm theo Chi nhánh, đo Thành tiền", và truy vấn vẫn chạy lại
+ * trên kho MỖI LẦN — nên con số luôn là số mới.
+ *
+ * Phần BIẾN THIÊN của khoá là câu hỏi đã chuẩn hoá cộng lượt hỏi trước. KHÔNG
+ * cần kèm danh sách trường: `pham` là `"<tenantId>:<dataModelId>"`, mà một mô
+ * hình chỉ có một danh sách trường tại mỗi thời điểm — và nếu nó vừa đổi thì
+ * `kiemForm` bác form cũ ở đúng chỗ nó vẫn luôn bác, vì đệm giữ nguyên văn
+ * CHUỖI mô hình trả về chứ không giữ form đã kiểm.
+ */
+const khoaForm = (input: DatCauHoiInput): string | null => {
+  if (input.pham === undefined) return null;
+  return khoaDem('form', input.pham, [
+    chuanHoa(input.cauHoi),
+    input.boiCanh === undefined ? null : [chuanHoa(input.boiCanh.cauHoi), input.boiCanh.truyVan],
+  ]);
+};
 
 export function chuanHoa(raw: string): string {
   return raw
@@ -80,7 +119,7 @@ function daTinCay(input: DatCauHoiInput, values: readonly string[]): boolean {
   return values.every((v) => cu.has(v));
 }
 
-export type LyDoBoForm = 'gia-tri-la' | 'phep-gop-la' | 'thieu-cot-ngay';
+export type LyDoBoForm = 'gia-tri-la' | 'phep-gop-la' | 'thieu-cot-ngay' | 'ngay-tu-viet';
 
 export const LY_DO_NOI: Record<LyDoBoForm, string> = {
   'gia-tri-la':
@@ -93,7 +132,19 @@ export const LY_DO_NOI: Record<LyDoBoForm, string> = {
   'thieu-cot-ngay':
     'Câu hỏi có mốc thời gian, nhưng mô hình này chưa có cột ngày nào dùng được. ' +
     'Mở tab Cấu trúc và đặt kiểu ngày cho cột thời gian của bảng, rồi hỏi lại.',
+  'ngay-tu-viet':
+    'Tôi hiểu được những mốc thời gian có TÊN — hôm nay, tuần này, tháng trước, ' +
+    'tháng 10, quý 3, năm 2025 — chứ chưa hiểu một khoảng ngày tự do kiểu "từ 1/10 ' +
+    'đến 15/10". Bạn hỏi theo tháng, quý hay năm giúp tôi; hoặc viết ngày đầy đủ ' +
+    'kiểu 2026-10-01.',
 };
+
+/**
+ * Ngày mà ClickHouse chắc chắn đọc được: `YYYY-MM-DD`.
+ *
+ * Dùng để GÁC, không để phân tích — xem chốt chiều thời gian trong `kiemForm`.
+ */
+const NGAY_ISO = /^\d{4}-\d{2}-\d{2}$/;
 
 export function kiemFormCoLyDo(
   tho: unknown,
@@ -183,6 +234,48 @@ export function kiemForm(
       //    thứ CHÍNH HỆ NÀY đã dựng ra ở lượt trước. Xem `daTinCay`.
       if (!giuNguyenLoi(loiNguoiDung(input), values) && !daTinCay(input, values)) {
         return ghi('gia-tri-la');
+      }
+
+      /*
+       * ═══ Chiều THỜI GIAN: mô hình không được tự viết ngày ═══════════════
+       *
+       * Khối chú thích ở ô `khoangThoiGian` phía dưới đã khai đúng luật này —
+       * "Mô hình không viết nổi một ngày nào vào truy vấn, kể cả khi nó muốn" —
+       * nhưng luật ấy chỉ gác ĐÚNG MỘT CỬA. Cửa còn lại là vòng `filters` này,
+       * và `giuNguyenLoi` không đóng được nó: `"1/10"` nằm nguyên trong câu hỏi
+       * nên nó là "lời của chính người dùng" theo đúng định nghĩa.
+       *
+       * LỖI ĐO ĐƯỢC, 24/11/2026. Câu hỏi "doanh thu từ ngày 1/10 đến 15/10" cho
+       * ra `{"dimensionId":2568,"operator":"gte","values":["1/10"]}`, ClickHouse
+       * nổ ở `Cannot parse DateTime: while converting '1\/10'`, Cube trả 4xx, và
+       * `explain` dịch mọi 4xx thành một câu đi TỐ OAN người dùng:
+       *
+       *     "Mô hình chưa truy vấn được. Kiểm tra tab Quan hệ — có thể hai bảng
+       *      chưa được nối, hoặc đang nối vòng."
+       *
+       * Mô hình dữ liệu không có gì sai. Trước hội đồng thì câu đó còn tệ hơn
+       * một câu "chưa hiểu": nó khẳng định sản phẩm đang hỏng ở đúng tính năng
+       * vừa được giới thiệu.
+       *
+       * Ba cửa được mở, và chỉ ba:
+       *
+       *   - `set`/`notSet` (không có giá trị) — "đơn nào chưa có ngày giao".
+       *   - Ngày ISO đầy đủ, tức chính người dùng gõ `2026-10-01`. ClickHouse
+       *     đọc được, và `giuNguyenLoi` ở trên đã chứng minh nó là lời của họ.
+       *   - Giá trị do LƯỢT TRƯỚC dựng ra (`daTinCay`). Bắt buộc phải mở: lời
+       *     nhắc đưa cả form cũ cho mô hình và dặn nó giữ phần không được hỏi
+       *     lại, nên một lượt hỏi tiếp LUÔN chép lại hai mốc `giaiCum` đã sinh.
+       *     Đóng cửa này là mọi câu "còn Sữa thì sao" sau một câu có mốc thời
+       *     gian đều bị bác.
+       */
+      const laThoiGian = input.truong.find((t) => t.id === id)?.thoiGian === true;
+      if (
+        laThoiGian &&
+        values.length > 0 &&
+        !values.every((v) => NGAY_ISO.test(v)) &&
+        !daTinCay(input, values)
+      ) {
+        return ghi('ngay-tu-viet');
       }
 
       ra.push({ dimensionId: id, operator, values });
@@ -308,9 +401,79 @@ export function kiemForm(
     }
 
     truyVan.timeDimension = { dimensionId: id, granularity: muc as TimeGranularity };
+
+    /*
+     * Cùng một cột KHÔNG được nhóm hai lần.
+     *
+     * ĐO ĐƯỢC 24/11/2026: "doanh thu theo ngày" làm mô hình điền CẢ HAI ô —
+     * `dimensionIds: [Ngày bán]` và `timeDimension: {Ngày bán, day}` — và cả
+     * hai đều hợp lệ, nên form đi qua mọi chốt. Màn hình nhận về:
+     *
+     *     26 Ngày bán và Ngày bán (Ngày): 2026-10-26T00:00:00.000 ·
+     *     2026-10-26T00:00:00.000: Thành tiền 3.305.000; …
+     *
+     * Đúng số, nhưng mỗi dòng in cùng một mốc thời gian hai lần và tiêu đề đọc
+     * như một lỗi. Không phải lỗi của mô hình: hỏi "theo ngày" thì điền cả hai
+     * ô là một cách đọc hợp lý, chỉ là nó thừa — `timeDimension` ĐÃ nhóm theo
+     * cột đó rồi, ở đúng mức người dùng xin.
+     *
+     * Bỏ ở ĐÂY chứ không ở `docKetQua`: một truy vấn nhóm trùng còn kéo về
+     * nhiều dòng hơn cần từ ClickHouse, và lớp đọc kết quả thì không có thẩm
+     * quyền sửa truy vấn.
+     */
+    truyVan.dimensionIds = truyVan.dimensionIds.filter((d) => d !== id);
   }
 
   return truyVan;
+}
+
+/**
+ * Thứ câu hỏi đòi mà mô hình KHÔNG có — do chính mô hình ngôn ngữ tự khai.
+ *
+ * ═══ Lỗi mà ô này vá, và vì sao nó không thể là một chốt KIỂM ════════════════
+ *
+ * ĐO ĐƯỢC 24/11/2026, hạng lỗi SAI MỘT CÁCH TỰ TIN:
+ *
+ *     "chi phí vận chuyển theo chi nhánh"   (dữ liệu KHÔNG có cột chi phí)
+ *       -> "4 Chi nhánh: Gò Vấp: Thành tiền 10.833.000; …"
+ *
+ * Không một chữ lưu ý nào. Người đọc hỏi về CHI PHÍ và nhận về DOANH THU, mang
+ * đúng nhãn "Thành tiền" — đúng số, trả lời một câu hỏi khác. Trước hội đồng thì
+ * một con số đưa ra để trả lời câu hỏi về chi phí sẽ được hiểu LÀ chi phí.
+ *
+ * Lời nhắc đã dặn "không trả lời được bằng các trường này thì trả về {}", và nó
+ * KHÔNG đủ: đo lại cùng ngày thì "lợi nhuận gộp quý 4" lúc trả `{}` lúc trả
+ * Thành tiền. Mô hình thấy một thước đo "gần đúng" thì nó điền.
+ *
+ * Nên đổi câu hỏi đặt cho nó: thay vì bắt nó TỪ CHỐI (mất cả câu trả lời đúng
+ * khi nó nhầm), bắt nó KHAI ra thứ nó không tìm thấy. Việc khai thì nó làm được,
+ * và cái giá của mỗi hướng hỏng đều nhẹ:
+ *
+ *   - Khai thiếu → hệ thống im như hiện tại, không tệ hơn.
+ *   - Khai thừa → một câu dặn không cần thiết, câu trả lời vẫn đi ra.
+ *
+ * Cùng lập luận với `CHUA_DIEN_DAT` ở `hoiTrenMoHinh`: chỉ được THÊM một lời
+ * lưu ý, không bao giờ được chặn.
+ *
+ * ⚠️ `giuNguyenLoi` là chốt bắt buộc, không phải trang trí: không có nó thì mô
+ * hình bịa ra được một cụm nào đó rồi hệ thống đi xin lỗi người dùng về một thứ
+ * họ chưa từng hỏi.
+ */
+function docThieu(tho: unknown, input: DatCauHoiInput): string[] {
+  if (typeof tho !== 'object' || tho === null) return [];
+  const v = (tho as Record<string, unknown>).thieu;
+  if (!Array.isArray(v)) return [];
+
+  return (
+    v
+      .filter((x): x is string => typeof x === 'string')
+      .map((x) => x.trim())
+      // Cận 60 ký tự: một cụm danh từ, không phải cả câu hỏi chép lại. Mô hình
+      // chép nguyên câu vào đây thì `giuNguyenLoi` vẫn cho qua (câu nằm trong
+      // chính nó), và câu lưu ý sẽ đọc như một lời nhại lại.
+      .filter((x) => x !== '' && x.length <= 60 && giuNguyenLoi(loiNguoiDung(input), [x]))
+      .slice(0, 3)
+  );
 }
 
 function moTaLuotTruoc(input: DatCauHoiInput): string {
@@ -345,6 +508,12 @@ const NHAC = [
   'thang-3 nghĩa là tháng 3 của năm nay; muốn năm khác thì dùng nam-YYYY.',
   'TUYỆT ĐỐI không điền hướng sắp xếp: hệ thống tự đọc "cao nhất"/"thấp nhất" từ câu hỏi.',
   'CHỈ dùng id có trong danh sách. Tuyệt đối không bịa id.',
+  '"thieu":["chi phí vận chuyển"] khi câu hỏi đòi một chỉ số hoặc một cột mà danh sách',
+  'trường KHÔNG có. Ghi nguyên chữ người dùng dùng để gọi nó, mỗi thứ một phần tử.',
+  'Vẫn điền phần form trả lời được; đừng vì có "thieu" mà trả về {}.',
+  'CHỈ ghi khi đã xem hết danh sách và không trường nào mang nghĩa đó. Một trường mang',
+  'nghĩa đó nhưng TÊN KHÁC thì KHÔNG phải thiếu — "doanh thu" chính là "Thành tiền",',
+  '"số đơn" chính là "Số dòng". Không thiếu gì thì bỏ hẳn ô "thieu".',
   'values PHẢI là chữ lấy nguyên từ câu hỏi của người dùng — không dịch, không viết tắt,',
   'không đổi cách viết. Không chắc giá trị viết thế nào trong dữ liệu thì bỏ filter đó đi.',
   'Câu hỏi không trả lời được bằng các trường này thì trả về {}.',
@@ -354,7 +523,9 @@ const NHAC = [
 
 export async function datCauHoi(input: DatCauHoiInput): Promise<DatCauHoiKetQua> {
   const truong = input.truong.slice(0, TRAN_TRUONG);
-  if (!coCauHinhLlm() || truong.length === 0) return { truyVan: null, daHoi: false, lyDo: null };
+  if (!coCauHinhLlm() || truong.length === 0) {
+    return { truyVan: null, daHoi: false, lyDo: null, thieu: [] };
+  }
 
   /*
    * Mỗi dòng nói thêm ĐÚNG thứ cần để điền hai ô mới, và chỉ khi có thứ đó.
@@ -377,6 +548,26 @@ export async function datCauHoi(input: DatCauHoiInput): Promise<DatCauHoiKetQua>
       return `${String(t.id)} = ${t.nhan} (${loai}${them})`;
     })
     .join('\n');
+
+  /*
+   * Đọc đệm TRƯỚC khi gọi mô hình. `daHoi: true` là đúng: form này do mô hình
+   * viết ra thật, chỉ là nó viết ở một lượt trước. Giao diện dùng cờ đó để phân
+   * biệt "đã đọc hết mà không thấy" với "chưa gọi được mô hình", và ở đây mô
+   * hình đã trả lời.
+   */
+  const khoa = khoaForm(input);
+  if (khoa !== null) {
+    const daCo = await docDem(khoa);
+    if (daCo !== null) {
+      const tho = docJson(daCo);
+      const kq = kiemFormCoLyDo(tho, { ...input, truong });
+      // Form cũ không còn hợp (mô hình vừa đổi trường) thì bỏ qua đệm và hỏi
+      // lại mô hình — không trả về bế tắc chỉ vì có một bản đệm.
+      if (kq.truyVan !== null) {
+        return { ...kq, daHoi: true, thieu: docThieu(tho, { ...input, truong }) };
+      }
+    }
+  }
 
   const { noiDung, daGoi } = await goiMoHinh(
     [
@@ -412,6 +603,10 @@ ${danhSach}`,
     2000,
   );
 
-  if (noiDung === null) return { truyVan: null, daHoi: daGoi, lyDo: null };
-  return { ...kiemFormCoLyDo(docJson(noiDung), { ...input, truong }), daHoi: daGoi };
+  if (noiDung === null) return { truyVan: null, daHoi: daGoi, lyDo: null, thieu: [] };
+
+  const tho = docJson(noiDung);
+  const kq = kiemFormCoLyDo(tho, { ...input, truong });
+  if (khoa !== null && kq.truyVan !== null) await ghiDem(khoa, noiDung);
+  return { ...kq, daHoi: daGoi, thieu: docThieu(tho, { ...input, truong }) };
 }
