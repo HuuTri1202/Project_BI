@@ -30,7 +30,6 @@ import {
   type ReportConfigDto,
   type ReportDataDto,
   type ReportShareCreatedDto,
-  type ReportScheduleDto,
   type ReportShareDto,
   type TenantRole,
   type WorkspaceOptionDto,
@@ -57,7 +56,6 @@ import type { Db } from '../../repositories/db';
 import * as membershipsRepo from '../../repositories/memberships';
 import * as reportFoldersRepo from '../../repositories/reportFolders';
 import * as reportsRepo from '../../repositories/reports';
-import * as schedulesRepo from '../../repositories/reportSchedules';
 import * as sharesRepo from '../../repositories/reportShares';
 import * as usersRepo from '../../repositories/users';
 import * as tenantsRepo from '../../repositories/tenants';
@@ -117,8 +115,6 @@ import {
 import { aggregateFromModel } from '../../services/datamodel/modelReportData';
 import { soLieuTrangKhung } from '../../services/report/canvasData';
 import { taoLienKet } from '../../services/report/chiaSe';
-import { locNguoiNhan } from '../../services/report/emailDinhKy';
-import { tinhLanKeTiep } from '../../services/report/lanKeTiep';
 import { aggregateInWarehouse } from '../../services/dataset/aggregateWarehouse';
 import { analyzeDataset, clearAnalyzeCache } from '../../services/dataset/analyze';
 import { commitDatasets } from '../../services/dataset/commit';
@@ -139,10 +135,7 @@ import {
   hieuYBodySchema,
   addDatasetsBodySchema,
   commitDatasetsBodySchema,
-  createScheduleBodySchema,
   createShareBodySchema,
-  scheduleActiveBodySchema,
-  scheduleIdParamSchema,
   shareIdParamSchema,
   createDatasetFolderBodySchema,
   moveDatasetBodySchema,
@@ -1482,115 +1475,6 @@ v1Router.delete(
     // 404 khi không có dòng nào đổi: id của tổ chức khác, hoặc liên kết đã thu
     // hồi rồi. Cả hai đều không phải chuyện người dùng cần phân biệt.
     if (doi === 0) throw notFound('Không tìm thấy liên kết này.');
-    res.status(204).end();
-  }),
-);
-
-/* ─── Gửi báo cáo định kỳ — mong muốn D6 ───────────────────────────────── */
-
-/**
- * Cùng luật quyền với `/shares`: `report:modify`, không phải `report:read`.
- *
- * Đặt một lịch gửi thư là một quyết định VỀ báo cáo — nó sẽ chạy mỗi tuần, gửi
- * cho nhiều người, và người tạo nó không cần có mặt. Viewer đọc báo cáo được
- * nhưng không được tự đặt một việc như thế.
- */
-function dtoLich(r: schedulesRepo.ScheduleRow): ReportScheduleDto {
-  return {
-    id: r.id,
-    tanSuat: r.tanSuat,
-    gio: r.gio,
-    thu: r.thu,
-    ngay: r.ngay,
-    nguoiNhan: r.nguoiNhan,
-    isActive: r.isActive,
-    nextRunAt: r.nextRunAt.toISOString(),
-    lastSentAt: r.lastSentAt === null ? null : r.lastSentAt.toISOString(),
-    lastError: r.lastError,
-  };
-}
-
-v1Router.get(
-  '/reports/:id/schedules',
-  authorize('report', 'modify'),
-  asyncHandler(async (req, res) => {
-    const auth = requireAuth(req);
-    const { id } = idParamSchema.parse(req.params);
-    await baoCaoCuaToi(req, id);
-
-    const rows = await schedulesRepo.theoBaoCao(mysqlPool, auth.tenantId, id);
-    res.json({ items: rows.map(dtoLich) });
-  }),
-);
-
-v1Router.post(
-  '/reports/:id/schedules',
-  authorize('report', 'modify'),
-  rateLimit({ bucket: 'report-schedule', max: 20, windowSeconds: 600 }),
-  asyncHandler(async (req, res) => {
-    const auth = requireAuth(req);
-    const { id } = idParamSchema.parse(req.params);
-    const body = createScheduleBodySchema.parse(req.body);
-    await baoCaoCuaToi(req, id);
-
-    // Luật "chỉ gửi cho thành viên" cưỡng chế ở service, một chỗ — xem
-    // `emailDinhKy.locNguoiNhan` để biết vì sao nó quan trọng hơn vẻ ngoài.
-    const nguoiNhan = await locNguoiNhan(auth.tenantId, body.nguoiNhan);
-
-    const lichId = await schedulesRepo.tao(mysqlPool, {
-      tenantId: auth.tenantId,
-      reportId: id,
-      createdBy: auth.userId,
-      tanSuat: body.tanSuat,
-      gio: body.gio,
-      thu: body.thu,
-      ngay: body.ngay,
-      nguoiNhan,
-      nextRunAt: tinhLanKeTiep(new Date(), {
-        tanSuat: body.tanSuat,
-        gio: body.gio,
-        thu: body.thu,
-        ngay: body.ngay,
-      }),
-    });
-
-    const rows = await schedulesRepo.theoBaoCao(mysqlPool, auth.tenantId, id);
-    const vua = rows.find((r) => r.id === lichId);
-    if (vua === undefined) throw notFound('Không tìm thấy lịch vừa tạo.');
-    res.status(201).json(dtoLich(vua));
-  }),
-);
-
-v1Router.patch(
-  '/reports/:id/schedules/:scheduleId',
-  authorize('report', 'modify'),
-  asyncHandler(async (req, res) => {
-    const auth = requireAuth(req);
-    const { id, scheduleId } = scheduleIdParamSchema.parse(req.params);
-    const body = scheduleActiveBodySchema.parse(req.body);
-    await baoCaoCuaToi(req, id);
-
-    const doi = await schedulesRepo.doiTrangThai(
-      mysqlPool,
-      auth.tenantId,
-      scheduleId,
-      body.isActive,
-    );
-    if (doi === 0) throw notFound('Không tìm thấy lịch này.');
-    res.status(204).end();
-  }),
-);
-
-v1Router.delete(
-  '/reports/:id/schedules/:scheduleId',
-  authorize('report', 'modify'),
-  asyncHandler(async (req, res) => {
-    const auth = requireAuth(req);
-    const { id, scheduleId } = scheduleIdParamSchema.parse(req.params);
-    await baoCaoCuaToi(req, id);
-
-    const doi = await schedulesRepo.xoa(mysqlPool, auth.tenantId, scheduleId);
-    if (doi === 0) throw notFound('Không tìm thấy lịch này.');
     res.status(204).end();
   }),
 );
@@ -3169,6 +3053,28 @@ v1Router.delete(
     const { tenantId } = requireAuth(req);
     const { id } = idParamSchema.parse(req.params);
 
+    /*
+     * Chặn khi còn báo cáo dựng trên mô hình này — CÙNG luật với
+     * `DELETE /datasets/:id` ngay dưới, và vì cùng một lý do.
+     *
+     * Không có chốt này thì xoá mô hình để lại báo cáo SỐNG mà không mở nổi:
+     * danh sách vẫn hiện nó, mở ra thì "Không tìm thấy mô hình dữ liệu này",
+     * còn trình sửa bắn bốn request 404. Đo ngày 25/11/2026 trên database dev:
+     * 14 báo cáo đang ở đúng tình trạng đó.
+     *
+     * Chặn chứ KHÔNG xoá lan sang báo cáo: xoá mềm dây chuyền không có nút hoàn
+     * tác là cách nhanh nhất làm mất báo cáo của người khác. Người xoá mô hình
+     * thường không phải người dựng báo cáo trên nó.
+     */
+    const conBaoCao = await datamodelsRepo.countLiveReports(mysqlPool, tenantId, id);
+    if (conBaoCao > 0) {
+      throw new HttpError(
+        409,
+        ADMIN_ERROR_CODES.WORKSPACE_NOT_EMPTY,
+        `Còn ${conBaoCao} báo cáo đang dùng mô hình dữ liệu này. Hãy xoá chúng trước.`,
+      );
+    }
+
     const affected = await datamodelsRepo.softDelete(mysqlPool, tenantId, id);
     if (affected === 0) throw notFound('Không tìm thấy mô hình dữ liệu này.');
 
@@ -4165,10 +4071,20 @@ function asDuplicateName(err: unknown): unknown {
 // ngoài không tiêu lượt gọi của hệ thống.
 v1Router.post(
   '/chat/dien-dat',
-  rateLimit({ bucket: 'chat-dien-dat', max: 60, windowSeconds: 600 }),
+  rateLimit({
+    bucket: 'chat-dien-dat',
+    max: 60,
+    windowSeconds: 600,
+    // Theo người dùng, không theo IP — xem `chat-cau-hoi` ở dưới.
+    theoNguoiDung: true,
+    thongBao: (cho) => `Tôi đã dùng hết lượt viết lại câu trả lời cho mượt. Thử lại sau ${cho}.`,
+  }),
   asyncHandler(async (req, res) => {
     const body = dienDatBodySchema.parse(req.body);
-    res.json({ cau: await dienDat(body) });
+    // `pham` chỉ cần tổ chức: phần biến thiên của khoá là chính câu gốc. Xem
+    // `services/chat/dem.ts`.
+    const { tenantId } = requireAuth(req);
+    res.json({ cau: await dienDat({ ...body, pham: String(tenantId) }) });
   }),
 );
 
@@ -4185,10 +4101,18 @@ v1Router.post(
  */
 v1Router.post(
   '/chat/hieu-y',
-  rateLimit({ bucket: 'chat-hieu-y', max: 40, windowSeconds: 600 }),
+  rateLimit({
+    bucket: 'chat-hieu-y',
+    max: 40,
+    windowSeconds: 600,
+    // Theo người dùng, không theo IP — xem `chat-cau-hoi` ở dưới.
+    theoNguoiDung: true,
+    thongBao: (cho) => `Tôi đã dùng hết lượt nhờ mô hình đọc câu hỏi. Thử lại sau ${cho}.`,
+  }),
   asyncHandler(async (req, res) => {
     const body = hieuYBodySchema.parse(req.body);
-    const kq = await hieuY(body);
+    const { tenantId } = requireAuth(req);
+    const kq = await hieuY({ ...body, pham: String(tenantId) });
     /*
      * Sổ câu người THẬT hỏi mà lớp ngoại tuyến bó tay — xem `ghiTruot`.
      *
@@ -4224,7 +4148,14 @@ v1Router.post(
  */
 v1Router.post(
   '/chat/chon-cot',
-  rateLimit({ bucket: 'chat-chon-cot', max: 40, windowSeconds: 600 }),
+  rateLimit({
+    bucket: 'chat-chon-cot',
+    max: 40,
+    windowSeconds: 600,
+    // Theo người dùng, không theo IP — xem `chat-cau-hoi` ở dưới.
+    theoNguoiDung: true,
+    thongBao: (cho) => `Tôi đã dùng hết lượt nhờ mô hình chọn cột. Thử lại sau ${cho}.`,
+  }),
   asyncHandler(async (req, res) => {
     const body = chonCotBodySchema.parse(req.body);
     const { truyVan, daHoi } = await datCauHoi({ cauHoi: body.cauHoi, truong: body.cot });
@@ -4290,7 +4221,26 @@ v1Router.get(
 v1Router.post(
   '/datamodels/:id/chat/cau-hoi',
   authorize('datamodel', 'read'),
-  rateLimit({ bucket: 'chat-cau-hoi', max: 20, windowSeconds: 600 }),
+  rateLimit({
+    bucket: 'chat-cau-hoi',
+    /*
+     * 20 -> 60, và đếm theo NGƯỜI thay vì theo IP.
+     *
+     * Con số 20 đặt ra khi mỗi lượt là một lần gọi mô hình thật. Giờ `datCauHoi`
+     * đệm form một tiếng, nên hỏi lại một câu đã hỏi không tốn lượt gọi nào —
+     * chỉ còn một truy vấn ClickHouse. Cái cần chặn vẫn là khối lượng, nhưng
+     * trần cũ chặn cả người dùng thật: đo ngày 24/11/2026, hai mươi câu trong
+     * mười phút là mức một người hỏi bình thường trong một buổi demo, và họ bị
+     * khoá đúng lúc đang trình bày. 60 lượt là một câu mỗi mười giây, liên tục
+     * suốt mười phút — quá mức của người gõ tay, vẫn chặn được vòng lặp tự động.
+     */
+    max: 60,
+    windowSeconds: 600,
+    theoNguoiDung: true,
+    thongBao: (cho) =>
+      `Tôi đã dùng hết lượt đặt câu hỏi mới trên kho dữ liệu (60 câu mỗi 10 phút). ` +
+      `Thử lại sau ${cho}. Trong lúc đó tôi vẫn trả lời được mọi câu về số liệu đang hiện trên màn hình.`,
+  }),
   asyncHandler(async (req, res) => {
     const auth = requireAuth(req);
     const { id } = idParamSchema.parse(req.params);

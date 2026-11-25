@@ -3428,65 +3428,20 @@ export const migrations: readonly Migration[] = [
        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
     ],
   },
-  {
-    id: 46,
-    name: 'report_schedules',
-    statements: [
-      /*
-       * ═══ Gửi báo cáo định kỳ qua email — mong muốn D6 ════════════════════
-       *
-       * "Chủ shop muốn nhận số sáng thứ Hai, không muốn mở app."
-       *
-       * ─── `next_run_at` LƯU, không tính lúc đọc ──────────────────────────
-       *
-       * Vòng lặp nền hỏi "có lịch nào tới giờ chưa" mỗi phút. Tính giờ kế tiếp
-       * trong câu WHERE nghĩa là mỗi lần hỏi phải chạy một biểu thức ngày tháng
-       * trên MỌI dòng — không dùng được chỉ mục, và biểu thức ấy phải được viết
-       * HAI lần (một bằng SQL, một bằng TypeScript để hiện ra cho người dùng).
-       * Lưu một mốc thì câu hỏi thành `WHERE next_run_at <= NOW()`, và phép
-       * tính chỉ có một bản (`tinhLanKeTiep`).
-       *
-       * ─── `last_sent_at` và vì sao nó KHÔNG phải `next_run_at` trừ đi ────
-       *
-       * Hai cột nói hai chuyện: một cái là lời hứa, một cái là việc đã xảy ra.
-       * Gộp lại thì không ai trả lời được "lịch này có thật sự gửi được lần nào
-       * chưa" — mà đó là câu đầu tiên người dùng hỏi khi họ không thấy thư.
-       *
-       * ─── Người nhận là JSON, không phải bảng riêng ──────────────────────
-       *
-       * Danh sách người nhận là một thuộc tính của LỊCH, không phải một thực
-       * thể: không có gì tham chiếu tới một người nhận, không ai truy vấn
-       * "những lịch gửi cho Mai". Một bảng nối ở đây là ba câu JOIN để đọc một
-       * mảng chuỗi.
-       *
-       * ⚠️ Nhưng địa chỉ trong đó PHẢI là email của thành viên đang hoạt động
-       * trong tổ chức — luật đó cưỡng chế ở tầng service (`lichGui.ts`), không
-       * ở schema. Lý do nằm ở đó: một hệ thống nhận địa chỉ tuỳ ý là một trạm
-       * chuyển thư miễn phí cho bất kỳ ai có tài khoản.
-       */
-      `CREATE TABLE IF NOT EXISTS report_schedules (
-         id           BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-         tenant_id    BIGINT UNSIGNED NOT NULL,
-         report_id    BIGINT UNSIGNED NOT NULL,
-         created_by   BIGINT UNSIGNED NOT NULL,
-         tan_suat     ENUM('hang-ngay','hang-tuan','hang-thang') NOT NULL,
-         gio          TINYINT UNSIGNED NOT NULL,
-         thu          TINYINT UNSIGNED NULL,
-         ngay         TINYINT UNSIGNED NULL,
-         nguoi_nhan   JSON            NOT NULL,
-         is_active    TINYINT(1)      NOT NULL DEFAULT 1,
-         next_run_at  DATETIME(3)     NOT NULL,
-         last_sent_at DATETIME(3)     NULL,
-         last_error   VARCHAR(500)    NULL,
-         created_at   DATETIME(3)     NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
-         PRIMARY KEY (id),
-         KEY ix_report_schedule_due (is_active, next_run_at),
-         KEY ix_report_schedule_report (tenant_id, report_id),
-         CONSTRAINT fk_report_schedule_report FOREIGN KEY (report_id)
-           REFERENCES reports (id) ON DELETE CASCADE,
-         CONSTRAINT fk_report_schedule_tenant FOREIGN KEY (tenant_id)
-           REFERENCES tenants (id) ON DELETE CASCADE
-       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
-    ],
-  },
+  /*
+   * ═══ 46 LÀ SỐ ĐÃ CHÁY — đừng cấp lại ════════════════════════════════════
+   *
+   * 46 từng là `report_schedules` (gửi báo cáo định kỳ qua email). Tính năng
+   * đã được gỡ khỏi hệ thống, và vì migration ấy CHƯA lên remote nên nó được
+   * xoá hẳn thay vì thêm một migration thứ hai chỉ để `DROP TABLE`.
+   *
+   * Nhưng máy dev nào đã chạy nó thì trong `schema_migrations` vẫn còn dòng
+   * id 46. `migrate.ts` nhận diện THEO ID (`if (applied.has(migration.id))`),
+   * nên một migration mới lấy lại số 46 sẽ bị những máy đó BỎ QUA — im lặng,
+   * không lỗi. Migration kế tiếp bắt đầu từ 47.
+   *
+   * Dọn bảng chết trên máy đã chạy 46:
+   *   DROP TABLE IF EXISTS report_schedules;
+   *   DELETE FROM schema_migrations WHERE id = 46;
+   */
 ];

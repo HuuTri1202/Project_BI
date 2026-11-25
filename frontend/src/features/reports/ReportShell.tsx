@@ -54,7 +54,8 @@ export function ReportShell({
       {/*
         Thanh trên XUỐNG DÒNG được dưới `sm`, và đó là một lỗi đo được.
 
-        Trên 390px, bốn nút Xuất · Chia sẻ · Gửi định kỳ · Chỉnh sửa cần 461px.
+        Trên 390px, bốn nút Xuất · Chia sẻ · Gửi định kỳ · Chỉnh sửa cần 461px
+        — số đo từ hồi còn nút Gửi định kỳ, nút đó nay đã gỡ khỏi hệ thống.
         Với `h-14` cố định cộng `shrink-0`, nút cuối nằm ở x = 366…461 — tức
         NGOÀI màn hình. Thanh này cuộn ngang được, nhưng trang thì không, nên
         không có gì cho người dùng biết là còn nút phía sau: trên điện thoại,

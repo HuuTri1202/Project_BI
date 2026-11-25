@@ -1,7 +1,4 @@
 import {
-  NGAY_TRONG_THANG_MAX,
-  NGUOI_NHAN_MAX,
-  TAN_SUAT,
   AGGREGATES,
   BILLING_CYCLES,
   CANVAS_COLUMNS,
@@ -242,45 +239,6 @@ export const shareIdParamSchema = z.object({
   id: z.coerce.number().int().positive(),
   shareId: z.coerce.number().int().positive(),
 });
-
-/* ─── Gửi báo cáo định kỳ — mong muốn D6 ───────────────────────────────── */
-
-/**
- * `thu` và `ngay` là HAI trường chỉ có nghĩa với một `tanSuat`, nên luật chéo
- * kiểm ở đây chứ không ở route: thiếu nó thì một lịch "hằng tuần" không có
- * `thu` sẽ im lặng rơi về Thứ Hai, và người dùng chọn Thứ Sáu rồi nhận thư vào
- * thứ Hai mà không hiểu vì sao.
- */
-export const createScheduleBodySchema = z
-  .object({
-    tanSuat: z.enum(TAN_SUAT),
-    gio: z.number().int().min(0).max(23),
-    thu: z.number().int().min(1).max(7).nullable().optional().default(null),
-    ngay: z.number().int().min(1).max(NGAY_TRONG_THANG_MAX).nullable().optional().default(null),
-    nguoiNhan: z
-      .array(z.string().email('Địa chỉ email không hợp lệ'))
-      .min(1, 'Hãy chọn ít nhất một người nhận')
-      .max(NGUOI_NHAN_MAX, `Tối đa ${String(NGUOI_NHAN_MAX)} người nhận cho một lịch`),
-  })
-  .superRefine((v, ctx) => {
-    if (v.tanSuat === 'hang-tuan' && v.thu === null) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['thu'], message: 'Hãy chọn thứ' });
-    }
-    if (v.tanSuat === 'hang-thang' && v.ngay === null) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['ngay'],
-        message: 'Hãy chọn ngày trong tháng',
-      });
-    }
-  });
-
-export const scheduleIdParamSchema = z.object({
-  id: z.coerce.number().int().positive(),
-  scheduleId: z.coerce.number().int().positive(),
-});
-
-export const scheduleActiveBodySchema = z.object({ isActive: z.boolean() });
 
 // ─── Báo cáo (§7.6) ──────────────────────────────────────────────────────────
 
@@ -1142,8 +1100,27 @@ export const explorerQueryBodySchema = z
  * `kiemForm` chặn, cho client quyết "mô hình được thấy những trường nào" vẫn là
  * một cái cửa không có lý do gì để mở.
  */
+/**
+ * Câu hỏi của người dùng gửi vào khung hỏi đáp — dùng cho CẢ NĂM endpoint chat.
+ *
+ * ⚠️ Câu báo lỗi phải là TIẾNG VIỆT. Mặc định của zod đi thẳng ra giao diện:
+ * ĐO ĐƯỢC 24/11/2026, một câu hỏi rỗng trả về `"String must contain at least 1
+ * character(s)"` và một câu 900 ký tự trả về `"String must contain at most 500
+ * character(s)"`. Khung chat là chỗ người dùng gõ tự do nhất trong cả sản phẩm,
+ * nên nó là chỗ hai câu đó hiện ra thường nhất — và cả sản phẩm còn lại nói
+ * tiếng Việt.
+ *
+ * `.trim()` cho cả năm chỗ: ba endpoint trước đây không trim, nên một câu chỉ
+ * gồm dấu cách đi được tới tận lớp gọi mô hình rồi mới rơi ra rỗng.
+ */
+const cauHoiNguoiDung = z
+  .string()
+  .trim()
+  .min(1, 'Bạn chưa nhập câu hỏi.')
+  .max(500, 'Câu hỏi dài quá 500 ký tự. Bạn rút ngắn lại giúp tôi.');
+
 export const chatCauHoiBodySchema = z.object({
-  cauHoi: z.string().trim().min(1).max(500),
+  cauHoi: cauHoiNguoiDung,
   /**
    * Lượt hỏi trước — bộ nhớ hội thoại. Vắng mặt = câu hỏi độc lập.
    *
@@ -1157,7 +1134,7 @@ export const chatCauHoiBodySchema = z.object({
    */
   boiCanh: z
     .object({
-      cauHoi: z.string().trim().min(1).max(500),
+      cauHoi: cauHoiNguoiDung,
       truyVan: explorerQueryBodySchema,
     })
     .optional(),
@@ -1221,7 +1198,7 @@ export const renameDatasetBodySchema = z.object({
  * chỉ thị lạ vào prompt.
  */
 export const dienDatBodySchema = z.object({
-  cauHoi: z.string().min(1).max(500),
+  cauHoi: cauHoiNguoiDung,
   cau: z.string().min(1).max(2000),
   so: z.array(z.string().min(1).max(100)).max(20),
 });
@@ -1237,7 +1214,7 @@ export const dienDatBodySchema = z.object({
  * nhãn không đi tới tận nơi mới bị cắt.
  */
 export const hieuYBodySchema = z.object({
-  cauHoi: z.string().min(1).max(500),
+  cauHoi: cauHoiNguoiDung,
   nhan: z.array(z.string().min(1).max(300)).min(1).max(60),
 });
 
@@ -1274,7 +1251,7 @@ export const hieuYBodySchema = z.object({
  * vì lớp dưới cắt ngay.
  */
 export const chonCotBodySchema = z.object({
-  cauHoi: z.string().min(1).max(500),
+  cauHoi: cauHoiNguoiDung,
   cot: z
     .array(
       z.object({

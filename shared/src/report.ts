@@ -1102,62 +1102,18 @@ export interface BaoCaoChiaSeDto {
   soLieu: ReportCanvasDataDto;
 }
 
-/* ─── Gửi báo cáo định kỳ qua email — mong muốn D6 ──────────────────────── */
-
-export const TAN_SUAT = ['hang-ngay', 'hang-tuan', 'hang-thang'] as const;
-export type TanSuat = (typeof TAN_SUAT)[number];
-
-export const TAN_SUAT_LABELS: Record<TanSuat, string> = {
-  'hang-ngay': 'Hằng ngày',
-  'hang-tuan': 'Hằng tuần',
-  'hang-thang': 'Hằng tháng',
-};
-
-/** Thứ trong tuần, 1 = Thứ Hai … 7 = Chủ nhật (ISO-8601). */
-export const THU_LABELS: Record<number, string> = {
-  1: 'Thứ Hai',
-  2: 'Thứ Ba',
-  3: 'Thứ Tư',
-  4: 'Thứ Năm',
-  5: 'Thứ Sáu',
-  6: 'Thứ Bảy',
-  7: 'Chủ nhật',
-};
+/* ─── Chế độ gửi email của hệ thống ─────────────────────────────────────── */
 
 /**
- * Trần NGÀY trong tháng.
+ * Ba chế độ gửi email — xem `backend/services/mail/mailer.ts`.
  *
- * 28, không phải 31: ngày 29–31 không tồn tại ở mọi tháng, và một lịch "gửi
- * ngày 31" sẽ im lặng bỏ tháng Hai — đúng kiểu hỏng mà người dùng chỉ phát hiện
- * sau vài tháng không nhận được thư.
+ * Hiện chỉ backend đọc: thư xác minh email và thư đặt lại mật khẩu. Nằm ở
+ * `shared` vì kiểu này từng được giao diện đọc để cảnh báo "máy chưa khai
+ * SMTP", và sẽ cần lại ngay khi có mặt nào gửi thư cho người dùng cuối.
+ *
+ *   'smtp'  gửi thật.
+ *   'log'   chưa khai SMTP và KHÔNG phải production — thư in ra console.
+ *   'tat'   chưa khai SMTP ở production — mọi lần gửi NÉM lỗi.
  */
-export const NGAY_TRONG_THANG_MAX = 28;
-
-/** Trần số người nhận của MỘT lịch. */
-export const NGUOI_NHAN_MAX = 10;
-
-export interface ReportScheduleDto {
-  id: number;
-  tanSuat: TanSuat;
-  /** Giờ gửi theo múi giờ Việt Nam (0–23) — xem `GIO_VIET_NAM` ở backend. */
-  gio: number;
-  /** Chỉ `hang-tuan`. 1 = Thứ Hai. */
-  thu: number | null;
-  /** Chỉ `hang-thang`. 1–28. */
-  ngay: number | null;
-  nguoiNhan: string[];
-  isActive: boolean;
-  /** Mốc gửi kế tiếp, ISO. Giao diện dịch sang giờ địa phương để hiện. */
-  nextRunAt: string;
-  lastSentAt: string | null;
-  /** Lý do lần gửi gần nhất thất bại — `null` khi chưa từng lỗi. */
-  lastError: string | null;
-}
-
-export interface CreateReportScheduleInput {
-  tanSuat: TanSuat;
-  gio: number;
-  thu?: number | null;
-  ngay?: number | null;
-  nguoiNhan: string[];
-}
+export const CHE_DO_MAIL = ['smtp', 'log', 'tat'] as const;
+export type CheDoMail = (typeof CHE_DO_MAIL)[number];
