@@ -28,6 +28,7 @@
     "db:seed": "npm --workspace backend run seed:admin",
     "db:backfill-personal": "npm --workspace backend run backfill:personal --",
     "verify": "npm run lint && npm run typecheck && npm run build",
+    "quet": "node scripts/quet/index.mjs",
     "infra:up": "bash infrastructure/start-dev.sh",
     "infra:up:data": "docker compose -f infrastructure/docker-compose.yml --profile data up -d",
     "infra:up:bi": "docker compose -f infrastructure/docker-compose.yml --profile bi up -d",

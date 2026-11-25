@@ -21,7 +21,7 @@ phải tôi ghi sai.
 
 | § | Phần | Số ca | ⭐ |
 |---|---|---|---|
-| §1 | Xác thực và tài khoản | 12 | 6 |
+| §1 | Xác thực và tài khoản | 13 | 6 |
 | §2 | Phân quyền và cách ly tổ chức | 8 | 5 |
 | §3 | Tải tệp lên và đọc dữ liệu | 13 | 7 |
 | §4 | Kho dữ liệu và cập nhật dữ liệu | 10 | 5 |
@@ -29,15 +29,15 @@ phải tôi ghi sai.
 | §6 | Nạp vào kho phân tích | 5 | 3 |
 | §7 | Mô hình dữ liệu và Khám phá | 12 | 5 |
 | §8 | Trình dựng báo cáo | 18 | 12 |
-| §9 | Xem, chia sẻ, xuất tệp | 11 | 6 |
-| §10 | Trợ lý dữ liệu | 6 | 3 |
+| §9 | Xem, chia sẻ, xuất tệp | 10 | 6 |
+| §10 | Trợ lý dữ liệu | 17 | 12 |
 | §11 | Thanh toán và hạn mức | 9 | 5 |
 | §12 | Quản lý tổ chức | 9 | 5 |
 | §13 | Console vận hành hệ thống | 8 | 4 |
 | §14 | Điện thoại và ca biên | 10 | 5 |
-| | **Tổng** | **137** | **73** |
+| | **Tổng** | **148** | **82** |
 
-Chạy hết cả bộ mất khoảng 5–7 giờ. Chỉ chạy 73 ca ⭐ thì khoảng 2,5 giờ, và đó
+Chạy hết cả bộ mất khoảng 5–7 giờ. Chỉ chạy 82 ca ⭐ thì khoảng 2,5 giờ, và đó
 là bộ tối thiểu tôi khuyên chạy lại sau mỗi lần sửa mã.
 
 ---
@@ -427,6 +427,41 @@ thiếu một thứ là ca đó không sửa lại được:
   vừa xác nhận) cần một origin đã khai trong Google Cloud Console. Nhánh tạo tài
   khoản đã được kiểm riêng ở tầng dịch vụ; nhánh bấm nút thì phải chờ môi
   trường.
+
+| Kết quả thực tế | Đạt / Không đạt |
+|---|---|
+|  |  |
+
+### XT-13 ◻ · Câu báo lỗi nhập liệu phải bằng tiếng Việt
+
+**Các bước**
+
+1. Mở DevTools → Console, chạy:
+   ```js
+   await fetch('/api/auth/register', {
+     method: 'POST',
+     headers: { 'Content-Type': 'application/json' },
+     body: '{}',
+   }).then((r) => r.json());
+   ```
+2. Chạy tiếp:
+   ```js
+   await fetch('/api/v1/report-folders', {
+     method: 'POST',
+     headers: { 'Content-Type': 'application/json' },
+     body: '{}',
+   }).then((r) => r.json());
+   ```
+
+**Kết quả mong đợi**
+
+- Cả hai trả **400**, và **mọi câu trong `fields` đều là tiếng Việt**: "Thiếu
+  thông tin này.", "Cần một số hợp lệ.".
+- KHÔNG còn câu nào kiểu `Required`, `Expected number, received nan`,
+  `Invalid enum value. Expected 'admin' | 'creator' | 'viewer'` — đo được
+  24/11/2026: mười một câu tiếng Anh trong mười hai lần thử.
+- Câu chữ viết tay vẫn thắng bản dịch chung: `/v1/workspaces` với `name: ""` vẫn
+  trả **"Tên công ty phải có ít nhất 2 ký tự"**.
 
 | Kết quả thực tế | Đạt / Không đạt |
 |---|---|
@@ -1974,25 +2009,7 @@ trang xem lại thấy tổng toàn bộ.*
 |---|---|
 |  |  |
 
-### XC-09 ◻ · Gửi định kỳ
-
-**Các bước**
-
-1. Mở `Doanh thu tháng 10` → **Gửi định kỳ**.
-2. Chọn tần suất **hàng tuần**, thứ **Năm**, giờ **08:00**. Lưu.
-3. Mở lại hộp đó.
-
-**Kết quả mong đợi**
-
-- Ba ô chọn (tần suất, thứ, giờ) đều lưu đúng và **hiện lại đúng** thứ bạn chọn.
-- Có một câu nói rõ thư **chỉ gửi cho thành viên** của tổ chức.
-- Máy dev không có SMTP nên thư chỉ in ra log — đó là bình thường.
-
-| Kết quả thực tế | Đạt / Không đạt |
-|---|---|
-|  |  |
-
-### XC-10 ◻ · Thư mục báo cáo
+### XC-09 ◻ · Thư mục báo cáo
 
 **Các bước**
 
@@ -2010,7 +2027,7 @@ trang xem lại thấy tổng toàn bộ.*
 |---|---|
 |  |  |
 
-### XC-11 ◻ · Xoá báo cáo
+### XC-10 ◻ · Xoá báo cáo
 
 **Các bước**
 
@@ -2131,6 +2148,267 @@ Khung hỏi đáp nằm ở góc phải dưới, nút ghi **Trợ lý dữ liệ
 
 - Không trường hợp nào làm trang trắng, treo, hay hiện lỗi kỹ thuật.
 - Khung trả lời hoặc nói không hiểu; các câu hỏi xếp hàng đúng thứ tự.
+
+| Kết quả thực tế | Đạt / Không đạt |
+|---|---|
+|  |  |
+
+### TL-07 ⭐ · Hỏi LIÊN TIẾP nhiều câu, khung không được tắt tiếng
+
+*Ca quan trọng nhất của cả phần này: đây đúng là cảnh hội đồng hỏi dồn.*
+
+**Các bước**
+
+1. Mở một mô hình dữ liệu (hoặc trang báo cáo dựng trên mô hình).
+2. Hỏi **12 câu khác nhau liên tiếp**, không chờ nghỉ giữa các câu. Dùng đúng
+   danh sách này:
+
+   ```
+   tổng doanh thu là bao nhiêu
+   doanh thu theo chi nhánh
+   nhóm hàng nào doanh thu cao nhất
+   chi nhánh nào bán được nhiều nhất
+   sản phẩm nào bán chạy nhất
+   tổng số lượng bán được là bao nhiêu
+   doanh thu trung bình là bao nhiêu
+   doanh thu theo ngày
+   doanh thu theo sản phẩm
+   số lượng theo chi nhánh
+   tổng đơn giá là bao nhiêu
+   đơn giá trung bình là bao nhiêu
+   ```
+
+**Kết quả mong đợi**
+
+- **Cả 12 câu đều có câu trả lời.** Trước bản vá 24/11/2026, câu thứ 9 trở đi
+  trả về "Tôi chưa hiểu câu này" vì hết hạn mức token/phút của nhà cung cấp —
+  và đó là một câu NÓI SAI, vì khung hiểu thừa, nó chỉ không gọi được mô hình.
+- Nếu có câu nào bế tắc, đọc kỹ câu khung nói: nó phải nói **"chưa gọi được mô
+  hình ngôn ngữ"** hoặc **"đã dùng hết lượt … thử lại sau N phút"**, chứ KHÔNG
+  được nói "chưa hiểu câu này". Một câu "chưa hiểu" ở đây là lỗi thật.
+
+| Kết quả thực tế | Đạt / Không đạt |
+|---|---|
+|  |  |
+
+### TL-08 ⭐ · Hỏi LẠI câu đã hỏi phải ra ngay
+
+*Chứng minh bộ nhớ đệm đang chạy — đây là thứ giữ cho buổi demo không hết lượt.*
+
+**Các bước**
+
+1. Ngay sau `TL-07`, hỏi lại **đúng ba câu đầu** của danh sách đó.
+
+**Kết quả mong đợi**
+
+- Ba câu trả lời **giống hệt** lần đầu, và ra **gần như tức thì** (dưới 1 giây;
+  đo được 0,1–0,2 giây), không có ba chấm chờ lâu như lần đầu.
+- Con số vẫn là số **mới**: đệm chỉ nhớ *cách đặt truy vấn*, còn truy vấn thì
+  chạy lại trên kho mỗi lần. Kiểm bằng cách cập nhật dữ liệu (`KD-03`) rồi hỏi
+  lại — con số phải đổi theo.
+
+| Kết quả thực tế | Đạt / Không đạt |
+|---|---|
+|  |  |
+
+### TL-09 ⭐ · Hỏi về LOẠI này không được trả lời bằng số của loại kia
+
+*Lỗi tệ nhất đã đo được: một con số thật, của thứ khác, kèm nhãn nghe rất thật.*
+
+**Các bước**
+
+1. Vào trang **Kho dữ liệu**. Hỏi `có bao nhiêu mô hình dữ liệu`.
+2. Vào trang **Mô hình dữ liệu**. Hỏi `có bao nhiêu bộ dữ liệu`.
+
+**Kết quả mong đợi**
+
+- Bước 1: con số trả về là **số mô hình**, và nhãn nói "mô hình". Trước bản vá
+  24/11/2026 nó trả về *"Số bộ dữ liệu trong workspace này"* — đúng con số của
+  bộ dữ liệu, sai hẳn câu hỏi (đo trên tổ chức có 11 bộ và 3 mô hình: nó nói
+  11).
+- Bước 2: ngược lại — phải ra **số bộ dữ liệu**, nhãn nói "bộ dữ liệu".
+- Hai con số phải **khác nhau** nếu tổ chức có số bộ dữ liệu khác số mô hình.
+
+| Kết quả thực tế | Đạt / Không đạt |
+|---|---|
+|  |  |
+
+### TL-10 ⭐ · Hạ tầng vừa dựng: đèn KHÔNG được xanh trước khi hỏi được
+
+Đây là ca quan trọng nhất của §10, vì nó là **hai phút đầu của buổi bảo vệ**.
+
+**Các bước**
+
+1. Chạy `docker restart bi-cube`.
+2. Mở ngay trang mô hình dữ liệu, tab Explorer, và **nhìn nhãn trạng thái Cube**.
+3. Trong lúc nhãn còn đỏ, hỏi khung một câu số liệu.
+4. Ngay khi nhãn chuyển xanh, hỏi lại **câu đầu tiên**.
+
+**Kết quả mong đợi**
+
+- Bước 2: nhãn **đỏ**, và nó tự hỏi lại mỗi 5 giây (không phải bấm F5).
+- Bước 3: khung nói **"Chưa kết nối được tới tầng ngữ nghĩa (Cube.js)"** kèm lệnh
+  cần chạy, hoặc **"đang khởi động hoặc đang quá tải nên chưa trả kết quả trong
+  30 giây"** nếu Cube đã mở cổng mà còn đang biên dịch. KHÔNG được nói "chưa
+  hiểu câu này", và KHÔNG được hiện một lỗi JavaScript.
+- Bước 4: **trả lời được ngay**. Đây là điểm mấu chốt — đo được 24/11/2026 ở bản
+  trước: nhãn xanh ở giây 36 nhưng truy vấn còn hỏng thêm **2 phút 7 giây** nữa
+  (503 · 503 · **500** · 503), vì nhãn hỏi `/readyz` còn `/readyz` xanh sớm hơn
+  sự thật. Nay nhãn hỏi `/meta`, tức đúng phần việc biên dịch mà truy vấn phải
+  chờ. Sau khi vá: nhãn xanh ở giây 9,6 và truy vấn đầu tiên trả về **200 trong
+  1,1 giây**.
+
+> **Vẫn nên làm trước khi demo:** dựng hạ tầng rồi tự hỏi một câu số liệu và
+> chờ nó trả lời xong. Nhãn xanh là đủ, nhưng câu đầu tiên vẫn tốn 1–12 giây
+> (ClickHouse và pool MySQL cũng lạnh); mọi câu sau đó 0,3–3 giây.
+
+| Kết quả thực tế | Đạt / Không đạt |
+|---|---|
+|  |  |
+
+### TL-11 ⭐ · Khoảng ngày TỰ DO không được đi tố oan mô hình dữ liệu
+
+**Các bước**
+
+1. Trên mô hình `Ban hang thang 10`, hỏi **"doanh thu từ ngày 1/10 đến 15/10"**.
+2. Hỏi **"doanh thu tháng 10"**.
+
+**Kết quả mong đợi**
+
+- Bước 1: khung nói nó **hiểu mốc thời gian có TÊN** (hôm nay, tuần này, tháng 10,
+  quý 3, năm 2025) và mời hỏi lại theo tháng/quý/năm, hoặc viết ngày đầy đủ kiểu
+  `2026-10-01`.
+- Bước 1 **TUYỆT ĐỐI KHÔNG** được hiện câu *"Mô hình chưa truy vấn được. Kiểm tra
+  tab Quan hệ — có thể hai bảng chưa được nối, hoặc đang nối vòng."* Đó là câu đo
+  được 24/11/2026, và nó sai: mô hình không có vấn đề gì, chỉ là mô hình ngôn ngữ
+  đã viết `"1/10"` vào bộ lọc rồi ClickHouse không đọc nổi chuỗi đó.
+- Bước 2: trả lời **33.687.000**.
+
+| Kết quả thực tế | Đạt / Không đạt |
+|---|---|
+|  |  |
+
+### TL-12 ⭐ · Lọc không khớp giá trị nào thì phải nói cột đó ĐANG CÓ gì
+
+**Các bước**
+
+1. Hỏi **"doanh thu của sản phẩm Bánh"** (`Bánh` là một giá trị của cột **Nhóm
+   hàng**, còn cột **Sản phẩm** thì ghi `Bánh bông lan`, `Bánh mì que`).
+2. Hỏi **"doanh thu tuần này"** (dữ liệu chỉ có tháng 10/2026).
+
+**Kết quả mong đợi**
+
+- Bước 1: **"Không có dòng nào thoả điều kiện này. Cột Sản phẩm đang có: Bánh bông
+  lan, Bánh mì que, Cà phê sữa, Cà phê đen, Trà sữa trân châu, Trà đào cam sả."**
+- Bước 2: **"Không có dòng nào thoả điều kiện này."**
+- Cả hai bước **KHÔNG** được in ra `Thành tiền (trống).` — đó là câu trả lời của
+  7 trong 42 câu thử ngày 24/11/2026, và nó không nói cho người đọc biết chuyện
+  gì đã xảy ra.
+
+| Kết quả thực tế | Đạt / Không đạt |
+|---|---|
+|  |  |
+
+### TL-13 ⭐ · Hỏi một thứ mô hình KHÔNG CÓ thì phải nói mô hình có gì
+
+**Các bước**
+
+1. Hỏi **"lợi nhuận là bao nhiêu"** (mô hình không có cột nào tên lợi nhuận).
+2. Hỏi **"những đơn trên 1 triệu"**.
+
+**Kết quả mong đợi**
+
+- Cả hai bước: khung nói **"Tôi chưa thấy thứ bạn hỏi trong mô hình này. Nó đo
+  được: Số dòng, Số lượng, Đơn giá, Thành tiền; và tách được theo: Mã đơn, Ngày
+  bán, Chi nhánh, Nhóm hàng, Sản phẩm."**
+- KHÔNG được chỉ nói "Tôi chưa hiểu câu này" — 8 trong 42 câu thử ngày 24/11/2026
+  dừng ở đúng câu đó, trong khi danh sách trường đang nằm sẵn trong tay backend.
+
+| Kết quả thực tế | Đạt / Không đạt |
+|---|---|
+|  |  |
+
+### TL-14 ⭐ · Lời chào trả lời được khi NGẮT MẠNG
+
+**Các bước**
+
+1. Mở DevTools → tab Network → đặt **Offline**.
+2. Mở khung hỏi đáp, gõ **"xin chào"**.
+3. Gõ **"bạn làm được gì"**.
+4. Gõ **"cảm ơn bạn"**.
+5. Bỏ Offline, gõ **"xin chào, cho tôi biết doanh thu theo chi nhánh"**.
+
+**Kết quả mong đợi**
+
+- Bước 2–4: trả lời **ngay, không một lượt gọi mạng nào** — lời chào, danh sách
+  ba loại câu hỏi khung làm được, và lời đáp cảm ơn.
+- Bước 5: trả lời bằng **số liệu doanh thu theo chi nhánh**, KHÔNG phải lời chào.
+  Đây là chốt quan trọng: một chữ "chào" lịch sự ở đầu câu không được phép giết
+  cả câu hỏi.
+
+| Kết quả thực tế | Đạt / Không đạt |
+|---|---|
+|  |  |
+
+### TL-15 ◻ · Mốc quý/năm đọc ra chữ, và câu chưa so sánh được phải nói ra
+
+**Các bước**
+
+1. Hỏi **"doanh thu theo quý"**.
+2. Hỏi **"doanh thu năm nay"**.
+3. Hỏi **"doanh thu tháng 10 so với tháng 9"**.
+4. Hỏi **"trung bình mỗi đơn bao nhiêu tiền"**.
+
+**Kết quả mong đợi**
+
+- Bước 1: **"Quý 4/2026: Thành tiền 33.687.000."** — không phải `01/10/2026`.
+- Bước 2: **"Năm 2026: …"** — không phải `01/01/2026`.
+- Bước 3: cuối câu trả lời có **"(Lưu ý: tôi chưa đặt hai kỳ cạnh nhau để so
+  được…)"**. Con số một mình thì đúng, nhưng nó không trả lời câu hỏi, và người
+  đọc phải được biết điều đó.
+- Bước 4: **396.318**, không phải `396.317,647`.
+- Dòng "Tôi hiểu" không còn chữ tiếng Anh nào (`(month)`, `(quarter)`).
+
+| Kết quả thực tế | Đạt / Không đạt |
+|---|---|
+|  |  |
+
+### TL-16 ⭐ · Hỏi LẠI sau khi bấm F5 phải ra ngay
+
+*Ca này canh bộ đệm phía SERVER. Bản trước chỉ đệm trong bộ nhớ của một tab, nên
+F5 là tốn lại toàn bộ lượt gọi mô hình.*
+
+**Các bước**
+
+1. Hỏi **"doanh thu theo chi nhánh"**, chờ trả lời xong.
+2. Bấm **F5**, mở lại khung hỏi đáp, hỏi **đúng câu đó**.
+3. Mở một **cửa sổ ẩn danh**, đăng nhập lại cùng tài khoản, hỏi đúng câu đó.
+
+**Kết quả mong đợi**
+
+- Bước 2 và bước 3: trả lời **gần như tức thì**, và con số **giống hệt** bước 1.
+- Đo được 24/11/2026 trên hai lớp đã thêm đệm: `dien-dat` 1258 ms → 18 ms,
+  `hieu-y` 703 ms → 7 ms.
+- Con số vẫn phải là số THẬT: đệm chỉ giữ cách đặt truy vấn và câu chữ, còn truy
+  vấn thì chạy lại trên kho mỗi lần.
+
+| Kết quả thực tế | Đạt / Không đạt |
+|---|---|
+|  |  |
+
+### TL-17 ◻ · Câu trả lời nhiều dòng không được thành một khối chữ
+
+**Các bước**
+
+1. Hỏi **"doanh thu theo ngày"** (dữ liệu có 26 ngày).
+
+**Kết quả mong đợi**
+
+- Câu trả lời đọc ra **6 ngày** rồi nói **"… và 20 dòng nữa"**, dài khoảng 240
+  ký tự. Bản trước đọc 15 ngày và dài ~900 ký tự — một khối chữ không ai đọc
+  trong bong bóng chat, và nó còn là lời nhắc đắt nhất gửi cho mô hình viết lại.
+- Con số của 6 dòng đầu khớp §0.4: 26/10 = **3.305.000**, 13/10 = **2.120.000**,
+  09/10 = **2.118.000**.
 
 | Kết quả thực tế | Đạt / Không đạt |
 |---|---|
