@@ -2,6 +2,7 @@ import { warehouse } from '../../config/clickhouse';
 import { env } from '../../config/env';
 import { mysqlPool } from '../../config/mysql';
 import * as datasetsRepo from '../../repositories/datasets';
+import { storage } from '../../storage';
 import { qualified } from './buildDdl';
 
 /**
@@ -79,4 +80,92 @@ export async function sweepOrphanTables(): Promise<number> {
     }
   }
   return dropped;
+}
+
+/**
+ * Khoá do `khoaLuuTru()` sinh ra, và CHỈ những khoá đó.
+ *
+ *     t4/w5/bao-cao-quy-4__ffb0134f-f6e7-4e56-94dc-3badf6d6e532.xlsx
+ *     t1/w7/834071bd-5938-42e2-a24d-c06b013e0eda.xlsx      ← dạng CŨ, không slug
+ *
+ * Phần slug để TUỲ CHỌN vì khoá đời đầu chưa có nó, và 7 trong 26 khoá trên máy
+ * dev vẫn mang dạng ấy. Bắt buộc có slug thì janitor im lặng bỏ qua đúng những
+ * tệp cũ nhất — không xoá nhầm gì, nhưng rò thì vẫn nguyên ở chỗ lâu đời nhất.
+ *
+ * Neo hai đầu `^…$` ở đây quan trọng y như ở `RAW_TABLE_RE`, và vì cùng một lý
+ * do: bucket là chỗ dùng chung. Ảnh QR tĩnh của §11 nằm cùng bucket nhưng khoá
+ * khác hình dạng, và một ngày nào đó sẽ có thứ khác nữa. Janitor chỉ được đụng
+ * vào thứ nó tự sinh ra và hiểu trọn vẹn.
+ */
+const DATASET_KEY_RE =
+  /^t\d+\/w\d+\/(?:[a-z0-9-]+__)?[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(?:csv|xlsx)$/;
+
+/**
+ * Dọn TỆP trong kho đối tượng khi MySQL không còn dòng nào nhận — cặp song sinh
+ * của `sweepOrphanTables`.
+ *
+ * ─── Vì sao đường GHI không tự xoá, mà để janitor làm ──────────────────────
+ *
+ * Ba chỗ sinh ra tệp mồ côi, và cả ba đều cố ý không xoá tại chỗ:
+ *
+ *   - `doiTepNguon` (thay tệp nguồn): lần nạp mới có thể hỏng, và lúc đó tệp cũ
+ *     là thứ duy nhất dựng lại được. Xoá ngay là vứt bản lùi.
+ *   - `sweepStalePendingUploads`: tải lên rồi bỏ dở quá 24 giờ.
+ *   - Xoá CỨNG một dòng `datasets` theo dây chuyền, ví dụ xoá hẳn một tổ chức.
+ *
+ * Không có janitor thì cả ba rò vĩnh viễn. Đo được 25/11/2026 trên máy dev:
+ * **81 tệp mồ côi, 224 MiB trên tổng 259 MiB** — 86% kho đối tượng là tệp không
+ * còn ai trỏ tới. Đó không phải rác của riêng bộ kiểm thử: mỗi người dùng thay
+ * tệp nguồn hằng tháng đều để lại một bản đầy đủ mỗi lần.
+ *
+ * ─── Thứ tự đọc, và vì sao nó NGƯỢC với `sweepOrphanTables` ────────────────
+ *
+ * Ở bảng, danh sách id đọc TRƯỚC. Ở tệp thì ngược lại: liệt kê object TRƯỚC,
+ * đọc khoá SAU. Vì vòng đời ngược nhau — bảng `raw_*` sinh ra SAU khi đã có
+ * dòng `datasets`, còn object thì có TRƯỚC. Đọc khoá trước rồi mới liệt kê thì
+ * một tệp được chốt vào MySQL giữa hai lần đọc sẽ nằm trong danh sách object mà
+ * vắng trong tập khoá, và janitor xoá mất nó. Đọc theo thứ tự này thì trường
+ * hợp xấu nhất chỉ là bỏ sót một tệp tới lượt quét sau.
+ *
+ * ─── `olderThanHours` là chốt an toàn QUAN TRỌNG NHẤT ─────────────────────
+ *
+ * Trình duyệt PUT thẳng lên S3 rồi MỚI gọi `/commit` để ghi `s3_key` vào MySQL.
+ * Giữa hai việc đó có một khoảng — người dùng chọn sheet, đặt tên, khai quy ước
+ * số — mà tệp đã nằm trong kho còn MySQL chưa biết gì về nó. Một janitor không
+ * nhìn tuổi sẽ xoá đúng tệp người ta vừa tải lên, ngay giữa lúc họ điền form.
+ *
+ * Tham số chứ không phải hằng số trong file này, đúng như
+ * `sweepStalePendingUploads(db, olderThanHours)`: nơi gọi giữ con số, nên hai
+ * ngưỡng nằm cạnh nhau và không trôi xa nhau được.
+ *
+ * ⚠️ Phép so này bắc qua HAI ĐỒNG HỒ: `lastModified` do kho đối tượng đóng dấu,
+ * `Date.now()` là của tiến trình Node. Đo được trên máy dev 25/11/2026: đồng hồ
+ * container MinIO chạy nhanh hơn máy chủ **450 ms**, nên một tệp vừa ghi xong
+ * có thể mang mốc thời gian ở TƯƠNG LAI so với Node. Ở 24 giờ thì lệch đó không
+ * nghĩa lý gì — nhưng đừng hạ ngưỡng này xuống hàng phút: khi khoảng cách hai
+ * đồng hồ cùng cỡ với ngưỡng, janitor bỏ sót hay không trở thành chuyện may rủi.
+ *
+ * Trả về số tệp đã xoá. Ném ra ngoài nếu KHÔNG LIỆT KÊ ĐƯỢC; lỗi của từng lệnh
+ * xoá lẻ thì nuốt tại chỗ, cùng lý lẽ với hàm trên.
+ */
+export async function sweepOrphanFiles(olderThanHours: number): Promise<number> {
+  const objects = await storage.listObjects();
+  const knownKeys = await datasetsRepo.listKnownS3Keys(mysqlPool);
+  const hanTuoi = Date.now() - olderThanHours * 3_600_000;
+
+  let deleted = 0;
+  for (const { key, lastModified } of objects) {
+    if (!DATASET_KEY_RE.test(key)) continue;
+    if (knownKeys.has(key)) continue;
+    if (lastModified.getTime() > hanTuoi) continue;
+
+    try {
+      await storage.deleteObject(key);
+      deleted += 1;
+      console.log(`[ingest] janitor: đã xoá tệp mồ côi ${key}`);
+    } catch (err) {
+      console.error(`[ingest] janitor: không xoá được tệp ${key}:`, err);
+    }
+  }
+  return deleted;
 }

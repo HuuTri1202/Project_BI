@@ -771,8 +771,9 @@ export async function findStorageKey(
  * nên mọi mô hình và báo cáo đang trỏ tới nó vẫn chạy.
  *
  * ⚠️ KHÔNG xoá tệp cũ ở đây. Lần nạp mới có thể hỏng (tệp hỏng, sai sheet), và
- * lúc đó tệp cũ là thứ duy nhất dựng lại được. Dọn tệp mồ côi là việc của một
- * vòng quét riêng, không phải của đường ghi này.
+ * lúc đó tệp cũ là thứ duy nhất dựng lại được. Dọn tệp mồ côi là việc của
+ * `sweepOrphanFiles` (janitor, mỗi giờ, chỉ đụng tệp quá 24 giờ) — không phải
+ * của đường ghi này.
  */
 export async function doiTepNguon(
   db: Db,
@@ -1003,6 +1004,24 @@ export async function capNhatDungLuongKho(
 export async function listKnownIds(db: Db): Promise<Set<number>> {
   const [rows] = await db.query<RowDataPacket[]>('SELECT id FROM datasets');
   return new Set(rows.map((r) => Number(r['id'])));
+}
+
+/**
+ * Mọi khoá lưu trữ mà MySQL còn nhận — cho `sweepOrphanFiles`.
+ *
+ * ⚠️ KHÔNG lọc `deleted_at`, đúng cùng lý lẽ với `listKnownIds` ngay trên: tệp
+ * của một bộ dữ liệu đã xoá mềm phải ở lại, nếu không thì khôi phục trả về một
+ * bản ghi trỏ vào một khoá không còn gì.
+ *
+ * Nhiều dòng có thể dùng CHUNG một khoá — một file xlsx nhiều sheet sinh ra mỗi
+ * sheet một dòng, cả lô trỏ về một object (xem `commit.ts`). Nên đây là tập
+ * hợp, và một khoá còn đúng một dòng nhận cũng là còn được dùng.
+ */
+export async function listKnownS3Keys(db: Db): Promise<Set<string>> {
+  const [rows] = await db.query<RowDataPacket[]>(
+    "SELECT DISTINCT s3_key FROM datasets WHERE s3_key IS NOT NULL AND s3_key <> ''",
+  );
+  return new Set(rows.map((r) => String(r['s3_key'])));
 }
 /**
  * Dọn những lần tải file BỎ DỞ đã quá hạn — janitor §9.6.

@@ -1,8 +1,9 @@
 import { isTest } from '../../config/env';
 import { mysqlPool } from '../../config/mysql';
+import { withTransaction } from '../../db/tx';
 import * as loadsRepo from '../../repositories/datasetLoads';
 import * as datasetsRepo from '../../repositories/datasets';
-import { sweepOrphanTables } from './dropTables';
+import { sweepOrphanFiles, sweepOrphanTables } from './dropTables';
 import { loadDataset } from './loadDataset';
 import { dongBoDungLuongKho } from './warehouseSize';
 
@@ -126,6 +127,17 @@ async function tick(): Promise<void> {
       console.error('[ingest] janitor: không quét được kho:', err);
     }
 
+    // `try` RIÊNG, không gộp với khối trên: hai kho khác nhau, và MinIO tắt
+    // không được phép làm lượt quét ClickHouse trông như đã chạy.
+    try {
+      // DÙNG LẠI ngưỡng của `pending`, không đẻ ra con số thứ hai: quá hạn đó
+      // thì dòng `pending` đã bị quét đi rồi, nên tệp cũng hết đường được nhận.
+      const xoa = await sweepOrphanFiles(PENDING_MAX_AGE_HOURS);
+      if (xoa > 0) console.log(`[ingest] janitor: đã dọn ${xoa} tệp mồ côi`);
+    } catch (err) {
+      console.error('[ingest] janitor: không quét được kho đối tượng:', err);
+    }
+
     // Đồng bộ dung lượng kho về MySQL — §11.2. Lượt này vừa là BACKFILL cho mọi
     // bộ dữ liệu có từ trước migration 38, vừa là chỗ bắt phần trôi do ClickHouse
     // merge part ở nền (bảng nhỏ dần sau khi nạp xong).
@@ -159,7 +171,9 @@ async function tick(): Promise<void> {
 
   let claimed;
   try {
-    claimed = await loadsRepo.claimNext(mysqlPool);
+    // `withTransaction` chứ không `mysqlPool`: khoá `FOR UPDATE SKIP LOCKED`
+    // trong `claimNext` chỉ sống trong một transaction — xem ghi chú ở đó.
+    claimed = await withTransaction((conn) => loadsRepo.claimNext(conn));
   } catch (err) {
     // Database chưa sẵn sàng hoặc vừa mất kết nối. Ghi log rồi thử lại ở vòng
     // sau — không được để một lỗi ở đây giết cả vòng lặp.

@@ -12,6 +12,8 @@ import type { ObjectStorage } from './index';
  * chứ không kiểm thêm được gì về hệ thống thật.
  */
 const objects = new Map<string, Buffer>();
+/** Thời điểm ghi từng object — chỉ `listObjects` cần, nên để riêng. */
+const thoiDiem = new Map<string, Date>();
 
 export const memoryStorage: ObjectStorage & {
   putForTest(key: string, body: Buffer): void;
@@ -26,6 +28,7 @@ export const memoryStorage: ObjectStorage & {
 
   putObject(key, body, _contentType) {
     objects.set(key, body);
+    thoiDiem.set(key, new Date());
     return Promise.resolve();
   },
 
@@ -40,6 +43,7 @@ export const memoryStorage: ObjectStorage & {
 
   deleteObject(key) {
     objects.delete(key);
+    thoiDiem.delete(key);
     return Promise.resolve();
   },
 
@@ -48,13 +52,24 @@ export const memoryStorage: ObjectStorage & {
     return Promise.resolve(body ? { size: body.byteLength } : null);
   },
 
+  listObjects() {
+    return Promise.resolve(
+      [...objects.keys()].map((key) => ({
+        key,
+        lastModified: thoiDiem.get(key) ?? new Date(0),
+      })),
+    );
+  },
+
   /** Mô phỏng trình duyệt đã PUT xong file lên S3. */
   putForTest(key, body) {
     objects.set(key, body);
+    thoiDiem.set(key, new Date());
   },
 
   /** Gọi trong `resetDatabase()` để một ca không thấy file của ca trước. */
   reset() {
     objects.clear();
+    thoiDiem.clear();
   },
 };

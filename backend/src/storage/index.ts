@@ -59,6 +59,15 @@ export interface ObjectStorage {
   deleteObject(key: string): Promise<void>;
   /** Có thật sự tồn tại không, và nặng bao nhiêu. Dùng để xác nhận upload xong. */
   headObject(key: string): Promise<{ size: number } | null>;
+  /**
+   * Liệt kê TOÀN BỘ object trong bucket, kèm thời điểm ghi.
+   *
+   * Chỉ janitor dùng (`sweepOrphanFiles`), và nó cần `lastModified` chứ không
+   * chỉ tên: một object vừa được PUT lên qua presigned URL chưa có dòng
+   * `datasets` nào nhận, nên nếu không biết nó bao nhiêu tuổi thì janitor sẽ
+   * xoá đúng file người dùng vừa tải lên.
+   */
+  listObjects(): Promise<{ key: string; lastModified: Date }[]>;
 }
 
 /**

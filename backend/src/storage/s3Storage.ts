@@ -2,6 +2,7 @@ import {
   DeleteObjectCommand,
   GetObjectCommand,
   HeadObjectCommand,
+  ListObjectsV2Command,
   PutObjectCommand,
   S3Client,
 } from '@aws-sdk/client-s3';
@@ -76,6 +77,25 @@ export const s3Storage: ObjectStorage = {
 
   async deleteObject(key) {
     await client.send(new DeleteObjectCommand({ Bucket: env.S3_BUCKET, Key: key }));
+  },
+
+  async listObjects() {
+    const ra: { key: string; lastModified: Date }[] = [];
+    // S3 trả tối đa 1.000 khoá một lượt và KHÔNG báo lỗi khi còn nữa — chỉ bật
+    // `IsTruncated`. Bỏ vòng lặp này thì janitor im lặng chỉ nhìn thấy 1.000
+    // object đầu, và một bucket lớn hơn thế sẽ không bao giờ được dọn hết.
+    let token: string | undefined;
+    do {
+      const res = await client.send(
+        new ListObjectsV2Command({ Bucket: env.S3_BUCKET, ContinuationToken: token }),
+      );
+      for (const o of res.Contents ?? []) {
+        if (o.Key === undefined || o.LastModified === undefined) continue;
+        ra.push({ key: o.Key, lastModified: o.LastModified });
+      }
+      token = res.IsTruncated === true ? res.NextContinuationToken : undefined;
+    } while (token !== undefined);
+    return ra;
   },
 
   async headObject(key) {
