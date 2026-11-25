@@ -3745,10 +3745,18 @@ v1Router.get(
   authorize('datamodel', 'read'),
   asyncHandler(async (req, res) => {
     const { id } = idParamSchema.parse(req.params);
-    await requireDataModel(phamVi(req), id);
+    const scope = phamVi(req);
+    await requireDataModel(scope, id);
+
+    /*
+     * `pingCube` cần NGỮ CẢNH vì nó hỏi `/meta` — xem khối chú thích ở đó cho
+     * bảng số giải thích vì sao `/readyz` không còn được dùng. `schemaVersion`
+     * là một truy vấn MySQL duy nhất, cùng cách `hamNongSauKhiGhi` lấy nó.
+     */
+    const schemaVersion = await datamodelsRepo.schemaVersion(mysqlPool, scope.tenantId);
 
     res.json({
-      cubeReady: await pingCube(),
+      cubeReady: await pingCube({ tenantId: scope.tenantId, schemaVersion }),
       command: 'npm run infra:up:bi',
     });
   }),

@@ -343,8 +343,13 @@ export async function regenerateAllTenants(): Promise<void> {
        * file cube). Hâm nóng tất cả nghĩa là bắn 63 lần biên dịch, mỗi lần
        * 2,7–4,5 giây, vào một Cube vừa khởi động — tự tạo ra đúng cái chậm mà
        * việc hâm nóng sinh ra để tránh. Tổ chức nào được dùng thật sẽ được hâm
-       * ở lần Lưu đầu tiên; còn lần mở biểu đồ đầu tiên sau khi khởi động lại
-       * hạ tầng thì vẫn phải trả giá, và đó là đánh đổi có chủ ý.
+       * ở lần Lưu đầu tiên.
+       *
+       * Còn lần mở biểu đồ đầu tiên sau khi khởi động lại hạ tầng thì KHÔNG còn
+       * phải trả giá: `startHamNongKhoiDong` nối ngay sau hàm này và hâm một số
+       * tổ chức CÓ TRẦN, tuần tự. Trần và tính tuần tự là đúng hai thứ giữ lại
+       * kết luận ở trên — xem `hamNongKhoiDong.ts`. Vòng này vẫn phải để
+       * `hamNong: false`: nó chạy cho MỌI tổ chức, còn chỗ có trần là chỗ kia.
        */
       await regenerateTenant(tenantId, { hamNong: false });
     }
