@@ -27,15 +27,43 @@ export async function login(email: string, password: string): Promise<LoginRespo
   return data;
 }
 
+/** Mã lỗi backend trả khi email Google chưa có tài khoản — xem `loginWithGoogle`. */
+export const GOOGLE_CHUA_DANG_KY = 'GoogleAccountNotRegistered';
+
 /**
- * §1.9 Đăng nhập bằng Google.
+ * §1.9 Đăng nhập bằng Google, và đăng ký nếu người dùng xác nhận.
  *
  * `credential` là ID token do Google Identity Services trả về ở trình duyệt.
  * Trả về ĐÚNG hình dạng của `/auth/login` — backend dùng chung một hàm dựng
  * phiên cho cả hai đường — nên `AuthProvider` xử lý chúng bằng một đoạn code.
+ *
+ * ═══ HAI lượt gọi, cùng một endpoint ═══════════════════════════════════════
+ *
+ * Email chưa có tài khoản thì lượt đầu (không `xacNhan`) ném lỗi mang mã
+ * `GOOGLE_CHUA_DANG_KY`. Nơi gọi hiện màn hình xác nhận rồi gọi lại hàm này với
+ * `xacNhan`, và lượt đó mới tạo tài khoản.
+ *
+ * Giữ nguyên `credential` cho cả hai lượt, không xin token mới: ID token của
+ * Google sống khoảng một giờ, và xin lại nghĩa là mở lại cửa sổ chọn tài khoản
+ * của Google ngay sau khi người dùng vừa chọn xong.
  */
-export async function loginWithGoogle(credential: string): Promise<LoginResponse> {
-  const { data } = await apiClient.post<LoginResponse>('/auth/google', { credential });
+export async function loginWithGoogle(
+  credential: string,
+  xacNhan?: { companyName?: string | undefined },
+): Promise<LoginResponse> {
+  const { data } = await apiClient.post<LoginResponse>('/auth/google', {
+    credential,
+    ...(xacNhan === undefined
+      ? {}
+      : {
+          xacNhanTaoMoi: true,
+          // Ô trống KHÔNG được gửi: backend phân biệt "vắng mặt" (không gian
+          // riêng) với một chuỗi rỗng, mà chuỗi rỗng thì trượt luật tên tổ chức.
+          ...(xacNhan.companyName === undefined || xacNhan.companyName.trim() === ''
+            ? {}
+            : { companyName: xacNhan.companyName.trim() }),
+        }),
+  });
   return data;
 }
 

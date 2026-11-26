@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Icon trên tab trình duyệt. Cùng hình với logo trong ứng dụng (xem
+  `features/auth/AuthLayout.tsx`): ô bo góc màu thương hiệu, chữ viết tắt trắng.
+
+  ═══ Vì sao mã màu viết CỨNG, không dùng oklch() ═══════════════════════════
+
+  Nguồn sự thật là biến CSS `color-brand-600` (oklch 0.48 0.18 250) trong
+  `index.css` — viết thiếu hai gạch nối đầu tên là CỐ Ý: XML cấm chuỗi hai gạch
+  nối bên trong chú thích, và một tệp SVG hỏng cú pháp thì trình duyệt bỏ qua
+  im lặng, chỉ hiện icon vỡ. Đã mắc đúng lỗi này một lần khi viết tệp này.
+  Nhưng tệp này KHÔNG đọc được biến CSS của trang: favicon được trình duyệt giải
+  mã như một ảnh độc lập, ngoài mọi stylesheet.
+
+  `#005dbd` là màu sRGB mà trình duyệt thực sự vẽ ra cho giá trị oklch ấy. Nó
+  được ĐO chứ không ước lượng: màu này nằm ngoài gamut sRGB (kênh đỏ tính ra âm,
+  -0.0261), và hai cách xử lý cho hai kết quả khác hẳn nhau — kẹp thô ra #005dbd,
+  giảm chroma theo CSS Color 4 ra #0060a6. Lấy mẫu điểm ảnh từ ảnh chụp màn hình
+  logo đang chạy cho #005dbd (1631/1631 điểm của ô vuông), tức trình duyệt kẹp.
+
+  ⚠️ Đổi `color-brand-600` thì phải đổi cả dòng `fill` dưới đây — hai nơi này
+  không có cách nào tự đồng bộ.
+
+  ═══ Vì sao một tệp SVG, không phải .ico nhiều kích thước ══════════════════
+
+  SVG nét rõ ở mọi cỡ, từ 16px trên tab tới 180px khi ghim ra màn hình chính.
+  Tệp 2,5 KB, trong đó hình vẽ chỉ chiếm chừng 400 byte — phần còn lại là khối
+  chú thích này. Chrome, Edge, Firefox và Safari 16+ đều nhận. Trình duyệt
+  quá cũ sẽ hỏi /favicon.ico, không thấy, rồi hiện icon mặc định — đúng hiện
+  trạng trước khi có tệp này, nên không có gì tệ hơn.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+  <!--
+    Hai con số dưới đây lấy theo TỈ LỆ của logo trong app, không chọn bằng mắt:
+      rx 7     <- rounded-lg (8px) trên ô 36px, tức 0,222 x 32
+      cỡ chữ 16 <- text-lg (18px) trên ô 36px, tức 0,5 x 32
+    Nhờ vậy icon trên tab và logo trong trang là cùng một hình, chỉ khác cỡ.
+  -->
+  <rect width="32" height="32" rx="7" fill="#005dbd" />
+  <!--
+    `sans-serif` chứ không gọi tên một phông cụ thể: khi vẽ favicon, trình duyệt
+    không tải được webfont, nên một tên phông không có sẵn sẽ rơi về phông mặc
+    định ở mỗi máy một khác. Họ phông chung thì luôn phân giải được.
+  -->
+  <text
+    x="16"
+    y="16"
+    text-anchor="middle"
+    dominant-baseline="central"
+    font-family="sans-serif"
+    font-size="16"
+    font-weight="700"
+    fill="#ffffff"
+  >OI</text>
+</svg>

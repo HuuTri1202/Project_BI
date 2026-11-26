@@ -204,6 +204,54 @@ SMTP_PASSWORD=...        # Gmail: dùng App Password, không phải mật khẩu
 MAIL_FROM=Open Insight <no-reply@open-insight.vn>
 ```
 
+### Thanh toán: thiếu `SEPAY_API_TOKEN` thì tiền về mà gói không lên
+
+Khác SMTP, chỗ này **không có chốt an toàn** — API vẫn lên xanh, khách vẫn quét
+được mã, tiền vẫn vào tài khoản ngân hàng thật. Chỉ có đơn là nằm `pending` mãi
+mãi, và không ai biết cho tới khi khách hỏi.
+
+Đã xảy ra đúng một lần trên bản triển khai này (25/11/2026, đơn `BIFW8RCP91NT`,
+2.000 ₫): `backend/.env` của máy ảo được dựng từ đầu nên không có dòng token, và
+log in đúng câu nó phải in — mà không ai đọc log:
+
+```
+[billing] tự đọc sao kê Sepay: TẮT — chưa có SEPAY_API_TOKEN trong backend/.env.
+```
+
+Hệ thống có **hai** đường nhận tiền, và bản triển khai cần **ít nhất một**:
+
+```ini
+# Đường KÉO: api tự gọi my.sepay.vn mỗi 5 giây. Chạy được sau NAT, không cần
+# cấu hình gì phía Sepay. Lấy ở my.sepay.vn -> Công ty -> API Access.
+SEPAY_API_TOKEN=...
+```
+
+Đường **ĐẨY** là webhook, cấu hình ở phía Sepay chứ không ở file này:
+
+| Chỗ khai                                                | Giá trị                                         |
+| ------------------------------------------------------- | ----------------------------------------------- |
+| Sepay → Tích hợp webhook                                | `https://<tên miền>/api/webhooks/bank_transfer` |
+| Sepay → kiểu xác thực                                   | `Authorization: Apikey <khoá>`                  |
+| `/admin` → Phương thức thanh toán → Khoá bí mật webhook | **cùng** `<khoá>` đó                            |
+
+Đường dẫn phải mang **`bank_transfer`**, không phải `sepay`: `handleWebhook` tra
+khoá bí mật theo `provider` của phương thức thanh toán đang bật, và phương thức
+mặc định (`vietqr_bank`) khai `provider = 'bank_transfer'`. Gõ `/sepay` thì
+request vào tới nơi rồi trả 401 "chưa cấu hình khoá bí mật" — một triệu chứng
+trỏ thẳng vào chỗ không có lỗi.
+
+Bật cả hai cùng lúc là **an toàn, không phải thừa**: hai đường cùng dùng `id`
+giao dịch của Sepay làm `provider_txn_ref`, nên đường tới sau đâm vào khoá
+`uq_payment_txn_provider_ref` và lặng lẽ dừng. Không có cờ nào phải nhớ tắt.
+
+⚠️ Sửa `backend/.env` rồi thì phải **`docker compose up -d api`**, không phải
+`restart`: `env_file` chỉ được đọc lúc docker TẠO container.
+
+Quên mất cho tới khi khách đã chuyển tiền thì vẫn chưa mất: `LATE_PAYMENT_WINDOW_HOURS`
+là **24 giờ**, và con quét nhìn cả đơn đã `expired` trong cửa sổ ấy — thêm token
+trong vòng một ngày là đơn tự được ghi nhận. Quá hạn đó thì còn nút xác nhận tay
+ở `/admin` → Đơn hàng.
+
 ### `infrastructure/.env`
 
 ```ini
@@ -321,6 +369,61 @@ Rồi bằng tay, theo thứ tự này — mỗi bước chạm một tầng kh�
 6. Hỏi khung chat một câu có số → chạm cả chuỗi trên, cộng LLM nếu đã khai khoá.
 
 Bước 5 là bước duy nhất chứng minh `cubestore` đã nối đúng. Đừng bỏ.
+
+---
+
+### Tệp lớn: trần thật nằm ở đâu, và vì sao CSV nhanh hơn 15 lần
+
+Đo ngày 26/11/2026 trong container `api` trên chính máy ảo này (trần heap
+1536 MB, tệp sinh ra 30 cột mỗi dòng).
+
+**§7 phân tích — nạp cả workbook so với đọc theo luồng:**
+
+| tệp               | nạp cả file     | đọc theo luồng |
+| ----------------- | --------------- | -------------- |
+| 7,8 MB (52.479 d) | 208 MB · 14,8 s | 54 MB · 8,0 s  |
+| 17 MB (100.001 d) | 510 MB · 32,0 s | 41 MB · 19,7 s |
+| 42 MB (250.001 d) | **CHẾT (OOM)**  | 43 MB · 41,5 s |
+| 67 MB (400.001 d) | **CHẾT (OOM)**  | 44 MB · 79,4 s |
+
+Vì vậy §7 đọc theo LUỒNG, không nạp cả workbook — xem `parseXlsxLuong` trong
+`backend/src/services/dataset/parseFile.ts`. Bộ nhớ từ đó phẳng 41–54 MB bất kể
+tệp to bao nhiêu, và nhanh hơn 1,6–1,9 lần.
+
+⚠️ `UPLOAD_MAX_BYTES` để 50 MB là **đúng** sau thay đổi đó. Trước đó nó là một
+lời hứa không giữ được: đường nạp cả file đã chết từ 17 MB. Và hạ nhãn xuống
+20 MB cũng **không** sửa được gì — ràng buộc thật là SỐ Ô, không phải số byte,
+nên một tệp 15 MB dày đặc vẫn chết trong khi một tệp 40 MB loãng thì không.
+
+Còn một đường lùi nạp cả file, cho hai lỗi của `WorkbookReader` exceljs 4.4
+(xem `xlsxRows` ở `readFileRows.ts`). Đường đó **chặn ở 15 MB** —
+`TRAN_LUI_BYTES`. Không chặn thì ta chỉ dời chỗ sập.
+
+**§9 nạp vào kho — thời gian đi đâu.** Một lần nạp 51.290 dòng mất 11 giây:
+
+| phần                 | thời gian           | tỷ lệ |
+| -------------------- | ------------------- | ----- |
+| đọc + phân tích xlsx | ~11 giây            | 94%   |
+| ghi vào ClickHouse   | 702 ms              | 6%    |
+| chuỗi DDL tráo bảng  | 60 ms               | <1%   |
+| `UPDATE` ghi tiến độ | 1 giây / triệu dòng | <1%   |
+
+Nên **đừng** đi tinh chỉnh `BATCH_ROWS`, `POLL_MS` hay số lần ghi tiến độ: đã
+đo, cả ba cộng lại dưới 8%. Cỡ lô 5.000 → 50.000 chỉ đổi 4.552 thành 4.928
+dòng/giây. ClickHouse ghi được 73.000–106.000 dòng/giây, nó không phải cổ chai.
+
+Cổ chai là thư viện đọc xlsx, và 89% thời gian đọc nằm trong chính exceljs
+(đo: duyệt ô mà không dựng mảng nào vẫn mất 116,8 s trên tệp 67 MB; thêm cả
+tầng dựng mảng và `normalizeCell` mới lên 130,6 s). Cùng dữ liệu đó ở dạng CSV:
+
+```
+.xlsx  130,6 giây  =  3.062 dòng/giây
+.csv     8,4 giây  = 47.450 dòng/giây     ← nhanh hơn 15,5 lần
+```
+
+Đó là lý do bước tải lên có một dòng mời người dùng xuất CSV cho dữ liệu nhiều
+dòng. Với `DATASET_MAX_ROWS` mặc định 1.000.000, một lần nạp đầy là **5,4 phút**
+nếu dùng xlsx và **21 giây** nếu dùng CSV.
 
 ---
 

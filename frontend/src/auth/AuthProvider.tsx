@@ -136,9 +136,18 @@ export function AuthProvider({ children }: { children: ReactNode }): React.React
     return { user: res.user, role: res.role };
   }, []);
 
+  /**
+   * `xacNhan` chỉ có mặt ở lượt thứ hai, sau khi người dùng bấm xác nhận tạo
+   * tài khoản mới — xem `authApi.loginWithGoogle`. Lượt đầu không truyền gì và
+   * lỗi `GoogleAccountNotRegistered` nổi lên tới nơi gọi để nó hiện màn hình
+   * xác nhận; provider KHÔNG xử lý lỗi đó, vì "hiện màn hình nào" là việc của
+   * trang, không phải của tầng phiên.
+   */
   const loginWithGoogle = useCallback(
-    async (credential: string): Promise<LoginOutcome> =>
-      nhanPhien(await authApi.loginWithGoogle(credential)),
+    async (
+      credential: string,
+      xacNhan?: { companyName?: string | undefined },
+    ): Promise<LoginOutcome> => nhanPhien(await authApi.loginWithGoogle(credential, xacNhan)),
     [nhanPhien],
   );
 

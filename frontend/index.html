@@ -3,6 +3,15 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!--
+      Icon trên tab. Nằm trong `public/` nên Vite chép thẳng sang `dist/` và
+      Caddy phục vụ ở `/favicon.svg` — không qua bundler, không có hash trong
+      tên, nên đường dẫn này đúng ở cả `npm run dev` lẫn bản đã build.
+
+      Không khai thì trình duyệt tự hỏi `/favicon.ico`, không thấy, rồi hiện
+      icon quả cầu mặc định.
+    -->
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <!-- Trùng APP_NAME ở shared/src/brand.ts — HTML tĩnh không đọc được hằng số đó. -->
     <title>Open Insight</title>
   </head>
