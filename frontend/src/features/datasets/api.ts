@@ -118,8 +118,44 @@ export async function dayTepLen(url: string, file: File): Promise<void> {
   }
 }
 
+/**
+ * Hạn chờ cho hai lời gọi phải ĐỌC CẢ TỆP trước khi trả lời.
+ *
+ * ═══ Vì sao 15 giây mặc định của `apiClient` là sai ở đúng hai chỗ này ═════
+ *
+ * Mọi endpoint khác trả lời trong vài chục mili giây, nên 15 giây ở đó là một
+ * lưới an toàn rộng rãi. `analyze` thì khác về BẢN CHẤT: nó tải tệp từ kho về,
+ * giải nén, dựng từng ô của từng sheet thành đối tượng JavaScript rồi mới đoán
+ * được kiểu cột. Thời gian ấy tỉ lệ với kích thước tệp, không với tốc độ mạng.
+ *
+ * Đo trên chính máy ảo triển khai, tệp `Global-Superstore.xlsx` 7,8 MB —
+ * 51.290 dòng × 24 cột × 3 sheet:
+ *
+ *     12–19 giây  cho riêng `parseFile` + `toPreview`
+ *
+ * Tức là một tệp hoàn toàn bình thường, nằm thừa trong hạn 50 MB mà chính
+ * wizard quảng cáo, vượt hạn 15 giây. Người dùng nhận "Máy chủ không trả lời
+ * trong 15 giây" trong khi máy chủ đang làm việc rất chăm chỉ, rồi bấm thử lại
+ * — và lần thử lại cũng mất từng ấy giây, cho tới khi họ bỏ cuộc.
+ *
+ * ⚠️ KHÔNG nới hạn chung của `apiClient`: 15 giây ở đó là thứ khiến một sự cố
+ * mạng thật hiện ra sau 15 giây chứ không phải hai phút. Nới riêng hai chỗ
+ * thật sự cần, và ghi rõ vì sao.
+ *
+ * `commitDatasets` cũng nhận hạn này: nó dùng lại bản phân tích đã cache, nhưng
+ * cache Redis có hạn 30 phút — wizard mở lâu rồi mới bấm Tiếp tục là nó tự
+ * `parseFile` lại từ đầu (xem `services/dataset/commit.ts`).
+ *
+ * Hai phút là trần của sự KIÊN NHẪN, không phải của tệp lớn nhất đọc nổi: tệp
+ * quá lớn sẽ hết bộ nhớ trước khi hết thời gian — xem `docs/trien-khai.md` §5,
+ * mục giới hạn bộ nhớ của container `api`.
+ */
+const HAN_DOC_TEP_MS = 120_000;
+
 export async function analyzeDataset(id: number): Promise<AnalyzeResultDto> {
-  const { data } = await apiClient.post<AnalyzeResultDto>(`/v1/datasets/${id}/analyze`);
+  const { data } = await apiClient.post<AnalyzeResultDto>(`/v1/datasets/${id}/analyze`, undefined, {
+    timeout: HAN_DOC_TEP_MS,
+  });
   return data;
 }
 
@@ -129,12 +165,16 @@ export async function analyzeDataset(id: number): Promise<AnalyzeResultDto> {
  * Trả về MỘT MẢNG: mỗi sheet được tích thành một bộ dữ liệu riêng (§7.5). Bản
  * ghi `pending` sinh ra lúc xin presigned URL được backend dùng lại cho sheet
  * đầu tiên, nên `id` truyền vào đây nằm trong kết quả.
+ *
+ * Hạn chờ nới như `analyzeDataset` — lý do đầy đủ ở `HAN_DOC_TEP_MS`.
  */
 export async function commitDatasets(
   id: number,
   input: CommitDatasetsInput,
 ): Promise<DatasetDetailDto[]> {
-  const { data } = await apiClient.post<DatasetDetailDto[]>(`/v1/datasets/${id}/commit`, input);
+  const { data } = await apiClient.post<DatasetDetailDto[]>(`/v1/datasets/${id}/commit`, input, {
+    timeout: HAN_DOC_TEP_MS,
+  });
   return data;
 }
 

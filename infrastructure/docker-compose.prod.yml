@@ -127,6 +127,12 @@ services:
       # `process.cwd()`, và trong ảnh thì cwd là `/app/backend`.
       CUBE_SCHEMA_DIR: /cube-schema
       TZ: Asia/Ho_Chi_Minh
+      # ─── Trần heap phải khai TAY, xem khối `memory` ở dưới ─────────────────
+      #
+      # Để trống thì Node tự suy ra từ giới hạn cgroup và lấy khoảng MỘT NỬA,
+      # nên mỗi lần ai đó chỉnh `memory` là trần heap đổi theo mà không ai nhận
+      # ra. Khai thẳng con số thì nó là một quyết định, không phải hệ quả.
+      NODE_OPTIONS: --max-old-space-size=1536
 
     # ĐÂY là nợ kiến trúc đã ghi ở `services/datamodel/cubeSchemaStore.ts`:
     # Express GHI file schema, Cube ĐỌC chúng, nên hai container phải nhìn vào
@@ -158,10 +164,39 @@ services:
       timeout: 5s
       retries: 5
       start_period: 40s
+
+    # ═══ 2g, và con số này được ĐO chứ không chọn cho tròn ════════════════════
+    #
+    # Lúc chạy thường api dùng ~65 MB. Trần này là cho MỘT thao tác duy nhất:
+    # phân tích tệp Excel ở §7, nơi `workbook.xlsx.load` dựng từng ô của từng
+    # sheet thành đối tượng JavaScript trước khi đoán được kiểu cột.
+    #
+    # Đo trên chính máy ảo này, `Global-Superstore.xlsx` 7,8 MB (51.290 dòng ×
+    # 24 cột × 3 sheet), chạy `parseFile` + `toPreview` thật trong ảnh `api`:
+    #
+    #     đỉnh heap 459–524 MB      RSS 620–700 MB      12–19 giây
+    #
+    # Với `memory: 1g`, Node tự đặt trần heap 524 MB — tức là vừa khít phần
+    # phân tích và KHÔNG còn chỗ cho ~65 MB nền của chính tiến trình. Kết quả đã
+    # xảy ra thật (26/11/2026, RestartCount=4):
+    #
+    #     Mark-Compact 486.6 (523.8) -> 486.4 (523.0) MB
+    #     FATAL ERROR: Ineffective mark-compacts near heap limit
+    #     Allocation failed - JavaScript heap out of memory
+    #
+    # ⚠️ `OOMKilled` là **false** trong `docker inspect`: nhân Linux không giết
+    # ai cả, chính V8 tự bỏ cuộc khi chạm trần của nó. Đi tìm theo dấu hiệu
+    # OOM của Docker sẽ không thấy gì, và triệu chứng ở phía người dùng là
+    # "mã 503" của Caddy — nó chỉ đang nói upstream vừa biến mất.
+    #
+    # Máy ảo có 8 GB và lúc rảnh cả stack dùng 1,9 GB, nên 2g ở đây không lấy
+    # mất của ai. Nó cho trần heap 1536 MB (khai tường minh ở `NODE_OPTIONS`),
+    # tức ~3 lần nhu cầu đã đo — đủ cho tệp xlsx cỡ 20 MB. Lớn hơn nữa thì phải
+    # sửa ở §7 bằng cách đọc theo luồng, không phải bằng cách nâng số này mãi.
     deploy:
       resources:
         limits:
-          memory: 1g
+          memory: 2g
     networks:
       - bi-network
 
