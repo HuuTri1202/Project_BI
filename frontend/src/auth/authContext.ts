@@ -45,7 +45,14 @@ export interface AuthContextValue {
    * nhận "hoặc mật khẩu hoặc credential" là mời gọi lần gọi nào đó truyền cả
    * hai hoặc không truyền gì.
    */
-  loginWithGoogle: (credential: string) => Promise<LoginOutcome>;
+  /**
+   * `xacNhan` vắng mặt ở lượt đầu. Email chưa có tài khoản thì lượt đó NÉM lỗi
+   * mang mã `GOOGLE_CHUA_DANG_KY`; gọi lại kèm `xacNhan` mới tạo tài khoản.
+   */
+  loginWithGoogle: (
+    credential: string,
+    xacNhan?: { companyName?: string | undefined },
+  ) => Promise<LoginOutcome>;
   logout: () => Promise<void>;
   /**
    * Đổi tổ chức đang mở (§5.1) — cấp lại token vì `tenantId` nằm trong JWT.

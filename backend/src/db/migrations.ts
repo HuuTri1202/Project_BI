@@ -3428,6 +3428,69 @@ export const migrations: readonly Migration[] = [
        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
     ],
   },
+  {
+    id: 47,
+    name: 'users_email_duy_nhat_chi_voi_nguoi_con_song',
+    statements: [
+      /*
+       * ═══ Xoá người dùng phải TRẢ LẠI email, không đốt nó ═══════════════════
+       *
+       * Triệu chứng đã gặp trên bản triển khai: một màn hình tự mâu thuẫn. Phía
+       * trên nói "Email này chưa có tài khoản", ngay dưới báo đỏ "Email này đã
+       * được đăng ký". Hai câu đều đúng, vì hai câu SQL hỏi hai việc khác nhau:
+       *
+       *   đăng nhập  SELECT ... WHERE email = ? AND deleted_at IS NULL   -> trống
+       *   đăng ký    INSERT ... đụng uq_users_email (KHÔNG lọc deleted_at) -> trùng
+       *
+       * Hệ quả: email của một tài khoản đã xoá không đăng nhập được mà cũng
+       * không đăng ký lại được. Nó cháy vĩnh viễn.
+       *
+       * ─── Vì sao cột sinh, chứ không phải xoá ràng buộc ────────────────────
+       *
+       * MySQL không có "unique index có điều kiện" như Postgres. Cách tương
+       * đương là một cột sinh ra NULL cho dòng đã xoá, rồi đặt UNIQUE lên nó:
+       * chỉ số duy nhất của MySQL cho phép NHIỀU NULL, nên bao nhiêu dòng đã xoá
+       * mang cùng email cũng được, trong khi dòng còn sống vẫn bị ràng buộc.
+       *
+       * Bỏ hẳn ràng buộc rồi kiểm bằng `SELECT` ở tầng ứng dụng thì KHÔNG tương
+       * đương: giữa câu SELECT và câu INSERT luôn có khe cho hai request đồng
+       * thời, và `registerAccount` đã ghi đúng điều đó ở chỗ nó bắt ER_DUP_ENTRY.
+       *
+       * ─── Thứ tự bốn câu dưới đây không đổi được ───────────────────────────
+       *
+       * Ràng buộc MỚI phải có trước khi bỏ ràng buộc CŨ, nếu không có một
+       * khoảnh khắc bảng không còn gì chặn hai người dùng cùng email. Và
+       * `idx_users_email` phải thêm trước khi bỏ `uq_users_email`: mọi lần đăng
+       * nhập tra `WHERE email = ?`, mất chỉ mục đó là mỗi lần đăng nhập quét
+       * toàn bảng.
+       */
+      `ALTER TABLE users
+         ADD COLUMN email_active VARCHAR(255)
+           GENERATED ALWAYS AS (IF(deleted_at IS NULL, email, NULL)) STORED`,
+
+      `ALTER TABLE users ADD KEY idx_users_email (email)`,
+
+      `ALTER TABLE users ADD UNIQUE KEY uq_users_email_active (email_active)`,
+
+      `ALTER TABLE users DROP INDEX uq_users_email`,
+
+      /*
+       * ─── Dọn liên kết Google đã kẹt ───────────────────────────────────────
+       *
+       * `softDeleteUser` từ nay xoá dòng liên kết của người bị xoá, nhưng những
+       * tài khoản đã xoá TRƯỚC migration này vẫn đang giữ `provider_user_id`
+       * của họ. `uq_identity_subject` là duy nhất toàn cục nên mỗi dòng như vậy
+       * khoá một tài khoản Google lại vĩnh viễn — và khoá một cách vô hình, vì
+       * `findUserIdByProviderSubject` lọc `u.deleted_at IS NULL` nên không truy
+       * vấn nào của ứng dụng nhìn thấy chúng.
+       *
+       * Đo trên máy dev và trên bản triển khai: có thật, không phải giả định.
+       */
+      `DELETE i FROM user_identities i
+         JOIN users u ON u.id = i.user_id
+        WHERE u.deleted_at IS NOT NULL`,
+    ],
+  },
   /*
    * ═══ 46 LÀ SỐ ĐÃ CHÁY — đừng cấp lại ════════════════════════════════════
    *

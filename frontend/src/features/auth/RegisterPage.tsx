@@ -2,12 +2,25 @@ import { registerSchema, type RegisterInput } from '@bi/shared';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useState } from 'react';
 import { useForm } from 'react-hook-form';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 
 import { redirectTargetFor } from '../../auth/redirectTarget';
 import { useAuth } from '../../auth/useAuth';
 import { getApiError } from '../../services/apiClient';
-import { register as registerAccount } from '../../services/authApi';
+import { GOOGLE_CHUA_DANG_KY, register as registerAccount } from '../../services/authApi';
+
+/** Dữ liệu trang đăng nhập gửi kèm khi đá người dùng sang đây — xem `LoginPage`. */
+interface GoogleLocationState {
+  googleCredential?: string;
+  googleMessage?: string;
+}
+
+/** Màn hình xác nhận đang mở cho đúng một ID token. */
+interface GoogleXacNhan {
+  credential: string;
+  /** Câu của backend, đã chứa sẵn email — hiện nguyên văn. */
+  message: string;
+}
 import { AuthLayout, FormError, SubmitButton } from './AuthLayout';
 import { Field } from '../../components/ui/Field';
 import { NutGoogle } from './NutGoogle';
@@ -49,8 +62,35 @@ const O_BAT_BUOC = ['fullName', 'email', 'password', 'confirmPassword'] as const
 
 export function RegisterPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { loginWithGoogle } = useAuth();
   const [formError, setFormError] = useState<string | null>(null);
+
+  /*
+   * Màn hình xác nhận tạo tài khoản bằng Google.
+   *
+   * Tới đây bằng HAI đường, và cả hai đặt cùng một state nên chỉ có một khối
+   * giao diện:
+   *   • từ trang đăng nhập — `credential` đi theo state của router;
+   *   • từ chính nút Google ở trang này — `dangKyGoogle` bắt lỗi 404.
+   *
+   * Giữ `credential` trong state của component chứ không trong URL: nó là ID
+   * token của Google. Người tải lại trang thì state mất và họ bấm lại nút —
+   * đúng hành vi muốn có, vì một token đã rời khỏi tay người dùng thì không nên
+   * sống lại sau một lần F5.
+   */
+  const tuDangNhap = location.state as GoogleLocationState | null;
+  const [xacNhanGoogle, setXacNhanGoogle] = useState<GoogleXacNhan | null>(
+    tuDangNhap?.googleCredential === undefined
+      ? null
+      : {
+          credential: tuDangNhap.googleCredential,
+          message: tuDangNhap.googleMessage ?? 'Email này chưa có tài khoản trên hệ thống.',
+        },
+  );
+  const [tenToChuc, setTenToChuc] = useState('');
+  const [dangTao, setDangTao] = useState(false);
+  const [loiXacNhan, setLoiXacNhan] = useState<string | null>(null);
 
   const { register, handleSubmit, setError, watch, formState } = useForm<RegisterInput>({
     resolver: zodResolver(registerSchema),
@@ -129,10 +169,9 @@ export function RegisterPage() {
   /**
    * Đăng ký bằng Google — cùng MỘT endpoint với đăng nhập.
    *
-   * `/auth/google` tự tạo tài khoản khi email chưa có ai dùng, nên ở đây không
-   * cần đường riêng nào cho "đăng ký". Lợi thêm một điều: người đã có tài khoản
-   * mà lạc vào trang này vẫn vào được bằng một cú bấm, thay vì nhận một lỗi
-   * "email đã được đăng ký" cho thao tác đúng đắn của họ.
+   * Người ĐÃ có tài khoản mà lạc vào trang này vẫn vào được bằng một cú bấm,
+   * thay vì nhận một lỗi "email đã được đăng ký" cho thao tác đúng đắn của họ.
+   * Email chưa có tài khoản thì mở màn hình xác nhận ngay tại trang này.
    *
    * Khác đăng nhập ở đúng một chỗ: KHÔNG có `from` để quay về, vì người ở trang
    * đăng ký chưa từng bị chặn ở một trang nào cả.
@@ -146,7 +185,33 @@ export function RegisterPage() {
       const outcome = await loginWithGoogle(credential);
       navigate(redirectTargetFor(outcome.user, outcome.role, null), { replace: true });
     } catch (err) {
-      throw new Error(getApiError(err).message);
+      const loi = getApiError(err);
+      // Chưa có tài khoản KHÔNG phải lỗi: chuyển sang màn hình xác nhận và
+      // THOÁT êm, để `NutGoogle` không hiện một dòng đỏ dưới nút vừa biến mất.
+      if (loi.error === GOOGLE_CHUA_DANG_KY) {
+        setXacNhanGoogle({ credential, message: loi.message });
+        return;
+      }
+      throw new Error(loi.message);
+    }
+  }
+
+  /**
+   * Lượt gọi THỨ HAI: người dùng đã bấm xác nhận, giờ mới tạo tài khoản.
+   *
+   * Lỗi ở đây hiện NGAY TRONG màn hình xác nhận chứ không ném lên: nút Google
+   * không còn trên màn hình này, nên không còn chỗ nào bên dưới nó để hiện.
+   */
+  async function taoTaiKhoanGoogle(): Promise<void> {
+    if (xacNhanGoogle === null) return;
+    setLoiXacNhan(null);
+    setDangTao(true);
+    try {
+      const outcome = await loginWithGoogle(xacNhanGoogle.credential, { companyName: tenToChuc });
+      navigate(redirectTargetFor(outcome.user, outcome.role, null), { replace: true });
+    } catch (err) {
+      setDangTao(false);
+      setLoiXacNhan(getApiError(err).message);
     }
   }
 
@@ -185,6 +250,62 @@ export function RegisterPage() {
     touchedFields.confirmPassword && confirmPassword.length > 0 && password !== confirmPassword
       ? 'Mật khẩu nhập lại không khớp'
       : undefined;
+
+  /*
+   * ─── Màn hình xác nhận: THAY CHỖ form, không nằm cạnh nó ───────────────────
+   *
+   * Người tới đây đã chọn "vào bằng Google", nên hiện form mật khẩu bên cạnh là
+   * mời họ làm lại việc vừa chọn bỏ. Toàn bộ thứ cần hỏi là một ô tuỳ chọn.
+   *
+   * Không có nút "Đổi tài khoản Google": muốn đổi thì quay lại trang đăng nhập,
+   * vì chính Google giữ cửa sổ chọn tài khoản chứ không phải ta.
+   */
+  if (xacNhanGoogle !== null) {
+    return (
+      <AuthLayout
+        title="Email này chưa có tài khoản"
+        subtitle={xacNhanGoogle.message}
+        footer={
+          <>
+            Không phải tài khoản bạn muốn dùng?{' '}
+            <Link to="/login" className="font-medium text-brand-600 hover:text-brand-700">
+              Quay lại đăng nhập
+            </Link>
+          </>
+        }
+      >
+        {loiXacNhan !== null && <FormError message={loiXacNhan} />}
+
+        <form
+          noValidate
+          onSubmit={(e) => {
+            e.preventDefault();
+            void taoTaiKhoanGoogle();
+          }}
+          className="space-y-5"
+        >
+          <p className="text-sm text-slate-600">
+            Bấm <span className="font-medium text-slate-900">Tạo tài khoản</span> để lập một tài
+            khoản mới cho email này. Bạn sẽ đăng nhập bằng Google, nên{' '}
+            <span className="font-medium text-slate-900">không cần đặt mật khẩu</span>. Muốn thêm
+            mật khẩu sau thì dùng “Quên mật khẩu”.
+          </p>
+
+          <Field
+            label={`${NHAN_O.companyName} (không bắt buộc)`}
+            autoComplete="organization"
+            hint="Để trống thì chúng tôi dựng một không gian riêng mang tên bạn — đổi tên sau ở trang Tổ chức."
+            value={tenToChuc}
+            onChange={(e) => setTenToChuc(e.target.value)}
+          />
+
+          <SubmitButton disabled={dangTao} loading={dangTao} loadingLabel="Đang tạo tài khoản…">
+            Tạo tài khoản
+          </SubmitButton>
+        </form>
+      </AuthLayout>
+    );
+  }
 
   return (
     <AuthLayout

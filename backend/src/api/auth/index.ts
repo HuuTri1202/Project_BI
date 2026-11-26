@@ -263,19 +263,32 @@ async function moPhien(user: usersRepo.PublicUser): Promise<Record<string, unkno
 /**
  * POST /api/auth/google — §1.9 đăng nhập bằng tài khoản Google.
  *
- * ═══ ĐĂNG NHẬP, VÀ ĐĂNG KÝ NẾU CHƯA CÓ TÀI KHOẢN ═══════════════════════════
+ * ═══ ĐĂNG NHẬP, VÀ ĐĂNG KÝ QUA HAI LƯỢT GỌI ════════════════════════════════
  *
- * Email chưa có tài khoản thì endpoint này TẠO MỚI, thay vì trả 404 như trước.
+ * Email chưa có tài khoản thì endpoint này KHÔNG tạo ngầm. Nó trả
+ * `404 GoogleAccountNotRegistered`, frontend hiện màn hình xác nhận, rồi gọi
+ * lại CÙNG endpoint với `xacNhanTaoMoi: true` — lượt thứ hai mới tạo.
  *
- * Trước đây nó không tạo được, và lý do không nằm ở Google: `registerAccount`
- * đòi tên công ty, số điện thoại, chức danh — ba thứ Google không biết. Hệ quả
- * là trang đăng nhập có nút Google còn trang đăng ký thì không, và ai bấm nút đó
- * bằng một email chưa đăng ký đi vào ngõ cụt "vui lòng đăng ký trước" rồi gặp
- * một form hỏi những thứ họ vừa định bỏ qua. Nay đăng ký chỉ cần danh tính (xem
- * `registerFields`), nên một cú bấm là đủ.
+ * Ba hành vi đã thử, và vì sao chỉ hành vi thứ ba đứng được:
  *
- * Tổ chức sinh ra ở đường này LUÔN là không gian riêng mang tên người dùng —
- * không khai tên công ty thì không có gì để đặt. Đổi tên được ở trang Tổ chức.
+ *   1. `404` rồi đá sang `/register` (bản đầu). Ngõ cụt: `registerAccount` khi
+ *      ấy đòi tên công ty, số điện thoại, chức danh — ba thứ Google không biết.
+ *      Người bấm nút Google gặp một form hỏi đúng những thứ họ vừa định bỏ qua.
+ *   2. Tạo ngầm trong một lượt (bản thứ hai). Hết ngõ cụt, nhưng bấm "Đăng nhập"
+ *      mà nhận về một tổ chức mới toanh là hai việc khác nhau. Người chọn sai
+ *      tài khoản Google — rất thường gặp khi trình duyệt đang đăng nhập nhiều
+ *      tài khoản — thấy hệ thống trống trơn và không có cách nào biết mình vừa
+ *      tạo thêm một tổ chức thứ hai.
+ *   3. Hỏi một câu, không hỏi mật khẩu (bản này). Rõ ràng như (1), không ngõ cụt
+ *      như (2). `registerAccount` đã nhận tài khoản không mật khẩu nên lượt xác
+ *      nhận chỉ cần đúng `credential` ấy cộng một cờ.
+ *
+ * Tổ chức sinh ra ở đường này là không gian riêng mang tên người dùng, trừ khi
+ * họ điền ô tên tổ chức ở màn hình xác nhận — cùng luật với `/register`. Đổi tên
+ * được ở trang Tổ chức.
+ *
+ * ⚠️ Chốt 404 CHỈ chặn đường tạo mới. Email đã có tài khoản mật khẩu thì vẫn tự
+ * liên kết và vào ngay: đó là đăng nhập của người đã đăng ký, không phải đăng ký.
  *
  * ═══ TỰ LIÊN KẾT, và chốt duy nhất giữ cho nó an toàn ══════════════════════
  *
@@ -298,7 +311,7 @@ authRouter.post(
   '/google',
   authRateLimit('google', DOAN_SAI_MAT_KHAU),
   asyncHandler(async (req, res) => {
-    const { credential } = googleLoginSchema.parse(req.body);
+    const { credential, xacNhanTaoMoi, companyName } = googleLoginSchema.parse(req.body);
     const danhTinh = await xacMinhGoogle(credential);
 
     // Đã liên kết từ trước: `sub` là khoá tra cứu, không đụng tới email.
@@ -316,9 +329,40 @@ authRouter.post(
       const theoEmail = await usersRepo.findByEmailForLogin(danhTinh.email);
 
       /*
-       * Chưa có tài khoản -> tạo ngay tại đây. Xem khối chú thích đầu endpoint.
+       * ─── Chưa có tài khoản: DỪNG LẠI và hỏi, không tạo ngầm ────────────────
        *
-       * `emailVerified: true` là an toàn, và chốt ngay trên là lý do: ta đã bắt
+       * Trả 404 để frontend hiện một màn hình xác nhận. Người dùng bấm xác nhận
+       * thì nó gọi lại endpoint này với `xacNhanTaoMoi`, và lượt đó mới tạo.
+       *
+       * VÌ SAO phải hỏi: bấm "Đăng nhập bằng Google" và nhận về một tổ chức mới
+       * toanh là hai việc khác nhau. Người gõ sai tài khoản Google — chuyện
+       * thường gặp khi máy đang đăng nhập nhiều tài khoản — sẽ không hiểu vì sao
+       * hệ thống trống trơn, và họ KHÔNG có cách nào biết mình vừa tạo thêm một
+       * tổ chức thứ hai.
+       *
+       * VÌ SAO không đá sang form `/register`: form đó bắt buộc `password` +
+       * `confirmPassword` (xem `registerFields`), tức bắt người vừa chọn "vào
+       * bằng Google" phải nghĩ ra một mật khẩu. Đó đúng là ngõ cụt mà bản trước
+       * đã gỡ. Màn hình xác nhận giữ được sự rõ ràng mà không dựng lại ngõ cụt.
+       *
+       * ⚠️ Chốt này CHỈ chặn đường tạo mới. Email đã có tài khoản mật khẩu thì
+       * vẫn tự liên kết và vào ngay — đó là ĐĂNG NHẬP của một người đã đăng ký,
+       * không phải đăng ký, nên thêm một màn hình hỏi lại ở đó chỉ gây khó.
+       *
+       * Khuôn thân phản hồi theo đúng `ApiErrorBody`, và câu `message` CHỨA SẴN
+       * email: frontend hiện nguyên câu đó, nên không cần thêm trường ngoài
+       * khuôn (`asApiErrorBody` ở frontend dựng object mới và bỏ trường lạ).
+       */
+      if (theoEmail === null && xacNhanTaoMoi !== true) {
+        res.status(404).json({
+          error: 'GoogleAccountNotRegistered',
+          message: `Email ${danhTinh.email} chưa có tài khoản trên hệ thống.`,
+        });
+        return;
+      }
+
+      /*
+       * `emailVerified: true` là an toàn, và chốt ở trên là lý do: ta đã bắt
        * `danhTinh.emailVerified` trước khi tới dòng này, nên Google đã chứng minh
        * người đang bấm kiểm soát hộp thư ấy. Đó là bằng chứng MẠNH HƠN lá thư
        * xác minh của chính ta. Bỏ cờ này thì tài khoản vừa tạo rơi vào chốt
@@ -335,6 +379,12 @@ authRouter.post(
             // bảng Thành viên thì không ai tra ra là ai. Sửa ở trang hồ sơ.
             fullName: tenGoogle === undefined || tenGoogle === '' ? danhTinh.email : tenGoogle,
             email: danhTinh.email,
+            // Để trống -> không gian riêng mang tên người dùng. Người dùng điền
+            // ô này ở màn hình xác nhận thì tổ chức là công ty thật, y như
+            // `/register` — cùng một luật, cùng một hệ quả.
+            ...(companyName === undefined || companyName === ''
+              ? {}
+              : { companyName: companyName }),
             // Không `password`: tài khoản này chưa có mật khẩu dùng được, và
             // "Quên mật khẩu" là đường để thêm một cái.
             emailVerified: true,

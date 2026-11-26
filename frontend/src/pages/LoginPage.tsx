@@ -11,6 +11,7 @@ import { FullPageLoader } from '../components/FullPageLoader';
 import { PasswordInput } from '../components/PasswordInput';
 import { docGhiNho, ghiGhiNho } from '../auth/ghiNhoDangNhap';
 import { getApiError } from '../services/apiClient';
+import { GOOGLE_CHUA_DANG_KY } from '../services/authApi';
 
 type FieldName = 'email' | 'password';
 type Errors = Partial<Record<FieldName, string>>;
@@ -132,7 +133,25 @@ export default function LoginPage(): React.ReactElement {
       navigate(redirectTargetFor(outcome.user, outcome.role, incoming?.from), { replace: true });
     } catch (err) {
       setSubmitting(false);
-      throw new Error(getApiError(err).message);
+      const loi = getApiError(err);
+
+      /*
+       * Email chưa có tài khoản: đưa sang trang đăng ký để XÁC NHẬN, không hiện
+       * lỗi đỏ dưới nút. Đây không phải một sự cố — người dùng chỉ chưa có tài
+       * khoản, và việc tiếp theo của họ nằm ở trang khác.
+       *
+       * `credential` đi theo state của router chứ không qua URL: nó là một ID
+       * token, và query string thì nằm lại trong lịch sử trình duyệt, trong log
+       * của proxy, và trong header Referer gửi cho bên thứ ba.
+       */
+      if (loi.error === GOOGLE_CHUA_DANG_KY) {
+        navigate('/register', {
+          state: { googleCredential: credential, googleMessage: loi.message },
+        });
+        return;
+      }
+
+      throw new Error(loi.message);
     }
   }
 

@@ -228,4 +228,20 @@ export type LoginInput = z.infer<typeof loginSchema>;
  */
 export const googleLoginSchema = z.object({
   credential: z.string().min(1, 'Thiếu thông tin đăng nhập từ Google').max(4096),
+  /**
+   * Người dùng đã BẤM xác nhận "tạo tài khoản mới" — xem khối chú thích của
+   * `POST /auth/google`.
+   *
+   * Vắng mặt với một email chưa có tài khoản thì endpoint trả 404 thay vì tạo
+   * ngầm. Cờ này nằm ở thân request chứ không phải một endpoint riêng, vì cả
+   * hai lượt gọi đều cần ĐÚNG MỘT `credential` ấy: tách endpoint ra thì ID
+   * token phải đi qua hai đường và cả hai đường đều phải xác minh lại nó.
+   */
+  xacNhanTaoMoi: z.boolean().optional(),
+  /**
+   * Tên tổ chức, chỉ dùng khi `xacNhanTaoMoi`. Dùng lại ĐÚNG luật của form đăng
+   * ký (đã `.optional()` ở đó) để không sinh ra một luật thứ hai cho cùng một ô
+   * — để trống nghĩa là không gian riêng, y như `/register`.
+   */
+  companyName: registerFields.shape.companyName,
 });

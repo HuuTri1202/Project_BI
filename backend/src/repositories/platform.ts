@@ -39,16 +39,40 @@ interface OverviewRow extends RowDataPacket {
 }
 
 /**
- * Năm con số của trang tổng quan, trong MỘT câu.
+ * Năm con số của trang tổng quan.
  *
- * Ba bảng độc lập nên không JOIN được — dùng ba truy vấn con vô hướng, mỗi cái
- * là một lần quét index. Vẫn tốt hơn `Promise.all` ba câu riêng: pool chỉ có 10
- * connection và đây là trang mọi superadmin mở đầu tiên.
+ * Bốn con số đầu nằm trong MỘT câu: các bảng độc lập nên không JOIN được, và
+ * truy vấn con vô hướng vẫn tốt hơn `Promise.all` mấy câu riêng — pool chỉ có
+ * 10 connection và đây là trang mọi superadmin mở đầu tiên.
  *
  * `owner_user_id IS NULL` ở hai con số tenant: chỉ đếm CÔNG TY THẬT. Không lọc
  * thì "Tổ chức" bám sát "Người dùng" — mỗi tài khoản được cấp kèm một không gian
  * riêng — và thẻ KPI mất hết ý nghĩa: nó không còn trả lời được "nền tảng đang
  * phục vụ bao nhiêu doanh nghiệp".
+ *
+ * ═══ Vì sao `totalWorkspaces` là một câu RIÊNG, gọi `countWorkspaces` ══════
+ *
+ * Trước đây nó là truy vấn con thứ năm trong cùng câu lệnh:
+ *
+ *     SELECT COUNT(*) FROM workspaces WHERE deleted_at IS NULL
+ *
+ * Thiếu mọi điều kiện về tổ chức chủ quản, nên nó đếm cả workspace của những
+ * tổ chức ĐÃ BỊ XOÁ. Triệu chứng đã gặp thật: thẻ ghi **2**, bấm sang trang
+ * Workspace chỉ thấy **1** — vì tài khoản kia đã bị xoá, `softDeleteUser` xoá
+ * mềm tổ chức cá nhân của họ, nhưng workspace bên trong thì cố ý để lại.
+ *
+ * Vá bằng cách chép thêm `JOIN tenants` vào truy vấn con là tạo ra bản sao thứ
+ * hai của luật "workspace nào có thật", và bản sao thì sẽ lệch. Chính
+ * `workspaceWhere` đã mang một chú thích kể lại đúng lỗi này ở một chỗ khác —
+ * "hai con số cãi nhau trên cùng một màn hình".
+ *
+ * Nên con số này đi ra từ CHÍNH hàm mà trang danh sách dùng để đếm. Bộ lọc
+ * rỗng `{}` là đúng mặc định của trang ấy (chưa xoá, tổ chức chưa xoá, chỉ
+ * công ty thật), nên thẻ và trang không thể lệch nữa: muốn lệch thì phải sửa
+ * `workspaceWhere`, mà sửa ở đó là đổi cả hai cùng lúc.
+ *
+ * Giá phải trả: một lần đi về database nữa. Chấp nhận được cho một trang quản
+ * trị, và rẻ hơn nhiều so với một con số sai.
  */
 export async function fetchOverviewCounts(db: Db): Promise<{
   activeTenants: number;
@@ -64,8 +88,7 @@ export async function fetchOverviewCounts(db: Db): Promise<{
        (SELECT COUNT(*) FROM tenants
          WHERE deleted_at IS NULL AND is_active = 0 AND owner_user_id IS NULL)      AS locked_tenants,
        (SELECT COUNT(*) FROM users      WHERE deleted_at IS NULL)                   AS total_users,
-       (SELECT COUNT(*) FROM users      WHERE deleted_at IS NULL AND is_active = 0) AS locked_users,
-       (SELECT COUNT(*) FROM workspaces WHERE deleted_at IS NULL)                   AS total_workspaces`,
+       (SELECT COUNT(*) FROM users      WHERE deleted_at IS NULL AND is_active = 0) AS locked_users`,
   );
   const row = rows[0];
   return {
@@ -73,7 +96,8 @@ export async function fetchOverviewCounts(db: Db): Promise<{
     lockedTenants: Number(row?.locked_tenants ?? 0),
     totalUsers: Number(row?.total_users ?? 0),
     lockedUsers: Number(row?.locked_users ?? 0),
-    totalWorkspaces: Number(row?.total_workspaces ?? 0),
+    // Bộ lọc rỗng = đúng mặc định của trang Workspace. Xem khối trên.
+    totalWorkspaces: await countWorkspaces(db, {}),
   };
 }
 
@@ -622,10 +646,39 @@ export async function setUserActive(db: Db, id: number, isActive: boolean): Prom
  *
  * Người này biến mất khỏi mọi tổ chức và không đăng nhập được nữa.
  *
- * Email KHÔNG được giải phóng: `uq_users_email` vẫn giữ chỗ. Đó là chủ ý — email
- * là định danh, và cho phép đăng ký lại bằng email của một tài khoản đã xoá sẽ
- * khiến người mới thừa hưởng mọi dấu vết của người cũ (`created_by` trên
- * workspace chẳng hạn). Muốn dùng lại email thì phải khôi phục tài khoản cũ.
+ * ═══ Email ĐƯỢC giải phóng — migration 47 ══════════════════════════════════
+ *
+ * Bản trước cố ý GIỮ email lại, với lý do: cho đăng ký lại bằng email của một
+ * tài khoản đã xoá thì "người mới thừa hưởng mọi dấu vết của người cũ
+ * (`created_by` trên workspace chẳng hạn)", và ai muốn dùng lại email thì
+ * "khôi phục tài khoản cũ".
+ *
+ * Cả hai vế đều sai, và đã kiểm:
+ *
+ *   • `created_by` là KHOÁ NGOẠI tới `users(id)`, không phải tới email. Đăng ký
+ *     lại sinh một `id` mới, nên không có gì để thừa hưởng. Dấu vết cũ vẫn trỏ
+ *     đúng vào dòng cũ, và dòng cũ vẫn nằm đó.
+ *   • KHÔNG có chức năng khôi phục tài khoản nào trong hệ thống — không
+ *     `restoreUser`, không endpoint nào đặt `users.deleted_at = NULL`. Lối
+ *     thoát ấy chưa bao giờ được xây, nên luật cũ là tuyệt đối: email cháy
+ *     vĩnh viễn, không đăng nhập được mà cũng không đăng ký lại được.
+ *
+ * Nay `uq_users_email_active` chỉ ràng buộc những dòng CÒN SỐNG, nên xoá tài
+ * khoản là trả lại email cho người dùng.
+ *
+ * ═══ Và liên kết Google phải đi cùng ═══════════════════════════════════════
+ *
+ * Giải phóng email mà bỏ quên `user_identities` thì chỉ dời ngõ cụt đi một
+ * bước: `uq_identity_subject (provider, provider_user_id)` là duy nhất TOÀN
+ * CỤC, `findUserIdByProviderSubject` lại lọc `u.deleted_at IS NULL` nên dòng cũ
+ * VÔ HÌNH với tra cứu mà vẫn chặn, và `linkIdentity` dùng `INSERT IGNORE` nên
+ * nó trả `false` lặng lẽ → 409 `IdentityConflict`. Tệ hơn: lỗi đó nổ ra SAU khi
+ * tài khoản mới đã được tạo xong, để lại một tài khoản mồ côi không liên kết.
+ *
+ * Nên xoá hẳn dòng liên kết, không xoá mềm: nó là một CHỨNG THỰC đang sống
+ * ("tài khoản Google này mở được người dùng kia"), không phải lịch sử ai đọc.
+ * Khoá ngoại đã khai `ON DELETE CASCADE`, nhưng cascade chỉ nổ khi xoá CỨNG —
+ * ở đây không có lệnh DELETE nào chạm `users`, nên phải xoá tường minh.
  */
 export async function softDeleteUser(db: Db, id: number): Promise<number> {
   const [result] = await db.query<ResultSetHeader>(
@@ -658,6 +711,9 @@ export async function softDeleteUser(db: Db, id: number): Promise<number> {
       WHERE owner_user_id = ? AND deleted_at IS NULL`,
     [id],
   );
+
+  // Trả lại tài khoản Google cho chủ nó — xem khối chú thích ở trên.
+  await db.query<ResultSetHeader>('DELETE FROM user_identities WHERE user_id = ?', [id]);
 
   return result.affectedRows;
 }
@@ -717,17 +773,28 @@ interface PlatformWorkspaceRow extends RowDataPacket {
   created_at: Date;
 }
 
-export interface WorkspaceFilter {
+/**
+ * Phần CHỌN DÒNG của một truy vấn workspace, tách khỏi phần phân trang.
+ *
+ * Tách ra để thẻ "Workspace" ở trang Tổng quan gọi lại được `countWorkspaces`
+ * thay vì tự viết một câu đếm thứ hai. Xem khối chú thích của
+ * `fetchOverviewCounts` để biết vì sao hai con số đó BẮT BUỘC đi ra từ cùng một
+ * hàm.
+ */
+export interface WorkspaceQuery {
   search?: string | undefined;
   tenantId?: number | undefined;
   status?: 'active' | 'locked' | undefined;
   /** Bỏ trống = `org`, giống `TenantFilter`. Bị BỎ QUA khi đã lọc theo `tenantId`. */
   kind?: TenantKindFilter | undefined;
+}
+
+export interface WorkspaceFilter extends WorkspaceQuery {
   page: number;
   pageSize: number;
 }
 
-function workspaceWhere(filter: WorkspaceFilter): { sql: string; params: (string | number)[] } {
+function workspaceWhere(filter: WorkspaceQuery): { sql: string; params: (string | number)[] } {
   const conditions = ['w.deleted_at IS NULL', 't.deleted_at IS NULL'];
   const params: (string | number)[] = [];
 
@@ -755,7 +822,7 @@ function workspaceWhere(filter: WorkspaceFilter): { sql: string; params: (string
   return { sql: conditions.join(' AND '), params };
 }
 
-export async function countWorkspaces(db: Db, filter: WorkspaceFilter): Promise<number> {
+export async function countWorkspaces(db: Db, filter: WorkspaceQuery): Promise<number> {
   const where = workspaceWhere(filter);
   const [rows] = await db.query<RowDataPacket[]>(
     `SELECT COUNT(*) AS total
