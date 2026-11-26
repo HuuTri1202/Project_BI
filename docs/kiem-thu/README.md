@@ -14,6 +14,7 @@ Chạy `npm run quet` sau **mỗi** lần sửa mã. Bộ bấm tay để trư�
 | [`scripts/quet/`](../../scripts/quet/) | Bộ quét tự động — xem `npm run quet -- --help` |
 | [bo-test-case.md](bo-test-case.md) | **148 ca kiểm thử tay**, 82 ca bắt buộc. Các bước · kết quả mong đợi · ô ghi kết quả thực tế |
 | `du-lieu-thu/` | 9 tệp dữ liệu để tải lên. Đáp án của từng tệp ghi sẵn ở `§0.4` của tài liệu trên |
+| [do-phu-hoi-dap.md](do-phu-hoi-dap.md) | **Bộ đánh giá trợ lý dữ liệu** — `npm --workspace frontend run danh-gia`. Vòng lặp đo độ phủ thay cho vá từng ca |
 
 ## Quét tự động — `npm run quet`
 

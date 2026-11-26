@@ -11,7 +11,8 @@
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
-    "format:check": "prettier --check ."
+    "format:check": "prettier --check .",
+    "danh-gia": "vitest run danhGia --disable-console-intercept"
   },
   "dependencies": {
     "@bi/shared": "*",
@@ -53,6 +54,7 @@
     "tailwindcss": "4.3.3",
     "typescript": "^5.7.2",
     "typescript-eslint": "^8.19.0",
-    "vite": "^6.0.7"
+    "vite": "^6.0.7",
+    "vitest": "4.1.10"
   }
 }
