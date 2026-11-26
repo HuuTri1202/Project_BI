@@ -1,4 +1,5 @@
-import { appendFileSync } from 'node:fs';
+import { TRAN_NHAN } from '@bi/shared';
+import { appendFileSync, mkdirSync } from 'node:fs';
 
 import { isTest } from '../../config/env';
 
@@ -25,8 +26,6 @@ export interface HieuYKetQua {
   trangThai: TrangThaiHoi;
 }
 
-export const TRAN_NHAN = 60;
-
 export function chonHopLe(raw: string, soNhan: number): number | null {
   const m = /^\s*(\d{1,3})\s*[.)]?\s*$/.exec(raw);
   if (m === null) return null;
@@ -45,7 +44,20 @@ const NHAC = [
   'Không đoán bừa: thà trả về 0 còn hơn chọn một trường chỉ hơi liên quan.',
 ].join(' ');
 
-const SO_TRUOT = 'chua-hieu.tsv';
+/**
+ * Sổ câu trượt nằm trong MỘT THƯ MỤC, không đứng trần ở `cwd`.
+ *
+ * Thư mục đó được gắn ra ngoài máy chủ (xem `docker-compose.prod.yml`), nên sổ
+ * sống qua mọi lần `up -d`. Trước đó nó nằm trong container và chết theo
+ * container — một cái sổ mất sạch mỗi lần triển khai thì không dùng được để
+ * làm việc mà nó sinh ra: nuôi thêm ca cho bộ đánh giá.
+ *
+ * Đường dẫn TƯƠNG ĐỐI, cố ý: máy lập trình ghi vào `backend/so-chat/` (đã nằm
+ * trong `.gitignore`), container ghi vào chỗ được gắn. Một hằng số, không
+ * thêm biến môi trường nào để lệch.
+ */
+const SO_THU_MUC = 'so-chat';
+const SO_TRUOT = `${SO_THU_MUC}/chua-hieu.tsv`;
 
 export function ghiTruot(cauHoi: string, nhanChon: string | null): void {
   // Gộp mọi khoảng trắng: câu dán từ chỗ khác có thể xuống dòng, mà một dòng
@@ -68,6 +80,9 @@ export function ghiTruot(cauHoi: string, nhanChon: string | null): void {
   if (isTest) return;
 
   try {
+    // `recursive` nên không tốn gì khi thư mục đã có; nằm trong `try` sẵn
+    // có nên lỗi quyền ghi vẫn không làm hỏng câu trả lời.
+    mkdirSync(SO_THU_MUC, { recursive: true });
     appendFileSync(SO_TRUOT, `${dong}\n`, 'utf8');
   } catch {
     // Sổ hỏng (chỉ đọc, hết đĩa) KHÔNG được làm hỏng câu trả lời. Cả lớp này

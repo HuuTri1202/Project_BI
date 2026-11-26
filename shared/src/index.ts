@@ -12,6 +12,8 @@ export * from './auth';
 export * from './billing';
 /** Tên sản phẩm hiển thị — xem `brand.ts` về những định danh CỐ Ý không đổi. */
 export * from './brand';
+/** Hằng số dùng chung của khung hỏi đáp — xem `chat.ts` về ba chỗ đọc `TRAN_NHAN`. */
+export * from './chat';
 /**
  * `data` gom CẢ HAI nguồn dữ liệu vào một khái niệm `Dataset`: bảng đồng bộ từ
  * CSDL khách hàng (§8) và sheet trong file Excel/CSV tải lên (§7). Phân biệt

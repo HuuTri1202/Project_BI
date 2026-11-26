@@ -268,17 +268,24 @@ toàn — xem khối chú thích trong file đó.
 
 ---
 
-## 6. Thư mục schema của Cube — làm TRƯỚC khi `up`
+## 6. Hai thư mục bình địa — làm TRƯỚC khi `up`
 
 ```bash
-mkdir -p infrastructure/cube/model/tenants
-sudo chown -R 1000:1000 infrastructure/cube/model/tenants
+mkdir -p infrastructure/cube/model/tenants infrastructure/so-chat
+sudo chown -R 1000:1000 infrastructure/cube/model/tenants infrastructure/so-chat
 ```
 
 Hai dòng này không bỏ được. Docker tự tạo thư mục bind mount còn thiếu nhưng để
 nó thuộc `root`, còn tiến trình API chạy bằng user `node` (uid 1000). Thiếu
 `chown` thì mọi lần lưu mô hình dữ liệu trả **503 SchemaUnwritable**, và câu báo
 lỗi sẽ chỉ bạn đi kiểm `CUBE_SCHEMA_DIR` — một biến hoàn toàn đúng.
+
+`so-chat/` giữ sổ câu hỏi mà khung trợ lý **không hiểu** (`chua-hieu.tsv`).
+Khác `cube-schema`, thiếu `chown` ở đây hỏng **im lặng**: `ghiTruot` nuốt mọi
+lỗi ghi để một cái sổ không bao giờ làm hỏng câu trả lời. Kiểm bằng
+`docker exec bi-api ls -la so-chat/` sau vài ngày chạy thật — rỗng trơn là dấu
+hiệu sai quyền, không phải dấu hiệu mọi câu đều được hiểu. Xem
+`docs/kiem-thu/do-phu-hoi-dap.md`.
 
 ---
 

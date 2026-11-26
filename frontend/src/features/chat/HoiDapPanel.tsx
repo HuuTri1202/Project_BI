@@ -2,6 +2,7 @@ import {
   CHART_TYPE_LABELS,
   DATAMODEL_ERROR_CODES,
   ERROR_CODES,
+  TRAN_NHAN,
   type ExplorerQueryDto,
 } from '@bi/shared';
 import { useEffect, useRef, useState } from 'react';
@@ -548,7 +549,20 @@ export function HoiDapPanel(): React.ReactElement | null {
       return;
     }
 
-    void hieuCauHoi({ cauHoi: q, nhan: luaChon.map((lc) => lc.nhan) })
+    /*
+     * ⚠️ CẮT ĐÚNG `TRAN_NHAN` TRƯỚC KHI GỬI — không phải việc của backend.
+     *
+     * `hieuYBodySchema` từ chối cả thân request khi danh sách dài hơn trần, nên
+     * gửi nguyên danh sách là nhận 400 chứ KHÔNG phải được cắt giùm. Ở trình
+     * dựng báo cáo danh sách này vượt 60 rất dễ, nên cả lớp mô hình tắt im lặng.
+     *
+     * LỖI ĐO ĐƯỢC — xem khối chú thích ở `@bi/shared` (`chat.ts`) về hai lượt
+     * 400 có thật trong log production ngày 26/11.
+     *
+     * Cắt giữ PHẦN ĐẦU, nên thứ tự dựng `luaChon` ở trên là thứ quyết định nhãn
+     * nào sống sót, và `chon` trả về vẫn trỏ đúng phần tử trong `luaChon`.
+     */
+    void hieuCauHoi({ cauHoi: q, nhan: luaChon.slice(0, TRAN_NHAN).map((lc) => lc.nhan) })
       .then(({ chon, trangThai }) => {
         /*
          * Cùng một luật cho cả hai lớp — xem `hoiThuLa`.

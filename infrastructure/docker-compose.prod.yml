@@ -145,6 +145,16 @@ services:
     # SchemaUnwritable. Lệnh dựng nằm trong `docs/trien-khai.md`.
     volumes:
       - ./cube/model/tenants:/cube-schema
+      # Sổ câu hỏi lớp ngoại tuyến KHÔNG hiểu — xem `services/chat/hieuY.ts`
+      # (`ghiTruot`). Để trong container thì mỗi lần `up -d` là mất sạch, mà
+      # đây là thứ duy nhất nói được người dùng THẬT đang hỏi gì mà khung bó tay —
+      # nguồn nuôi ca mới cho `npm run danh-gia`.
+      #
+      # ⚠️ Cùng bẫy với `/cube-schema`: thư mục phải tồn tại và thuộc uid 1000
+      # TRƯỚC khi `up`, không thì Docker tự tạo nó thuộc root và tiến trình `node`
+      # không ghi được. Ở đây hỏng là IM LẶNG (xem khối `catch` của `ghiTruot`),
+      # nên lệnh `mkdir -p` + `chown` nằm trong `docs/trien-khai.md`.
+      - ./so-chat:/app/backend/so-chat
 
     # KHÔNG publish cổng nào: chỉ Caddy gọi tới, qua `bi-network`.
     depends_on:

@@ -32,6 +32,7 @@ import {
   REPORT_NAME_MAX,
   reportAnnotationSchema,
   TIME_GRANULARITIES,
+  TRAN_NHAN,
   VISUAL_TITLE_MAX,
   companyNameRule,
   emailRule,
@@ -1210,12 +1211,18 @@ export const dienDatBodySchema = z.object({
  * mô hình chỉ thấy TÊN TRƯỜNG trên màn hình, không thấy số liệu nào, nên không
  * có con số nào để nó sửa hay bịa. Xem `services/chat/hieuY.ts`.
  *
- * Trần 60 nhãn khớp `TRAN_NHAN`; schema chặn sớm để một thân request vài trăm
- * nhãn không đi tới tận nơi mới bị cắt.
+ * ⚠️ Trần này là chốt chống LẠM DỤNG, KHÔNG phải chỗ cắt danh sách.
+ *
+ * `z.max` từ chối CẢ thân request chứ không cắt bớt, nên client phải tự cắt đúng
+ * `TRAN_NHAN` trước khi gửi — xem `HoiDapPanel`. Một dạo client KHÔNG cắt, và
+ * mọi lượt gọi `hieu-y` ở trang có hơn 60 nhãn đều nhận 400: cả lớp mô hình tắt
+ * im lặng, và `ghiTruot` đứng SAU chỗ này nên sổ câu trượt cũng trống trơn.
+ * Hai bản sao của con số 60 là thứ đã gây ra nó — nay cả ba chỗ đọc chung một
+ * hằng số ở `@bi/shared` (`chat.ts`).
  */
 export const hieuYBodySchema = z.object({
   cauHoi: cauHoiNguoiDung,
-  nhan: z.array(z.string().min(1).max(300)).min(1).max(60),
+  nhan: z.array(z.string().min(1).max(300)).min(1).max(TRAN_NHAN),
 });
 
 /**
