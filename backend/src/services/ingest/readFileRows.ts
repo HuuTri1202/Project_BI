@@ -6,10 +6,20 @@ import Papa from 'papaparse';
 import { storage } from '../../storage';
 import { normalizeCell } from '../dataset/normalizeCell';
 import { loadWorkbook } from '../dataset/loadWorkbook';
-// `cellText` dùng CHUNG với `parseFile`, không chép lại: hai đường này đọc cùng
-// một file Excel, và một bản sao lệch nhau nghĩa là bảng xem trước và dữ liệu
-// trong kho nói hai điều khác nhau về đúng một ô. Cùng lý do với `normalizeCell`.
-import { cellText } from '../dataset/parseFile';
+// Mọi luật đọc một file Excel dùng CHUNG với `parseFile`, không chép lại: hai
+// đường này đọc cùng một file, và một bản sao lệch nhau nghĩa là bảng xem trước
+// và dữ liệu trong kho nói hai điều khác nhau về đúng một ô. Cùng lý do với
+// `normalizeCell`. Từ 26/11/2026 §7 cũng đọc theo luồng, nên `docRowLuong` và
+// `sheetNameOf` — trước đây nằm ở tệp này — đã chuyển sang `parseFile` cho cả
+// hai bên dùng.
+import {
+  chonDongTieuDe,
+  docRowLuong,
+  docRowText,
+  laDongTrong,
+  sheetNameOf,
+  TRAN_DO_TIEU_DE,
+} from '../dataset/parseFile';
 
 /**
  * Đọc THẲNG file trong MinIO thành từng lô dòng, cho §9 nạp vào ClickHouse.
@@ -77,7 +87,7 @@ export async function* readFileRows(
   // Cả hai nguồn phát ra NHÓM dòng, không phải từng dòng: một callback hay một
   // vòng lặp cho mỗi dòng của file nửa triệu dòng là nửa triệu lần chuyển ngữ
   // cảnh, và nó đo được — xem ghi chú ở `csvRows`.
-  const source = ext === 'csv' ? csvRows(buffer) : xlsxRows(buffer, opts.sheetName);
+  const source = boPhanDau(ext === 'csv' ? csvRows(buffer) : xlsxRows(buffer, opts.sheetName));
 
   let batch: unknown[][] = [];
   let read = 0;
@@ -104,6 +114,58 @@ export async function* readFileRows(
   }
 
   if (batch.length > 0) yield batch;
+}
+
+/**
+ * Bỏ mọi thứ đứng trước dòng dữ liệu đầu tiên — kể cả hàng tiêu đề.
+ *
+ * ═══ Vì sao việc này phải nằm ở MỘT chỗ, dùng chung với §7 ═════════════════
+ *
+ * Trước bản này mỗi nguồn tự bỏ hàng tiêu đề theo cách riêng, và cả ba đều quy
+ * về một câu: "bỏ dòng đầu tiên". Nhưng §7 KHÔNG lấy cứng dòng đầu — nó gọi
+ * `chonDongTieuDe` để bước qua dòng tên báo cáo (§B4), rồi đánh số
+ * `dataset_columns.ordinal` theo hàng tiêu đề THẬT.
+ *
+ * Nên với tệp có dòng tên báo cáo ở trên cùng — dạng gần như mọi tệp Excel xuất
+ * từ phần mềm Việt Nam đều có — hai đường đọc cùng một file chốt hai hàng tiêu
+ * đề khác nhau, và hàng tiêu đề thật đi thẳng vào kho làm một dòng dữ liệu.
+ * Không có lỗi nào ở đâu cả; chỉ có một dòng rác nằm trên đầu mọi biểu đồ.
+ *
+ * Gọi lại ĐÚNG hàm của §7 trên đúng cửa sổ `TRAN_DO_TIEU_DE` dòng đầu thì hai
+ * đường không còn cách nào lệch nhau: cùng một hàm, cùng một đầu vào.
+ *
+ * ⚠️ Cửa sổ phải đủ `TRAN_DO_TIEU_DE` dòng rồi mới chốt, vì `chonDongTieuDe`
+ * quét tới mười dòng. Chốt sớm trên hai dòng đầu của lô đầu sẽ cho một câu trả
+ * lời khác với §7 trên đúng những tệp mà luật này sinh ra để xử lý.
+ */
+async function* boPhanDau(
+  src: AsyncGenerator<string[][], void, undefined>,
+): AsyncGenerator<string[][], void, undefined> {
+  const cuaSo: string[][] = [];
+  let daChot = false;
+
+  for await (const group of src) {
+    if (daChot) {
+      yield group;
+      continue;
+    }
+
+    // Vòng lặp chứ không `push(...group)`: một lô có thể tới hàng chục nghìn
+    // dòng, và trải chúng thành tham số là tràn ngăn xếp.
+    for (const row of group) cuaSo.push(row);
+    if (cuaSo.length < TRAN_DO_TIEU_DE) continue;
+
+    daChot = true;
+    const conLai = cuaSo.slice(chonDongTieuDe(cuaSo) + 1);
+    if (conLai.length > 0) yield conLai;
+  }
+
+  // Tệp ngắn hơn cửa sổ: chốt trên những gì có. `chonDongTieuDe` chịu được mảng
+  // ngắn, và một tệp ba dòng thì ba dòng đã là toàn bộ sự thật.
+  if (!daChot) {
+    const conLai = cuaSo.slice(chonDongTieuDe(cuaSo) + 1);
+    if (conLai.length > 0) yield conLai;
+  }
 }
 
 // ─── CSV ─────────────────────────────────────────────────────────────────────
@@ -160,8 +222,6 @@ async function* csvRows(buffer: Buffer): AsyncGenerator<string[][], void, undefi
     wake = null;
   };
 
-  let first = true;
-
   // `as never`: papaparse KHAI BÁO tham số đầu là `string | LocalFile`, nhưng bản
   // Node của nó nhận cả `Readable` — đó chính là cơ chế `NODE_STREAM_INPUT` mà
   // tài liệu mô tả. Khai báo hẹp hơn hiện thực; ép kiểu ở đúng một chỗ, có ghi
@@ -173,14 +233,8 @@ async function* csvRows(buffer: Buffer): AsyncGenerator<string[][], void, undefi
     chunk: (result: Papa.ParseResult<string[]>, self) => {
       throttle.parser = self;
 
-      let rows = result.data;
-      // Hàng đầu của khối ĐẦU TIÊN là tiêu đề. `dataset_columns.ordinal` đánh số
-      // theo đúng thứ tự cột của hàng đó, nên bỏ nó đi là đủ — không cần đối
-      // chiếu tên.
-      if (first) {
-        first = false;
-        rows = rows.slice(1);
-      }
+      const rows = result.data;
+      // Hàng tiêu đề KHÔNG bỏ ở đây — `boPhanDau` lo, bằng chính hàm mà §7 dùng.
       if (rows.length > 0) {
         queue.push(rows);
         queued += rows.length;
@@ -240,76 +294,6 @@ async function* csvRows(buffer: Buffer): AsyncGenerator<string[][], void, undefi
 const XLSX_GROUP = 2_000;
 
 /**
- * `/xl/worksheets/sheet1.xml` và `worksheets/sheet1.xml` là CÙNG một phần.
- *
- * Quan hệ trong gói OPC được phép ghi đích ở dạng tuyệt đối (bắt đầu bằng `/`,
- * tính từ gốc gói) hoặc tương đối (tính từ thư mục chứa `workbook.xml`). Cả hai
- * đều đúng chuẩn; công cụ nào ghi kiểu nào là tuỳ nó.
- */
-function opcTarget(target: string | undefined): string {
-  return target === undefined ? '' : target.replace(/^\/?xl\//, '');
-}
-
-/**
- * Tên THẬT của sheet đang được phát ra — tự nối lấy, không tin `worksheet.name`.
- *
- * ═══ Vì sao không dùng thẳng `worksheet.name` ══════════════════════════════
- *
- * exceljs 4.4 nối tên sheet bằng đúng một phép so sánh CHUỖI (xem
- * `stream/xlsx/workbook-reader.js`, hàm `_parseWorksheet`):
- *
- *     rel.Target === `worksheets/sheet${sheetNo}.xml`
- *
- * Nó chỉ nhận dạng TƯƠNG ĐỐI. File do openpyxl ghi dùng dạng tuyệt đối
- * `/xl/worksheets/sheet1.xml`, nên phép so sánh không bao giờ khớp, tên không
- * bao giờ được gán, và `WorksheetReader` giữ nguyên giá trị mặc định của nó:
- * `Sheet1`, `Sheet2`, … theo số thứ tự FILE.
- *
- * Đo trên file `database.xlsx` thật của người dùng:
- *
- *     workbook.xlsx.load()  ->  "Customers", "Products", "Orders", …
- *     WorkbookReader        ->  "Sheet1",    "Sheet2",   "Sheet3",  …
- *
- * Hậu quả không phải đọc nhầm sheet mà là KHÔNG TÌM THẤY sheet nào: nhánh phân
- * tích (§7) dùng `workbook.xlsx.load` nên `datasets.sheet_name` lưu tên thật,
- * còn nhánh nạp (§9) đi tìm tên đó giữa `Sheet1…Sheet5`. Cả 8 bộ dữ liệu của
- * một file 5 sheet đều `failed` với `rows_read = 0`.
- *
- * ─── Vì sao nối lại được, và nối bằng gì ───────────────────────────────────
- *
- * Bản thân `WorkbookReader` VẪN đọc đúng cả hai mảnh cần thiết — nó chỉ ghép
- * sai. `worksheet.workbook` trỏ ngược về chính trình đọc đó, nên ta lấy lại
- * `workbookRels` (từ `xl/_rels/workbook.xml.rels`) và `model.sheets` (từ
- * `xl/workbook.xml`) rồi tự ghép, với đích đã chuẩn hoá.
- *
- * `worksheet.id` là số trong tên file (`sheet3.xml` → `3`) và luôn được đặt,
- * kể cả khi phép ghép của exceljs trượt — đó là khoá ghép đáng tin ở đây.
- *
- * Trả về `worksheet.name` khi thiếu mảnh nào: file một sheet vẫn nạp được bằng
- * đường `sheetName === null`, và một tên sai vẫn hơn là ném lỗi.
- */
-function sheetNameOf(worksheet: unknown): string | undefined {
-  const ws = worksheet as {
-    id?: number | string;
-    name?: string;
-    workbook?: {
-      workbookRels?: { Id?: string; Target?: string }[];
-      model?: { sheets?: { rId?: string; name?: string }[] };
-    };
-  };
-
-  const rels = ws.workbook?.workbookRels;
-  const sheets = ws.workbook?.model?.sheets;
-  if (rels === undefined || sheets === undefined) return ws.name;
-
-  const dich = `worksheets/sheet${String(ws.id)}.xml`;
-  const rel = rels.find((r) => opcTarget(r.Target) === dich);
-  if (rel === undefined) return ws.name;
-
-  return sheets.find((s) => s.rId === rel.Id)?.name ?? ws.name;
-}
-
-/**
  * Đọc theo luồng trước, hỏng thì lùi về đọc cả file.
  *
  * ═══ Vì sao phải có đường lùi ══════════════════════════════════════════════
@@ -359,14 +343,6 @@ async function* xlsxRows(
   yield* xlsxLoadRows(buffer, sheetName);
 }
 
-/** Một dòng exceljs, đã cắt bỏ phần tử 0 của mảng 1-INDEXED. */
-function rowText(values: unknown): string[] {
-  // `row.values` là mảng 1-INDEXED — phần tử 0 luôn `undefined`. Cắt bỏ nó, nếu
-  // không mọi cột lệch một vị trí và cột cuối biến mất. Cùng một cái bẫy đã ghi
-  // trong `parseFile.ts`.
-  return (Array.isArray(values) ? values.slice(1) : []).map(cellText);
-}
-
 /**
  * Đường lùi: dựng cả workbook lên bộ nhớ rồi đọc.
  *
@@ -391,9 +367,16 @@ async function* xlsxLoadRows(
   }
 
   let group: string[][] = [];
-  sheet.eachRow((row, soDong) => {
-    if (soDong === 1) return;
-    group.push(rowText(row.values));
+  /*
+   * Chỉ bỏ dòng TRỐNG; hàng tiêu đề để `boPhanDau` lo.
+   *
+   * Câu cũ là `if (soDong === 1) return`, mà `soDong` là số dòng TRONG SHEET:
+   * tệp nào có dòng 1 rỗng thì `eachRow` không ghé qua nó, nên không dòng nào
+   * bị bỏ và hàng tiêu đề đi thẳng vào kho làm một dòng dữ liệu.
+   */
+  sheet.eachRow((row) => {
+    const cells = docRowText(row);
+    if (!laDongTrong(cells)) group.push(cells);
   });
 
   // `eachRow` là ĐỒNG BỘ nên không cắt lô được ở giữa như nhánh luồng; cắt sau.
@@ -444,15 +427,15 @@ async function* xlsxStreamRows(
     }
     found = true;
 
-    let first = true;
     let group: string[][] = [];
 
     for await (const row of worksheet) {
-      if (first) {
-        first = false;
-        continue;
-      }
-      group.push(rowText(row.values));
+      // Chỉ bỏ dòng trống — xem khối cùng tên ở `xlsxLoadRows`. Bỏ dòng trống
+      // phải xảy ra TRƯỚC khi `boPhanDau` đếm cửa sổ, nếu không cửa sổ của hai
+      // đường đọc chứa hai tập dòng khác nhau và luật dò tiêu đề ra hai kết quả.
+      const cells = docRowLuong(row.values);
+      if (laDongTrong(cells)) continue;
+      group.push(cells);
 
       if (group.length >= XLSX_GROUP) {
         yield group;
