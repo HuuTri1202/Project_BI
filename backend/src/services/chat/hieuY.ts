@@ -35,6 +35,39 @@ export function chonHopLe(raw: string, soNhan: number): number | null {
   return n - 1;
 }
 
+/*
+ * Câu nhắc cho lớp mô hình.
+ *
+ * ═══ Vì sao có dòng cuối, và vì sao nó nói về DẠNG CÂU HỎI ═══════════════════
+ *
+ * "Không đoán bừa… thà trả về 0" là một lời khuyên về MỨC ĐỘ LIÊN QUAN, và nó
+ * không đủ: câu xin nguyên nhân thường dùng đúng những chữ có trong nhãn. Hỏi
+ * "vì sao doanh thu giảm" trên một trang có nhãn "Doanh thu theo Tháng" thì
+ * nhãn ấy liên quan THẬT — chỉ là nó trả lời câu khác. Chốt `nhanNoiVeCauHoi`
+ * ở `HoiDapPanel` cũng không gỡ được, vì hai bên chung chữ "doanh thu".
+ *
+ * Nên dòng cuối không nói về nhãn mà nói về DẠNG CÂU: xin nguyên nhân, dự
+ * đoán, đánh giá hay lời khuyên thì không trường nào trả lời được, bất kể
+ * danh sách có gì. Một luật, không phải một danh sách ca — nên nó đúng cho
+ * mọi ngành, giống như lớp 1 sinh lựa chọn từ dữ liệu chứ không chép cứng.
+ *
+ * ĐÃ ĐO 26/11/2026 (`qwen/qwen3.8-27b`, `temperature: 0`, `seed: 7`, 12 nhãn):
+ *
+ *            │ SAI ngoài phạm vi │ trượt trong phạm vi
+ *   ─────────┼───────────────────┼────────────────────
+ *   không có │       2/7         │        0/6
+ *   có       │       0/7         │        0/6
+ *
+ * Hai câu bị chọn sai khi thiếu dòng này: "vì sao doanh thu giảm" và "doanh
+ * thu sắp tới có ổn không", cả hai đều nhận nhãn "Doanh thu theo Tháng". Thêm
+ * dòng vào KHÔNG làm trượt thêm câu nào trong phạm vi, nên nó không phải một
+ * cú đổi độ phủ lấy độ an toàn.
+ *
+ * ⚠️ Đây là kết cục SAI theo cách gọi của `docs/kiem-thu/do-phu-hoi-dap.md`:
+ * một con số có thật, định dạng đẹp, trả lời cho câu hỏi khác. Bảng điểm
+ * `danhGia.test.ts` KHÔNG thấy được nó vì bảng điểm chạy ngoại tuyến, không
+ * gọi mô hình. Sửa câu nhắc này thì đo lại bằng tay như trên.
+ */
 const NHAC = [
   'Bạn là bộ chọn trường dữ liệu. Người dùng hỏi một câu tiếng Việt về màn hình họ đang xem.',
   'Bạn nhận một danh sách đánh số các trường dữ liệu mà màn hình đó đang có.',
@@ -42,6 +75,10 @@ const NHAC = [
   'Nếu không trường nào trả lời được, trả về 0.',
   'Chỉ trả về một con số, không viết thêm chữ nào, không giải thích.',
   'Không đoán bừa: thà trả về 0 còn hơn chọn một trường chỉ hơi liên quan.',
+  'Danh sách chỉ chứa TRƯỜNG DỮ LIỆU, không chứa lời giải thích hay dự đoán nào.' +
+    ' Vì vậy câu hỏi xin NGUYÊN NHÂN, DỰ ĐOÁN, ĐÁNH GIÁ hay LỜI KHUYÊN' +
+    ' (vì sao, tại sao, nên làm gì, dự báo, sắp tới, tốt hay xấu, có ổn không, nói về gì)' +
+    ' thì KHÔNG trường nào trả lời được — luôn trả về 0.',
 ].join(' ');
 
 /**

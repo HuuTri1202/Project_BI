@@ -174,3 +174,23 @@ phải rơi vào kết cục **CHƯA HIỂU**, không phải một câu trả l�
 Đây là ranh giới thiết kế, không phải thiếu sót chờ lấp. Ca kiểm tương ứng đã
 nằm trong bộ đánh giá (`vì sao Acco bán ít`, `dự báo số lượng tháng sau`) và
 chúng mong đợi `chua-hieu` — trả lời được mới là **SAI**.
+
+### Ranh giới đó phải được dạy cho LỚP 3 riêng
+
+Bộ đánh giá canh được lớp 1 + 2, nhưng nó chạy ngoại tuyến nên **không canh
+được lớp 3**. Và lớp 3 vi phạm ranh giới này theo một cách mà `nhanNoiVeCauHoi`
+ở `HoiDapPanel` không gỡ được: câu xin nguyên nhân dùng đúng những chữ có trong
+nhãn. "Vì sao doanh thu giảm" với nhãn "Doanh thu theo Tháng" là liên quan
+THẬT — chỉ là nó trả lời câu khác.
+
+Nên câu nhắc ở `services/chat/hieuY.ts` có một dòng nói về **dạng câu hỏi**, chứ
+không về nhãn. Đo ngày 26/11/2026 (`qwen/qwen3.8-27b`, `temperature: 0`,
+`seed: 7`, danh sách 12 nhãn):
+
+| Câu nhắc         | SAI ngoài phạm vi | Trượt trong phạm vi |
+| ---------------- | ----------------- | ------------------- |
+| không có dòng đó | **2/7**           | 0/6                 |
+| có dòng đó       | **0/7**           | 0/6                 |
+
+Không mất độ phủ nào để lấy độ an toàn đó. Sửa câu nhắc thì **đo lại bằng tay**
+— bảng điểm sẽ vẫn xanh dù lớp 3 có nói sai.
